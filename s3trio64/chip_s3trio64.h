@@ -9,14 +9,14 @@
 #include <../PromLib/endian.h>
 
 #define ChipRevision ChipData[0]
-#define ChipDOSBase  ChipData[1]
+#define ChipDOSBase ChipData[1]
 #define CardPrometheusBase CardData[0]
 
 #define LOCAL_SYSBASE() struct ExecBase *SysBase = bi->ExecBase
 #define LOCAL_PROMETHEUSBASE() \
-struct Library *PrometheusBase = (struct Library*) (bi->CardPrometheusBase)
+  struct Library *PrometheusBase = (struct Library *)(bi->CardPrometheusBase)
 #define LOCAL_DOSBASE() \
-struct Library *DOSBase = (struct Library *) (bi->ChipDOSBase)
+  struct Library *DOSBase = (struct Library *)(bi->ChipDOSBase)
 
 // The offsets allow for using signed 16bit indexed addressing be used
 #define REGISTER_OFFSET 0x8000
@@ -243,6 +243,7 @@ static inline void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask,
 
 #define R_REG_W_MMIO(reg) readRegMMIOW(MMIOBase, reg)
 #define W_REG_W_MMIO(reg, value) writeRegMMIOW(MMIOBase, reg, value)
+
 #define W_MISC_MASK(mask, value) writeMISC_OUT(RegBase, mask, value)
 
 #define _W_CR_OF(value, reg, bitPos, numBits)                \

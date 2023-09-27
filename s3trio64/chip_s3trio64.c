@@ -689,6 +689,21 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi),
 static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi),
                                 __REGA1(APTR mem), __REGD7(RGBFTYPE format))
 {
+  if (bi->ChipRevision & 0x40)  // Trio64+?
+  {
+    switch (format) {
+    case RGBFB_A8R8G8B8:
+    case RGBFB_R5G6B5:
+    case RGBFB_R5G5B5:
+      // Redirect to Big Endian Linear Address Window. On the Prometheus, due to its hardware byteswapping,
+      // this effectively makes the BE CPU writes appear as LE in memory
+      return mem + 0x2000000;
+      break;
+    default:
+      return mem;
+      break;
+    }
+  }
   return mem;
 }
 
@@ -828,8 +843,24 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi),
                               __REGD7(RGBFTYPE format))
 {
-  // This function shall preserve all registers!
-  // FIMXE: would have to implement asm prolog/epilog to save scratch registers
+  REGBASE();
+  if (bi->ChipRevision & 0x40)  // Trio64+?
+  {
+    switch (format) {
+    case RGBFB_A8R8G8B8:
+      // swap all the bytes within a double word
+      W_CR_MASK(0x53, 0x06, 0x04);
+      break;
+    case RGBFB_R5G6B5:
+    case RGBFB_R5G5B5:
+      // Just swap the bytes within a word
+      W_CR_MASK(0x53, 0x06, 0x02);
+      break;
+    default:
+      W_CR_MASK(0x53, 0x06, 0x00);
+      break;
+    }
+  }
   return;
 }
 
@@ -884,8 +915,11 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   bi->PaletteChipType = PCT_S3Trio64;
   bi->Flags = bi->Flags | BIF_NOMEMORYMODEMIX | BIF_BORDERBLANK |
               BIF_NOP2CBLITS | BIF_NOBLITTER | BIF_GRANTDIRECTACCESS;
-  bi->RGBFormats =
-      RGBFF_HICOLOR | RGBFF_TRUEALPHA | RGBFF_CLUT;
+  // Trio64 supports BGR_8_8_8_X 24bit, R5G5B5 and R5G6B5 modes.
+  // Prometheus does byte-swapping for writes to memory, so if we're writing a 32bit register
+  // filled with XRGB, the written memory order will be BGRX
+  bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
+
 
   bi->SetGC = SetGC;
   bi->SetPanning = SetPanning;
@@ -993,6 +1027,9 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
         (LPBMode ? "Local Peripheral Bus (LPB)" : "Compatibility");
     KPrintF("Chip is Trio64+ (Rev %ld) in %s mode\n",
             (ULONG)chipRevision & 0x0f, modeString);
+
+    // We can support byte-swapped formats on this chip via the Big Linear Adressing Window
+    bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
   } else {
     KPrintF("Chip is Trio64/32 (Rev %ld)\n", (ULONG)chipRevision);
   }
@@ -1115,8 +1152,9 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   W_CR(0x58, 0x13);
   if (isTrio64Plus)
   {
-    // Enable Trio64+ "New MMIO" only
-    W_CR_MASK(0x53, 0x38, 0x28);
+    // Enable Trio64+ "New MMIO" only and byte swapping in the Big Endian window
+    W_CR_MASK(0x53, 0x3E, 0x0c);
+
   }
   else
   {
@@ -1138,7 +1176,6 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   W_CR(0x54, 0x70);
 
   W_CR(0x60, 0xff);
-
 
   W_CR(0x5d, 0x0);
   W_CR(0x5e, 0x40);
