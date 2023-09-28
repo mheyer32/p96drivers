@@ -867,12 +867,12 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
   W_SR(0x15, regval & ~(1 << 5));
 }
 
-static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi),
+static void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi),
                               __REGD7(RGBFTYPE format))
 {
   REGBASE();
 
-  DFUNC("\n");
+//  DFUNC("\n");
 
   if (bi->ChipCurrentMemFmt == format)
   {
@@ -898,12 +898,38 @@ static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi),
     }
   }
   return;
+
+}
+
+static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi),
+                              __REGD7(RGBFTYPE format))
+{
+  __asm __volatile("\t movem.l d0-d1/a0-a1,-(sp)\n"
+                   : /* no result */
+                   :
+                   : "sp");
+
+  SetMemoryModeInternal(bi, format);
+
+  __asm __volatile("\t movem.l (sp)+,d0-d1/a0-a1\n"
+                   : /* no result */
+                   :
+                   : "d0", "d1", "a0", "a1", "sp");
 }
 
 static void ASM SetWriteMask(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
 {
-  // This function shall preserve all registers!
-  // FIMXE: would have to implement asm prolog/epilog to save scratch registers
+  __asm __volatile("\t movem.l d0-d1/a0-a1,-(sp)\n"
+                   : /* no result */
+                   :
+                   : "sp");
+
+//  SetWriteMaskInternal(bi, format);
+
+  __asm __volatile("\t movem.l (sp)+,d0-d1/a0-a1\n"
+                   : /* no result */
+                   :
+                   : "d0", "d1", "a0", "a1", "sp");
 }
 
 static void ASM SetClearMask(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
