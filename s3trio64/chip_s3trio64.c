@@ -926,6 +926,26 @@ static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level)
 
 }
 
+
+void ASM SetSplitPosition(__REGA0(struct BoardInfo *bi),__REGD0(SHORT splitPos))
+{
+  REGBASE();
+  D("SplitPos: %ld\n", (ULONG)splitPos);
+  bi->YSplit = splitPos;
+  if (!splitPos)
+  {
+    splitPos = 0x7ff;
+  }
+  else
+  {
+    if (bi->ModeInfo->Flags & GMF_DOUBLESCAN)
+    {
+      splitPos *= 2;
+    }
+  }
+  W_CR_OVERFLOW3((UWORD)splitPos, 0x18, 0, 8, 0x7, 4, 1, 0x9, 6, 1, 0x5e, 6, 1);
+}
+
 BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 {
   REGBASE();
@@ -941,7 +961,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   bi->GraphicsControllerType = GCT_S3Trio64;
   bi->PaletteChipType = PCT_S3Trio64;
   bi->Flags = bi->Flags | BIF_NOMEMORYMODEMIX | BIF_BORDERBLANK |
-              BIF_NOP2CBLITS | BIF_NOBLITTER | BIF_GRANTDIRECTACCESS;
+              BIF_NOP2CBLITS | BIF_NOBLITTER | BIF_GRANTDIRECTACCESS | BIF_VGASCREENSPLIT;
   // Trio64 supports BGR_8_8_8_X 24bit, R5G5B5 and R5G6B5 modes.
   // Prometheus does byte-swapping for writes to memory, so if we're writing a 32bit register
   // filled with XRGB, the written memory order will be BGRX
@@ -970,6 +990,9 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 
   // DPMS
   bi->SetDPMSLevel = SetDPMSLevel;
+
+  // VGA Splitscreen
+  bi->SetSplitPosition = SetSplitPosition;
 
   // Blitter acceleration
   //  bi->WaitBlitter = (_func_38.conflict *)&WaitBlitter;
