@@ -1169,8 +1169,9 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
     if (physAddress & 0x3FFFFF) {
       KPrintF("WARNING: card's base address is not 4MB aligned!\n");
     }
-    W_CR(0x5a, physAddress >> 16);
-    W_CR(0x59, physAddress >> 24);
+    W_CR_MASK(0x5a, physAddress >> 16, 0x7F);
+    // Upper address bits may  not be touched as they would result in shifting the PCI window
+//    W_CR_MASK(0x59, physAddress >> 24);
   }
 
   // MCLK M Parameter
