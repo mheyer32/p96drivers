@@ -15,8 +15,6 @@
 #define D(...) KPrintF(__VA_ARGS__)
 #endif
 
-#include "vga.h"
-
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -124,9 +122,6 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
     KPrintF("cannot set requested pixclock, keeping old value\n");
     return clockHz;
   }
-
-  /* Set VGA misc register  */
-  W_MISC_MASK(VGA_MIS_ENB_PLL_LOAD, VGA_MIS_ENB_PLL_LOAD);
 
   /* Set S3 clock registers */
   W_SR(0x10, (n - 2) | (r << 5));
@@ -839,15 +834,11 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
     KPrintF("cannot resolve requested pixclock\n");
   }
 
-  /* Set VGA misc register  */
-  W_MISC_MASK(VGA_MIS_ENB_PLL_LOAD, VGA_MIS_ENB_PLL_LOAD);
-
   /* Set S3 DCLK clock registers */
   // Clock-Doubling will be enabled by SetGC
   W_SR(0x12, (n - 2) | (r << 5));
   W_SR(0x13, m - 2);
 
-  // FIXME: need to open DOS.library and provide base pointer
   {
     LOCAL_DOSBASE();
     Delay(1);
@@ -1271,5 +1262,9 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   W_REG_W(0xBEE8, 0x2000);
   W_REG_W(0xBEE8, 0x3fff);
   W_REG_W(0xBEE8, 0x4fff);
+
+  /* Enable PLL load */
+  W_MISC_MASK(0x0c, 0x0c);
+
   return TRUE;
 }
