@@ -865,12 +865,18 @@ static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi),
                               __REGD7(RGBFTYPE format))
 {
   REGBASE();
+  if (bi->ChipCurrentMemFmt == format)
+  {
+    return;
+  }
+  bi->ChipCurrentMemFmt = format;
+
   if (bi->ChipRevision & 0x40)  // Trio64+?
   {
     switch (format) {
     case RGBFB_A8R8G8B8:
-      // swap all the bytes within a double word
-      W_CR_MASK(0x53, 0x06, 0x04);
+        // swap all the bytes within a double word
+        W_CR_MASK(0x53, 0x06, 0x04);
       break;
     case RGBFB_R5G6B5:
     case RGBFB_R5G5B5:

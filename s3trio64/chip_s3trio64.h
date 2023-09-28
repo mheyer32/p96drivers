@@ -9,7 +9,8 @@
 #include <../PromLib/endian.h>
 
 #define ChipRevision ChipData[0]
-#define ChipDOSBase ChipData[1]
+#define ChipCurrentMemFmt ChipData[1]
+#define ChipDOSBase ChipData[2]
 #define CardPrometheusBase CardData[0]
 
 #define LOCAL_SYSBASE() struct ExecBase *SysBase = bi->ExecBase
