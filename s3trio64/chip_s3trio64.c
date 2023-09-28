@@ -11,8 +11,12 @@
 
 #ifndef DBG
 #define D(...)
+#define DFUNC(...)
 #else
 #define D(...) KPrintF(__VA_ARGS__)
+// Helper macro to allow call DFUNC with just one argument (and __VA_ARGS__ being empty)
+#define VA_ARGS(...) , ##__VA_ARGS__
+#define DFUNC(fmt,...) KPrintF("%s:" fmt, __func__ VA_ARGS(__VA_ARGS__))
 #endif
 
 typedef uint8_t u8;
@@ -44,9 +48,7 @@ int svga_compute_pll(const struct svga_pll *pll, u32 f_wanted, u16 *m, u16 *n,
   u16 am, an, ar;
   u32 f_vco, f_current, delta_current, delta_best;
 
-#ifdef DBG
-  KPrintF("ideal frequency: %ld kHz\n", (unsigned int)f_wanted);
-#endif
+  DFUNC("ideal frequency: %ld kHz\n", (unsigned int)f_wanted);
 
   ar = pll->r_max;
   f_vco = f_wanted << ar;
@@ -113,9 +115,7 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
   u16 m, n, r;
   u8 regval;
 
-#ifdef DBG
-  KPrintF("original Hz: %ld\n", clockHz);
-#endif
+  DFUNC("original Hz: %ld\n", clockHz);
 
   int currentKhz = svga_compute_pll(&s3_pll, clockHz / 1000, &m, &n, &r);
   if (currentKhz < 0) {
@@ -187,6 +187,9 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi),
   REGBASE();
   LOCAL_SYSBASE();
 
+  DFUNC("\n");
+
+  //FIXME: this should be a constant for the Trio, no need to make it dynamic
   UWORD bppDiff = 8 - bi->BitsPerCannon;
 
   // This may noty be interrupted, so DAC_WR_AD remains set throughout the
@@ -213,6 +216,9 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi),
 static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
   REGBASE();
+
+  DFUNC("\n");
+
   static const UBYTE DAC_ColorModes[] = {
       0x00,  // RGBFB_NONE
       0x00,  // RGBFB_CLUT
@@ -278,7 +284,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
   UWORD hTotal;
   UWORD ScreenWidth;
 
-  D("W %ld, H %ld, HTotal %ld, HBlankSize %ld, HSyncStart %ld, HSyncSize %ld, "
+  DFUNC("W %ld, H %ld, HTotal %ld, HBlankSize %ld, HSyncStart %ld, HSyncSize %ld, "
     "\nVTotal %ld, VBlankSize %ld,  VSyncStart %ld ,  VSyncSize %ld\n",
     (ULONG)mi->Width, (ULONG)mi->Height, (ULONG)mi->HorTotal,
     (ULONG)mi->HorBlankSize, (ULONG)mi->HorSyncStart, (ULONG)mi->HorSyncSize,
@@ -608,7 +614,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi),
   REGBASE();
   LOCAL_SYSBASE();
 
-  D("SetPanning mem 0x%lx, width %ld, height %ld, xoffset %ld, yoffset %ld, "
+  DFUNC("mem 0x%lx, width %ld, height %ld, xoffset %ld, yoffset %ld, "
     "format %ld\n",
     memory, (ULONG)width, (ULONG)height, (LONG)xoffset, (LONG)yoffset, (ULONG)format);
 
@@ -736,6 +742,9 @@ static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 {
   // Clocking Mode Register (ClK_MODE) (SR1)
   REGBASE();
+
+  DFUNC("\n");
+
   W_SR_MASK(0x01, 0x20, (~(UBYTE)state & 1) << 5);
 }
 
@@ -798,11 +807,15 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi),
                                __REGA1(struct ModeInfo *mi),
                                __REGD0(ULONG index), __REGD7(RGBFTYPE format))
 {
-  UWORD m, n, r;
+  DFUNC("\n");
+
   ULONG pixelClockKhz = index * 1000;
   if (mi->Flags & GMF_DOUBLECLOCK) {
       pixelClockKhz /= 2;
   }
+
+  UWORD m, n, r;
+
   int currentKhz = svga_compute_pll(&s3_pll, pixelClockKhz, &m, &n, &r);
   if (currentKhz < 0) {
     KPrintF("cannot resolve requested pixclock\n");
@@ -817,6 +830,8 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi),
 static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 {
   REGBASE();
+
+  DFUNC("\n");
 
   ULONG pixelClock = bi->ModeInfo->PixelClock;
 
@@ -856,6 +871,9 @@ static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi),
                               __REGD7(RGBFTYPE format))
 {
   REGBASE();
+
+  DFUNC("\n");
+
   if (bi->ChipCurrentMemFmt == format)
   {
     return;
@@ -866,8 +884,8 @@ static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi),
   {
     switch (format) {
     case RGBFB_A8R8G8B8:
-        // swap all the bytes within a double word
-        W_CR_MASK(0x53, 0x06, 0x04);
+      // swap all the bytes within a double word
+      W_CR_MASK(0x53, 0x06, 0x04);
       break;
     case RGBFB_R5G6B5:
     case RGBFB_R5G5B5:
@@ -896,7 +914,7 @@ static void ASM SetReadPlane(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
 {
 }
 
-BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expected))
+static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expected))
 {
   REGBASE();
   return (R_REG(0x3DA) & 0x08) != 0;
@@ -912,16 +930,16 @@ static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level)
   //  DPMS_OFF      /* Lowest level of power consumption */
 
   static const UBYTE DPMSLevels[4] = {0x00, 0x90, 0x60, 0x50};
+
   REGBASE();
   W_REG_MASK(0xd, 0xF0, DPMSLevels[level]);
-
 }
 
 
-void ASM SetSplitPosition(__REGA0(struct BoardInfo *bi),__REGD0(SHORT splitPos))
+static void ASM SetSplitPosition(__REGA0(struct BoardInfo *bi),__REGD0(SHORT splitPos))
 {
   REGBASE();
-  D("SplitPos: %ld\n", (ULONG)splitPos);
+  DFUNC("%ld\n", (ULONG)splitPos);
   bi->YSplit = splitPos;
   if (!splitPos)
   {
@@ -994,13 +1012,6 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   //  bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
   //  bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
   //  bi->DrawLine = (_func_55.conflict *)&DrawLine;
-  //  bi->Reserved1Default = (_func_64.conflict *)&Reserved1Default;
-
-  //  PLANAR,
-  //      CHUNKY,
-  //      HICOLOR,
-  //      TRUECOLOR,
-  //      TRUEALPHA,
 
   bi->PixelClockCount[PLANAR] = 0;
   bi->PixelClockCount[CHUNKY] =
@@ -1195,7 +1206,6 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   {
     // Enable Trio64+ "New MMIO" only and byte swapping in the Big Endian window
     W_CR_MASK(0x53, 0x3E, 0x0c);
-
   }
   else
   {
