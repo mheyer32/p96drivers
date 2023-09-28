@@ -414,7 +414,8 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
   {
     // End Horizontal Sync Position Register (E_H_SY_P) (CR5)
     D("HSync End %ld\n", (ULONG)endHSync);
-    W_CR_OVERFLOW1(endHSync, 0x5, 0, 5, 0x5d, 5, 1);
+    W_CR_MASK(0x5, 0x1f, endHSync);
+//    W_CR_OVERFLOW1(endHSync, 0x5, 0, 5, 0x5d, 5, 1);
   }
 
   // Start Display FIFO Register (DT _EX_POS) (CR3B)
