@@ -613,7 +613,11 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi),
   REGBASE();
   LOCAL_SYSBASE();
 
-  ULONG panOffset;
+  D("SetPanning mem 0x%lx, width %ld, height %ld, xoffset %ld, yoffset %ld, "
+    "format %ld\n",
+    memory, (ULONG)width, (ULONG)height, (LONG)xoffset, (LONG)yoffset, (ULONG)format);
+
+  LONG panOffset;
   UWORD pitch;
   ULONG memOffset;
 
@@ -656,10 +660,8 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi),
     break;
   }
 
-  //FIXME: for some reason, we need to use 8 bytes here, not 4 (as double word mode would imply)
-  // maybe, the docs are wrong and CR31 enables quadword mode?!
   pitch /= 8;
-  panOffset = (panOffset - memOffset) / 8;
+  panOffset = (panOffset + memOffset) / 4;
 
   D("panOffset 0x%lx, pitch %ld dwords\n", panOffset, pitch);
   // Start Address Low Register (STA(L)) (CRD)
@@ -677,6 +679,24 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi),
   //      This register contains the least significant 8 bits of this value.
   //      The addressing mode is specified by bit 6 of CR14 and bit 3 of CR17.
   //      Setting bit 3 of CR31 to 1 forces doubleword mode.
+
+  // This register specifies the amount to be added to the internal linear
+  // counter when advancing from one screen row to the next. The addition is
+  // performed whenever the internal row address counter advances past the
+  // maximum row address value, indicating that all the scan lines in the
+  // present row have been displayed. The Row Offset register is programmed in
+  // terms of CPU-addressed words per scan line, counted as either words or
+  // doublewords, depending on whether byte or word mode is in effect. If the
+  // CRTC Mode register is set to select byte mode, the Row Offset register is
+  // programmed with a word value. So for a 640-pixel (80-byte) wide graphics
+  // display, a value of 80/2 = 40 (28 hex) would normally be programmed, where
+  // 80 ts the number of bytes per scan line. If the CRTC Mode register is set
+  // to select word mode, then the Row Offset register is programmed with a
+  // doubleword, rather than a word, value. For instance, in 80-column text
+  // mode, a value of 160/4=40 (28 hex) would be programmed, because from the
+  // CPU-addressing side, each character requires 2 linear bytes (character code
+  // byte and attribute byte), for a total of 160 (AO hex) bytes per row.
+
   W_CR_OVERFLOW1(pitch, 0x13, 0, 8, 0x51, 4, 2);
 
   Disable();
