@@ -1302,5 +1302,78 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   /* Enable PLL load */
   W_MISC_MASK(0x0c, 0x0c);
 
+  // Just some diagnostics
+#ifdef DBG
+  UBYTE memType = (R_CR(0x36) >> 2) & 3;
+  switch (memType) {
+  case 0b00:
+    KPrintF("1-cycle EDO\n");
+    break;
+  case 0b10:
+    KPrintF("2-cycle EDO\n");
+    break;
+  case 0b11:
+    KPrintF("FPM\n");
+    break;
+  default:
+    KPrintF("unknown memory type\n");
+  }
+#endif
+
+  // Determine memory size of the card (typically 1-2MB, but can be up to 4MB)
+  bi->MemorySize = 0x400000;
+  volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
+  framebuffer[0] = 0;
+  while (bi->MemorySize) {
+    D("prometheus.card: probing memory size %ld\n", bi->MemorySize);
+
+    // Enable Linear Addressing Window LAW
+    {
+      UBYTE LAWSize = 0;
+      UBYTE MemSize = 0;
+      if (bi->MemorySize >= 0x400000) {
+        LAWSize = 0b11;
+        MemSize = 0b000;
+      } else if (bi->MemorySize >= 0x200000) {
+        LAWSize = 0b10;  // 2MB
+        MemSize = 0b100;
+      } else {
+        LAWSize = 0b01;  // 1MB
+        MemSize = 0b110;
+      }
+      W_CR_MASK(0x36, 0xE0, MemSize << 5);
+      W_CR_MASK(0x58, 0x13, LAWSize | 0x10);
+    }
+
+    CacheClearU();
+
+    // Probe the last and the first longword for the current segment,
+    // as well as offset 0 to check for wrap arounds
+    volatile ULONG *highOffset = framebuffer + (bi->MemorySize >> 2) - 1;
+    volatile ULONG *lowOffset = framebuffer + (bi->MemorySize >> 3);
+    // Probe  memory
+    *framebuffer = 0;
+    *highOffset = (ULONG)highOffset;
+    *lowOffset = (ULONG)lowOffset;
+
+    CacheClearU();
+
+    ULONG readbackHigh = *highOffset;
+    ULONG readbackLow = *lowOffset;
+    ULONG readbackZero = *framebuffer;
+
+    D("S3Trio64: probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= "
+      "0x%lx\n",
+      highOffset, readbackHigh, lowOffset, readbackLow, readbackZero);
+
+    if (readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset &&
+        readbackZero == 0) {
+      break;
+    }
+    // reduce available memory size
+    bi->MemorySize >>= 1;
+  }
+
+  D("S3Trio64: memorySize %ldmb\n", bi->MemorySize / (1024 * 1024));
   return TRUE;
 }
