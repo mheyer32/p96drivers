@@ -981,6 +981,140 @@ static void ASM SetSplitPosition(__REGA0(struct BoardInfo *bi),__REGD0(SHORT spl
   W_CR_OVERFLOW3((UWORD)splitPos, 0x18, 0, 8, 0x7, 4, 1, 0x9, 6, 1, 0x5e, 6, 1);
 }
 
+static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi),
+                                  __REGD0(WORD xpos), __REGD1(WORD ypos),
+                                  __REGD7(RGBFTYPE fmt))
+{
+  DFUNC("\n");
+  REGBASE();
+
+  bi->MouseX = xpos;
+  bi->MouseY = ypos;
+
+  WORD sprite_xpos = xpos - bi->XOffset;
+  WORD sprite_ypos = ypos - bi->YOffset + bi->YSplit;
+  if (bi->ModeInfo->Flags & GMF_DOUBLESCAN)
+  {
+    sprite_ypos *= 2;
+  }
+
+  D("SpritePos X: %ld 0x%lx, Y: %ld 0x%lx\n", (LONG)sprite_xpos, (ULONG)sprite_xpos, (LONG)sprite_ypos, (ULONG)sprite_ypos);
+
+  // should we be able to handle negative values and use the offset registers for that?
+  W_CR_OVERFLOW1(sprite_xpos, 0x47, 0, 8, 0x46, 0, 8);
+  W_CR_OVERFLOW1(sprite_ypos, 0x49, 0, 8, 0x48, 0, 8);
+}
+
+static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi),
+                               __REGD7(RGBFTYPE fmt))
+{
+  DFUNC("\n");
+
+  const UWORD *image = bi->MouseImage + 2;
+  UWORD *cursor = (UWORD *)bi->MouseImageBuffer;
+  for (UWORD y = 0; y < bi->MouseHeight; ++y) {
+    // first 16 bit
+    UWORD plane0 = *image++;
+    UWORD plane1 = *image++;
+
+    UWORD and = ~plane0;          // AND mask
+    UWORD xor = plane1;  // XOR mask
+    *cursor++ = and;
+    *cursor++ = xor;
+    // padding, should result in  screen color
+    for (UWORD p = 0; p < 3; ++p) {
+      *cursor++ = 0xFFFF;
+      *cursor++ = 0x0000;
+    }
+  }
+  // Pad the rest of the cursor image
+  for (UWORD y = bi->MouseHeight; y < 64; ++y) {
+    for (UWORD p = 0; p < 4; ++p) {
+      *cursor++ = 0xFFFF;
+      *cursor++ = 0x0000;
+    }
+  }
+
+}
+
+static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi),
+                               __REGD0(UBYTE index), __REGD1(UBYTE red),
+                               __REGD2(UBYTE green), __REGD3(UBYTE blue),
+                               __REGD7(RGBFTYPE fmt))
+{
+  DFUNC("Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
+  REGBASE();
+  LOCAL_SYSBASE();
+
+  if (index != 0 && index != 2)
+    return;
+
+  UBYTE reg = 0;
+  if (index == 0) {
+    reg = 0x4B;
+  } else {
+    reg = 0x4A;
+  }
+
+  R_CR(0x45);  // Reset "Graphics Cursor Stack"
+  switch (fmt) {
+  case RGBFB_NONE:
+  case RGBFB_CLUT: {
+    UBYTE reg = 0;
+    UBYTE paletteEntry;
+    if (index == 0) {
+      paletteEntry = 17;  // Cursor Palette entry is fixed
+    } else {
+      paletteEntry = 19;
+    }
+    W_CR(reg, paletteEntry);
+    W_REG(CRTC_DATA, paletteEntry);
+    W_REG(CRTC_DATA, paletteEntry);
+  } break;
+  case RGBFB_B8G8R8A8:
+  case RGBFB_A8R8G8B8: {
+    W_CR(reg, blue);  // No Conversion needed for 24bit RGB
+    W_REG(CRTC_DATA, green);
+    W_REG(CRTC_DATA, red);
+  } break;
+  case RGBFF_R5G5B5PC:
+  case RGBFF_R5G5B5: {
+    UBYTE a = (blue >> 3) | ((green << 2) & 0xe); // 16bit, just need to write the first two byte
+    UBYTE b = (green >> 5) | ((red >> 1) & ~0x3);
+    W_CR(reg, a);
+    W_REG(CRTC_DATA, b);
+  } break;
+  case RGBFB_R5G6B5PC:
+  case RGBFF_R5G6B5: {
+    UBYTE a = (blue >> 3) | ((green << 3) & 0xe);// // 16bit, just need to write the first two byte
+    UBYTE b = (green >> 5) | (red & 0xf8);
+    W_CR(reg, a);
+    W_REG(CRTC_DATA, b);
+  } break;
+  }
+}
+
+static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
+                          __REGD7(RGBFTYPE RGBFormat))
+{
+  DFUNC("\n");
+  REGBASE();
+
+  W_CR(0x45, activate ? 0x01 : 0x00);
+
+  if (activate) {
+    SetSpriteColor(bi, 0, bi->CLUT[17].Red, bi->CLUT[17].Green,
+                   bi->CLUT[17].Blue, bi->RGBFormat);
+    SetSpriteColor(bi, 1, bi->CLUT[18].Red, bi->CLUT[18].Green,
+                   bi->CLUT[18].Blue, bi->RGBFormat);
+    SetSpriteColor(bi, 2, bi->CLUT[19].Red, bi->CLUT[19].Green,
+                   bi->CLUT[19].Blue, bi->RGBFormat);
+  }
+
+  return TRUE;
+}
+
+
 BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 {
   REGBASE();
@@ -996,7 +1130,8 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   bi->GraphicsControllerType = GCT_S3Trio64;
   bi->PaletteChipType = PCT_S3Trio64;
   bi->Flags = bi->Flags | BIF_NOMEMORYMODEMIX | BIF_BORDERBLANK |
-              BIF_NOP2CBLITS | BIF_NOBLITTER | BIF_GRANTDIRECTACCESS | BIF_VGASCREENSPLIT;
+              BIF_NOP2CBLITS | BIF_NOBLITTER | BIF_GRANTDIRECTACCESS |
+              BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
   // Trio64 supports BGR_8_8_8_X 24bit, R5G5B5 and R5G6B5 modes.
   // Prometheus does byte-swapping for writes to memory, so if we're writing a 32bit register
   // filled with XRGB, the written memory order will be BGRX
@@ -1028,6 +1163,12 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 
   // VGA Splitscreen
   bi->SetSplitPosition = SetSplitPosition;
+
+  // Mouse Sprite
+  bi->SetSprite = SetSprite;
+  bi->SetSpritePosition = SetSpritePosition;
+  bi->SetSpriteImage = SetSpriteImage;
+  bi->SetSpriteColor = SetSpriteColor;
 
   // Blitter acceleration
   //  bi->WaitBlitter = (_func_38.conflict *)&WaitBlitter;
@@ -1375,5 +1516,26 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   }
 
   D("S3Trio64: memorySize %ldmb\n", bi->MemorySize / (1024 * 1024));
+
+  // Two sprite images, each 64x64*2 bits
+  const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
+
+  // take sprite image data off the top of the memory
+  // sprites can be placed at segment boundaries of 1kb
+  bi->MemorySize = (bi->MemorySize - maxSpriteBuffersSize) & ~(1024 - 1);
+  bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
+  bi->MouseSaveBuffer = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
+
+  // Start Address in terms of 1024byte segments
+  W_CR_OVERFLOW1(bi->MemorySize >> 10, 0x4d, 0, 8, 0x4c, 0, 4);
+  // Sprite image offsets
+  W_CR(0x4e, 0);
+  W_CR(0x4f, 0);
+  // Reset cursor position
+  W_CR(0x46, 0);
+  W_CR(0x47, 0);
+  W_CR(0x48, 0);
+  W_CR(0x49, 0);
+
   return TRUE;
 }
