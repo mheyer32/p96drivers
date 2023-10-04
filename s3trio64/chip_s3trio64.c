@@ -991,18 +991,31 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi),
   bi->MouseX = xpos;
   bi->MouseY = ypos;
 
-  WORD sprite_xpos = xpos - bi->XOffset;
-  WORD sprite_ypos = ypos - bi->YOffset + bi->YSplit;
-  if (bi->ModeInfo->Flags & GMF_DOUBLESCAN)
-  {
-    sprite_ypos *= 2;
+  WORD spriteX = xpos - bi->XOffset;
+  WORD spriteY = ypos - bi->YOffset + bi->YSplit;
+  if (bi->ModeInfo->Flags & GMF_DOUBLESCAN) {
+    spriteY *= 2;
   }
 
-  D("SpritePos X: %ld 0x%lx, Y: %ld 0x%lx\n", (LONG)sprite_xpos, (ULONG)sprite_xpos, (LONG)sprite_ypos, (ULONG)sprite_ypos);
+  WORD offsetX = 0;
+  if (spriteX < 0) {
+    offsetX = -spriteX;
+    spriteX = 0;
+  }
+  WORD offsetY = 0;
+  if (spriteY < 0) {
+    offsetY = -spriteY;
+    spriteY = 0;
+  }
 
-  // should we be able to handle negative values and use the offset registers for that?
-  W_CR_OVERFLOW1(sprite_xpos, 0x47, 0, 8, 0x46, 0, 8);
-  W_CR_OVERFLOW1(sprite_ypos, 0x49, 0, 8, 0x48, 0, 8);
+  D("SpritePos X: %ld 0x%lx, Y: %ld 0x%lx\n", (LONG)spriteX, (ULONG)spriteX,
+    (LONG)spriteY, (ULONG)spriteY);
+  // should we be able to handle negative values and use the offset registers
+  // for that?
+  W_CR_OVERFLOW1(spriteX, 0x47, 0, 8, 0x46, 0, 8);
+  W_CR_OVERFLOW1(spriteY, 0x49, 0, 8, 0x48, 0, 8);
+  W_CR(0x4e, offsetX & 63);
+  W_CR(0x4f, offsetY & 63);
 }
 
 static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi),
