@@ -3,21 +3,41 @@
 
 #include <SDI_compiler.h>
 #include <clib/debug_protos.h>
+#include <proto/exec.h>
 
 #include <boardinfo.h>
 // FIXME: copy header into common location
 #include <../PromLib/endian.h>
 
-#define ChipRevision ChipData[0]
-#define ChipCurrentMemFmt ChipData[1]
-#define ChipDOSBase ChipData[2]
+typedef enum BlitterOp
+{
+  None,
+  RectFill
+} BlitterOp_t;
+
+typedef struct ChipData
+{
+  RGBFTYPE MemFormat;
+  struct Library *DOSBase;
+  BlitterOp_t GEOp;
+  UWORD GEbytesPerRow;
+  UBYTE GEbpp;
+  UBYTE Revision;
+} ChipData_t;
+
+static inline struct ChipData* getChipData(struct BoardInfo *bi)
+{
+  return (struct ChipData*)&bi->ChipData[0];
+}
+
 #define CardPrometheusBase CardData[0]
+#define CardSpriteState CardData[2]
 
 #define LOCAL_SYSBASE() struct ExecBase *SysBase = bi->ExecBase
 #define LOCAL_PROMETHEUSBASE() \
   struct Library *PrometheusBase = (struct Library *)(bi->CardPrometheusBase)
 #define LOCAL_DOSBASE() \
-  struct Library *DOSBase = (struct Library *)(bi->ChipDOSBase)
+struct Library *DOSBase = getChipData(bi)->DOSBase
 
 // The offsets allow for using signed 16bit indexed addressing be used
 #define REGISTER_OFFSET 0x8000
@@ -68,18 +88,42 @@ static inline UWORD REGARGS readRegW(volatile UBYTE *regbase, UWORD reg)
 static inline void REGARGS writeRegW(volatile UBYTE *regbase, UWORD reg,
                                      UWORD value)
 {
+#ifdef DBG
+  KPrintF("W 0x%.4lx <- 0x%04lx\n", (LONG)reg, (LONG)value);
+#endif
   *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = swapw(value);
 }
 
-static inline UWORD REGARGS readRegMMIOW(volatile UBYTE *regbase, UWORD reg)
+static inline void REGARGS writeRegL(volatile UBYTE *regbase, UWORD reg,
+                                     ULONG value)
 {
-  return *(volatile UWORD *)(regbase + (reg - MMIOREGISTER_OFFSET));
+#ifdef DBG
+  KPrintF("W 0x%.4lx <- 0x%08lx\n", (LONG)reg, (LONG)value);
+#endif
+  *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = swapl(value);
 }
 
-static inline void REGARGS writeRegMMIOW(volatile UBYTE *regbase, UWORD reg,
+static inline UWORD REGARGS readRegMMIOW(volatile UBYTE *mmiobase, UWORD reg)
+{
+  return swapw(*(volatile UWORD *)(mmiobase + (reg - MMIOREGISTER_OFFSET)));
+}
+
+static inline void REGARGS writeRegMMIOW(volatile UBYTE *mmiobase, UWORD reg,
                                          UWORD value)
 {
-  *(volatile UWORD *)(regbase + (reg - MMIOREGISTER_OFFSET)) = value;
+#ifdef DBG
+  KPrintF("W 0x%.4lx <- 0x%04lx\n", (LONG)reg, (LONG)value);
+#endif
+  *(volatile UWORD *)(mmiobase + (reg - MMIOREGISTER_OFFSET)) = swapw(value);
+}
+
+static inline void REGARGS writeRegMMIOPacked(volatile UBYTE *mmiobase,
+                                              UWORD reg, ULONG value)
+{
+#ifdef DBG
+  KPrintF("W 0x%.4lx <- 0x%08lx\n", (LONG)reg, (LONG)value);
+#endif
+  *(volatile ULONG *)(mmiobase + (reg - MMIOREGISTER_OFFSET)) = swapl(value);
 }
 
 static inline UBYTE REGARGS readRegister(volatile UBYTE *regbase, UWORD reg)
@@ -241,9 +285,36 @@ static inline void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask,
 
 #define R_REG_W(reg) readRegW(RegBase, reg)
 #define W_REG_W(reg, value) writeRegW(RegBase, reg, value)
+#define W_REG_L(reg, value) writeRegL(RegBase, reg, value)
 
 #define R_REG_W_MMIO(reg) readRegMMIOW(MMIOBase, reg)
 #define W_REG_W_MMIO(reg, value) writeRegMMIOW(MMIOBase, reg, value)
+
+#define W_MMIO_PACKED(reg, value) writeRegMMIOPacked(MMIOBase, reg, value)
+
+#define W_BEE8(idx, value) W_REG_W(0xBEE8, ((idx << 12) | value))
+
+static inline UWORD readBEE8(volatile UBYTE *RegBase, struct ExecBase *SysBase, UBYTE idx)
+{
+  //BEWARE: the read index bit value does not fully match 'idx'
+  // We do not cover 9AE8, 42E8, 476E8 here (which can be read, too through this register)
+  switch(idx)
+  {
+  case 0xA:
+    idx = 0b0101;
+    break;
+  case 0xD:
+    idx = 0b1010;
+    break;
+  case 0xE:
+    idx = 0b0110;
+    break;
+  }
+
+  W_BEE8(0xF, idx);
+  return R_REG_W(0xBEE8) & 0xFFF;
+}
+#define R_BEE8(idx) readBEE8(RegBase, SysBase, idx)
 
 #define W_MISC_MASK(mask, value) writeMISC_OUT(RegBase, mask, value)
 
