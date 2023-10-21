@@ -1145,6 +1145,9 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi),
 {
   DFUNC("\n");
 
+  //FIXME: need to set temporary memory format?
+  // No, MouseImage should be in little endian window and not affected
+
   const UWORD *image = bi->MouseImage + 2;
   UWORD *cursor = (UWORD *)bi->MouseImageBuffer;
   for (UWORD y = 0; y < bi->MouseHeight; ++y) {
@@ -1194,7 +1197,6 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi),
   switch (fmt) {
   case RGBFB_NONE:
   case RGBFB_CLUT: {
-    UBYTE reg = 0;
     UBYTE paletteEntry;
     if (index == 0) {
       paletteEntry = 17;  // Cursor Palette entry is fixed
@@ -1211,15 +1213,15 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi),
     W_REG(CRTC_DATA, green);
     W_REG(CRTC_DATA, red);
   } break;
-  case RGBFF_R5G5B5PC:
-  case RGBFF_R5G5B5: {
+  case RGBFB_R5G5B5PC:
+  case RGBFB_R5G5B5: {
     UBYTE a = (blue >> 3) | ((green << 2) & 0xe); // 16bit, just need to write the first two byte
     UBYTE b = (green >> 5) | ((red >> 1) & ~0x3);
     W_CR(reg, a);
     W_REG(CRTC_DATA, b);
   } break;
   case RGBFB_R5G6B5PC:
-  case RGBFF_R5G6B5: {
+  case RGBFB_R5G6B5: {
     UBYTE a = (blue >> 3) | ((green << 3) & 0xe);// // 16bit, just need to write the first two byte
     UBYTE b = (green >> 5) | (red & 0xf8);
     W_CR(reg, a);
