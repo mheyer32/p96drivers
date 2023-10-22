@@ -1410,37 +1410,36 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
 
 //  W_MMIO_PACKED(ALT_PCNT, ((width - 1) << 16) | (height - 1));
 
-  if (getChipData(bi)->Revision & 0x40)  // Trio64+?
-  {
-    // Extended Memory Control 4 Register (EXT-MCTL-4) (CR61)
-    //    Bits 6-5 BIG ENDIAN - Big Endian Data Bye Swap (image writes only)
-    //        00 = No swap (Default)
-    //        01 = Swap bytes within each word
-    //        10 = Swap all bytes in doublewords (bytes reversed)
-    //        11 = Reserved
-    switch (fmt) {
-    case RGBFB_A8R8G8B8:
-      // swap all the bytes within a double word
-//      W_CR(0x61, 0b10<<5);
-//      W_CR_MASK(0x54, 0x3, 0x2);
-      pen=swapl(pen);
-      break;
-    case RGBFB_R5G6B5:
-    case RGBFB_R5G5B5:
-      //FIXME: The FillRect doc says that Pen will be a 16bit value, buit it seems its actually 32 with both
-      // words having the same vale?
-      // Just swap the bytes within a word
-//      W_CR(0x61, 0b01<<5);
-//      W_CR_MASK(0x54, 0x3, 0x1);
-      pen=swapl(pen);
-      break;
-    case RGBFB_CLUT:
-      pen |= pen << 8 | pen <<16 | pen <<24;
-    default:
-//      W_CR(0x61, 0b00<<5);
-//      W_CR_MASK(0x54, 0x3, 0x0);
-      break;
-    }
+  // Extended Memory Control 4 Register (EXT-MCTL-4) (CR61)
+  //    Bits 6-5 BIG ENDIAN - Big Endian Data Bye Swap (image writes only)
+  //        00 = No swap (Default)
+  //        01 = Swap bytes within each word
+  //        10 = Swap all bytes in doublewords (bytes reversed)
+  //        11 = Reserved
+  switch (fmt) {
+  case RGBFB_A8R8G8B8:
+    // swap all the bytes within a double word
+    //      W_CR(0x61, 0b10<<5);
+    //      W_CR_MASK(0x54, 0x3, 0x2);
+    pen = swapl(pen);
+    break;
+  case RGBFB_R5G6B5:
+  case RGBFB_R5G5B5:
+    // FIXME: The FillRect doc says that Pen will be a 16bit value, buit it
+    // seems its actually 32 with both
+    // words having the same vale?
+    // Just swap the bytes within a word
+    //      W_CR(0x61, 0b01<<5);
+    //      W_CR_MASK(0x54, 0x3, 0x1);
+    pen = swapl(pen);
+    break;
+  case RGBFB_CLUT:
+    pen |= (pen << 8) | (pen << 16) | (pen << 24);
+    break;
+  default:
+    //      W_CR(0x61, 0b00<<5);
+    //      W_CR_MASK(0x54, 0x3, 0x0);
+    break;
   }
 
   pen=swapl(pen);
