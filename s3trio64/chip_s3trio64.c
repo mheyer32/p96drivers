@@ -63,7 +63,8 @@
 
 #define SHORT_STROKE 0x9EE8
 // These 5 are 32bit registers, which can be accessed either by two
-// 16bit writes or 32bit writes when using IO programming (does not apply to MMIO)
+// 16bit writes or 32bit writes when using IO programming (does not apply to
+// MMIO)
 #define BKGD_COLOR 0xA2E8
 #define FRGD_COLOR 0xA6E8
 #define WRT_MASK 0xAAE8
@@ -245,7 +246,7 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 
 static inline UBYTE getBPP(RGBFTYPE format)
 {
-  //FIXME: replace with fixed table?
+  // FIXME: replace with fixed table?
   switch (format) {
   case RGBFB_CLUT:
     return 1;
@@ -272,7 +273,6 @@ static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi),
                                   __REGA1(struct ModeInfo *mi),
                                   __REGD7(RGBFTYPE format))
 {
-
   // Make the bytes per row compatible with the Graphics Engine's presets
   if (width <= 640) {
     width = 640;
@@ -294,7 +294,6 @@ static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi),
 
   UBYTE bpp = getBPP(format);
 
-
   UWORD bytesPerRow = width * bpp;
   // I believe the Graphics Engine can hadle only 1MB at a time
   ULONG maxHeight = 1 * 1024 * 1024 / bytesPerRow;
@@ -311,10 +310,10 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi),
   REGBASE();
   LOCAL_SYSBASE();
 
-  DFUNC("\n");
+  DFUNC("startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
 
   // FIXME: this should be a constant for the Trio, no need to make it dynamic
-  UWORD bppDiff = 8 - bi->BitsPerCannon;
+  const UBYTE bppDiff = 2;  // 8 - bi->BitsPerCannon;
 
   // This may noty be interrupted, so DAC_WR_AD remains set throughout the
   // function
@@ -372,11 +371,11 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
   if (format < RGBFB_MaxFormats) {
     if ((format == RGBFB_CLUT) &&
         ((bi->ModeInfo->Flags & GMF_DOUBLECLOCK) != 0)) {
-      dacMode = 0x10;  // Why is  it setting a reserved bit 0x02 here?
+      dacMode = 0x10;
     } else {
       dacMode = DAC_ColorModes[format];
     }
-    W_CR_MASK(0x67, 0xF2, dacMode);
+    W_CR_MASK(0x67, 0xF0, dacMode);
   }
   return;
 }
@@ -431,10 +430,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
 
   depth = mi->Depth;
   if (depth <= 8) {
-    // Extended System Cont 1 Register (EX_SCTL_11 (CR50)
-    // 00 = 1 byte (Default). This corresponds to a pixel length of 4 or 8
-    // bits/pixel in bit 7 of the Subsystem Status register (42E8H)
-//    W_CR(0x50, 0x0);
     if ((border == 0) || ((mi->HorBlankSize == 0 || (mi->VerBlankSize == 0)))) {
       D("8-Bit Mode, NO Border\n");
       // Bit 5 BDR SEL - Blank/Border Select
@@ -464,9 +459,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     // Bit 5 BDR SEL - Blank/Border Select
     // o = BLANK active time is defined by CR2 and CR3
     W_CR_MASK(0x33, 0x20, 0x0);
-    // Extended System Cont 1 Register (EX_SCTL_11 (CR50)
-    // 01 = 2 bytes. 16 bits/pixel
-//    W_CR(0x50, 0x10);
 
     // FIXME: what is this?
     hTotal = hTotal * 2;
@@ -477,10 +469,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     // Bit 5 BDR SEL - Blank/Border Select
     // 0 = BLANK active time is defined by CR2 and CR3
     W_CR_MASK(0x33, 0x20, 0x0);
-    // Extended System Cont 1 Register (EX_SCTL_11 (CR50)
-    // 11 = 4 bytes. 32 bits/pixel
-//    W_CR(0x50, 0x30);
-
     border = 0;
   }
 
@@ -550,7 +538,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
   // until the scan line position defined by the Start
   // Display FIFO register (CR3B), which is normally
   // programmed with a value 5 less than the value
-  // programmed in CRO (horizontal total). This provides time during the
+  // programmed in CRO (horizontal total). This provides time during the
   // horizontal blanking period for RAM refresh and hardware cursor fetch.
   {
     UWORD startDisplayFifo = TO_CLKS(hTotal) - 5 - 5;
@@ -626,7 +614,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
   // Enable Interlace
   {
     UBYTE interlace = R_CR(0x42) & 0xdf;
-    if ((modeFlags & GMF_INTERLACE) != 0) {
+    if (interlaced) {
       interlace = interlace | 0x20;
     }
     W_CR(0x42, interlace);
@@ -725,9 +713,16 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
 
     // Atttribute Controller Index register to AR11 while preserving "Bit 5 ENB
     // PLT - Enable Video Display"
-    W_REG(ATR_AD, (R_REG(ATR_AD) & 0x20) | 0x11);
+
+    R_REG(0x3DA);
     // write AR11 = 0 Border Color Register
-    W_REG(ATR_DATA_W, 0x0);
+    W_AR(0x11, 0);
+
+    // Re-enable video out
+    W_REG(ATR_AD, 0x20);
+    R_REG(0x3DA);
+
+    D("Current 3C0: %lx\n", (ULONG)R_REG(ATR_AD));
 
     Enable();
   }
@@ -829,6 +824,10 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi),
 
   W_CR_OVERFLOW1(pitch, 0x13, 0, 8, 0x51, 4, 2);
 
+  // Bits 5-4 of CR51 are extension bits 9-8 of this register. If these bits are
+  // OOb, bit 2 of CR43 is extension bit 8 of this register.
+  //  W_CR_MASK(0x43, 0x04, (pitch >> 6) & 0x04);
+
   Disable();
 
   R_REG(0x3DA);  // Reset AFF flip-flop // FIXME: why?
@@ -876,6 +875,9 @@ static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
   DFUNC(" state %ld\n", (ULONG)state);
 
   W_SR_MASK(0x01, 0x20, (~(UBYTE)state & 1) << 5);
+  //  R_REG(0x3DA);
+  //  W_REG(ATR_AD, 0x20);
+  //  R_REG(0x3DA);
 }
 
 static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi),
@@ -883,9 +885,9 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi),
                                    __REGD0(ULONG pixelClock),
                                    __REGD7(RGBFTYPE RGBFormat))
 {
-  mi->Flags = mi->Flags & ~GMF_ALWAYSBORDER;
+  mi->Flags &= ~GMF_ALWAYSBORDER;
   if (0x3ff < mi->VerTotal) {
-    mi->Flags = mi->Flags | GMF_ALWAYSBORDER;
+    mi->Flags |= GMF_ALWAYSBORDER;
   }
 
   // Enable Double Clock for 8Bit modes when pixelclock exceeds 85Mhz
@@ -1145,7 +1147,7 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi),
 {
   DFUNC("\n");
 
-  //FIXME: need to set temporary memory format?
+  // FIXME: need to set temporary memory format?
   // No, MouseImage should be in little endian window and not affected
 
   const UWORD *image = bi->MouseImage + 2;
@@ -1155,10 +1157,10 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi),
     UWORD plane0 = *image++;
     UWORD plane1 = *image++;
 
-    UWORD and = ~plane0;          // AND mask
-    UWORD xor = plane1;  // XOR mask
-    *cursor++ = and;
-    *cursor++ = xor;
+    UWORD andMask = ~plane0;  // AND mask
+    UWORD xorMask = plane1;   // XOR mask
+    *cursor++ = andMask;
+    *cursor++ = xorMask;
     // padding, should result in  screen color
     for (UWORD p = 0; p < 3; ++p) {
       *cursor++ = 0xFFFF;
@@ -1179,7 +1181,8 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi),
                                __REGD2(UBYTE green), __REGD3(UBYTE blue),
                                __REGD7(RGBFTYPE fmt))
 {
-  DFUNC("Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
+  DFUNC("Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red,
+        (ULONG)green, (ULONG)blue);
   REGBASE();
   LOCAL_SYSBASE();
 
@@ -1215,14 +1218,18 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi),
   } break;
   case RGBFB_R5G5B5PC:
   case RGBFB_R5G5B5: {
-    UBYTE a = (blue >> 3) | ((green << 2) & 0xe); // 16bit, just need to write the first two byte
+    UBYTE a =
+        (blue >> 3) |
+        ((green << 2) & 0xe);  // 16bit, just need to write the first two byte
     UBYTE b = (green >> 5) | ((red >> 1) & ~0x3);
     W_CR(reg, a);
     W_REG(CRTC_DATA, b);
   } break;
   case RGBFB_R5G6B5PC:
   case RGBFB_R5G6B5: {
-    UBYTE a = (blue >> 3) | ((green << 3) & 0xe);// // 16bit, just need to write the first two byte
+    UBYTE a =
+        (blue >> 3) | ((green << 3) &
+                       0xe);  // // 16bit, just need to write the first two byte
     UBYTE b = (green >> 5) | (red & 0xf8);
     W_CR(reg, a);
     W_REG(CRTC_DATA, b);
@@ -1253,24 +1260,27 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
 static void REGARGS WaitBlitter(struct BoardInfo *bi)
 {
   REGBASE();
-//  LOCAL_SYSBASE();
+  //  LOCAL_SYSBASE();
 
-//  D("Waiting for blitter...");
+  //  D("Waiting for blitter...");
   // FIXME: ideally you'd want this interrupt driven. I.e. sleep until the HW
   // interrupt indicates its done. Otherwise, whats the point of having the
   // blitter run asynchronous to the CPU?
-  // FIXME AS a debug measure, Here we're waiting for the GE to finish AND all FIFO slots to clear
-//  while ((R_REG_W(GP_STAT) & ((1<<9)|(1<<10))) != 1<<10)) {
-//  };
+  // FIXME AS a debug measure, Here we're waiting for the GE to finish AND all
+  // FIFO slots to clear
+  //  while ((R_REG_W(GP_STAT) & ((1<<9)|(1<<10))) != 1<<10)) {
+  //  };
 
-  while (R_REG_W(GP_STAT) & (1<<9)) {
+  while (R_REG_W(GP_STAT) & (1 << 9)) {
   };
 
-//  D("done\n");
+  //  D("done\n");
 }
 
-#define MByte(x) ((x)*(1024*1024))
-static inline void REGARGS getGESegmentAndOffset(ULONG addr, WORD bytesPerRow, UBYTE bpp, UWORD *segment, UWORD *xoffset, UWORD *yoffset)
+#define MByte(x) ((x) * (1024 * 1024))
+static inline void REGARGS getGESegmentAndOffset(ULONG addr, WORD bytesPerRow,
+                                                 UBYTE bpp, UWORD *segment,
+                                                 UWORD *xoffset, UWORD *yoffset)
 {
   UWORD srcOffset = addr & 0xFFFFF;
   *segment = (addr / MByte(1)) & 7;
@@ -1281,12 +1291,12 @@ static inline void REGARGS getGESegmentAndOffset(ULONG addr, WORD bytesPerRow, U
   DFUNC("segment %ld, xoff %ld, yoff %ld\n", *segment, *xoffset, *yoffset);
 }
 
-
 static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
 {
   REGBASE();
 
-  if (getChipData(bi)->GEbytesPerRow == bytesPerRow && getChipData(bi)->GEbpp == bpp) {
+  if (getChipData(bi)->GEbytesPerRow == bytesPerRow &&
+      getChipData(bi)->GEbpp == bpp) {
     return TRUE;
   }
   getChipData(bi)->GEbytesPerRow = bytesPerRow;
@@ -1311,20 +1321,21 @@ static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
   } else if (width == 1600) {
     CR50_76_0 = 0b10000001;
   } else if (width == 2048) {
-    CR31_1 = (1<<1);
+    CR31_1 = (1 << 1);
     CR50_76_0 = 0b00000000;
   } else {
-    DFUNC("Width unsupported by Graphics Engine, chosing unaccelerated  path\n");
+    DFUNC(
+        "Width unsupported by Graphics Engine, chosing unaccelerated  path\n");
     return FALSE;  // reserved
   }
 
   W_CR_MASK(0x50, 0xF1, CR50_76_0 | ((bpp - 1) << 4));
-  W_CR_MASK(0x31, (1<<1), CR31_1);
+  W_CR_MASK(0x31, (1 << 1), CR31_1);
 
   return TRUE;
 }
 
-//struct RenderInfo {
+// struct RenderInfo {
 //  APTR			Memory;
 //  WORD			BytesPerRow;
 //  WORD			pad;
@@ -1336,7 +1347,6 @@ static inline ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
   ULONG offset = (ULONG)memory - (ULONG)bi->MemoryBase;
   return offset;
 }
-
 
 #define TOP_LEFT (0b101 << 5)
 #define TOP_RIGHT (0b100 << 5)
@@ -1356,40 +1366,37 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
       (ULONG)fmt, (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
 
   REGBASE();
-//  MMIOBASE();
-//  LOCAL_SYSBASE();
+  //  MMIOBASE();
+  //  LOCAL_SYSBASE();
 
   UBYTE bpp = getBPP(fmt);
-  if (!bpp)
-  {
+  if (!bpp) {
     bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
     return;
   }
 
-  if (!setCR50(bi, ri->BytesPerRow, bpp))
-  {
+  if (!setCR50(bi, ri->BytesPerRow, bpp)) {
     bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
     return;
   }
   UWORD seg;
   UWORD xoffset;
   UWORD yoffset;
-  getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow,
-                        bpp, &seg, &xoffset, &yoffset);
+  getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp,
+                        &seg, &xoffset, &yoffset);
 
   x += xoffset;
   y += yoffset;
 
   WaitBlitter(bi);
 
-  if (getChipData(bi)->GEOp != RectFill)
-  {
+  if (getChipData(bi)->GEOp != RectFill) {
     getChipData(bi)->GEOp = RectFill;
 
     // Set MULT_MISC first so that
     // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
     // Bit 9 CMR 32B - Select 32-Bit Command Registers
-    W_BEE8(MULT_MISC, (1<<9));
+    W_BEE8(MULT_MISC, (1 << 9));
 
     W_BEE8(PIX_CNTL, 0x0000);
     W_REG_W(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
@@ -1403,12 +1410,12 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   W_REG_W(CUR_X, x);
   W_REG_W(CUR_Y, y);
 
-//  W_MMIO_PACKED(ALT_CURXY, (x << 16) | y);
+  //  W_MMIO_PACKED(ALT_CURXY, (x << 16) | y);
 
-  W_REG_W(MAJ_AXIS_PCNT, width -1);
-  W_BEE8(MIN_AXIS_PCNT, height -1);
+  W_REG_W(MAJ_AXIS_PCNT, width - 1);
+  W_BEE8(MIN_AXIS_PCNT, height - 1);
 
-//  W_MMIO_PACKED(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+  //  W_MMIO_PACKED(ALT_PCNT, ((width - 1) << 16) | (height - 1));
 
   // Extended Memory Control 4 Register (EXT-MCTL-4) (CR61)
   //    Bits 6-5 BIG ENDIAN - Big Endian Data Bye Swap (image writes only)
@@ -1442,26 +1449,25 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
     break;
   }
 
-  pen=swapl(pen);
+  pen = swapl(pen);
 
   W_REG_L(FRGD_COLOR, pen);
-//  W_REG_W(FRGD_COLOR, pen>>16);
+  //  W_REG_W(FRGD_COLOR, pen>>16);
 
   UWORD cmd = CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT;
 
-  //CMD_BYTE_SWAP has effect on short stroke renddering only?
-//  switch (fmt) {
-//  case RGBFB_A8R8G8B8:
-//  case RGBFB_R5G6B5:
-//  case RGBFB_R5G5B5:
-//    // Just swap the bytes within a word
-//    cmd |= CMD_BYTE_SWAP;
-//  }
+  // CMD_BYTE_SWAP has effect on short stroke renddering only?
+  //  switch (fmt) {
+  //  case RGBFB_A8R8G8B8:
+  //  case RGBFB_R5G6B5:
+  //  case RGBFB_R5G5B5:
+  //    // Just swap the bytes within a word
+  //    cmd |= CMD_BYTE_SWAP;
+  //  }
 
   W_REG_W(CMD, cmd);
 
-
-//  WaitBlitter(bi);
+  //  WaitBlitter(bi);
 }
 
 BOOL InitChipL(__REGA0(struct BoardInfo *bi))
@@ -1534,7 +1540,8 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   //  bi->DrawLine = (_func_55.conflict *)&DrawLine;
 
   DFUNC(
-      "WaitBlitter 0x%08lx\nBlitRect 0x%08lx\nInvertRect 0x%08lx\nFillRect 0x%08lx\n"
+      "WaitBlitter 0x%08lx\nBlitRect 0x%08lx\nInvertRect 0x%08lx\nFillRect "
+      "0x%08lx\n"
       "BlitTemplate 0x%08lx\n BlitPlanar2Chunky 0x%08lx\n"
       "BlitRectNoMaskComplete 0x%08lx\n DrawLine 0x%08lx\n",
       bi->WaitBlitter, bi->BlitRect, bi->InvertRect, bi->FillRect,
@@ -1642,8 +1649,8 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 
   // FIXME: this has memory setting implications potentially only valid for the
   // Cybervision
-  W_SR(0xa, 0xc0);
-  W_SR(0x18, 0xc0);
+  //  W_SR(0xa, 0xc0);
+  //  W_SR(0x18, 0xc0);
 
   // Init RAMDAC
   W_REG(0x3C6, 0xff);
@@ -1691,16 +1698,48 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   // byte addresses of two consecutive scan lines. This register contains the
   // least significant 8 bits of this
 
-  W_CR(0x13, 0x50);  // == 160, menaing 640byte in double word mode
+  W_CR(0x13, 0x50);  // == 160, meaning 640byte in double word mode
 
-  W_CR(0x14, 0x0);  // Underline Location Register (ULL) (CR14) (affects address
-                    // counting)
+  // Underline Location Register (ULL) (CR14) (affects address
+  // counting)
+  //  Bit 5 CNT BY4 - Select Count by 4 Mode
+  //      0= The memory address counter depends on bit 3 of CR17 (count by 2)
+  //      1 = The memory address counter is incremented every four character
+  //      clocks
+  //              The CNT BY4 bit is used when double word addresses are used.
+  //  Bit 6 DBLWD MODE - Select Doubleword Mode
+  //      0 = The memory addresses are byte or word addresses
+  //      1 = The memory addresses are doubleword addresses
+  //
+  W_CR(0x14, 0x40);
+
   W_CR(0x15, 0x96);  // Start Vertical Blank Register (SVB) (CR15)
   W_CR(0x16, 0xb9);  // End Vertical Blank Register (EVB) (CR16)
-  W_CR(0x17, 0xe3);  // Byte Adressing mode, V/HSync pulses enabled
+
+  //  CRTC Mode Control Register (CRT _MO) (CR17
+  //  Bit 3 CNT BY2 - Select Word Mode
+  //  0= Memory address counter is clocked with the character clock input, and
+  //  byte mode addressing for the video memory is selected 1 = Memory address
+  //  counter is clocked by the character clock input divided by 2, and word
+  //  mode addressing for the video memory is selected Bit 6 BYTE MODE - Select
+  //  Byte Addressing Mode
+  //      0 = Word mode shifts all memory address counter bits down one bit, and
+  //      the most
+  //          significant bit of the counter appears on the least significant
+  //          bit of the memory address output
+  //      1 = Byte address mode
+  W_CR(0x17, 0xC3);  // Byte Adressing mode, V/HSync pulses enabled
+
   W_CR(0x18, 0xff);  // Line compare register
 
-  W_CR(0x31, 0x0c);  // Enhanced memory mapping, Doubleword mode
+  // Memory Configuration Register (MEM_CNFG) (eR31)
+  // Bit 3 ENH MAP - Use Enhanced Mode Memory Mapping
+  // 0= Force IBM VGA mapping for memory accesses
+  // 1 = Force Enhanced Mode mappings
+  // Setting this bit to 1 overrides the settings of bit 6 of CR14 and bit 3 of
+  // CR17 and causes the use of doubleword memory addressing mode. Also, the
+  // function of bits 3- 2 of GR6 is overridden with a fixed 64K map at AOOOOH.
+  W_CR(0x31, 0x08);  // Enhanced memory mapping, Doubleword mode
 
   W_CR(0x32, 0x10);
 
@@ -1721,8 +1760,12 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   W_CR(0x3a, 0x35);
   // Start Display FIFO Fetch (CR3B)
   W_CR(0x3b, 0x5a);
+
   // Extended Mode Register (EXT_MODE) (CR43)
   W_CR(0x43, 0x00);
+
+  // Extended System Control 2 Register (EX_SCTL_2) (CR51)
+  W_CR(0x51, 0x00);
 
   // Enable 4MB Linear Address Window (LAW)
   W_CR(0x58, 0x13);
@@ -1734,7 +1777,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
     D("setup compatible MMIO\n");
     // Enable Trio64 old style MMIO. This hardcodes the MMIO range to 0xA8000
     // physical address. Need to make sure, nothing else sits there
-    W_CR_MASK(0x53, 0x38, 0x30);
+    W_CR_MASK(0x53, 0x10, 0x10);
 
     // LAW start address
     ULONG physAddress = Prm_GetPhysicalAddress(bi->MemoryBase);
@@ -1764,6 +1807,10 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   W_GR(0x7, 0xf);
   W_GR(0x8, 0xff);
 
+  // Enable writing attribute pallette registers, disable video
+  R_REG(0x3DA);
+  W_REG(ATR_AD, 0x0);
+
   // Reset AFF to index register selection
   R_REG(0x3DA);
 
@@ -1787,6 +1834,10 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   W_AR(0x32, 0xf);
   W_AR(0x33, 0x0);
   W_AR(0x34, 0x0);
+
+  // Enable video
+  R_REG(0x3DA);
+  W_REG(ATR_AD, 0x20);
 
   /* Enable PLL load */
   W_MISC_MASK(0x0c, 0x0c);
@@ -1872,10 +1923,11 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   // sprites can be placed at segment boundaries of 1kb
   bi->MemorySize = (bi->MemorySize - maxSpriteBuffersSize) & ~(1024 - 1);
   bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
-  bi->MouseSaveBuffer = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
+  bi->MouseSaveBuffer =
+      bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
 
   // Start Address in terms of 1024byte segments
-  W_CR_OVERFLOW1(bi->MemorySize >> 10, 0x4d, 0, 8, 0x4c, 0, 4);
+  W_CR_OVERFLOW1((bi->MemorySize >> 10), 0x4d, 0, 8, 0x4c, 0, 4);
   // Sprite image offsets
   W_CR(0x4e, 0);
   W_CR(0x4f, 0);
@@ -1884,7 +1936,6 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   W_CR(0x47, 0);
   W_CR(0x48, 0);
   W_CR(0x49, 0);
-
 
   // Write conservative scissors
   W_REG_W(0xBEE8, 0x1000);
