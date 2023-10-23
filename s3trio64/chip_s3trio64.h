@@ -9,6 +9,42 @@
 // FIXME: copy header into common location
 #include <../PromLib/endian.h>
 
+
+#ifndef DBG
+#define D(...)
+#define DFUNC(...)
+#define LOCAL_DEBUGLEVEL(x)
+#else
+extern int debugLevel;
+#define LOCAL_DEBUGLEVEL(level) int debugLevel = level;
+
+#define D(level, ...) if (debugLevel > (level)) { KPrintF(__VA_ARGS__); }
+// Helper macro to allow call DFUNC with just one argument (and __VA_ARGS__
+// being empty)
+#define VA_ARGS(...) , ##__VA_ARGS__
+#define DFUNC(level, fmt, ...) if (debugLevel >= (level)) { KPrintF("%s:" fmt, __func__ VA_ARGS(__VA_ARGS__)); }
+#endif
+
+// The offsets allow for using signed 16bit indexed addressing be used
+#define REGISTER_OFFSET 0x8000
+#define MMIOREGISTER_OFFSET 0x8000
+
+#define SEQX 0x3C4  // Access SRxx registers
+#define SEQ_DATA 0x3C5
+
+#define CRTC_IDX 0x3D4  // Access CRxx registers
+#define CRTC_DATA 0x3D5
+
+#define GRC_ADR 0x3CE
+#define GRC_DATA 0x3CF
+
+#define ATR_AD 0x3C0
+#define ATR_DATA_W 0x3C0
+#define ATR_DATA_R 0x3C1
+
+#define DAC_WR_AD 0x3C8
+#define DAC_DATA 0x3C9
+
 typedef enum BlitterOp
 {
   None,
@@ -35,29 +71,13 @@ static inline struct ChipData* getChipData(struct BoardInfo *bi)
 
 #define LOCAL_SYSBASE() struct ExecBase *SysBase = bi->ExecBase
 #define LOCAL_PROMETHEUSBASE() \
-  struct Library *PrometheusBase = (struct Library *)(bi->CardPrometheusBase)
+struct Library *PrometheusBase = (struct Library *)(bi->CardPrometheusBase)
 #define LOCAL_DOSBASE() \
-struct Library *DOSBase = getChipData(bi)->DOSBase
+    struct Library *DOSBase = getChipData(bi)->DOSBase
 
-// The offsets allow for using signed 16bit indexed addressing be used
-#define REGISTER_OFFSET 0x8000
-#define MMIOREGISTER_OFFSET 0x8000
 
-#define SEQX 0x3C4  // Access SRxx registers
-#define SEQ_DATA 0x3C5
 
-#define CRTC_IDX 0x3D4  // Access CRxx registers
-#define CRTC_DATA 0x3D5
 
-#define GRC_ADR 0x3CE
-#define GRC_DATA 0x3CF
-
-#define ATR_AD 0x3C0
-#define ATR_DATA_W 0x3C0
-#define ATR_DATA_R 0x3C1
-
-#define DAC_WR_AD 0x3C8
-#define DAC_DATA 0x3C9
 
 static INLINE REGARGS volatile UBYTE *getLegacyBase(const struct BoardInfo *bi)
 {
@@ -88,18 +108,16 @@ static inline UWORD REGARGS readRegW(volatile UBYTE *regbase, UWORD reg)
 static inline void REGARGS writeRegW(volatile UBYTE *regbase, UWORD reg,
                                      UWORD value)
 {
-#ifdef DBG
-  KPrintF("W 0x%.4lx <- 0x%04lx\n", (LONG)reg, (LONG)value);
-#endif
+  D(10, "W 0x%.4lx <- 0x%04lx\n", (LONG)reg, (LONG)value);
+
   *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = swapw(value);
 }
 
 static inline void REGARGS writeRegL(volatile UBYTE *regbase, UWORD reg,
                                      ULONG value)
 {
-#ifdef DBG
-  KPrintF("W 0x%.4lx <- 0x%08lx\n", (LONG)reg, (LONG)value);
-#endif
+  D(10, "W 0x%.4lx <- 0x%08lx\n", (LONG)reg, (LONG)value);
+
   *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = swapl(value);
 }
 
@@ -111,27 +129,23 @@ static inline UWORD REGARGS readRegMMIOW(volatile UBYTE *mmiobase, UWORD reg)
 static inline void REGARGS writeRegMMIOW(volatile UBYTE *mmiobase, UWORD reg,
                                          UWORD value)
 {
-#ifdef DBG
-  KPrintF("W 0x%.4lx <- 0x%04lx\n", (LONG)reg, (LONG)value);
-#endif
+  D(10, "W 0x%.4lx <- 0x%04lx\n", (LONG)reg, (LONG)value);
   *(volatile UWORD *)(mmiobase + (reg - MMIOREGISTER_OFFSET)) = swapw(value);
 }
 
 static inline void REGARGS writeRegMMIOPacked(volatile UBYTE *mmiobase,
                                               UWORD reg, ULONG value)
 {
-#ifdef DBG
-  KPrintF("W 0x%.4lx <- 0x%08lx\n", (LONG)reg, (LONG)value);
-#endif
+  D(10, "W 0x%.4lx <- 0x%08lx\n", (LONG)reg, (LONG)value);
+
   *(volatile ULONG *)(mmiobase + (reg - MMIOREGISTER_OFFSET)) = swapl(value);
 }
 
 static inline UBYTE REGARGS readRegister(volatile UBYTE *regbase, UWORD reg)
 {
   UBYTE value = readReg(regbase, reg);
-#ifdef DBG1
-  KPrintF("R 0x%.4lx -> 0x%02lx\n", (LONG)reg, (LONG)value);
-#endif
+  D(20, "R 0x%.4lx -> 0x%02lx\n", (LONG)reg, (LONG)value);
+
   return value;
 }
 
@@ -139,9 +153,8 @@ static inline void REGARGS writeRegister(volatile UBYTE *regbase, UWORD reg,
                                          UBYTE value)
 {
   writeReg(regbase, reg, value);
-#ifdef DBG
-  KPrintF("W 0x%.4lx <- 0x%02lx\n", (LONG)reg, (LONG)value);
-#endif
+
+  D(10, "W 0x%.4lx <- 0x%02lx\n", (LONG)reg, (LONG)value);
 }
 
 static inline void REGARGS writeRegisterMask(volatile UBYTE *regbase, UWORD reg,
@@ -155,9 +168,8 @@ static inline UBYTE REGARGS readCRx(volatile UBYTE *regbase, UBYTE regIndex)
 {
   writeReg(regbase, CRTC_IDX, regIndex);
   UBYTE value = readReg(regbase, CRTC_DATA);
-#ifdef DBG1
-  KPrintF("R CR%.2lx -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
-#endif
+
+  D(20, "R CR%.2lx -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
   return value;
 }
 
@@ -169,9 +181,8 @@ static inline void REGARGS writeCRx(volatile UBYTE *regbase, UBYTE regIndex,
 // FIXME: this doesn't work. I was hoping to write CRTC_IDX and CRTC_DATA in one
 // go
 //  writeRegW(regbase, CRTC_IDX, (regIndex << 8) | value );
-#ifdef DBG
-  KPrintF("W CR%.2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
-#endif
+
+  D(10, "W CR%.2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
 }
 
 static inline void REGARGS writeCRxMask(volatile UBYTE *regbase, UBYTE regIndex,
@@ -180,18 +191,17 @@ static inline void REGARGS writeCRxMask(volatile UBYTE *regbase, UBYTE regIndex,
   UBYTE regvalue = (readCRx(regbase, regIndex) & ~mask) | (value & mask);
   // Keep index register from previous read
   writeReg(regbase, CRTC_DATA, regvalue);
-#ifdef DBG
-  KPrintF("W CR%.2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)regvalue);
-#endif
+
+  D(10, "W CR%.2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)regvalue);
 }
 
 static inline UBYTE REGARGS readSRx(volatile UBYTE *regbase, UBYTE regIndex)
 {
   writeReg(regbase, SEQX, regIndex);
   UBYTE value = readReg(regbase, SEQ_DATA);
-#ifdef DBG1
-  KPrintF("R SR%2lx -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
-#endif
+
+  D(10, "R SR%2lx -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
+
   return value;
 }
 
@@ -200,9 +210,8 @@ static inline void REGARGS writeSRx(volatile UBYTE *regbase, UBYTE regIndex,
 {
   writeReg(regbase, SEQX, regIndex);
   writeReg(regbase, SEQ_DATA, value);
-#ifdef DBG
-  KPrintF("W SR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
-#endif
+
+  D(10, "W SR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
 }
 
 static inline void REGARGS writeSRxMask(volatile UBYTE *regbase, UBYTE regIndex,
@@ -216,9 +225,8 @@ static inline UBYTE REGARGS readGRx(volatile UBYTE *regbase, UBYTE regIndex)
 {
   writeReg(regbase, GRC_ADR, regIndex);
   UBYTE value = readReg(regbase, GRC_DATA);
-#ifdef DBG
-  KPrintF("R GR%2lx -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
-#endif
+
+  D(20, "R GR%2lx -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
   return value;
 }
 
@@ -227,18 +235,16 @@ static inline void REGARGS writeGRx(volatile UBYTE *regbase, UBYTE regIndex,
 {
   writeReg(regbase, GRC_ADR, regIndex);
   writeReg(regbase, GRC_DATA, value);
-#ifdef DBG
-  KPrintF("W GR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
-#endif
+
+  D(10, "W GR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
 }
 
 static inline UBYTE REGARGS readARx(volatile UBYTE *regbase, UBYTE regIndex)
 {
   writeReg(regbase, ATR_AD, regIndex);
   UBYTE value = readReg(regbase, ATR_DATA_R);
-#ifdef DBG1
-  KPrintF("R AR%2lx -> 0x%lx\n", (LONG)regIndex, (LONG)value);
-#endif
+
+  D(20, "R AR%2lx -> 0x%lx\n", (LONG)regIndex, (LONG)value);
   return value;
 }
 
@@ -249,9 +255,8 @@ static inline void REGARGS writeARx(volatile UBYTE *regbase, UBYTE regIndex,
   // the Attribute Controller registers may be accessed
   writeReg(regbase, ATR_AD, regIndex);
   writeReg(regbase, ATR_DATA_W, value);
-#ifdef DBG
-  KPrintF("W AR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
-#endif
+
+  D(10, "W AR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
 }
 
 static inline void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask,

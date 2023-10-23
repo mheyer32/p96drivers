@@ -9,17 +9,6 @@
 
 #include <SDI_stdarg.h>
 
-#ifndef DBG
-#define D(...)
-#define DFUNC(...)
-#else
-#define D(...) KPrintF(__VA_ARGS__)
-// Helper macro to allow call DFUNC with just one argument (and __VA_ARGS__
-// being empty)
-#define VA_ARGS(...) , ##__VA_ARGS__
-#define DFUNC(fmt, ...) KPrintF("%s:" fmt, __func__ VA_ARGS(__VA_ARGS__))
-#endif
-
 #define SUBSYS_STAT 0x42E8  // Read
 #define SUBSYS_CNTL 0x42E8  // Write
 #define ADVFUNC_CNTL 0x4AE8
@@ -128,6 +117,8 @@ typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 
+int debugLevel = 0;
+
 static inline u32 abs_diff(u32 a, u32 b)
 {
   return (a > b) ? (a - b) : (b - a);
@@ -153,7 +144,7 @@ int svga_compute_pll(const struct svga_pll *pll, u32 f_wanted, u16 *m, u16 *n,
   u16 am, an, ar;
   u32 f_vco, f_current, delta_current, delta_best;
 
-  DFUNC("ideal frequency: %ld kHz\n", (unsigned int)f_wanted);
+  DFUNC(8, "ideal frequency: %ld kHz\n", (unsigned int)f_wanted);
 
   ar = pll->r_max;
   f_vco = f_wanted << ar;
@@ -200,12 +191,11 @@ int svga_compute_pll(const struct svga_pll *pll, u32 f_wanted, u16 *m, u16 *n,
   }
 
   f_current = (pll->f_base * *m) / *n;
-#ifdef DBG1
-  KPrintF("found frequency: %ld kHz (VCO %ld kHz)\n", (int)(f_current >> ar),
+
+  D(15, "found frequency: %ld kHz (VCO %ld kHz)\n", (int)(f_current >> ar),
           (int)f_current);
-  KPrintF("m = %ld n = %ld r = %ld\n", (unsigned int)*m, (unsigned int)*n,
+  D(15, "m = %ld n = %ld r = %ld\n", (unsigned int)*m, (unsigned int)*n,
           (unsigned int)*r);
-#endif
 
   return (f_current >> ar);
 }
@@ -220,7 +210,7 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
   u16 m, n, r;
   u8 regval;
 
-  DFUNC("original Hz: %ld\n", clockHz);
+  DFUNC(10, "original Hz: %ld\n", clockHz);
 
   int currentKhz = svga_compute_pll(&s3_pll, clockHz / 1000, &m, &n, &r);
   if (currentKhz < 0) {
@@ -310,7 +300,7 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi),
   REGBASE();
   LOCAL_SYSBASE();
 
-  DFUNC("startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
+  DFUNC(5, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
 
   // FIXME: this should be a constant for the Trio, no need to make it dynamic
   const UBYTE bppDiff = 2;  // 8 - bi->BitsPerCannon;
@@ -340,7 +330,7 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
   REGBASE();
 
-  DFUNC("\n");
+  DFUNC(5, "\n");
 
   static const UBYTE DAC_ColorModes[] = {
       0x00,  // RGBFB_NONE
@@ -407,7 +397,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
   UWORD hTotal;
   UWORD ScreenWidth;
 
-  DFUNC(
+  DFUNC(5,
       "W %ld, H %ld, HTotal %ld, HBlankSize %ld, HSyncStart %ld, HSyncSize "
       "%ld, "
       "\nVTotal %ld, VBlankSize %ld,  VSyncStart %ld ,  VSyncSize %ld\n",
@@ -431,12 +421,12 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
   depth = mi->Depth;
   if (depth <= 8) {
     if ((border == 0) || ((mi->HorBlankSize == 0 || (mi->VerBlankSize == 0)))) {
-      D("8-Bit Mode, NO Border\n");
+      D(6, "8-Bit Mode, NO Border\n");
       // Bit 5 BDR SEL - Blank/Border Select
       // 1 = BLANK is active during entire display inactive period (no border)
       W_CR_MASK(0x33, 0x20, 0x20);
     } else {
-      D("8-Bit Mode, Border\n");
+      D(6, "8-Bit Mode, Border\n");
       // Bit 5 BDR SEL - Blank/Border Select
       // o = BLANK active time is defined by CR2 and CR3
       W_CR_MASK(0x33, 0x20, 0x0);
@@ -455,7 +445,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
       W_SR_MASK(0x18, 0x80, 0x80);
     }
   } else if (depth <= 16) {
-    D("16-Bit Mode, No Border\n");
+    D(6, "16-Bit Mode, No Border\n");
     // Bit 5 BDR SEL - Blank/Border Select
     // o = BLANK active time is defined by CR2 and CR3
     W_CR_MASK(0x33, 0x20, 0x0);
@@ -465,7 +455,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     ScreenWidth = ScreenWidth * 2 + 6;
     border = 0;
   } else {
-    D("24-Bit Mode, No Border\n");
+    D(6, "24-Bit Mode, No Border\n");
     // Bit 5 BDR SEL - Blank/Border Select
     // 0 = BLANK active time is defined by CR2 and CR3
     W_CR_MASK(0x33, 0x20, 0x0);
@@ -480,7 +470,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
   {
     // Horizontal Total (CRO)
     UWORD hTotalClk = TO_CLKS(hTotal) - 5;
-    D("Horizontal Total %ld\n", (ULONG)hTotalClk);
+    D(6, "Horizontal Total %ld\n", (ULONG)hTotalClk);
     W_CR_OVERFLOW1(hTotalClk, 0x0, 0, 8, 0x5D, 0, 1);
     // FIXME: is this correct?
     {
@@ -494,7 +484,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     // This register defines the number of character clocks for one line of the
     // active display. Bit 8 of this value is bit 1 of CR5D.
     UWORD hDisplayEnd = TO_CLKS(ScreenWidth) - 1;
-    D("Display End %ld\n", (ULONG)hDisplayEnd);
+    D(6, "Display End %ld\n", (ULONG)hDisplayEnd);
     W_CR_OVERFLOW1(hDisplayEnd, 0x1, 0, 8, 0x5D, 1, 1);
   }
 
@@ -506,14 +496,14 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     // Enable) signals are inactive.
 
     // Start Horizontal Blank Register (S_H_BLNKI (CR2))
-    D("Horizontal Blank Start %ld\n", (ULONG)hBlankStart);
+    D(6, "Horizontal Blank Start %ld\n", (ULONG)hBlankStart);
     W_CR_OVERFLOW1(hBlankStart, 0x2, 0, 8, 0x5d, 2, 1);
   }
 
   {
     // End Horizontal Blank Register (E_H_BLNKI (CR3)
     UWORD hBlankEnd = TO_CLKS(hTotal - hBorderSize) - 1;
-    D("Horizontal Blank End %ld\n", (ULONG)hBlankEnd);
+    D(6, "Horizontal Blank End %ld\n", (ULONG)hBlankEnd);
     //    W_CR_OVERFLOW2(hBlankEnd, 0x3, 0, 5, 0x5, 7, 1, 0x5d, 3, 1);
     W_CR_OVERFLOW1(hBlankEnd, 0x3, 0, 5, 0x5, 7, 1);
   }
@@ -521,14 +511,14 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
   UWORD hSyncStart = TO_CLKS(mi->HorSyncStart + ScreenWidth);
   {
     // Start Horizontal Sync Position Register (S_H_SV _PI (CR4)
-    D("HSync start %ld\n", (ULONG)hSyncStart);
+    D(6, "HSync start %ld\n", (ULONG)hSyncStart);
     W_CR_OVERFLOW1(hSyncStart, 0x4, 0, 8, 0x5d, 4, 1);
   }
 
   UWORD endHSync = hSyncStart + TO_CLKS(mi->HorSyncSize);
   {
     // End Horizontal Sync Position Register (E_H_SY_P) (CR5)
-    D("HSync End %ld\n", (ULONG)endHSync);
+    D(6, "HSync End %ld\n", (ULONG)endHSync);
     W_CR_MASK(0x5, 0x1f, endHSync);
     //    W_CR_OVERFLOW1(endHSync, 0x5, 0, 5, 0x5d, 5, 1);
   }
@@ -545,14 +535,14 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     if (endHSync > startDisplayFifo) {
       startDisplayFifo = endHSync + 1;
     }
-    D("Start Display Fifo %ld\n", (ULONG)startDisplayFifo);
+    D(6, "Start Display Fifo %ld\n", (ULONG)startDisplayFifo);
     W_CR_OVERFLOW1(startDisplayFifo, 0x3b, 0, 8, 0x5d, 6, 1);
   }
 
   {
     // Vertical Total (CR6)
     UWORD vTotal = TO_SCANLINES(mi->VerTotal) - 2;
-    D("VTotal %ld\n", (ULONG)vTotal);
+    D(6, "VTotal %ld\n", (ULONG)vTotal);
     W_CR_OVERFLOW3(vTotal, 0x6, 0, 8, 0x7, 0, 1, 0x7, 5, 1, 0x5e, 0, 1);
   }
 
@@ -560,7 +550,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
   {
     // Vertical Display End register (CR12)
     UWORD vDisplayEnd = TO_SCANLINES(mi->Height) - 1;
-    D("Vertical Display End %ld\n", (ULONG)vDisplayEnd);
+    D(6, "Vertical Display End %ld\n", (ULONG)vDisplayEnd);
     W_CR_OVERFLOW3(vDisplayEnd, 0x12, 0, 8, 0x7, 1, 1, 0x7, 6, 1, 0x5e, 1, 1);
   }
 
@@ -573,7 +563,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     // FIXME: the blankSize is unaffected by double scan, but affected by
     // interlaced?
     vBlankStart = ((vBlankStart + vBlankSize) >> interlaced) - 1;
-    D("VBlank Start %ld\n", (ULONG)vBlankStart);
+    D(6, "VBlank Start %ld\n", (ULONG)vBlankStart);
     W_CR_OVERFLOW3(vBlankStart, 0x15, 0, 8, 0x7, 3, 1, 0x9, 5, 1, 0x5e, 2, 1);
   }
 
@@ -584,7 +574,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
       vBlankEnd = vBlankEnd * 2;
     }
     vBlankEnd = ((vBlankEnd - vBlankSize) >> interlaced) - 1;
-    D("VBlank End %ld\n", (ULONG)vBlankEnd);
+    D(6, "VBlank End %ld\n", (ULONG)vBlankEnd);
     // FIXME: the blankSize is unaffected by double scan, but affected by
     // interlaced?
     W_CR(0x16, vBlankEnd);
@@ -595,7 +585,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     // Vertical Retrace Start Register (VRS) (CR10)
     // FIXME: here VsyncStart is in lines, not scanlines, while mi->VerBlankSize
     // is in scanlines?
-    D("VRetrace Start %ld\n", (ULONG)vRetraceStart);
+    D(6, "VRetrace Start %ld\n", (ULONG)vRetraceStart);
     W_CR_OVERFLOW3(vRetraceStart, 0x10, 0, 8, 0x7, 2, 1, 0x7, 7, 1, 0x5e, 4, 1);
   }
 
@@ -607,7 +597,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     // 4 1east significant bits of this sum are programmed into this field.
     // This allows a maximum VSYNC pulse width of 15 scan line units.
     UWORD vRetraceEnd = vRetraceStart + TO_SCANLINES(mi->VerSyncSize);
-    D("VRetrace End %ld\n", (ULONG)vRetraceEnd);
+    D(6, "VRetrace End %ld\n", (ULONG)vRetraceEnd);
     W_CR_MASK(0x11, 0x0F, vRetraceEnd);
   }
 
@@ -722,7 +712,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     W_REG(ATR_AD, 0x20);
     R_REG(0x3DA);
 
-    D("Current 3C0: %lx\n", (ULONG)R_REG(ATR_AD));
+    D(6, "Current 3C0: %lx\n", (ULONG)R_REG(ATR_AD));
 
     Enable();
   }
@@ -736,7 +726,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi),
   REGBASE();
   LOCAL_SYSBASE();
 
-  DFUNC(
+  DFUNC(5,
       "mem 0x%lx, width %ld, height %ld, xoffset %ld, yoffset %ld, "
       "format %ld\n",
       memory, (ULONG)width, (ULONG)height, (LONG)xoffset, (LONG)yoffset,
@@ -788,7 +778,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi),
   pitch /= 8;
   panOffset = (panOffset + memOffset) / 4;
 
-  D("panOffset 0x%lx, pitch %ld dwords\n", panOffset, (ULONG)pitch);
+  D(5, "panOffset 0x%lx, pitch %ld dwords\n", panOffset, (ULONG)pitch);
   // Start Address Low Register (STA(L)) (CRD)
   // Start Address High Register (STA(H)) (CRC)
   // Extended System Control 3 Register (EXT-SCTL-3)(CR69)
@@ -872,7 +862,7 @@ static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
   // Clocking Mode Register (ClK_MODE) (SR1)
   REGBASE();
 
-  DFUNC(" state %ld\n", (ULONG)state);
+  DFUNC(5, " state %ld\n", (ULONG)state);
 
   W_SR_MASK(0x01, 0x20, (~(UBYTE)state & 1) << 5);
   //  R_REG(0x3DA);
@@ -904,13 +894,11 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi),
 
   UWORD m, n, r;
 
-#ifdef DBG1
-  KPrintF("original Pixel Hz: %ld\n", pixelClock);
-#endif
+  D(15, "original Pixel Hz: %ld\n", pixelClock);
 
   int currentKhz = svga_compute_pll(&s3_pll, pixelClock / 1000, &m, &n, &r);
   if (currentKhz < 0) {
-    KPrintF("cannot resolve requested pixclock\n");
+    D(0, "cannot resolve requested pixclock\n");
     return 0;
   }
   if (mi->Flags & GMF_DOUBLECLOCK) {
@@ -918,9 +906,7 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi),
   }
   mi->PixelClock = currentKhz * 1000;
 
-#ifdef DBG1
-  KPrintF("Pixelclock Hz: %ld\n\n", mi->PixelClock);
-#endif
+  D(15, "Pixelclock Hz: %ld\n\n", mi->PixelClock);
 
   // FIXME: would have to encode r here, too
   mi->pll1.Numerator = n;
@@ -933,7 +919,7 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi),
                                __REGA1(struct ModeInfo *mi),
                                __REGD0(ULONG index), __REGD7(RGBFTYPE format))
 {
-  DFUNC("\n");
+  DFUNC(5, "\n");
 
   ULONG pixelClockKhz = index * 1000;
   if (mi->Flags & GMF_DOUBLECLOCK) {
@@ -957,7 +943,7 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 {
   REGBASE();
 
-  DFUNC("\n");
+  DFUNC(5, "\n");
 
   ULONG pixelClock = bi->ModeInfo->PixelClock;
 
@@ -965,14 +951,12 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
     pixelClock /= 2;
   }
 
-#ifdef DBG
-  KPrintF("SetClock: %ld -> %ld\n", bi->ModeInfo->PixelClock, pixelClock);
-#endif
+  D(6, "SetClock: %ld -> %ld\n", bi->ModeInfo->PixelClock, pixelClock);
 
   UWORD m, n, r;
   int currentKhz = svga_compute_pll(&s3_pll, pixelClock / 1000, &m, &n, &r);
   if (currentKhz < 0) {
-    KPrintF("cannot resolve requested pixclock\n");
+    D(0, "cannot resolve requested pixclock\n");
   }
 
   /* Set S3 DCLK clock registers */
@@ -1092,7 +1076,7 @@ static void ASM SetSplitPosition(__REGA0(struct BoardInfo *bi),
                                  __REGD0(SHORT splitPos))
 {
   REGBASE();
-  DFUNC("%ld\n", (ULONG)splitPos);
+  DFUNC(5, "%ld\n", (ULONG)splitPos);
 
   bi->YSplit = splitPos;
   if (!splitPos) {
@@ -1109,7 +1093,7 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi),
                                   __REGD0(WORD xpos), __REGD1(WORD ypos),
                                   __REGD7(RGBFTYPE fmt))
 {
-  DFUNC("\n");
+  DFUNC(5, "\n");
   REGBASE();
 
   bi->MouseX = xpos;
@@ -1132,7 +1116,7 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi),
     spriteY = 0;
   }
 
-  D("SpritePos X: %ld 0x%lx, Y: %ld 0x%lx\n", (LONG)spriteX, (ULONG)spriteX,
+  D(5, "SpritePos X: %ld 0x%lx, Y: %ld 0x%lx\n", (LONG)spriteX, (ULONG)spriteX,
     (LONG)spriteY, (ULONG)spriteY);
   // should we be able to handle negative values and use the offset registers
   // for that?
@@ -1145,7 +1129,7 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi),
 static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi),
                                __REGD7(RGBFTYPE fmt))
 {
-  DFUNC("\n");
+  DFUNC(5, "\n");
 
   // FIXME: need to set temporary memory format?
   // No, MouseImage should be in little endian window and not affected
@@ -1181,7 +1165,7 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi),
                                __REGD2(UBYTE green), __REGD3(UBYTE blue),
                                __REGD7(RGBFTYPE fmt))
 {
-  DFUNC("Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red,
+  DFUNC(5, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red,
         (ULONG)green, (ULONG)blue);
   REGBASE();
   LOCAL_SYSBASE();
@@ -1240,7 +1224,7 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi),
 static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
                           __REGD7(RGBFTYPE RGBFormat))
 {
-  DFUNC("\n");
+  DFUNC(5, "\n");
   REGBASE();
 
   W_CR(0x45, activate ? 0x01 : 0x00);
@@ -1304,7 +1288,8 @@ static inline void REGARGS getGESegmentAndOffset(ULONG addr, WORD bytesPerRow,
   *yoffset = srcOffset / bytesPerRow;
   *xoffset = (srcOffset % bytesPerRow) / bpp;
 
-  DFUNC("segment %ld, xoff %ld, yoff %ld\n", *segment, *xoffset, *yoffset);
+  DFUNC(5, "segment %ld, xoff %ld, yoff %ld\n", (ULONG)*segment,
+        (ULONG)*xoffset, (ULONG)*yoffset);
 }
 
 static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
@@ -1340,8 +1325,8 @@ static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
     CR31_1 = (1 << 1);
     CR50_76_0 = 0b00000000;
   } else {
-    DFUNC(
-        "Width unsupported by Graphics Engine, chosing unaccelerated  path\n");
+    DFUNC(0,
+        "Width unsupported by Graphics Engine, choosing unaccelerated  path\n");
     return FALSE;  // reserved
   }
 
@@ -1375,7 +1360,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
                          __REGD3(WORD height), __REGD4(ULONG pen),
                          __REGD5(UBYTE mask), __REGD7(RGBFTYPE fmt))
 {
-  DFUNC(
+  DFUNC(5,
       "\nx %ld, y %ld, w %ld, h %ld\npen %08lx, mask %lx fmt %ld\n"
       "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
       (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)pen, (ULONG)mask,
@@ -1424,6 +1409,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
     WaitFifo(bi, 8);
   }
 
+  D(10, "memory segment: %ld\n", (ULONG)seg);
   W_BEE8(MULT_MISC2, seg);
 
   W_REG_W(CUR_X, x);
@@ -1558,7 +1544,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   //  bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
   //  bi->DrawLine = (_func_55.conflict *)&DrawLine;
 
-  DFUNC(
+  DFUNC(15,
       "WaitBlitter 0x%08lx\nBlitRect 0x%08lx\nInvertRect 0x%08lx\nFillRect "
       "0x%08lx\n"
       "BlitTemplate 0x%08lx\n BlitPlanar2Chunky 0x%08lx\n"
@@ -1790,10 +1776,10 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   W_CR(0x58, 0x13);
   if (isTrio64Plus) {
     // Enable Trio64+ "New MMIO" only and byte swapping in the Big Endian window
-    D("setup New MMIO\n");
+    D(5, "setup New MMIO\n");
     W_CR_MASK(0x53, 0x3E, 0x0c);
   } else {
-    D("setup compatible MMIO\n");
+    D(5, "setup compatible MMIO\n");
     // Enable Trio64 old style MMIO. This hardcodes the MMIO range to 0xA8000
     // physical address. Need to make sure, nothing else sits there
     W_CR_MASK(0x53, 0x10, 0x10);
@@ -1866,16 +1852,16 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   UBYTE memType = (R_CR(0x36) >> 2) & 3;
   switch (memType) {
   case 0b00:
-    KPrintF("1-cycle EDO\n");
+    D(1, "1-cycle EDO\n");
     break;
   case 0b10:
-    KPrintF("2-cycle EDO\n");
+    D(1, "2-cycle EDO\n");
     break;
   case 0b11:
-    KPrintF("FPM\n");
+    D(1, "FPM\n");
     break;
   default:
-    KPrintF("unknown memory type\n");
+    D(0, "unknown memory type\n");
   }
 #endif
 
@@ -1884,7 +1870,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
   framebuffer[0] = 0;
   while (bi->MemorySize) {
-    D("prometheus.card: probing memory size %ld\n", bi->MemorySize);
+    D(1, "Probing memory size %ld\n", bi->MemorySize);
 
     // Enable Linear Addressing Window LAW
     {
@@ -1921,7 +1907,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
     ULONG readbackLow = *lowOffset;
     ULONG readbackZero = *framebuffer;
 
-    D("S3Trio64: probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= "
+    D(5, "S3Trio64: probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= "
       "0x%lx\n",
       highOffset, readbackHigh, lowOffset, readbackLow, readbackZero);
 
@@ -1933,7 +1919,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
     bi->MemorySize >>= 1;
   }
 
-  D("S3Trio64: memorySize %ldmb\n", bi->MemorySize / (1024 * 1024));
+  D(1, "S3Trio64: memorySize %ldmb\n", bi->MemorySize / (1024 * 1024));
 
   // Two sprite images, each 64x64*2 bits
   const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
