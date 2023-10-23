@@ -1278,13 +1278,14 @@ static inline void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
 }
 
 #define MByte(x) ((x) * (1024 * 1024))
-static inline void REGARGS getGESegmentAndOffset(ULONG addr, WORD bytesPerRow,
-                                                 UBYTE bpp, UWORD *segment,
-                                                 UWORD *xoffset, UWORD *yoffset)
+static inline void REGARGS getGESegmentAndOffset(ULONG memOffset,
+                                                 WORD bytesPerRow, UBYTE bpp,
+                                                 UWORD *segment, UWORD *xoffset,
+                                                 UWORD *yoffset)
 {
-  UWORD srcOffset = addr & 0xFFFFF;
-  *segment = (addr / MByte(1)) & 7;
+  *segment = (memOffset >> 20) & 7;
 
+  ULONG srcOffset = memOffset & 0xFFFFF;
   *yoffset = srcOffset / bytesPerRow;
   *xoffset = (srcOffset % bytesPerRow) / bpp;
 
