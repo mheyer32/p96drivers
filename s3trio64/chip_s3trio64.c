@@ -1257,7 +1257,7 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
   return TRUE;
 }
 
-static void REGARGS WaitBlitter(struct BoardInfo *bi)
+static inline void REGARGS WaitBlitter(struct BoardInfo *bi)
 {
   REGBASE();
   //  LOCAL_SYSBASE();
@@ -1275,6 +1275,22 @@ static void REGARGS WaitBlitter(struct BoardInfo *bi)
   };
 
   //  D("done\n");
+}
+
+static inline void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
+{
+  REGBASE();
+
+//  assert(numSlots <= 13);
+
+  // The FIFO bits are split into two groups, 7-0 and 15-11
+  // Bit 7=0 (means 13 slots are available, bit 15 represents at least 5 slots available)
+
+  BYTE testBit = 7 - (numSlots - 1);
+  testBit &= 0xF; // handle wrap-around
+
+  while (R_REG_W(GP_STAT) & (1 << testBit)) {
+  };
 }
 
 #define MByte(x) ((x) * (1024 * 1024))
@@ -1388,11 +1404,10 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   x += xoffset;
   y += yoffset;
 
-  WaitBlitter(bi);
-
   if (getChipData(bi)->GEOp != RectFill) {
     getChipData(bi)->GEOp = RectFill;
 
+    WaitFifo(bi, 13);
     // Set MULT_MISC first so that
     // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
     // Bit 9 CMR 32B - Select 32-Bit Command Registers
@@ -1403,6 +1418,10 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
     W_REG_L(WRT_MASK, 0xFFFFFFFF);
     //  W_REG_W(WRT_MASK, 0xffff);
     //  W_REG_W(WRT_MASK, 0xffff);
+  }
+  else
+  {
+    WaitFifo(bi, 8);
   }
 
   W_BEE8(MULT_MISC2, seg);
