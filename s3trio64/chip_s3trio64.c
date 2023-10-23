@@ -1368,7 +1368,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
       (ULONG)fmt, (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
 
   REGBASE();
-  //  MMIOBASE();
+  MMIOBASE();
   //  LOCAL_SYSBASE();
 
   UBYTE bpp = getBPP(fmt);
@@ -1401,27 +1401,20 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
 
     W_BEE8(PIX_CNTL, 0x0000);
     W_REG_W(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
+    //FIXME: set mask according to  'mask' parameter for CLUT modes
     W_REG_L(WRT_MASK, 0xFFFFFFFF);
-    //  W_REG_W(WRT_MASK, 0xffff);
-    //  W_REG_W(WRT_MASK, 0xffff);
   }
   else
   {
     WaitFifo(bi, 8);
   }
 
+  // This could/should get chached as well
   D(10, "memory segment: %ld\n", (ULONG)seg);
   W_BEE8(MULT_MISC2, seg);
 
-  W_REG_W(CUR_X, x);
-  W_REG_W(CUR_Y, y);
-
-  //  W_MMIO_PACKED(ALT_CURXY, (x << 16) | y);
-
-  W_REG_W(MAJ_AXIS_PCNT, width - 1);
-  W_BEE8(MIN_AXIS_PCNT, height - 1);
-
-  //  W_MMIO_PACKED(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+  W_MMIO_PACKED(ALT_CURXY, (x << 16) | y);
+  W_MMIO_PACKED(ALT_PCNT, ((width - 1) << 16) | (height - 1));
 
   // Extended Memory Control 4 Register (EXT-MCTL-4) (CR61)
   //    Bits 6-5 BIG ENDIAN - Big Endian Data Bye Swap (image writes only)
@@ -1438,9 +1431,8 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
     break;
   case RGBFB_R5G6B5:
   case RGBFB_R5G5B5:
-    // FIXME: The FillRect doc says that Pen will be a 16bit value, buit it
-    // seems its actually 32 with both
-    // words having the same vale?
+    // FIXME: The FillRect doc says that Pen will be a 16bit value, but it
+    // seems its actually 32 with both words having the same value?
     // Just swap the bytes within a word
     //      W_CR(0x61, 0b01<<5);
     //      W_CR_MASK(0x54, 0x3, 0x1);
@@ -1458,7 +1450,6 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   pen = swapl(pen);
 
   W_REG_L(FRGD_COLOR, pen);
-  //  W_REG_W(FRGD_COLOR, pen>>16);
 
   UWORD cmd = CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT;
 
@@ -1961,6 +1952,8 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 
   W_REG_W(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
   W_REG_W(BKGD_MIX, CLR_SRC_BKGD_COLOR | MIX_NEW);
+
+  W_REG_W(CMD, CMD_ALWAYS|CMD_TYPE_NOP);
 
   return TRUE;
 }
