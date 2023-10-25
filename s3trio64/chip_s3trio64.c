@@ -1367,14 +1367,12 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
                          __REGD5(UBYTE mask), __REGD7(RGBFTYPE fmt))
 {
   DFUNC(5,
-      "\nx %ld, y %ld, w %ld, h %ld\npen %08lx, mask 0x%lx fmt %ld\n"
-      "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
-      (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)pen, (ULONG)mask,
-      (ULONG)fmt, (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
+        "\nx %ld, y %ld, w %ld, h %ld\npen %08lx, mask 0x%lx fmt %ld\n"
+        "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+        (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)pen,
+        (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
 
-  REGBASE();
   MMIOBASE();
-  //  LOCAL_SYSBASE();
 
   UBYTE bpp = getBPP(fmt);
   if (!bpp) {
@@ -1411,9 +1409,9 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
     W_BEE8(MULT_MISC, (1 << 9));
 
     W_BEE8(PIX_CNTL, 0x0000);
-    W_REG_W(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
+    W_REG_W_MMIO(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
     // FIXME: set mask according to  'mask' parameter for CLUT modes
-    W_REG_L(WRT_MASK, 0xFFFFFFFF);
+    W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
   } else {
     WaitFifo(bi, 8);
   }
@@ -1421,56 +1419,29 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);
 
-  W_MMIO_PACKED(ALT_CURXY, (x << 16) | y);
-  W_MMIO_PACKED(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+  W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
+  W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
 
-  // Extended Memory Control 4 Register (EXT-MCTL-4) (CR61)
-  //    Bits 6-5 BIG ENDIAN - Big Endian Data Bye Swap (image writes only)
-  //        00 = No swap (Default)
-  //        01 = Swap bytes within each word
-  //        10 = Swap all bytes in doublewords (bytes reversed)
-  //        11 = Reserved
   switch (fmt) {
   case RGBFB_B8G8R8A8:
-    // swap all the bytes within a double word
-    //      W_CR(0x61, 0b10<<5);
-    //      W_CR_MASK(0x54, 0x3, 0x2);
     pen = swapl(pen);
     break;
   case RGBFB_R5G6B5PC:
   case RGBFB_R5G5B5PC:
-    // FIXME: The FillRect doc says that Pen will be a 16bit value, but it
-    // seems its actually 32 with both words having the same value?
-    // Just swap the bytes within a word
-    //      W_CR(0x61, 0b01<<5);
-    //      W_CR_MASK(0x54, 0x3, 0x1);
     pen = swapl(pen);
     break;
   case RGBFB_CLUT:
     pen |= (pen << 8) | (pen << 16) | (pen << 24);
     break;
   default:
-    //      W_CR(0x61, 0b00<<5);
-    //      W_CR_MASK(0x54, 0x3, 0x0);
     break;
   }
 
-  W_REG_L(FRGD_COLOR, pen);
+  W_REG_L_MMIO(FRGD_COLOR, pen);
 
   UWORD cmd = CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT;
 
-  // CMD_BYTE_SWAP has effect on short stroke renddering only?
-  //  switch (fmt) {
-  //  case RGBFB_A8R8G8B8:
-  //  case RGBFB_R5G6B5:
-  //  case RGBFB_R5G5B5:
-  //    // Just swap the bytes within a word
-  //    cmd |= CMD_BYTE_SWAP;
-  //  }
-
-  W_REG_W(CMD, cmd);
-
-  //  WaitBlitter(bi);
+  W_REG_W_MMIO(CMD, cmd);
 }
 
 BOOL InitChipL(__REGA0(struct BoardInfo *bi))

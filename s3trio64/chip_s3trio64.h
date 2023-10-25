@@ -126,15 +126,15 @@ static inline UWORD REGARGS readRegMMIOW(volatile UBYTE *mmiobase, UWORD reg)
   return swapw(*(volatile UWORD *)(mmiobase + (reg - MMIOREGISTER_OFFSET)));
 }
 
-static inline void REGARGS writeRegMMIOW(volatile UBYTE *mmiobase, UWORD reg,
-                                         UWORD value)
+static inline void REGARGS writeRegMMIO_W(volatile UBYTE *mmiobase, UWORD reg,
+                                          UWORD value)
 {
   D(10, "W 0x%.4lx <- 0x%04lx\n", (LONG)reg, (LONG)value);
   *(volatile UWORD *)(mmiobase + (reg - MMIOREGISTER_OFFSET)) = swapw(value);
 }
 
-static inline void REGARGS writeRegMMIOPacked(volatile UBYTE *mmiobase,
-                                              UWORD reg, ULONG value)
+static inline void REGARGS writeRegMMIO_L(volatile UBYTE *mmiobase, UWORD reg,
+                                          ULONG value)
 {
   D(10, "W 0x%.4lx <- 0x%08lx\n", (LONG)reg, (LONG)value);
 
@@ -178,9 +178,9 @@ static inline void REGARGS writeCRx(volatile UBYTE *regbase, UBYTE regIndex,
 {
   writeReg(regbase, CRTC_IDX, regIndex);
   writeReg(regbase, CRTC_DATA, value);
-// FIXME: this doesn't work. I was hoping to write CRTC_IDX and CRTC_DATA in one
-// go
-//  writeRegW(regbase, CRTC_IDX, (regIndex << 8) | value );
+  // FIXME: this doesn't work. I was hoping to write CRTC_IDX and CRTC_DATA in
+  // one go
+  //  writeRegW(regbase, CRTC_IDX, (regIndex << 8) | value );
 
   D(10, "W CR%.2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
 }
@@ -293,18 +293,17 @@ static inline void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask,
 #define W_REG_L(reg, value) writeRegL(RegBase, reg, value)
 
 #define R_REG_W_MMIO(reg) readRegMMIOW(MMIOBase, reg)
-#define W_REG_W_MMIO(reg, value) writeRegMMIOW(MMIOBase, reg, value)
+#define W_REG_W_MMIO(reg, value) writeRegMMIO_W(MMIOBase, reg, value)
+#define W_REG_L_MMIO(reg, value) writeRegMMIO_L(MMIOBase, reg, value)
 
-#define W_MMIO_PACKED(reg, value) writeRegMMIOPacked(MMIOBase, reg, value)
+#define W_BEE8(idx, value) W_REG_W_MMIO(0xBEE8, ((idx << 12) | value))
 
-#define W_BEE8(idx, value) W_REG_W(0xBEE8, ((idx << 12) | value))
-
-static inline UWORD readBEE8(volatile UBYTE *RegBase, struct ExecBase *SysBase, UBYTE idx)
+static inline UWORD readBEE8(volatile UBYTE *MMIOBase, UBYTE idx)
 {
-  //BEWARE: the read index bit value does not fully match 'idx'
-  // We do not cover 9AE8, 42E8, 476E8 here (which can be read, too through this register)
-  switch(idx)
-  {
+  // BEWARE: the read index bit value does not fully match 'idx'
+  // We do not cover 9AE8, 42E8, 476E8 here (which can be read, too through this
+  // register)
+  switch (idx) {
   case 0xA:
     idx = 0b0101;
     break;
@@ -317,9 +316,9 @@ static inline UWORD readBEE8(volatile UBYTE *RegBase, struct ExecBase *SysBase, 
   }
 
   W_BEE8(0xF, idx);
-  return R_REG_W(0xBEE8) & 0xFFF;
+  return R_REG_W_MMIO(0xBEE8) & 0xFFF;
 }
-#define R_BEE8(idx) readBEE8(RegBase, SysBase, idx)
+#define R_BEE8(idx) readBEE8(MMIOBase, idx)
 
 #define W_MISC_MASK(mask, value) writeMISC_OUT(RegBase, mask, value)
 
