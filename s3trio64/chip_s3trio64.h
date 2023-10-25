@@ -18,7 +18,7 @@
 extern int debugLevel;
 #define LOCAL_DEBUGLEVEL(level) int debugLevel = level;
 
-#define D(level, ...) if (debugLevel > (level)) { KPrintF(__VA_ARGS__); }
+#define D(level, ...) if (debugLevel >= (level)) { KPrintF(__VA_ARGS__); }
 // Helper macro to allow call DFUNC with just one argument (and __VA_ARGS__
 // being empty)
 #define VA_ARGS(...) , ##__VA_ARGS__
