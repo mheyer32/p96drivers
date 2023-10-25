@@ -1402,7 +1402,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   if (getChipData(bi)->GEOp != FILLRECT) {
     getChipData(bi)->GEOp = FILLRECT;
 
-    WaitFifo(bi, 13);
+    WaitFifo(bi, 12);
     // Set MULT_MISC first so that
     // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
     // Bit 9 CMR 32B - Select 32-Bit Command Registers
