@@ -1410,8 +1410,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   }
 
   // This could/should get chached as well
-  D(10, "memory segment: %ld\n", (ULONG)seg);
-  W_BEE8(MULT_MISC2, seg);
+  W_BEE8(MULT_MISC2, seg << 4);
 
   W_MMIO_PACKED(ALT_CURXY, (x << 16) | y);
   W_MMIO_PACKED(ALT_PCNT, ((width - 1) << 16) | (height - 1));
