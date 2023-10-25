@@ -9,6 +9,9 @@
 
 #include <SDI_stdarg.h>
 
+int debugLevel = 0;
+
+
 #define SUBSYS_STAT 0x42E8  // Read
 #define SUBSYS_CNTL 0x42E8  // Write
 #define ADVFUNC_CNTL 0x4AE8
@@ -117,7 +120,6 @@ typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 
-int debugLevel = 0;
 
 static inline u32 abs_diff(u32 a, u32 b)
 {
@@ -712,8 +714,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     W_REG(ATR_AD, 0x20);
     R_REG(0x3DA);
 
-    D(6, "Current 3C0: %lx\n", (ULONG)R_REG(ATR_AD));
-
     Enable();
   }
 }
@@ -1289,8 +1289,12 @@ static inline void REGARGS getGESegmentAndOffset(ULONG memOffset,
   *yoffset = srcOffset / bytesPerRow;
   *xoffset = (srcOffset % bytesPerRow) / bpp;
 
-  DFUNC(5, "segment %ld, xoff %ld, yoff %ld\n", (ULONG)*segment,
-        (ULONG)*xoffset, (ULONG)*yoffset);
+#ifdef DBG
+  if (*segment > 0) {
+    KPrintF("segment %ld, xoff %ld, yoff %ld, memoffset 0x%08lx\n",
+            (ULONG)*segment, (ULONG)*xoffset, (ULONG)*yoffset, memOffset);
+  }
+#endif
 }
 
 static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
@@ -1362,7 +1366,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
                          __REGD5(UBYTE mask), __REGD7(RGBFTYPE fmt))
 {
   DFUNC(5,
-      "\nx %ld, y %ld, w %ld, h %ld\npen %08lx, mask %lx fmt %ld\n"
+      "\nx %ld, y %ld, w %ld, h %ld\npen %08lx, mask 0x%lx fmt %ld\n"
       "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
       (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)pen, (ULONG)mask,
       (ULONG)fmt, (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
@@ -1389,6 +1393,12 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
 
   x += xoffset;
   y += yoffset;
+
+#ifdef DBG
+  if ((x > (1 << 11)) || (y > (1 << 11))) {
+    KPrintF("X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
+  }
+#endif
 
   if (getChipData(bi)->GEOp != RectFill) {
     getChipData(bi)->GEOp = RectFill;
@@ -1602,17 +1612,15 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
     BOOL LPBMode = (R_CR(0x6F) & 0x01) == 0;
     CONST_STRPTR modeString =
         (LPBMode ? "Local Peripheral Bus (LPB)" : "Compatibility");
-    KPrintF("Chip is Trio64+ (Rev %ld) in %s mode\n",
-            (ULONG)chipRevision & 0x0f, modeString);
+    D(0, "Chip is Trio64+ (Rev %ld) in %s mode\n", (ULONG)chipRevision & 0x0f,
+      modeString);
 
     // We can support byte-swapped formats on this chip via the Big Linear
     // Adressing Window
     bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
   } else {
-    KPrintF("Chip is Trio64/32 (Rev %ld)\n", (ULONG)chipRevision);
+    D(0, "Chip is Trio64/32 (Rev %ld)\n", (ULONG)chipRevision);
   }
-  // Input Status ? Register (STATUS_O)
-  KPrintF("Monitor is %s present\n", (R_REG(0x3C2) & 0x10 ? "NOT" : ""));
 
   /* The Enhanced Graphics Command register group is unlocked
      by setting bit 0 of the System Configuration register (CR40) to 1.
@@ -1778,7 +1786,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
     // LAW start address
     ULONG physAddress = Prm_GetPhysicalAddress(bi->MemoryBase);
     if (physAddress & 0x3FFFFF) {
-      KPrintF("WARNING: card's base address is not 4MB aligned!\n");
+      D(0, "WARNING: card's base address is not 4MB aligned!\n");
     }
     W_CR_MASK(0x5a, physAddress >> 16, 0x7F);
     // Upper address bits may  not be touched as they would result in shifting
@@ -1911,6 +1919,9 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   }
 
   D(1, "S3Trio64: memorySize %ldmb\n", bi->MemorySize / (1024 * 1024));
+
+  // Input Status ? Register (STATUS_O)
+  D(1, "Monitor is %s present\n", ((R_REG(0x3C2) & 0x10) ? "" : "NOT"));
 
   // Two sprite images, each 64x64*2 bits
   const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
