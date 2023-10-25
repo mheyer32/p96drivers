@@ -48,7 +48,9 @@ extern int debugLevel;
 typedef enum BlitterOp
 {
   None,
-  RectFill
+  FILLRECT,
+  INVERTRECT
+
 } BlitterOp_t;
 
 typedef struct ChipData

@@ -1399,8 +1399,8 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   }
 #endif
 
-  if (getChipData(bi)->GEOp != RectFill) {
-    getChipData(bi)->GEOp = RectFill;
+  if (getChipData(bi)->GEOp != FILLRECT) {
+    getChipData(bi)->GEOp = FILLRECT;
 
     WaitFifo(bi, 13);
     // Set MULT_MISC first so that
@@ -1442,6 +1442,72 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   UWORD cmd = CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT;
 
   W_REG_W_MMIO(CMD, cmd);
+}
+
+static void ASM InvertRect(__REGA0(struct BoardInfo *bi),
+                           __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
+                           __REGD1(WORD y), __REGD2(WORD width),
+                           __REGD3(WORD height), __REGD4(UBYTE mask),
+                           __REGD7(RGBFTYPE fmt))
+{
+  DFUNC(5,
+        "\nx %ld, y %ld, w %ld, h %ld\nmask 0x%lx fmt %ld\n"
+        "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+        (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask,
+        (ULONG)fmt, (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
+
+  MMIOBASE();
+
+  UBYTE bpp = getBPP(fmt);
+  if (!bpp) {
+    bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
+    return;
+  }
+
+  if (!setCR50(bi, ri->BytesPerRow, bpp)) {
+    bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
+    return;
+  }
+  UWORD seg;
+  UWORD xoffset;
+  UWORD yoffset;
+  getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp,
+                        &seg, &xoffset, &yoffset);
+
+  x += xoffset;
+  y += yoffset;
+
+#ifdef DBG
+  if ((x > (1 << 11)) || (y > (1 << 11))) {
+    KPrintF("X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
+  }
+#endif
+
+  if (getChipData(bi)->GEOp != INVERTRECT) {
+    getChipData(bi)->GEOp = INVERTRECT;
+
+    WaitFifo(bi, 11);
+    // Set MULT_MISC first so that
+    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
+    // Bit 9 CMR 32B - Select 32-Bit Command Registers
+    W_BEE8(MULT_MISC, (1 << 9));
+
+    W_BEE8(PIX_CNTL, 0x0000);
+    W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | MIX_NOT_CURRENT);
+    // FIXME: set mask according to  'mask' parameter for CLUT modes
+    // Mask can also be cached
+    W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
+  } else {
+    WaitFifo(bi, 7);
+  }
+
+  // This could/should get chached as well
+  W_BEE8(MULT_MISC2, seg << 4);
+
+  W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
+  W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+
+  W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
 }
 
 BOOL InitChipL(__REGA0(struct BoardInfo *bi))
@@ -1506,7 +1572,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   // Blitter acceleration
   bi->WaitBlitter = WaitBlitter;
   //  bi->BlitRect = BlitRect;
-  //  bi->InvertRect = InvertRect;
+  bi->InvertRect = InvertRect;
   bi->FillRect = FillRect;
   //  bi->BlitTemplate = BlitTemplate;
   //  bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
