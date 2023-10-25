@@ -1305,10 +1305,6 @@ static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
       getChipData(bi)->GEbpp == bpp) {
     return TRUE;
   }
-  getChipData(bi)->GEbytesPerRow = bytesPerRow;
-  getChipData(bi)->GEbpp = bpp;
-
-  WaitBlitter(bi);
 
   UWORD width = bytesPerRow / bpp;
   UBYTE CR31_1 = 0;
@@ -1335,8 +1331,13 @@ static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
     return FALSE;  // reserved
   }
 
+  WaitBlitter(bi);
+
   W_CR_MASK(0x50, 0xF1, CR50_76_0 | ((bpp - 1) << 4));
   W_CR_MASK(0x31, (1 << 1), CR31_1);
+
+  getChipData(bi)->GEbytesPerRow = bytesPerRow;
+  getChipData(bi)->GEbpp = bpp;
 
   return TRUE;
 }
