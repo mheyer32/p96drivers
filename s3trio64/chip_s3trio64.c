@@ -1241,7 +1241,7 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
   return TRUE;
 }
 
-static inline void REGARGS WaitBlitter(struct BoardInfo *bi)
+static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
   REGBASE();
   //  LOCAL_SYSBASE();
