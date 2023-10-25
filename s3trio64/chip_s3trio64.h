@@ -9,7 +9,6 @@
 // FIXME: copy header into common location
 #include <../PromLib/endian.h>
 
-
 #ifndef DBG
 #define D(...)
 #define DFUNC(...)
@@ -18,11 +17,17 @@
 extern int debugLevel;
 #define LOCAL_DEBUGLEVEL(level) int debugLevel = level;
 
-#define D(level, ...) if (debugLevel >= (level)) { KPrintF(__VA_ARGS__); }
+#define D(level, ...)          \
+  if (debugLevel >= (level)) { \
+    KPrintF(__VA_ARGS__);      \
+  }
 // Helper macro to allow call DFUNC with just one argument (and __VA_ARGS__
 // being empty)
 #define VA_ARGS(...) , ##__VA_ARGS__
-#define DFUNC(level, fmt, ...) if (debugLevel >= (level)) { KPrintF("%s:" fmt, __func__ VA_ARGS(__VA_ARGS__)); }
+#define DFUNC(level, fmt, ...)                         \
+  if (debugLevel >= (level)) {                         \
+    KPrintF("%s:" fmt, __func__ VA_ARGS(__VA_ARGS__)); \
+  }
 #endif
 
 // The offsets allow for using signed 16bit indexed addressing be used
@@ -63,9 +68,9 @@ typedef struct ChipData
   UBYTE Revision;
 } ChipData_t;
 
-static inline struct ChipData* getChipData(struct BoardInfo *bi)
+static inline struct ChipData *getChipData(struct BoardInfo *bi)
 {
-  return (struct ChipData*)&bi->ChipData[0];
+  return (struct ChipData *)&bi->ChipData[0];
 }
 
 #define CardPrometheusBase CardData[0]
@@ -73,13 +78,8 @@ static inline struct ChipData* getChipData(struct BoardInfo *bi)
 
 #define LOCAL_SYSBASE() struct ExecBase *SysBase = bi->ExecBase
 #define LOCAL_PROMETHEUSBASE() \
-struct Library *PrometheusBase = (struct Library *)(bi->CardPrometheusBase)
-#define LOCAL_DOSBASE() \
-    struct Library *DOSBase = getChipData(bi)->DOSBase
-
-
-
-
+  struct Library *PrometheusBase = (struct Library *)(bi->CardPrometheusBase)
+#define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
 
 static INLINE REGARGS volatile UBYTE *getLegacyBase(const struct BoardInfo *bi)
 {
