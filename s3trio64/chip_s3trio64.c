@@ -1412,11 +1412,9 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
 
     W_BEE8(PIX_CNTL, 0x0000);
     W_REG_W(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
-    //FIXME: set mask according to  'mask' parameter for CLUT modes
+    // FIXME: set mask according to  'mask' parameter for CLUT modes
     W_REG_L(WRT_MASK, 0xFFFFFFFF);
-  }
-  else
-  {
+  } else {
     WaitFifo(bi, 8);
   }
 
@@ -1433,14 +1431,14 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   //        10 = Swap all bytes in doublewords (bytes reversed)
   //        11 = Reserved
   switch (fmt) {
-  case RGBFB_A8R8G8B8:
+  case RGBFB_B8G8R8A8:
     // swap all the bytes within a double word
     //      W_CR(0x61, 0b10<<5);
     //      W_CR_MASK(0x54, 0x3, 0x2);
     pen = swapl(pen);
     break;
-  case RGBFB_R5G6B5:
-  case RGBFB_R5G5B5:
+  case RGBFB_R5G6B5PC:
+  case RGBFB_R5G5B5PC:
     // FIXME: The FillRect doc says that Pen will be a 16bit value, but it
     // seems its actually 32 with both words having the same value?
     // Just swap the bytes within a word
@@ -1456,8 +1454,6 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
     //      W_CR_MASK(0x54, 0x3, 0x0);
     break;
   }
-
-  pen = swapl(pen);
 
   W_REG_L(FRGD_COLOR, pen);
 
