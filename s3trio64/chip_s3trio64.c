@@ -1500,7 +1500,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi),
     // Mask can also be cached
     W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
   } else {
-    WaitFifo(bi, 7);
+    WaitFifo(bi, 6);
   }
 
   // This could/should get chached as well
