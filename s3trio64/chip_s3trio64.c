@@ -1359,6 +1359,8 @@ static inline ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
 #define TOP_RIGHT (0b100 << 5)
 #define BOTTOM_LEFT (0b001 << 5)
 #define BOTTOM_RIGHT (0b000 << 5)
+#define POSITIVE_X (0b001 << 5)
+#define POSITIVE_Y (0b100 << 5)
 
 static void ASM FillRect(__REGA0(struct BoardInfo *bi),
                          __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
@@ -1510,6 +1512,92 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi),
   W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
 }
 
+static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
+                         __REGA1(struct RenderInfo *ri), __REGD0(WORD srcX),
+                         __REGD1(WORD srcY), __REGD2(WORD dstX),
+                         __REGD3(WORD dstY), __REGD4(WORD width),
+                         __REGD5(WORD height), __REGD6(UBYTE mask),
+                         __REGD7(RGBFTYPE format))
+{
+  DFUNC(5,
+        "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
+        "h %ld\nmask 0x%lx fmt %ld\n"
+        "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+        (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width,
+        (ULONG)height, (ULONG)mask, (ULONG)format, (ULONG)ri->BytesPerRow,
+        (ULONG)ri->Memory);
+
+  MMIOBASE();
+
+  UBYTE bpp = getBPP(format);
+  if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
+    bi->BlitRectDefault(bi, ri, srcX, srcY, dstX, dstY, width, height, mask,
+                        format);
+    return;
+  }
+
+  UWORD seg;
+  WORD xoffset;
+  WORD yoffset;
+  getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp,
+                        &seg, &xoffset, &yoffset);
+
+  srcX += xoffset;
+  srcY += yoffset;
+  dstX += xoffset;
+  dstY += yoffset;
+
+  WORD dx = dstX - srcX;
+  WORD dy = dstY - srcY;
+
+  UWORD dir = POSITIVE_X|POSITIVE_Y;
+
+  // FIXME: do we really need to check for overlap?
+  // Is it not equally fast to adjust the blit direction each time?
+//  BOOL overlapX = !(width <= dx || width <= -dx);
+//  BOOL overlapY = !(height <= dy || height <= -dy);
+//  if (overlapX && overlapY)
+  {
+    // rectangles overlap, figure out which direction to blit
+    if (dstX > srcX) {
+      dir &= ~POSITIVE_X;
+      srcX = srcX + width - 1;
+      dstX = dstX + width - 1;
+    }
+    if (dstY > srcY) {
+      dir &= ~POSITIVE_Y;
+      srcY = srcY + height - 1;
+      dstY = dstY + height - 1;
+    }
+  }
+
+  if (getChipData(bi)->GEOp != BLITRECT) {
+    getChipData(bi)->GEOp = BLITRECT;
+
+    WaitFifo(bi, 13);
+    // Set MULT_MISC first so that
+    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
+    // Bit 9 CMR 32B - Select 32-Bit Command Registers
+    W_BEE8(MULT_MISC, (1 << 9));
+
+    W_BEE8(PIX_CNTL, 0x0000);
+    W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | MIX_NEW);
+    // FIXME: set mask according to  'mask' parameter for CLUT modes
+    // Mask can also be cached
+    W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
+  } else {
+    WaitFifo(bi, 8);
+  }
+
+  W_BEE8(MULT_MISC2, seg << 4 | seg);
+
+  W_REG_L_MMIO(ALT_CURXY, (srcX << 16) | srcY);
+  W_REG_L_MMIO(ALT_STEP, (dstX << 16) | dstY);
+  W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+
+  W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
+}
+
 BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 {
   REGBASE();
@@ -1571,7 +1659,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 
   // Blitter acceleration
   bi->WaitBlitter = WaitBlitter;
-  //  bi->BlitRect = BlitRect;
+  bi->BlitRect = BlitRect;
   bi->InvertRect = InvertRect;
   bi->FillRect = FillRect;
   //  bi->BlitTemplate = BlitTemplate;
