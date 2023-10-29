@@ -1598,6 +1598,123 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
   W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
 }
 
+static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri),
+                                       __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY),
+                                       __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height),
+                                       __REGD6(UBYTE opCode), __REGD7(RGBFTYPE format))
+{
+  const static UWORD minTermToMix[16] = {
+      MIX_ZERO,                     // 0000
+      MIX_NOT_CURRENT_AND_NOT_NEW,  // 0001  (!dst ^ !src)
+      MIX_CURRENT_AND_NOT_NEW,      // 0010  (dst ^ !src)
+      MIX_NOT_NEW,                  // 0011  (!dst ^ !src) v (dst ^ !src)
+      MIX_NOT_CURRENT_AND_NEW,      // 0100  (!dst ^ src)
+      MIX_NOT_CURRENT,              // 0101  (!dst ^ src) v (!dst ^ !src)
+      MIX_CURRENT_XOR_NEW,          // 0110  (!dst ^ src) v (dst ^ !src)
+      MIX_NOT_CURRENT_AND_NOT_NEW,  // 0111  (!dst ^ src) v (dst ^ !src) v (!dst ^ !src)
+      MIX_CURRENT_AND_NEW,          // 1000  (dst ^ src)
+      MIX_NOT_CURRENT_XOR_NEW,      // 1001  (!dst ^ !src) v (dst ^ src)
+      MIX_CURRENT,                  // 1010  (dst ^ src) v (dst ^ !src)
+      MIX_CURRENT_OR_NOT_NEW,       // 1011  (dst ^ src) v (dst ^ !src) v (!dst ^ !src)
+      MIX_NEW,                      // 1100  (dst ^ src) v (!dst ^ src)
+      MIX_NOT_CURRENT_OR_NEW,       // 1101  (dst ^ src) v (!dst ^ src) v (!dst ^ !src)
+      MIX_CURRENT_OR_NEW,           // 1110  (dst ^ src) v (!dst ^ src) v (dst ^ !src)
+      MIX_ONE,                      // 1111  (!dst ^ !src) v (dst ^ !src) v (!dst ^ src) v (dst ^ src)
+  };
+
+  DFUNC(5,
+        "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
+        "h %ld\nmask 0x%lx fmt %ld\n"
+        "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+        (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width,
+        (ULONG)height, (ULONG)mask, (ULONG)format, (ULONG)ri->BytesPerRow,
+        (ULONG)ri->Memory);
+
+  // FIXME: if src and dst bytes per row differ, I could fall back to blitting
+  // line by line
+  if (sri->BytesPerRow != dri->BytesPerRow) {
+    D(1, "src and dst pitch differ, fallback to default implementation");
+    bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY,
+                                      width, height, opCode, format);
+    return;
+    }
+
+    MMIOBASE();
+
+    UBYTE bpp = getBPP(format);
+    if (!bpp || !setCR50(bi, sri->BytesPerRow, bpp)) {
+      bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, format);
+      return;
+    }
+
+    UWORD segSrc;
+    WORD xoffset;
+    WORD yoffset;
+    getGESegmentAndOffset(getMemoryOffset(bi, sri->Memory), sri->BytesPerRow, bpp,
+                          &segSrc, &xoffset, &yoffset);
+
+    srcX += xoffset;
+    srcY += yoffset;
+
+    UWORD segDst;
+    getGESegmentAndOffset(getMemoryOffset(bi, dri->Memory), dri->BytesPerRow, bpp,
+                          &segDst, &xoffset, &yoffset);
+
+    dstX += xoffset;
+    dstY += yoffset;
+
+    WORD dx = dstX - srcX;
+    WORD dy = dstY - srcY;
+
+    UWORD dir = POSITIVE_X|POSITIVE_Y;
+
+    // FIXME: do we really need to check for overlap?
+    // Is it not equally fast to adjust the blit direction each time?
+    //  BOOL overlapX = !(width <= dx || width <= -dx);
+    //  BOOL overlapY = !(height <= dy || height <= -dy);
+    //  if (segSrc == segDst && overlapX && overlapY)
+    {
+      // rectangles overlap, figure out which direction to blit
+      if (dstX > srcX) {
+        dir &= ~POSITIVE_X;
+        srcX = srcX + width - 1;
+        dstX = dstX + width - 1;
+      }
+      if (dstY > srcY) {
+        dir &= ~POSITIVE_Y;
+        srcY = srcY + height - 1;
+        dstY = dstY + height - 1;
+      }
+    }
+
+    if (getChipData(bi)->GEOp != BLITRECTNOMASKCOMPLETE) {
+      getChipData(bi)->GEOp = BLITRECTNOMASKCOMPLETE;
+
+      WaitFifo(bi, 13);
+      // Set MULT_MISC first so that
+      // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
+      // Bit 9 CMR 32B - Select 32-Bit Command Registers
+      W_BEE8(MULT_MISC, (1 << 9));
+
+      W_BEE8(PIX_CNTL, 0x0000);
+      // FIXME: set mask according to  'mask' parameter for CLUT modes
+      // Mask can also be cached
+      W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
+    } else {
+      WaitFifo(bi, 9);
+    }
+
+    //FIXME: could cache segments and minterm
+    W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | minTermToMix[opCode]);
+    W_BEE8(MULT_MISC2, segSrc << 4 | segDst);
+
+    W_REG_L_MMIO(ALT_CURXY, (srcX << 16) | srcY);
+    W_REG_L_MMIO(ALT_STEP, (dstX << 16) | dstY);
+    W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+
+    W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
+}
+
 BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 {
   REGBASE();
@@ -1664,7 +1781,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   bi->FillRect = FillRect;
   //  bi->BlitTemplate = BlitTemplate;
   //  bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
-  //  bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
+  bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
   //  bi->DrawLine = (_func_55.conflict *)&DrawLine;
 
   DFUNC(15,

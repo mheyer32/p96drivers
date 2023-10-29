@@ -55,7 +55,8 @@ typedef enum BlitterOp
   None,
   FILLRECT,
   INVERTRECT,
-  BLITRECT
+  BLITRECT,
+  BLITRECTNOMASKCOMPLETE
 
 } BlitterOp_t;
 
