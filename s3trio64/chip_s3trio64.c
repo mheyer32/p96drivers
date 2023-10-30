@@ -1401,10 +1401,12 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   }
 #endif
 
-  if (getChipData(bi)->GEOp != FILLRECT) {
-    getChipData(bi)->GEOp = FILLRECT;
+  ChipData_t *cd = getChipData(bi);
 
-    WaitFifo(bi, 12);
+  if (cd->GEOp != FILLRECT) {
+      cd->GEOp = FILLRECT;
+
+    WaitFifo(bi, 3);
     // Set MULT_MISC first so that
     // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
     // Bit 9 CMR 32B - Select 32-Bit Command Registers
@@ -1412,10 +1414,29 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
 
     W_BEE8(PIX_CNTL, 0x0000);
     W_REG_W_MMIO(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
-    // FIXME: set mask according to  'mask' parameter for CLUT modes
+  }
+
+  if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
+    // 16/32 bit modes ignore the mask
+    cd->GEmask = 0xFF;
+
+    WaitFifo(bi, 10);
     W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
   } else {
-    WaitFifo(bi, 8);
+    // 8bit modes use the mask
+    if (cd->GEmask != mask) {
+      cd->GEmask = mask;
+
+      WaitFifo(bi, 10);
+
+      ULONG ulmask = mask;
+      ulmask |= (ulmask << 8) | (ulmask << 16) | (ulmask << 24);
+      W_REG_L_MMIO(WRT_MASK, ulmask);
+    }
+    else
+    {
+      WaitFifo(bi, 8);
+    }
   }
 
   // This could/should get chached as well
@@ -1485,10 +1506,11 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi),
   }
 #endif
 
-  if (getChipData(bi)->GEOp != INVERTRECT) {
-    getChipData(bi)->GEOp = INVERTRECT;
+  ChipData_t *cd = getChipData(bi);
+  if (cd->GEOp != INVERTRECT) {
+      cd->GEOp = INVERTRECT;
 
-    WaitFifo(bi, 11);
+    WaitFifo(bi, 3);
     // Set MULT_MISC first so that
     // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
     // Bit 9 CMR 32B - Select 32-Bit Command Registers
@@ -1496,11 +1518,29 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi),
 
     W_BEE8(PIX_CNTL, 0x0000);
     W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | MIX_NOT_CURRENT);
-    // FIXME: set mask according to  'mask' parameter for CLUT modes
-    // Mask can also be cached
+  }
+
+  if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
+    // 16/32 bit modes ignore the mask
+    cd->GEmask = 0xFF;
+
+    WaitFifo(bi, 8);
     W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
   } else {
-    WaitFifo(bi, 6);
+    // 8bit modes use the mask
+    if (cd->GEmask != mask) {
+      cd->GEmask = mask;
+
+      WaitFifo(bi, 8);
+
+      ULONG ulmask = mask;
+      ulmask |= (ulmask << 8) | (ulmask << 16) | (ulmask << 24);
+      W_REG_L_MMIO(WRT_MASK, ulmask);
+    }
+    else
+    {
+        WaitFifo(bi, 6);
+    }
   }
 
   // This could/should get chached as well

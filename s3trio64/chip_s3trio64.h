@@ -62,12 +62,14 @@ typedef enum BlitterOp
 
 typedef struct ChipData
 {
-  RGBFTYPE MemFormat;
+  RGBFTYPE MemFormat;   // programmed memory layout/format
   struct Library *DOSBase;
-  BlitterOp_t GEOp;
-  UWORD GEbytesPerRow;
-  UBYTE GEbpp;
-  UBYTE Revision;
+  BlitterOp_t GEOp;     // programmed grpahics engine setup
+  UWORD GEbytesPerRow;  // programmed graphics engine bytes per row
+  UWORD GEsegs;         // programmed src/dst memory segments
+  UBYTE GEbpp;          // programmed graphics engine bpp
+  UBYTE GEmask;         // programmed mask
+  UBYTE Revision;       // chip revision
 } ChipData_t;
 
 static inline struct ChipData *getChipData(struct BoardInfo *bi)
