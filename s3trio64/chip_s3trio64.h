@@ -56,7 +56,8 @@ typedef enum BlitterOp
   FILLRECT,
   INVERTRECT,
   BLITRECT,
-  BLITRECTNOMASKCOMPLETE
+  BLITRECTNOMASKCOMPLETE,
+  BLITTEMPLATE
 
 } BlitterOp_t;
 
@@ -65,10 +66,13 @@ typedef struct ChipData
   RGBFTYPE MemFormat;   // programmed memory layout/format
   struct Library *DOSBase;
   BlitterOp_t GEOp;     // programmed grpahics engine setup
+  ULONG GEfgPen;
+  ULONG GEbgPen;
   UWORD GEbytesPerRow;  // programmed graphics engine bytes per row
   UWORD GEsegs;         // programmed src/dst memory segments
   UBYTE GEbpp;          // programmed graphics engine bpp
   UBYTE GEmask;         // programmed mask
+  UBYTE GEdrawMode;
   UBYTE Revision;       // chip revision
 } ChipData_t;
 

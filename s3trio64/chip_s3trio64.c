@@ -6,6 +6,7 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 #include <proto/prometheus.h>
+#include <graphics/rastport.h>
 
 #include <SDI_stdarg.h>
 
@@ -39,6 +40,11 @@ int debugLevel = 0;
 #define CMD_DRAW_PIXELS 0x0010
 #define CMD_DRAW_DIR_MASK 0x00e0
 #define CMD_BYTE_SWAP 0x1000
+#define CMD_WAIT_CPU 0x0100
+#define CMD_BUS_SIZE_8BIT (0b00 << 9)
+#define CMD_BUS_SIZE_16BIT (0b01 << 9)
+#define CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED (0b10 << 9)
+#define CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED (0b11 << 9)
 
 #define CMD_COMMAND_TYPE_MASK 0xe000
 #define CMD_COMMAND_TYPE_SHIFT 13
@@ -95,7 +101,12 @@ int debugLevel = 0;
 #define SCISSORS_L 0x2
 #define SCISSORS_B 0x3
 #define SCISSORS_R 0x4
+
 #define PIX_CNTL 0xA
+#define MASK_BIT_SRC_ONE (0b00 << 6)
+#define MASK_BIT_SRC_CPU (0b10 << 6)
+#define MASK_BIT_SRC_BITMAP (0b11 << 6)
+
 #define MULT_MISC2 0xD
 #define MULT_MISC 0xE
 #define READ_SEL 0xF
@@ -1355,6 +1366,24 @@ static inline ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
   return offset;
 }
 
+static inline ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
+{
+  switch (fmt) {
+  case RGBFB_B8G8R8A8:
+    pen = swapl(pen);
+    break;
+  case RGBFB_R5G6B5PC:
+  case RGBFB_R5G5B5PC:
+    pen = swapl(pen);
+    break;
+  case RGBFB_CLUT:
+    pen |= (pen << 8) | (pen << 16) | (pen << 24);
+    break;
+  default:
+    break;
+  }
+}
+
 #define TOP_LEFT (0b101 << 5)
 #define TOP_RIGHT (0b100 << 5)
 #define BOTTOM_LEFT (0b001 << 5)
@@ -1445,20 +1474,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
   W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
 
-  switch (fmt) {
-  case RGBFB_B8G8R8A8:
-    pen = swapl(pen);
-    break;
-  case RGBFB_R5G6B5PC:
-  case RGBFB_R5G5B5PC:
-    pen = swapl(pen);
-    break;
-  case RGBFB_CLUT:
-    pen |= (pen << 8) | (pen << 16) | (pen << 24);
-    break;
-  default:
-    break;
-  }
+  pen = PenToColor(pen, fmt);
 
   W_REG_L_MMIO(FRGD_COLOR, pen);
 
@@ -1611,10 +1627,11 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
     }
   }
 
-  if (getChipData(bi)->GEOp != BLITRECT) {
-    getChipData(bi)->GEOp = BLITRECT;
+  ChipData_t *cd = getChipData(bi);
+  if (cd->GEOp != BLITRECT) {
+    cd->GEOp = BLITRECT;
 
-    WaitFifo(bi, 13);
+    WaitFifo(bi, 3);
     // Set MULT_MISC first so that
     // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
     // Bit 9 CMR 32B - Select 32-Bit Command Registers
@@ -1622,11 +1639,27 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
 
     W_BEE8(PIX_CNTL, 0x0000);
     W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | MIX_NEW);
-    // FIXME: set mask according to  'mask' parameter for CLUT modes
-    // Mask can also be cached
+  }
+
+  if (format != RGBFB_CLUT && cd->GEmask != 0xFF) {
+    // 16/32 bit modes ignore the mask
+    cd->GEmask = 0xFF;
+
+    WaitFifo(bi, 10);
     W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
   } else {
-    WaitFifo(bi, 8);
+    // 8bit modes use the mask
+    if (cd->GEmask != mask) {
+      cd->GEmask = mask;
+
+      WaitFifo(bi, 10);
+
+      ULONG ulmask = mask;
+      ulmask |= (ulmask << 8) | (ulmask << 16) | (ulmask << 24);
+      W_REG_L_MMIO(WRT_MASK, ulmask);
+    } else {
+      WaitFifo(bi, 8);
+    }
   }
 
   W_BEE8(MULT_MISC2, seg << 4 | seg);
@@ -1755,6 +1788,149 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
     W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
 }
 
+static inline void REGARGS DrawModeToMixMode(UBYTE drawMode, UWORD *frgdMix, UWORD *bkgdMix)
+{
+  switch (drawMode & 3)
+  {
+  case JAM1:
+    *frgdMix = MIX_NEW;
+    *bkgdMix = MIX_CURRENT;
+    break;
+  case JAM2:
+    *frgdMix = MIX_NEW;
+    *bkgdMix = MIX_NEW;
+    break;
+  case COMPLEMENT:
+    *frgdMix = MIX_NOT_CURRENT;
+    *bkgdMix = MIX_CURRENT;
+  }
+}
+
+static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
+                             __REGA1(struct RenderInfo *ri),
+                             __REGA2(struct Template *template),
+                             __REGD0(WORD x), __REGD1(WORD y),
+                             __REGD2(WORD width), __REGD3(WORD height),
+                             __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+  DFUNC(5,
+        "\nx %ld, y %ld, w %ld, h %ld\nmask 0x%lx fmt %ld\n"
+        "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+        (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height,
+        (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
+
+  MMIOBASE();
+
+  UBYTE bpp = getBPP(fmt);
+  if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
+    bi->BlitTemplateDefault(bi, ri, template, x, y, width, height, mask, fmt);
+    return;
+  }
+
+  UWORD seg;
+  UWORD xoffset;
+  UWORD yoffset;
+  getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp,
+                        &seg, &xoffset, &yoffset);
+
+  x += xoffset;
+  y += yoffset;
+
+#ifdef DBG
+  if ((x > (1 << 11)) || (y > (1 << 11))) {
+    KPrintF("X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
+  }
+#endif
+
+  ChipData_t *cd = getChipData(bi);
+
+  if (cd->GEOp != BLITTEMPLATE) {
+    cd->GEOp = BLITTEMPLATE;
+
+    cd->GEdrawMode = 0xFF;
+
+    WaitFifo(bi, 2);
+    // Set MULT_MISC first so that
+    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
+    // Bit 9 CMR 32B - Select 32-Bit Command Registers
+    W_BEE8(MULT_MISC, (1 << 9));
+
+    W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+  }
+
+  if (cd->GEfgPen != template->FgPen || cd->GEbgPen != template->BgPen || cd->GEdrawMode != template->DrawMode)
+  {
+    cd->GEfgPen = template->FgPen;
+    cd->GEbgPen = template->BgPen;
+    cd->GEdrawMode = template->DrawMode;
+
+    WaitFifo(bi, 6);
+    UWORD frgdMix, bkgdMix;
+    DrawModeToMixMode(template->DrawMode, &frgdMix, &bkgdMix);
+    W_REG_L_MMIO(ALT_MIX, ((CLR_SRC_FRGD_COLOR | frgdMix) << 16) | CLR_SRC_BKGD_COLOR | bkgdMix);
+    ULONG fgPen = PenToColor(template->FgPen, fmt);
+    W_REG_L_MMIO(FRGD_COLOR, fgPen);
+    ULONG bgpen = PenToColor(template->BgPen, fmt);
+    W_REG_L_MMIO(BKGD_COLOR, bgpen);
+  }
+
+  if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
+    // 16/32 bit modes ignore the mask
+    cd->GEmask = 0xFF;
+
+    WaitFifo(bi, 8);
+    W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
+  } else {
+    // 8bit modes use the mask
+    if (cd->GEmask != mask) {
+      cd->GEmask = mask;
+
+      WaitFifo(bi, 8);
+
+      ULONG ulmask = mask;
+      ulmask |= (ulmask << 8) | (ulmask << 16) | (ulmask << 24);
+      W_REG_L_MMIO(WRT_MASK, ulmask);
+    } else {
+      WaitFifo(bi, 10);
+    }
+  }
+
+  // This could/should get chached as well
+  W_BEE8(MULT_MISC2, seg << 4);
+
+  W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
+  W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+
+  W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS |
+                        TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+                        CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
+
+  //FIXME: there's no promise that template->Memory and template->BytesPerRow
+  // are 32bit aligned. This might either be slower than it could be on 030+ or just crashing on 68k.
+  UWORD dwordsPerLine = (width + 31) / 32;
+  ULONG* bitmap = (ULONG* )template->Memory;
+  WORD bitmapPitch = template->BytesPerRow / 4;
+  UBYTE inverted = template->DrawMode & INVERSVID;
+  for (UWORD y = 0; y < height; ++y)
+  {
+    if (inverted)
+    {
+      for (UWORD x = 0; x < dwordsPerLine; ++x)
+      {
+        W_REG_L_MMIO(PIX_TRANS, ~(bitmap[x]));
+      }
+    }
+    else
+    {
+      for (UWORD x = 0; x < dwordsPerLine; ++x)
+      {
+        W_REG_L_MMIO(PIX_TRANS, bitmap[x]);
+      }
+    }
+    bitmap += bitmapPitch;
+  }
+}
+
 BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 {
   REGBASE();
@@ -1819,7 +1995,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   bi->BlitRect = BlitRect;
   bi->InvertRect = InvertRect;
   bi->FillRect = FillRect;
-  //  bi->BlitTemplate = BlitTemplate;
+  bi->BlitTemplate = BlitTemplate;
   //  bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
   bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
   //  bi->DrawLine = (_func_55.conflict *)&DrawLine;
