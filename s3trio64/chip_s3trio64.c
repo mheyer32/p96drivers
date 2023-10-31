@@ -1372,14 +1372,22 @@ static inline ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
     break;
   case RGBFB_R5G6B5PC:
   case RGBFB_R5G5B5PC:
-    pen = swapl(pen);
+    pen = swapw(pen) & 0xFFFF;
+    pen |= pen << 16;
+    break;
+  case RGBFB_R5G6B5:
+  case RGBFB_R5G5B5:
+    pen |= (pen & 0xFFFF) << 16;
     break;
   case RGBFB_CLUT:
-    pen |= (pen << 8) | (pen << 16) | (pen << 24);
+    pen |= (pen << 8);
+    pen |= (pen << 16);
     break;
   default:
     break;
   }
+  return pen;
+}
 }
 
 #define TOP_LEFT (0b101 << 5)
