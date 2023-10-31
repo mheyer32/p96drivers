@@ -1832,6 +1832,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
   if (cd->GEOp != BLITTEMPLATE) {
     cd->GEOp = BLITTEMPLATE;
 
+    //Invalidate the pen and drawmode caches
     cd->GEdrawMode = 0xFF;
 
     WaitFifo(bi, 2);
@@ -1843,16 +1844,18 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
     W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
   }
 
-  if (cd->GEfgPen != template->FgPen || cd->GEbgPen != template->BgPen || cd->GEdrawMode != template->DrawMode)
-  {
+  if (cd->GEfgPen != template->FgPen || cd->GEbgPen != template->BgPen ||
+      cd->GEdrawMode != template->DrawMode || cd->GEFormat != fmt) {
     cd->GEfgPen = template->FgPen;
     cd->GEbgPen = template->BgPen;
     cd->GEdrawMode = template->DrawMode;
+    cd->GEFormat = fmt;
 
     WaitFifo(bi, 6);
     UWORD frgdMix, bkgdMix;
     DrawModeToMixMode(template->DrawMode, &frgdMix, &bkgdMix);
-    W_REG_L_MMIO(ALT_MIX, ((CLR_SRC_FRGD_COLOR | frgdMix) << 16) | CLR_SRC_BKGD_COLOR | bkgdMix);
+    W_REG_L_MMIO(ALT_MIX, ((CLR_SRC_FRGD_COLOR | frgdMix) << 16) |
+                              CLR_SRC_BKGD_COLOR | bkgdMix);
     ULONG fgPen = PenToColor(template->FgPen, fmt);
     W_REG_L_MMIO(FRGD_COLOR, fgPen);
     ULONG bgpen = PenToColor(template->BgPen, fmt);
@@ -1875,25 +1878,42 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
   // are 32bit aligned. This might either be slower than it could be on 030+ or just crashing on 68k.
   UWORD dwordsPerLine = (width + 31) / 32;
   ULONG* bitmap = (ULONG* )template->Memory;
+  bitmap += template->XOffset / 32;
+  UBYTE rol = template->XOffset % 32;
   WORD bitmapPitch = template->BytesPerRow / 4;
   UBYTE inverted = template->DrawMode & INVERSVID;
-  for (UWORD y = 0; y < height; ++y)
-  {
-    if (inverted)
-    {
-      for (UWORD x = 0; x < dwordsPerLine; ++x)
-      {
-        W_REG_L_MMIO(PIX_TRANS, ~(bitmap[x]));
+  if (!rol) {
+    for (UWORD y = 0; y < height; ++y) {
+      if (inverted) {
+        for (UWORD x = 0; x < dwordsPerLine; ++x) {
+          W_REG_L_MMIO(PIX_TRANS, ~(bitmap[x]));
+        }
+      } else {
+        for (UWORD x = 0; x < dwordsPerLine; ++x) {
+          W_REG_L_MMIO(PIX_TRANS, bitmap[x]);
+        }
       }
+      bitmap += bitmapPitch;
     }
-    else
-    {
-      for (UWORD x = 0; x < dwordsPerLine; ++x)
-      {
-        W_REG_L_MMIO(PIX_TRANS, bitmap[x]);
+  } else {
+    for (UWORD y = 0; y < height; ++y) {
+      if (inverted) {
+        for (UWORD x = 0; x < dwordsPerLine; ++x) {
+          ULONG left = bitmap[x] << rol;
+          ULONG right = bitmap[x + 1] >> (31 - rol);
+
+          W_REG_L_MMIO(PIX_TRANS, ~(left | right));
+        }
+      } else {
+        for (UWORD x = 0; x < dwordsPerLine; ++x) {
+          ULONG left = bitmap[x] << rol;
+          ULONG right = bitmap[x + 1] >> (31 - rol);
+
+          W_REG_L_MMIO(PIX_TRANS, (left | right));
+        }
       }
+      bitmap += bitmapPitch;
     }
-    bitmap += bitmapPitch;
   }
 }
 
