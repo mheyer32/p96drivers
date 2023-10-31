@@ -1254,7 +1254,7 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
 
 static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
-  REGBASE();
+  MMIOBASE();
   //  LOCAL_SYSBASE();
 
   //  D("Waiting for blitter...");
@@ -1266,7 +1266,7 @@ static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
   //  while ((R_REG_W(GP_STAT) & ((1<<9)|(1<<10))) != 1<<10)) {
   //  };
 
-  while (R_REG_W(GP_STAT) & (1 << 9)) {
+  while (R_REG_W_MMIO(GP_STAT) & (1 << 9)) {
   };
 
   //  D("done\n");
@@ -1274,17 +1274,22 @@ static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 
 static inline void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
 {
-  REGBASE();
+  if (!numSlots) {
+    return;
+  }
 
-//  assert(numSlots <= 13);
+  MMIOBASE();
+
+  //  assert(numSlots <= 13);
 
   // The FIFO bits are split into two groups, 7-0 and 15-11
-  // Bit 7=0 (means 13 slots are available, bit 15 represents at least 5 slots available)
+  // Bit 7=0 (means 13 slots are available, bit 15 represents at least 5 slots
+  // available)
 
   BYTE testBit = 7 - (numSlots - 1);
-  testBit &= 0xF; // handle wrap-around
+  testBit &= 0xF;  // handle wrap-around
 
-  while (R_REG_W(GP_STAT) & (1 << testBit)) {
+  while (R_REG_W_MMIO(GP_STAT) & (1 << testBit)) {
   };
 }
 
@@ -1352,13 +1357,6 @@ static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
 
   return TRUE;
 }
-
-// struct RenderInfo {
-//  APTR			Memory;
-//  WORD			BytesPerRow;
-//  WORD			pad;
-//  RGBFTYPE		RGBFormat;
-//};
 
 static inline ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
 {
