@@ -1388,6 +1388,33 @@ static inline ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
   }
   return pen;
 }
+
+static inline void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask,
+                                          RGBFTYPE fmt, BYTE waitFifoSlots)
+{
+  MMIOBASE();
+  ChipData_t *cd = getChipData(bi);
+
+  if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
+    // 16/32 bit modes ignore the mask
+    cd->GEmask = 0xFF;
+    WaitFifo(bi, waitFifoSlots + 2);
+    W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
+  } else {
+    // 8bit modes use the mask
+    if (cd->GEmask != mask) {
+      cd->GEmask = mask;
+
+      WaitFifo(bi, waitFifoSlots + 2);
+
+      ULONG ulmask = mask;
+      ulmask |= (ulmask << 8);
+      ulmask |= (ulmask << 16);
+      W_REG_L_MMIO(WRT_MASK, ulmask);
+    } else {
+      WaitFifo(bi, waitFifoSlots);
+    }
+  }
 }
 
 #define TOP_LEFT (0b101 << 5)
@@ -1451,38 +1478,28 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
     W_REG_W_MMIO(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
   }
 
-  if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
-    // 16/32 bit modes ignore the mask
-    cd->GEmask = 0xFF;
+  SetGEWriteMask(bi, mask, fmt, 0);
 
-    WaitFifo(bi, 10);
-    W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
-  } else {
-    // 8bit modes use the mask
-    if (cd->GEmask != mask) {
-      cd->GEmask = mask;
+  if (cd->GEfgPen != pen || cd->GEFormat != fmt)
+  {
+    cd->GEfgPen = pen;
+    cd->GEFormat = fmt;
+    pen = PenToColor(pen, fmt);
 
-      WaitFifo(bi, 10);
-
-      ULONG ulmask = mask;
-      ulmask |= (ulmask << 8) | (ulmask << 16) | (ulmask << 24);
-      W_REG_L_MMIO(WRT_MASK, ulmask);
-    }
-    else
-    {
-      WaitFifo(bi, 8);
-    }
+    WaitFifo(bi, 8);
+    W_REG_L_MMIO(FRGD_COLOR, pen);
   }
+  else
+  {
+    WaitFifo(bi, 6);
+  }
+
 
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);
 
   W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
   W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
-
-  pen = PenToColor(pen, fmt);
-
-  W_REG_L_MMIO(FRGD_COLOR, pen);
 
   UWORD cmd = CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT;
 
@@ -1542,28 +1559,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi),
     W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | MIX_NOT_CURRENT);
   }
 
-  if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
-    // 16/32 bit modes ignore the mask
-    cd->GEmask = 0xFF;
-
-    WaitFifo(bi, 8);
-    W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
-  } else {
-    // 8bit modes use the mask
-    if (cd->GEmask != mask) {
-      cd->GEmask = mask;
-
-      WaitFifo(bi, 8);
-
-      ULONG ulmask = mask;
-      ulmask |= (ulmask << 8) | (ulmask << 16) | (ulmask << 24);
-      W_REG_L_MMIO(WRT_MASK, ulmask);
-    }
-    else
-    {
-        WaitFifo(bi, 6);
-    }
-  }
+  SetGEWriteMask(bi, mask, fmt, 6);
 
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);
@@ -1579,7 +1575,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
                          __REGD1(WORD srcY), __REGD2(WORD dstX),
                          __REGD3(WORD dstY), __REGD4(WORD width),
                          __REGD5(WORD height), __REGD6(UBYTE mask),
-                         __REGD7(RGBFTYPE format))
+                         __REGD7(RGBFTYPE fmt))
 {
   DFUNC(5,
         "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
@@ -1591,10 +1587,10 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
 
   MMIOBASE();
 
-  UBYTE bpp = getBPP(format);
+  UBYTE bpp = getBPP(fmt);
   if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
     bi->BlitRectDefault(bi, ri, srcX, srcY, dstX, dstY, width, height, mask,
-                        format);
+                        fmt);
     return;
   }
 
@@ -1647,26 +1643,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
     W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | MIX_NEW);
   }
 
-  if (format != RGBFB_CLUT && cd->GEmask != 0xFF) {
-    // 16/32 bit modes ignore the mask
-    cd->GEmask = 0xFF;
-
-    WaitFifo(bi, 10);
-    W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
-  } else {
-    // 8bit modes use the mask
-    if (cd->GEmask != mask) {
-      cd->GEmask = mask;
-
-      WaitFifo(bi, 10);
-
-      ULONG ulmask = mask;
-      ulmask |= (ulmask << 8) | (ulmask << 16) | (ulmask << 24);
-      W_REG_L_MMIO(WRT_MASK, ulmask);
-    } else {
-      WaitFifo(bi, 8);
-    }
-  }
+  SetGEWriteMask(bi, mask, fmt, 8);
 
   W_BEE8(MULT_MISC2, seg << 4 | seg);
 
@@ -1766,8 +1743,10 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
       }
     }
 
-    if (getChipData(bi)->GEOp != BLITRECTNOMASKCOMPLETE) {
-      getChipData(bi)->GEOp = BLITRECTNOMASKCOMPLETE;
+    ChipData_t *cd = getChipData(bi);
+    if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
+      cd->GEOp = BLITRECTNOMASKCOMPLETE;
+      cd->GEmask = 0xFF;
 
       WaitFifo(bi, 13);
       // Set MULT_MISC first so that
@@ -1880,26 +1859,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
     W_REG_L_MMIO(BKGD_COLOR, bgpen);
   }
 
-  if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
-    // 16/32 bit modes ignore the mask
-    cd->GEmask = 0xFF;
-
-    WaitFifo(bi, 8);
-    W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
-  } else {
-    // 8bit modes use the mask
-    if (cd->GEmask != mask) {
-      cd->GEmask = mask;
-
-      WaitFifo(bi, 8);
-
-      ULONG ulmask = mask;
-      ulmask |= (ulmask << 8) | (ulmask << 16) | (ulmask << 24);
-      W_REG_L_MMIO(WRT_MASK, ulmask);
-    } else {
-      WaitFifo(bi, 10);
-    }
-  }
+  SetGEWriteMask(bi, mask, fmt, 6);
 
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);

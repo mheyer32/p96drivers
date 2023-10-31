@@ -68,6 +68,7 @@ typedef struct ChipData
   BlitterOp_t GEOp;     // programmed grpahics engine setup
   ULONG GEfgPen;
   ULONG GEbgPen;
+  RGBFTYPE GEFormat;
   UWORD GEbytesPerRow;  // programmed graphics engine bytes per row
   UWORD GEsegs;         // programmed src/dst memory segments
   UBYTE GEbpp;          // programmed graphics engine bpp
