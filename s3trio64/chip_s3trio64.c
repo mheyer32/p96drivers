@@ -1917,6 +1917,121 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
   }
 }
 
+static void ASM BlitPattern(__REGA0(struct BoardInfo *bi),
+                            __REGA1(struct RenderInfo *ri),
+                            __REGA2(struct Pattern *pattern), __REGD0(WORD x),
+                            __REGD1(WORD y), __REGD2(WORD width),
+                            __REGD3(WORD height), __REGD4(UBYTE mask),
+                            __REGD7(RGBFTYPE fmt))
+{
+  DFUNC(5,
+        "\nx %ld, y %ld, w %ld, h %ld\nmask 0x%lx fmt %ld\n"
+        "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+        (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask,
+        (ULONG)fmt, (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
+
+  MMIOBASE();
+
+  UBYTE bpp = getBPP(fmt);
+  if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
+    bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, fmt);
+    return;
+  }
+
+  UWORD seg;
+  UWORD xoffset;
+  UWORD yoffset;
+  getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp,
+                        &seg, &xoffset, &yoffset);
+
+  x += xoffset;
+  y += yoffset;
+
+#ifdef DBG
+  if ((x > (1 << 11)) || (y > (1 << 11))) {
+    KPrintF("X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
+  }
+#endif
+
+  ChipData_t *cd = getChipData(bi);
+
+  if (cd->GEOp != BLITTEMPLATE) {
+    cd->GEOp = BLITTEMPLATE;
+
+    // Invalidate the pen and drawmode caches
+    cd->GEdrawMode = 0xFF;
+
+    WaitFifo(bi, 2);
+    // Set MULT_MISC first so that
+    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
+    // Bit 9 CMR 32B - Select 32-Bit Command Registers
+    W_BEE8(MULT_MISC, (1 << 9));
+
+    W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+  }
+
+  if (cd->GEfgPen != pattern->FgPen || cd->GEbgPen != pattern->BgPen ||
+      cd->GEdrawMode != pattern->DrawMode || cd->GEFormat != fmt) {
+    cd->GEfgPen = pattern->FgPen;
+    cd->GEbgPen = pattern->BgPen;
+    cd->GEdrawMode = pattern->DrawMode;
+    cd->GEFormat = fmt;
+
+    WaitFifo(bi, 6);
+    UWORD frgdMix, bkgdMix;
+    DrawModeToMixMode(pattern->DrawMode, &frgdMix, &bkgdMix);
+    W_REG_L_MMIO(ALT_MIX, ((CLR_SRC_FRGD_COLOR | frgdMix) << 16) |
+                              CLR_SRC_BKGD_COLOR | bkgdMix);
+    ULONG fgPen = PenToColor(pattern->FgPen, fmt);
+    W_REG_L_MMIO(FRGD_COLOR, fgPen);
+    ULONG bgpen = PenToColor(pattern->BgPen, fmt);
+    W_REG_L_MMIO(BKGD_COLOR, bgpen);
+  }
+
+  SetGEWriteMask(bi, mask, fmt, 6);
+
+  // This could/should get chached as well
+  W_BEE8(MULT_MISC2, seg << 4);
+
+  W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
+  W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+
+  W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS |
+                        TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+                        CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
+
+  UWORD dwordsPerLine = (width + 31) / 32;
+  UWORD *bitmap = (UWORD *)pattern->Memory;
+  UBYTE rol = pattern->XOffset % 16;
+  UBYTE inverted = pattern->DrawMode & INVERSVID;
+  UWORD patternHeightMask = (1 << pattern->Size) - 1;
+
+  if (!rol) {
+    for (UWORD y = 0; y < height; ++y) {
+      ULONG bits = bitmap[(y + pattern->YOffset) & patternHeightMask];
+      bits |= bits << 16;
+      if (inverted) {
+        bits = ~bits;
+      }
+      for (UWORD x = 0; x < dwordsPerLine; ++x) {
+        W_REG_L_MMIO(PIX_TRANS, bits);
+      }
+    }
+  } else {
+    for (UWORD y = 0; y < height; ++y) {
+      UWORD bits = bitmap[(y + pattern->YOffset) & patternHeightMask];
+      bits = (bits << rol) | (bits >> (15 - rol));
+      ULONG bitsL = bits | ((ULONG)bits << 16);
+      if (inverted) {
+        bitsL = ~bitsL;
+      }
+      for (UWORD x = 0; x < dwordsPerLine; ++x) {
+        W_REG_L_MMIO(PIX_TRANS, bitsL);
+      }
+    }
+  }
+}
+
 BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 {
   REGBASE();
@@ -1985,6 +2100,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   //  bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
   bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
   //  bi->DrawLine = (_func_55.conflict *)&DrawLine;
+  bi->BlitPattern = BlitPattern;
 
   DFUNC(15,
       "WaitBlitter 0x%08lx\nBlitRect 0x%08lx\nInvertRect 0x%08lx\nFillRect "
