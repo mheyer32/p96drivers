@@ -1654,30 +1654,30 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
   W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
 }
 
+const static UWORD minTermToMix[16] = {
+    MIX_ZERO,                     // 0000
+    MIX_NOT_CURRENT_AND_NOT_NEW,  // 0001  (!dst ^ !src)
+    MIX_CURRENT_AND_NOT_NEW,      // 0010  (dst ^ !src)
+    MIX_NOT_NEW,                  // 0011  (!dst ^ !src) v (dst ^ !src)
+    MIX_NOT_CURRENT_AND_NEW,      // 0100  (!dst ^ src)
+    MIX_NOT_CURRENT,              // 0101  (!dst ^ src) v (!dst ^ !src)
+    MIX_CURRENT_XOR_NEW,          // 0110  (!dst ^ src) v (dst ^ !src)
+    MIX_NOT_CURRENT_AND_NOT_NEW,  // 0111  (!dst ^ src) v (dst ^ !src) v (!dst ^ !src)
+    MIX_CURRENT_AND_NEW,          // 1000  (dst ^ src)
+    MIX_NOT_CURRENT_XOR_NEW,      // 1001  (!dst ^ !src) v (dst ^ src)
+    MIX_CURRENT,                  // 1010  (dst ^ src) v (dst ^ !src)
+    MIX_CURRENT_OR_NOT_NEW,       // 1011  (dst ^ src) v (dst ^ !src) v (!dst ^ !src)
+    MIX_NEW,                      // 1100  (dst ^ src) v (!dst ^ src)
+    MIX_NOT_CURRENT_OR_NEW,       // 1101  (dst ^ src) v (!dst ^ src) v (!dst ^ !src)
+    MIX_CURRENT_OR_NEW,           // 1110  (dst ^ src) v (!dst ^ src) v (dst ^ !src)
+    MIX_ONE,                      // 1111  (!dst ^ !src) v (dst ^ !src) v (!dst ^ src) v (dst ^ src)
+};
+
 static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri),
                                        __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY),
                                        __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height),
                                        __REGD6(UBYTE opCode), __REGD7(RGBFTYPE format))
 {
-  const static UWORD minTermToMix[16] = {
-      MIX_ZERO,                     // 0000
-      MIX_NOT_CURRENT_AND_NOT_NEW,  // 0001  (!dst ^ !src)
-      MIX_CURRENT_AND_NOT_NEW,      // 0010  (dst ^ !src)
-      MIX_NOT_NEW,                  // 0011  (!dst ^ !src) v (dst ^ !src)
-      MIX_NOT_CURRENT_AND_NEW,      // 0100  (!dst ^ src)
-      MIX_NOT_CURRENT,              // 0101  (!dst ^ src) v (!dst ^ !src)
-      MIX_CURRENT_XOR_NEW,          // 0110  (!dst ^ src) v (dst ^ !src)
-      MIX_NOT_CURRENT_AND_NOT_NEW,  // 0111  (!dst ^ src) v (dst ^ !src) v (!dst ^ !src)
-      MIX_CURRENT_AND_NEW,          // 1000  (dst ^ src)
-      MIX_NOT_CURRENT_XOR_NEW,      // 1001  (!dst ^ !src) v (dst ^ src)
-      MIX_CURRENT,                  // 1010  (dst ^ src) v (dst ^ !src)
-      MIX_CURRENT_OR_NOT_NEW,       // 1011  (dst ^ src) v (dst ^ !src) v (!dst ^ !src)
-      MIX_NEW,                      // 1100  (dst ^ src) v (!dst ^ src)
-      MIX_NOT_CURRENT_OR_NEW,       // 1101  (dst ^ src) v (!dst ^ src) v (!dst ^ !src)
-      MIX_CURRENT_OR_NEW,           // 1110  (dst ^ src) v (!dst ^ src) v (dst ^ !src)
-      MIX_ONE,                      // 1111  (!dst ^ !src) v (dst ^ !src) v (!dst ^ src) v (dst ^ src)
-  };
-
   DFUNC(5,
         "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
         "h %ld\nmask 0x%lx fmt %ld\n"
@@ -2032,6 +2032,143 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi),
   }
 }
 
+static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
+                                  __REGA1(struct BitMap *bm),
+                                  __REGA2(struct RenderInfo *ri),
+                                  __REGD0(SHORT srcX), __REGD1(SHORT srcY),
+                                  __REGD2(SHORT dstX), __REGD3(SHORT dstY),
+                                  __REGD4(SHORT width), __REGD5(SHORT height),
+                                  __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
+{
+  DFUNC(1,
+        "\nsrcX %ld, srcY %ld, dstX %ld, dstY %ld, w %ld, h %ld"
+        "\nmask 0x%lx minTerm %ld\n"
+        "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+        (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width,
+        (ULONG)height, (ULONG)mask, (ULONG)minTerm, (ULONG)ri->BytesPerRow,
+        (ULONG)ri->Memory);
+
+  MMIOBASE();
+
+  // how many dwords per line in the source plane
+  UWORD numPlanarBytes = width / 8 * height * bm->Depth;
+  UWORD projectedRegisterWriteBytes = (9 + 8 * 8) * 2;
+
+  if ((projectedRegisterWriteBytes > numPlanarBytes) || !setCR50(bi, ri->BytesPerRow, 1)) {
+    bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width,
+                                 height, minTerm, mask);
+    return;
+  }
+
+  UWORD seg;
+  UWORD xoffset;
+  UWORD yoffset;
+  getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, 1,
+                        &seg, &xoffset, &yoffset);
+
+  dstX += xoffset;
+  dstY += yoffset;
+
+  ChipData_t *cd = getChipData(bi);
+
+  if (cd->GEOp != BLITPLANAR2CHUNKY) {
+    cd->GEOp = BLITPLANAR2CHUNKY;
+
+    // Invalidate the pen and drawmode caches
+    cd->GEdrawMode = 0xFF;
+
+    WaitFifo(bi, 2);
+    // Set MULT_MISC first so that
+    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
+    // Bit 9 CMR 32B - Select 32-Bit Command Registers
+    W_BEE8(MULT_MISC, (1 << 9));
+
+    W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+  }
+
+  UWORD mixMode = minTermToMix[minTerm];
+
+  if (cd->GEfgPen != 0xFFFFFFFF || cd->GEdrawMode != minTerm ||
+      cd->GEFormat != RGBFB_CLUT) {
+    cd->GEfgPen = 0xFFFFFFFF;
+    cd->GEbgPen = 0x00000000;
+    cd->GEdrawMode = minTerm;
+    cd->GEFormat = RGBFB_CLUT;
+
+    WaitFifo(bi, 10);
+    W_REG_L_MMIO(ALT_MIX, ((CLR_SRC_FRGD_COLOR | mixMode) << 16) |
+                              (CLR_SRC_BKGD_COLOR | mixMode));
+    W_REG_L_MMIO(FRGD_COLOR, 0xFFFFFFFF);
+    W_REG_L_MMIO(BKGD_COLOR, 0x00000000);
+  }
+
+  // This could/should get chached as well
+  W_BEE8(MULT_MISC2, seg << 4);
+
+  WORD bmPitch = bm->BytesPerRow;
+  ULONG bmStartOffset = (srcY * bm->BytesPerRow) + (srcX / 8);
+  UWORD dwordsPerLine = (width + 31) / 32;
+  UBYTE rol = srcX % 32;
+
+  for (short p = 0; p < 8; ++p) {
+    UBYTE writeMask = 1 << p;
+
+    if (!(mask & writeMask)) {
+      continue;
+    }
+
+    SetGEWriteMask(bi, writeMask, RGBFB_CLUT, 8);
+
+    W_REG_L_MMIO(ALT_CURXY, (dstX << 16) | dstY);
+    W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+
+    UBYTE *bitmap = (ULONG *)bm->Planes[p];
+    if ((ULONG)bitmap == 0x00000000) {
+      W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
+      W_REG_W_MMIO(FRGD_MIX, (CLR_SRC_BKGD_COLOR | mixMode));
+      W_REG_W_MMIO(
+          CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
+
+    } else if ((ULONG)bitmap == 0xFFFFFFFF) {
+      W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
+      W_REG_W_MMIO(FRGD_MIX, (CLR_SRC_FRGD_COLOR | mixMode));
+      W_REG_W_MMIO(
+          CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
+    } else {
+      // FIXME: Should I have a path for 16bit aligned width?
+      // The only argument for not doing it is unaligned 32bit reads from CPU memory.
+      // PCI transfers are 32bit anyways, so wasting bus cycles by transferring in chunks of 16bit
+      // seems wasteful
+      W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+      W_REG_L_MMIO(ALT_MIX, ((CLR_SRC_FRGD_COLOR | mixMode) << 16) |
+                                (CLR_SRC_BKGD_COLOR | mixMode));
+      W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS |
+                            TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+                            CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
+
+      bitmap += bmStartOffset;
+
+      if (!rol) {
+        for (UWORD y = 0; y < height; ++y) {
+          for (UWORD x = 0; x < dwordsPerLine; ++x) {
+            W_REG_L_MMIO(PIX_TRANS, ((ULONG*)bitmap)[x]);
+          }
+          bitmap += bmPitch;
+        }
+      } else {
+        for (UWORD y = 0; y < height; ++y) {
+          for (UWORD x = 0; x < dwordsPerLine; ++x) {
+            ULONG left = ((ULONG*)bitmap)[x] << rol;
+            ULONG right = ((ULONG*)bitmap)[x + 1] >> (31 - rol);
+            W_REG_L_MMIO(PIX_TRANS, (left | right));
+          }
+          bitmap += bmPitch;
+        }
+      }
+    }
+  }
+}
+
 BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 {
   REGBASE();
@@ -2046,9 +2183,9 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 
   bi->GraphicsControllerType = GCT_S3Trio64;
   bi->PaletteChipType = PCT_S3Trio64;
-  bi->Flags = bi->Flags | BIF_NOMEMORYMODEMIX | BIF_BORDERBLANK |
-              BIF_NOP2CBLITS | BIB_BLITTER | BIF_GRANTDIRECTACCESS |
-              BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
+  bi->Flags = bi->Flags | BIF_NOMEMORYMODEMIX | BIF_BORDERBLANK | BIF_BLITTER |
+              BIF_GRANTDIRECTACCESS | BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER |
+              BIF_HARDWARESPRITE;
   // Trio64 supports BGR_8_8_8_X 24bit, R5G5B5 and R5G6B5 modes.
   // Prometheus does byte-swapping for writes to memory, so if we're writing a
   // 32bit register filled with XRGB, the written memory order will be BGRX
@@ -2097,7 +2234,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   bi->InvertRect = InvertRect;
   bi->FillRect = FillRect;
   bi->BlitTemplate = BlitTemplate;
-  //  bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
+  bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
   bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
   //  bi->DrawLine = (_func_55.conflict *)&DrawLine;
   bi->BlitPattern = BlitPattern;
