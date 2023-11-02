@@ -1854,8 +1854,16 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
     WaitFifo(bi, 6);
     UWORD frgdMix, bkgdMix;
     DrawModeToMixMode(template->DrawMode, &frgdMix, &bkgdMix);
-    W_REG_L_MMIO(ALT_MIX, ((CLR_SRC_FRGD_COLOR | frgdMix) << 16) |
-                              CLR_SRC_BKGD_COLOR | bkgdMix);
+
+    frgdMix |= CLR_SRC_FRGD_COLOR;
+    bkgdMix |= CLR_SRC_BKGD_COLOR;
+    // Implement the inverted case by swapping roles of the foreground and
+    // background mix
+    if (!(template->DrawMode & INVERSVID)) {
+      W_REG_L_MMIO(ALT_MIX, (frgdMix << 16) | bkgdMix);
+    } else {
+      W_REG_L_MMIO(ALT_MIX, (bkgdMix << 16) | frgdMix);
+    }
     ULONG fgPen = PenToColor(template->FgPen, fmt);
     W_REG_L_MMIO(FRGD_COLOR, fgPen);
     ULONG bgpen = PenToColor(template->BgPen, fmt);
@@ -1876,41 +1884,25 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
 
   //FIXME: there's no promise that template->Memory and template->BytesPerRow
   // are 32bit aligned. This might either be slower than it could be on 030+ or just crashing on 68k.
+  const UBYTE* bitmap = (const UBYTE* )template->Memory;
+  bitmap += template->XOffset / 8;
   UWORD dwordsPerLine = (width + 31) / 32;
-  ULONG* bitmap = (ULONG* )template->Memory;
-  bitmap += template->XOffset / 32;
   UBYTE rol = template->XOffset % 32;
-  WORD bitmapPitch = template->BytesPerRow / 4;
-  UBYTE inverted = template->DrawMode & INVERSVID;
+  WORD bitmapPitch = template->BytesPerRow;
   if (!rol) {
     for (UWORD y = 0; y < height; ++y) {
-      if (inverted) {
-        for (UWORD x = 0; x < dwordsPerLine; ++x) {
-          W_REG_L_MMIO(PIX_TRANS, ~(bitmap[x]));
-        }
-      } else {
-        for (UWORD x = 0; x < dwordsPerLine; ++x) {
-          W_REG_L_MMIO(PIX_TRANS, bitmap[x]);
-        }
+      for (UWORD x = 0; x < dwordsPerLine; ++x) {
+        W_REG_L_MMIO(PIX_TRANS, ((const ULONG*)bitmap)[x]);
       }
       bitmap += bitmapPitch;
     }
   } else {
     for (UWORD y = 0; y < height; ++y) {
-      if (inverted) {
-        for (UWORD x = 0; x < dwordsPerLine; ++x) {
-          ULONG left = bitmap[x] << rol;
-          ULONG right = bitmap[x + 1] >> (31 - rol);
+      for (UWORD x = 0; x < dwordsPerLine; ++x) {
+        ULONG left = ((const ULONG*)bitmap)[x] << rol;
+        ULONG right = ((const ULONG*)bitmap)[x + 1] >> (31 - rol);
 
-          W_REG_L_MMIO(PIX_TRANS, ~(left | right));
-        }
-      } else {
-        for (UWORD x = 0; x < dwordsPerLine; ++x) {
-          ULONG left = bitmap[x] << rol;
-          ULONG right = bitmap[x + 1] >> (31 - rol);
-
-          W_REG_L_MMIO(PIX_TRANS, (left | right));
-        }
+        W_REG_L_MMIO(PIX_TRANS, (left | right));
       }
       bitmap += bitmapPitch;
     }
@@ -1980,8 +1972,15 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi),
     WaitFifo(bi, 6);
     UWORD frgdMix, bkgdMix;
     DrawModeToMixMode(pattern->DrawMode, &frgdMix, &bkgdMix);
-    W_REG_L_MMIO(ALT_MIX, ((CLR_SRC_FRGD_COLOR | frgdMix) << 16) |
-                              CLR_SRC_BKGD_COLOR | bkgdMix);
+    frgdMix |= CLR_SRC_FRGD_COLOR;
+    bkgdMix |= CLR_SRC_BKGD_COLOR;
+    // Implement the inverted case by swapping roles of the foreground and
+    // background mix
+    if (!(pattern->DrawMode & INVERSVID)) {
+      W_REG_L_MMIO(ALT_MIX, (frgdMix << 16) | bkgdMix);
+    } else {
+      W_REG_L_MMIO(ALT_MIX, (bkgdMix << 16) | frgdMix);
+    }
     ULONG fgPen = PenToColor(pattern->FgPen, fmt);
     W_REG_L_MMIO(FRGD_COLOR, fgPen);
     ULONG bgpen = PenToColor(pattern->BgPen, fmt);
@@ -2010,9 +2009,6 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi),
     for (UWORD y = 0; y < height; ++y) {
       ULONG bits = bitmap[(y + pattern->YOffset) & patternHeightMask];
       bits |= bits << 16;
-      if (inverted) {
-        bits = ~bits;
-      }
       for (UWORD x = 0; x < dwordsPerLine; ++x) {
         W_REG_L_MMIO(PIX_TRANS, bits);
       }
@@ -2022,9 +2018,6 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi),
       UWORD bits = bitmap[(y + pattern->YOffset) & patternHeightMask];
       bits = (bits << rol) | (bits >> (15 - rol));
       ULONG bitsL = bits | ((ULONG)bits << 16);
-      if (inverted) {
-        bitsL = ~bitsL;
-      }
       for (UWORD x = 0; x < dwordsPerLine; ++x) {
         W_REG_L_MMIO(PIX_TRANS, bitsL);
       }
