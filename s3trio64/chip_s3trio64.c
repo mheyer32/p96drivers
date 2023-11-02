@@ -1886,7 +1886,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
   // are 32bit aligned. This might either be slower than it could be on 030+ or
   // just crashing on 68k.
   const UBYTE *bitmap = (const UBYTE *)template->Memory;
-  bitmap += template->XOffset / 8;
+  bitmap += (template->XOffset / 32) * 4;
   UWORD dwordsPerLine = (width + 31) / 32;
   UBYTE rol = template->XOffset % 32;
   WORD bitmapPitch = template->BytesPerRow;
@@ -1901,7 +1901,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
     for (UWORD y = 0; y < height; ++y) {
       for (UWORD x = 0; x < dwordsPerLine; ++x) {
         ULONG left = ((const ULONG *)bitmap)[x] << rol;
-        ULONG right = ((const ULONG *)bitmap)[x + 1] >> (31 - rol);
+        ULONG right = ((const ULONG *)bitmap)[x + 1] >> (32 - rol);
 
         W_REG_L_MMIO(PIX_TRANS, (left | right));
       }
@@ -2000,26 +2000,25 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi),
                         TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                         CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
-  UWORD dwordsPerLine = (width + 31) / 32;
+  WORD dwordsPerLine = (width + 31) / 32;
   UWORD *bitmap = (UWORD *)pattern->Memory;
   UBYTE rol = pattern->XOffset % 16;
-  UBYTE inverted = pattern->DrawMode & INVERSVID;
   UWORD patternHeightMask = (1 << pattern->Size) - 1;
 
   if (!rol) {
-    for (UWORD y = 0; y < height; ++y) {
+    for (WORD y = 0; y < height; ++y) {
       ULONG bits = bitmap[(y + pattern->YOffset) & patternHeightMask];
-      bits |= bits << 16;
-      for (UWORD x = 0; x < dwordsPerLine; ++x) {
+      bits |= bits << 16u;
+      for (WORD x = 0; x < dwordsPerLine; ++x) {
         W_REG_L_MMIO(PIX_TRANS, bits);
       }
     }
   } else {
-    for (UWORD y = 0; y < height; ++y) {
+    for (WORD y = 0; y < height; ++y) {
       UWORD bits = bitmap[(y + pattern->YOffset) & patternHeightMask];
-      bits = (bits << rol) | (bits >> (15 - rol));
-      ULONG bitsL = bits | ((ULONG)bits << 16);
-      for (UWORD x = 0; x < dwordsPerLine; ++x) {
+      bits = (bits << rol) | (bits >> (16 - rol));
+      ULONG bitsL = bits | ((ULONG)bits << 16u);
+      for (WORD x = 0; x < dwordsPerLine; ++x) {
         W_REG_L_MMIO(PIX_TRANS, bitsL);
       }
     }
@@ -2154,7 +2153,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
         for (UWORD y = 0; y < height; ++y) {
           for (UWORD x = 0; x < dwordsPerLine; ++x) {
             ULONG left = ((ULONG *)bitmap)[x] << rol;
-            ULONG right = ((ULONG *)bitmap)[x + 1] >> (31 - rol);
+            ULONG right = ((ULONG *)bitmap)[x + 1] >> (32 - rol);
             W_REG_L_MMIO(PIX_TRANS, (left | right));
           }
           bitmap += bmPitch;
