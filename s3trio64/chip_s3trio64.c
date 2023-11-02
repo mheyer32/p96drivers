@@ -3,10 +3,10 @@
 #define __NOLIBBASE__
 
 #include <exec/types.h>
+#include <graphics/rastport.h>
 #include <proto/dos.h>
 #include <proto/exec.h>
 #include <proto/prometheus.h>
-#include <graphics/rastport.h>
 
 #include <SDI_stdarg.h>
 
@@ -206,9 +206,9 @@ int svga_compute_pll(const struct svga_pll *pll, u32 f_wanted, u16 *m, u16 *n,
   f_current = (pll->f_base * *m) / *n;
 
   D(15, "found frequency: %ld kHz (VCO %ld kHz)\n", (int)(f_current >> ar),
-          (int)f_current);
+    (int)f_current);
   D(15, "m = %ld n = %ld r = %ld\n", (unsigned int)*m, (unsigned int)*n,
-          (unsigned int)*r);
+    (unsigned int)*r);
 
   return (f_current >> ar);
 }
@@ -411,13 +411,13 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
   UWORD ScreenWidth;
 
   DFUNC(5,
-      "W %ld, H %ld, HTotal %ld, HBlankSize %ld, HSyncStart %ld, HSyncSize "
-      "%ld, "
-      "\nVTotal %ld, VBlankSize %ld,  VSyncStart %ld ,  VSyncSize %ld\n",
-      (ULONG)mi->Width, (ULONG)mi->Height, (ULONG)mi->HorTotal,
-      (ULONG)mi->HorBlankSize, (ULONG)mi->HorSyncStart, (ULONG)mi->HorSyncSize,
-      (ULONG)mi->VerTotal, (ULONG)mi->VerBlankSize, (ULONG)mi->VerSyncStart,
-      (ULONG)mi->VerSyncSize);
+        "W %ld, H %ld, HTotal %ld, HBlankSize %ld, HSyncStart %ld, HSyncSize "
+        "%ld, "
+        "\nVTotal %ld, VBlankSize %ld,  VSyncStart %ld ,  VSyncSize %ld\n",
+        (ULONG)mi->Width, (ULONG)mi->Height, (ULONG)mi->HorTotal,
+        (ULONG)mi->HorBlankSize, (ULONG)mi->HorSyncStart,
+        (ULONG)mi->HorSyncSize, (ULONG)mi->VerTotal, (ULONG)mi->VerBlankSize,
+        (ULONG)mi->VerSyncStart, (ULONG)mi->VerSyncSize);
 
   bi->ModeInfo = mi;
   bi->Border = border;
@@ -738,10 +738,10 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi),
   LOCAL_SYSBASE();
 
   DFUNC(5,
-      "mem 0x%lx, width %ld, height %ld, xoffset %ld, yoffset %ld, "
-      "format %ld\n",
-      memory, (ULONG)width, (ULONG)height, (LONG)xoffset, (LONG)yoffset,
-      (ULONG)format);
+        "mem 0x%lx, width %ld, height %ld, xoffset %ld, yoffset %ld, "
+        "format %ld\n",
+        memory, (ULONG)width, (ULONG)height, (LONG)xoffset, (LONG)yoffset,
+        (ULONG)format);
 
   LONG panOffset;
   UWORD pitch;
@@ -1176,8 +1176,8 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi),
                                __REGD2(UBYTE green), __REGD3(UBYTE blue),
                                __REGD7(RGBFTYPE fmt))
 {
-  DFUNC(5, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red,
-        (ULONG)green, (ULONG)blue);
+  DFUNC(5, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index,
+        (ULONG)red, (ULONG)green, (ULONG)blue);
   REGBASE();
   LOCAL_SYSBASE();
 
@@ -1342,7 +1342,8 @@ static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
     CR31_1 = (1 << 1);
     CR50_76_0 = 0b00000000;
   } else {
-    DFUNC(0,
+    DFUNC(
+        0,
         "Width unsupported by Graphics Engine, choosing unaccelerated  path\n");
     return FALSE;  // reserved
   }
@@ -1466,7 +1467,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   ChipData_t *cd = getChipData(bi);
 
   if (cd->GEOp != FILLRECT) {
-      cd->GEOp = FILLRECT;
+    cd->GEOp = FILLRECT;
 
     WaitFifo(bi, 3);
     // Set MULT_MISC first so that
@@ -1474,26 +1475,22 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
     // Bit 9 CMR 32B - Select 32-Bit Command Registers
     W_BEE8(MULT_MISC, (1 << 9));
 
-    W_BEE8(PIX_CNTL, 0x0000);
+    W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
     W_REG_W_MMIO(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
   }
 
   SetGEWriteMask(bi, mask, fmt, 0);
 
-  if (cd->GEfgPen != pen || cd->GEFormat != fmt)
-  {
+  if (cd->GEfgPen != pen || cd->GEFormat != fmt) {
     cd->GEfgPen = pen;
     cd->GEFormat = fmt;
     pen = PenToColor(pen, fmt);
 
     WaitFifo(bi, 8);
     W_REG_L_MMIO(FRGD_COLOR, pen);
-  }
-  else
-  {
+  } else {
     WaitFifo(bi, 6);
   }
-
 
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);
@@ -1547,7 +1544,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi),
 
   ChipData_t *cd = getChipData(bi);
   if (cd->GEOp != INVERTRECT) {
-      cd->GEOp = INVERTRECT;
+    cd->GEOp = INVERTRECT;
 
     WaitFifo(bi, 3);
     // Set MULT_MISC first so that
@@ -1555,7 +1552,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi),
     // Bit 9 CMR 32B - Select 32-Bit Command Registers
     W_BEE8(MULT_MISC, (1 << 9));
 
-    W_BEE8(PIX_CNTL, 0x0000);
+    W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
     W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | MIX_NOT_CURRENT);
   }
 
@@ -1567,7 +1564,8 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi),
   W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
   W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
 
-  W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
+  W_REG_W_MMIO(CMD,
+               CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
 }
 
 static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
@@ -1582,7 +1580,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
         "h %ld\nmask 0x%lx fmt %ld\n"
         "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
         (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width,
-        (ULONG)height, (ULONG)mask, (ULONG)format, (ULONG)ri->BytesPerRow,
+        (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
         (ULONG)ri->Memory);
 
   MMIOBASE();
@@ -1608,13 +1606,13 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
   WORD dx = dstX - srcX;
   WORD dy = dstY - srcY;
 
-  UWORD dir = POSITIVE_X|POSITIVE_Y;
+  UWORD dir = POSITIVE_X | POSITIVE_Y;
 
   // FIXME: do we really need to check for overlap?
   // Is it not equally fast to adjust the blit direction each time?
-//  BOOL overlapX = !(width <= dx || width <= -dx);
-//  BOOL overlapY = !(height <= dy || height <= -dy);
-//  if (overlapX && overlapY)
+  //  BOOL overlapX = !(width <= dx || width <= -dx);
+  //  BOOL overlapY = !(height <= dy || height <= -dy);
+  //  if (overlapX && overlapY)
   {
     // rectangles overlap, figure out which direction to blit
     if (dstX > srcX) {
@@ -1639,7 +1637,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
     // Bit 9 CMR 32B - Select 32-Bit Command Registers
     W_BEE8(MULT_MISC, (1 << 9));
 
-    W_BEE8(PIX_CNTL, 0x0000);
+    W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
     W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | MIX_NEW);
   }
 
@@ -1673,18 +1671,19 @@ const static UWORD minTermToMix[16] = {
     MIX_ONE,                      // 1111  (!dst ^ !src) v (dst ^ !src) v (!dst ^ src) v (dst ^ src)
 };
 
-static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri),
-                                       __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY),
-                                       __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height),
-                                       __REGD6(UBYTE opCode), __REGD7(RGBFTYPE format))
+static void ASM BlitRectNoMaskComplete(
+    __REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri),
+    __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY),
+    __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
+    __REGD5(WORD height), __REGD6(UBYTE opCode), __REGD7(RGBFTYPE format))
 {
   DFUNC(5,
         "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
-        "h %ld\nmask 0x%lx fmt %ld\n"
-        "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+        "h %ld\nminTerm 0x%lx fmt %ld\n"
+        "sri->bytesPerRow %ld, sri->memory 0x%lx\n",
         (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width,
-        (ULONG)height, (ULONG)mask, (ULONG)format, (ULONG)ri->BytesPerRow,
-        (ULONG)ri->Memory);
+        (ULONG)height, (ULONG)opCode, (ULONG)format, (ULONG)sri->BytesPerRow,
+        (ULONG)sri->Memory);
 
   // FIXME: if src and dst bytes per row differ, I could fall back to blitting
   // line by line
@@ -1693,90 +1692,91 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
     bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY,
                                       width, height, opCode, format);
     return;
+  }
+
+  MMIOBASE();
+
+  UBYTE bpp = getBPP(format);
+  if (!bpp || !setCR50(bi, sri->BytesPerRow, bpp)) {
+    bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY,
+                                      width, height, opCode, format);
+    return;
+  }
+
+  UWORD segSrc;
+  WORD xoffset;
+  WORD yoffset;
+  getGESegmentAndOffset(getMemoryOffset(bi, sri->Memory), sri->BytesPerRow, bpp,
+                        &segSrc, &xoffset, &yoffset);
+
+  srcX += xoffset;
+  srcY += yoffset;
+
+  UWORD segDst;
+  getGESegmentAndOffset(getMemoryOffset(bi, dri->Memory), dri->BytesPerRow, bpp,
+                        &segDst, &xoffset, &yoffset);
+
+  dstX += xoffset;
+  dstY += yoffset;
+
+  WORD dx = dstX - srcX;
+  WORD dy = dstY - srcY;
+
+  UWORD dir = POSITIVE_X | POSITIVE_Y;
+
+  // FIXME: do we really need to check for overlap?
+  // Is it not equally fast to adjust the blit direction each time?
+  //  BOOL overlapX = !(width <= dx || width <= -dx);
+  //  BOOL overlapY = !(height <= dy || height <= -dy);
+  //  if (segSrc == segDst && overlapX && overlapY)
+  {
+    // rectangles overlap, figure out which direction to blit
+    if (dstX > srcX) {
+      dir &= ~POSITIVE_X;
+      srcX = srcX + width - 1;
+      dstX = dstX + width - 1;
     }
-
-    MMIOBASE();
-
-    UBYTE bpp = getBPP(format);
-    if (!bpp || !setCR50(bi, sri->BytesPerRow, bpp)) {
-      bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, format);
-      return;
+    if (dstY > srcY) {
+      dir &= ~POSITIVE_Y;
+      srcY = srcY + height - 1;
+      dstY = dstY + height - 1;
     }
+  }
 
-    UWORD segSrc;
-    WORD xoffset;
-    WORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(bi, sri->Memory), sri->BytesPerRow, bpp,
-                          &segSrc, &xoffset, &yoffset);
+  ChipData_t *cd = getChipData(bi);
+  if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
+    cd->GEOp = BLITRECTNOMASKCOMPLETE;
+    cd->GEmask = 0xFF;
 
-    srcX += xoffset;
-    srcY += yoffset;
+    WaitFifo(bi, 13);
+    // Set MULT_MISC first so that
+    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
+    // Bit 9 CMR 32B - Select 32-Bit Command Registers
+    W_BEE8(MULT_MISC, (1 << 9));
 
-    UWORD segDst;
-    getGESegmentAndOffset(getMemoryOffset(bi, dri->Memory), dri->BytesPerRow, bpp,
-                          &segDst, &xoffset, &yoffset);
+    W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
+    // FIXME: set mask according to  'mask' parameter for CLUT modes
+    // Mask can also be cached
+    W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
+  } else {
+    WaitFifo(bi, 9);
+  }
 
-    dstX += xoffset;
-    dstY += yoffset;
+  // FIXME: could cache segments and minterm
+  W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | minTermToMix[opCode]);
+  W_BEE8(MULT_MISC2, segSrc << 4 | segDst);
 
-    WORD dx = dstX - srcX;
-    WORD dy = dstY - srcY;
+  W_REG_L_MMIO(ALT_CURXY, (srcX << 16) | srcY);
+  W_REG_L_MMIO(ALT_STEP, (dstX << 16) | dstY);
+  W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
 
-    UWORD dir = POSITIVE_X|POSITIVE_Y;
-
-    // FIXME: do we really need to check for overlap?
-    // Is it not equally fast to adjust the blit direction each time?
-    //  BOOL overlapX = !(width <= dx || width <= -dx);
-    //  BOOL overlapY = !(height <= dy || height <= -dy);
-    //  if (segSrc == segDst && overlapX && overlapY)
-    {
-      // rectangles overlap, figure out which direction to blit
-      if (dstX > srcX) {
-        dir &= ~POSITIVE_X;
-        srcX = srcX + width - 1;
-        dstX = dstX + width - 1;
-      }
-      if (dstY > srcY) {
-        dir &= ~POSITIVE_Y;
-        srcY = srcY + height - 1;
-        dstY = dstY + height - 1;
-      }
-    }
-
-    ChipData_t *cd = getChipData(bi);
-    if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
-      cd->GEOp = BLITRECTNOMASKCOMPLETE;
-      cd->GEmask = 0xFF;
-
-      WaitFifo(bi, 13);
-      // Set MULT_MISC first so that
-      // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
-      // Bit 9 CMR 32B - Select 32-Bit Command Registers
-      W_BEE8(MULT_MISC, (1 << 9));
-
-      W_BEE8(PIX_CNTL, 0x0000);
-      // FIXME: set mask according to  'mask' parameter for CLUT modes
-      // Mask can also be cached
-      W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
-    } else {
-      WaitFifo(bi, 9);
-    }
-
-    //FIXME: could cache segments and minterm
-    W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | minTermToMix[opCode]);
-    W_BEE8(MULT_MISC2, segSrc << 4 | segDst);
-
-    W_REG_L_MMIO(ALT_CURXY, (srcX << 16) | srcY);
-    W_REG_L_MMIO(ALT_STEP, (dstX << 16) | dstY);
-    W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
-
-    W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
+  W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
 }
 
-static inline void REGARGS DrawModeToMixMode(UBYTE drawMode, UWORD *frgdMix, UWORD *bkgdMix)
+static inline void REGARGS DrawModeToMixMode(UBYTE drawMode, UWORD *frgdMix,
+                                             UWORD *bkgdMix)
 {
-  switch (drawMode & 3)
-  {
+  switch (drawMode & 3) {
   case JAM1:
     *frgdMix = MIX_NEW;
     *bkgdMix = MIX_CURRENT;
@@ -1801,8 +1801,8 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
   DFUNC(5,
         "\nx %ld, y %ld, w %ld, h %ld\nmask 0x%lx fmt %ld\n"
         "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
-        (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height,
-        (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
+        (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask,
+        (ULONG)fmt, (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
 
   MMIOBASE();
 
@@ -1832,7 +1832,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
   if (cd->GEOp != BLITTEMPLATE) {
     cd->GEOp = BLITTEMPLATE;
 
-    //Invalidate the pen and drawmode caches
+    // Invalidate the pen and drawmode caches
     cd->GEdrawMode = 0xFF;
 
     WaitFifo(bi, 2);
@@ -1882,9 +1882,10 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
                         TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                         CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
-  //FIXME: there's no promise that template->Memory and template->BytesPerRow
-  // are 32bit aligned. This might either be slower than it could be on 030+ or just crashing on 68k.
-  const UBYTE* bitmap = (const UBYTE* )template->Memory;
+  // FIXME: there's no promise that template->Memory and template->BytesPerRow
+  // are 32bit aligned. This might either be slower than it could be on 030+ or
+  // just crashing on 68k.
+  const UBYTE *bitmap = (const UBYTE *)template->Memory;
   bitmap += template->XOffset / 8;
   UWORD dwordsPerLine = (width + 31) / 32;
   UBYTE rol = template->XOffset % 32;
@@ -1892,15 +1893,15 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
   if (!rol) {
     for (UWORD y = 0; y < height; ++y) {
       for (UWORD x = 0; x < dwordsPerLine; ++x) {
-        W_REG_L_MMIO(PIX_TRANS, ((const ULONG*)bitmap)[x]);
+        W_REG_L_MMIO(PIX_TRANS, ((const ULONG *)bitmap)[x]);
       }
       bitmap += bitmapPitch;
     }
   } else {
     for (UWORD y = 0; y < height; ++y) {
       for (UWORD x = 0; x < dwordsPerLine; ++x) {
-        ULONG left = ((const ULONG*)bitmap)[x] << rol;
-        ULONG right = ((const ULONG*)bitmap)[x + 1] >> (31 - rol);
+        ULONG left = ((const ULONG *)bitmap)[x] << rol;
+        ULONG right = ((const ULONG *)bitmap)[x + 1] >> (31 - rol);
 
         W_REG_L_MMIO(PIX_TRANS, (left | right));
       }
@@ -2047,7 +2048,8 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
   UWORD numPlanarBytes = width / 8 * height * bm->Depth;
   UWORD projectedRegisterWriteBytes = (9 + 8 * 8) * 2;
 
-  if ((projectedRegisterWriteBytes > numPlanarBytes) || !setCR50(bi, ri->BytesPerRow, 1)) {
+  if ((projectedRegisterWriteBytes > numPlanarBytes) ||
+      !setCR50(bi, ri->BytesPerRow, 1)) {
     bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width,
                                  height, minTerm, mask);
     return;
@@ -2129,9 +2131,9 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
           CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
     } else {
       // FIXME: Should I have a path for 16bit aligned width?
-      // The only argument for not doing it is unaligned 32bit reads from CPU memory.
-      // PCI transfers are 32bit anyways, so wasting bus cycles by transferring in chunks of 16bit
-      // seems wasteful
+      // The only argument for not doing it is unaligned 32bit reads from CPU
+      // memory. PCI transfers are 32bit anyways, so wasting bus cycles by
+      // transferring in chunks of 16bit seems wasteful
       W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
       W_REG_L_MMIO(ALT_MIX, ((CLR_SRC_FRGD_COLOR | mixMode) << 16) |
                                 (CLR_SRC_BKGD_COLOR | mixMode));
@@ -2144,15 +2146,15 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
       if (!rol) {
         for (UWORD y = 0; y < height; ++y) {
           for (UWORD x = 0; x < dwordsPerLine; ++x) {
-            W_REG_L_MMIO(PIX_TRANS, ((ULONG*)bitmap)[x]);
+            W_REG_L_MMIO(PIX_TRANS, ((ULONG *)bitmap)[x]);
           }
           bitmap += bmPitch;
         }
       } else {
         for (UWORD y = 0; y < height; ++y) {
           for (UWORD x = 0; x < dwordsPerLine; ++x) {
-            ULONG left = ((ULONG*)bitmap)[x] << rol;
-            ULONG right = ((ULONG*)bitmap)[x + 1] >> (31 - rol);
+            ULONG left = ((ULONG *)bitmap)[x] << rol;
+            ULONG right = ((ULONG *)bitmap)[x + 1] >> (31 - rol);
             W_REG_L_MMIO(PIX_TRANS, (left | right));
           }
           bitmap += bmPitch;
@@ -2233,13 +2235,13 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   bi->BlitPattern = BlitPattern;
 
   DFUNC(15,
-      "WaitBlitter 0x%08lx\nBlitRect 0x%08lx\nInvertRect 0x%08lx\nFillRect "
-      "0x%08lx\n"
-      "BlitTemplate 0x%08lx\n BlitPlanar2Chunky 0x%08lx\n"
-      "BlitRectNoMaskComplete 0x%08lx\n DrawLine 0x%08lx\n",
-      bi->WaitBlitter, bi->BlitRect, bi->InvertRect, bi->FillRect,
-      bi->BlitTemplate, bi->BlitPlanar2Chunky, bi->BlitRectNoMaskComplete,
-      bi->DrawLine);
+        "WaitBlitter 0x%08lx\nBlitRect 0x%08lx\nInvertRect 0x%08lx\nFillRect "
+        "0x%08lx\n"
+        "BlitTemplate 0x%08lx\n BlitPlanar2Chunky 0x%08lx\n"
+        "BlitRectNoMaskComplete 0x%08lx\n DrawLine 0x%08lx\n",
+        bi->WaitBlitter, bi->BlitRect, bi->InvertRect, bi->FillRect,
+        bi->BlitTemplate, bi->BlitPlanar2Chunky, bi->BlitRectNoMaskComplete,
+        bi->DrawLine);
 
   bi->PixelClockCount[PLANAR] = 0;
   bi->PixelClockCount[CHUNKY] =
@@ -2593,7 +2595,8 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
     ULONG readbackLow = *lowOffset;
     ULONG readbackZero = *framebuffer;
 
-    D(5, "S3Trio64: probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= "
+    D(5,
+      "S3Trio64: probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= "
       "0x%lx\n",
       highOffset, readbackHigh, lowOffset, readbackLow, readbackZero);
 
@@ -2650,7 +2653,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   W_REG_W_MMIO(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
   W_REG_W_MMIO(BKGD_MIX, CLR_SRC_BKGD_COLOR | MIX_NEW);
 
-  W_REG_W_MMIO(CMD, CMD_ALWAYS|CMD_TYPE_NOP);
+  W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
 
   return TRUE;
 }
