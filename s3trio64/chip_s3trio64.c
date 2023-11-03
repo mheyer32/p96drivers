@@ -1328,7 +1328,7 @@ static inline void REGARGS getGESegmentAndOffset(ULONG memOffset,
 
 #ifdef DBG
   if (*segment > 0) {
-    KPrintF("segment %ld, xoff %ld, yoff %ld, memoffset 0x%08lx\n",
+    D(10, "segment %ld, xoff %ld, yoff %ld, memoffset 0x%08lx\n",
             (ULONG)*segment, (ULONG)*xoffset, (ULONG)*yoffset, memOffset);
   }
 #endif
@@ -1701,93 +1701,153 @@ static void ASM BlitRectNoMaskComplete(
         (ULONG)height, (ULONG)opCode, (ULONG)format, (ULONG)sri->BytesPerRow,
         (ULONG)sri->Memory);
 
-  // FIXME: if src and dst bytes per row differ, I could fall back to blitting
-  // line by line
-  if (sri->BytesPerRow != dri->BytesPerRow) {
-    DFUNC(1, "src and dst pitch differ, fallback to BlitRectNoMaskCompleteDefault\n");
-    bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY,
-                                      width, height, opCode, format);
-    return;
-  }
 
   MMIOBASE();
 
+  UWORD bytesPerRow = dri->BytesPerRow > sri->BytesPerRow ? dri->BytesPerRow : sri->BytesPerRow;
   UBYTE bpp = getBPP(format);
-  if (!bpp || !setCR50(bi, sri->BytesPerRow, bpp)) {
+  if (!bpp || !setCR50(bi, bytesPerRow, bpp)) {
     DFUNC(1, "fallback to BlitRectNoMaskCompleteDefault\n");
     bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY,
                                       width, height, opCode, format);
     return;
   }
 
-  UWORD segSrc;
-  WORD xoffset;
-  WORD yoffset;
-  getGESegmentAndOffset(getMemoryOffset(bi, sri->Memory), sri->BytesPerRow, bpp,
-                        &segSrc, &xoffset, &yoffset);
-
-  srcX += xoffset;
-  srcY += yoffset;
-
-  UWORD segDst;
-  getGESegmentAndOffset(getMemoryOffset(bi, dri->Memory), dri->BytesPerRow, bpp,
-                        &segDst, &xoffset, &yoffset);
-
-  dstX += xoffset;
-  dstY += yoffset;
-
-  WORD dx = dstX - srcX;
-  WORD dy = dstY - srcY;
-
-  UWORD dir = POSITIVE_X | POSITIVE_Y;
-
-  // FIXME: do we really need to check for overlap?
-  // Is it not equally fast to adjust the blit direction each time?
-  //  BOOL overlapX = !(width <= dx || width <= -dx);
-  //  BOOL overlapY = !(height <= dy || height <= -dy);
-  //  if (segSrc == segDst && overlapX && overlapY)
-  {
-    // rectangles overlap, figure out which direction to blit
-    if (dstX > srcX) {
-      dir &= ~POSITIVE_X;
-      srcX = srcX + width - 1;
-      dstX = dstX + width - 1;
-    }
-    if (dstY > srcY) {
-      dir &= ~POSITIVE_Y;
-      srcY = srcY + height - 1;
-      dstY = dstY + height - 1;
-    }
-  }
-
   ChipData_t *cd = getChipData(bi);
   if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
     cd->GEOp = BLITRECTNOMASKCOMPLETE;
     cd->GEmask = 0xFF;
+    cd->GEdrawMode = 0xFF;// invalidate minterm cache
 
-    WaitFifo(bi, 13);
+    WaitFifo(bi, 4);
     // Set MULT_MISC first so that
     // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
     // Bit 9 CMR 32B - Select 32-Bit Command Registers
     W_BEE8(MULT_MISC, (1 << 9));
 
     W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
-    // FIXME: set mask according to  'mask' parameter for CLUT modes
-    // Mask can also be cached
     W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
-  } else {
-    WaitFifo(bi, 9);
   }
 
-  // FIXME: could cache segments and minterm
-  W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | minTermToMix[opCode]);
-  W_BEE8(MULT_MISC2, segSrc << 4 | segDst);
+  if (cd->GEdrawMode != opCode)
+  {
+    cd->GEdrawMode = opCode;
 
-  W_REG_L_MMIO(ALT_CURXY, (srcX << 16) | srcY);
-  W_REG_L_MMIO(ALT_STEP, (dstX << 16) | dstY);
-  W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+    WaitFifo(bi, 1);
+    W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | minTermToMix[opCode]);
+  }
 
-  W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
+  if (sri->BytesPerRow == dri->BytesPerRow) {
+    WORD xoffset;
+    WORD yoffset;
+    UWORD segDst;
+    getGESegmentAndOffset(getMemoryOffset(bi, dri->Memory), sri->BytesPerRow, bpp,
+                          &segDst, &xoffset, &yoffset);
+
+    dstX += xoffset;
+    dstY += yoffset;
+
+    UWORD segSrc;
+    getGESegmentAndOffset(getMemoryOffset(bi, sri->Memory), sri->BytesPerRow,
+                          bpp, &segSrc, &xoffset, &yoffset);
+
+    srcX += xoffset;
+    srcY += yoffset;
+
+    WORD dx = dstX - srcX;
+    WORD dy = dstY - srcY;
+
+    UWORD dir = POSITIVE_X | POSITIVE_Y;
+
+    // FIXME: do we really need to check for overlap?
+    // Is it not equally fast to adjust the blit direction each time?
+    //  BOOL overlapX = !(width <= dx || width <= -dx);
+    //  BOOL overlapY = !(height <= dy || height <= -dy);
+    //  if (segSrc == segDst && overlapX && overlapY)
+    {
+      // rectangles overlap, figure out which direction to blit
+      if (dstX > srcX) {
+        dir &= ~POSITIVE_X;
+        srcX = srcX + width - 1;
+        dstX = dstX + width - 1;
+      }
+      if (dstY > srcY) {
+        dir &= ~POSITIVE_Y;
+        srcY = srcY + height - 1;
+        dstY = dstY + height - 1;
+      }
+    }
+
+    WaitFifo(bi, 8);
+
+    W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
+    W_REG_L_MMIO(ALT_CURXY, (srcX << 16) | srcY);
+    W_REG_L_MMIO(ALT_STEP, (dstX << 16) | dstY);
+    W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+
+    W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
+  } else if (sri->BytesPerRow < dri->BytesPerRow) {
+    WORD xoffset;
+    WORD yoffset;
+    UWORD segDst;
+    getGESegmentAndOffset(getMemoryOffset(bi, dri->Memory), dri->BytesPerRow, bpp,
+                          &segDst, &xoffset, &yoffset);
+
+    dstX += xoffset;
+    dstY += yoffset;
+
+    UBYTE *srcMem = (UBYTE *)sri->Memory;
+    srcMem += srcY * sri->BytesPerRow + srcX * bpp;
+    ULONG memOffset = getMemoryOffset(bi, srcMem);
+
+    WaitFifo(bi, 2);
+
+    for (WORD h = 0; h < height; ++h) {
+      WORD x;
+      WORD y;
+      UWORD segSrc;
+      getGESegmentAndOffset(memOffset, dri->BytesPerRow, bpp, &segSrc, &x, &y);
+
+      WaitFifo(bi, 8);
+      W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
+      W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
+      W_REG_L_MMIO(ALT_STEP, (dstX << 16) | (dstY + h));
+      W_REG_L_MMIO(ALT_PCNT, (width - 1) << 16);  // copy just one line each time
+      W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
+
+      memOffset += sri->BytesPerRow;
+    }
+  } else {
+    WORD xoffset;
+    WORD yoffset;
+    UWORD segSrc;
+    getGESegmentAndOffset(getMemoryOffset(bi, sri->Memory), sri->BytesPerRow,
+                          bpp, &segSrc, &xoffset, &yoffset);
+
+    srcX += xoffset;
+    srcY += yoffset;
+
+    UBYTE *dstMem = (UBYTE *)dri->Memory;
+    dstMem += dstY * dri->BytesPerRow + dstX * bpp;
+    ULONG memOffset = getMemoryOffset(bi, dstMem);
+
+    for (WORD h = 0; h < height; ++h) {
+      WORD x;
+      WORD y;
+      UWORD segDst;
+      getGESegmentAndOffset(memOffset, sri->BytesPerRow, bpp, &segDst, &x, &y);
+
+      WaitFifo(bi, 8);
+      W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
+      W_REG_L_MMIO(ALT_CURXY, (srcX << 16) | (srcY + h));
+      W_REG_L_MMIO(ALT_STEP, (x << 16) | y);
+      W_REG_L_MMIO(ALT_PCNT, (width - 1) << 16);  // copy just one line each time
+      W_REG_W_MMIO(CMD,
+                   CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
+
+      memOffset += dri->BytesPerRow;
+    }
+  }
 }
 
 static inline void REGARGS DrawModeToMixMode(UBYTE drawMode, UWORD *frgdMix,
