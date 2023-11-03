@@ -2112,7 +2112,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
                                   __REGD4(SHORT width), __REGD5(SHORT height),
                                   __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
 {
-  DFUNC(1,
+  DFUNC(5,
         "\nsrcX %ld, srcY %ld, dstX %ld, dstY %ld, w %ld, h %ld"
         "\nmask 0x%lx minTerm %ld\n"
         "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
@@ -2196,7 +2196,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
     W_REG_L_MMIO(ALT_CURXY, (dstX << 16) | dstY);
     W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
 
-    UBYTE *bitmap = (ULONG *)bm->Planes[p];
+    UBYTE *bitmap = (UBYTE *)bm->Planes[p];
     if ((ULONG)bitmap == 0x00000000) {
       W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
       W_REG_W_MMIO(FRGD_MIX, (CLR_SRC_BKGD_COLOR | mixMode));
