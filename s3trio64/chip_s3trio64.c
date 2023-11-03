@@ -213,6 +213,26 @@ int svga_compute_pll(const struct svga_pll *pll, u32 f_wanted, u16 *m, u16 *n,
   return (f_current >> ar);
 }
 
+static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
+{
+  MMIOBASE();
+  //  LOCAL_SYSBASE();
+
+        //  D("Waiting for blitter...");
+        // FIXME: ideally you'd want this interrupt driven. I.e. sleep until the HW
+        // interrupt indicates its done. Otherwise, whats the point of having the
+        // blitter run asynchronous to the CPU?
+        // FIXME AS a debug measure, Here we're waiting for the GE to finish AND all
+        // FIFO slots to clear
+        //  while ((R_REG_W(GP_STAT) & ((1<<9)|(1<<10))) != 1<<10)) {
+        //  };
+
+  while (R_REG_W_MMIO(GP_STAT) & (1 << 9)) {
+  };
+
+        //  D("done\n");
+}
+
 static const struct svga_pll s3_pll = {3, 129,   3,      33,   0,
                                        3, 35000, 240000, 14318};
 
@@ -421,6 +441,8 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
 
   bi->ModeInfo = mi;
   bi->Border = border;
+
+  WaitBlitter(bi);
 
   // Disable Clocking Doubling
   W_SR_MASK(0x15, 0x10, 0);
@@ -786,6 +808,8 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi),
     break;
   }
 
+  WaitBlitter(bi);
+
   pitch /= 8;
   panOffset = (panOffset + memOffset) / 4;
 
@@ -1000,6 +1024,8 @@ static void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi),
       return;
     }
     getChipData(bi)->MemFormat = format;
+
+    WaitBlitter(bi);
 
     // Setup the linear window CPU access such that the below formats will be
     // converted to the actual framebuffer format on write/read
@@ -1252,25 +1278,6 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
   return TRUE;
 }
 
-static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
-{
-  MMIOBASE();
-  //  LOCAL_SYSBASE();
-
-  //  D("Waiting for blitter...");
-  // FIXME: ideally you'd want this interrupt driven. I.e. sleep until the HW
-  // interrupt indicates its done. Otherwise, whats the point of having the
-  // blitter run asynchronous to the CPU?
-  // FIXME AS a debug measure, Here we're waiting for the GE to finish AND all
-  // FIFO slots to clear
-  //  while ((R_REG_W(GP_STAT) & ((1<<9)|(1<<10))) != 1<<10)) {
-  //  };
-
-  while (R_REG_W_MMIO(GP_STAT) & (1 << 9)) {
-  };
-
-  //  D("done\n");
-}
 
 static inline void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
 {
