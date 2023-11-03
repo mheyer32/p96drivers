@@ -65,7 +65,7 @@ typedef enum BlitterOp
 typedef struct ChipData
 {
   RGBFTYPE MemFormat;   // programmed memory layout/format
-  struct Library *DOSBase;
+//  struct Library *DOSBase;
   BlitterOp_t GEOp;     // programmed grpahics engine setup
   ULONG GEfgPen;
   ULONG GEbgPen;
@@ -89,7 +89,7 @@ static inline struct ChipData *getChipData(struct BoardInfo *bi)
 #define LOCAL_SYSBASE() struct ExecBase *SysBase = bi->ExecBase
 #define LOCAL_PROMETHEUSBASE() \
   struct Library *PrometheusBase = (struct Library *)(bi->CardPrometheusBase)
-#define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
+//#define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
 
 static INLINE REGARGS volatile UBYTE *getLegacyBase(const struct BoardInfo *bi)
 {

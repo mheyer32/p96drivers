@@ -4,9 +4,9 @@
 
 #include <exec/types.h>
 #include <graphics/rastport.h>
-#include <proto/dos.h>
 #include <proto/exec.h>
 #include <proto/prometheus.h>
+#include <hardware/cia.h>
 
 #include <SDI_stdarg.h>
 
@@ -255,8 +255,12 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
   W_SR(0x10, (n - 2) | (r << 5));
   W_SR(0x11, m - 2);
 
-  LOCAL_DOSBASE();
-  Delay(1);
+  // CIA access has deterministic speed, use it for a short delay
+  extern volatile struct CIA ciaa;
+  for (int i = 0; i < 10; ++i)
+  {
+    UBYTE x =  ciaa.ciapra;
+  }
 
   /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
   regval = R_SR(0x15); /* | 0x80; */
@@ -999,9 +1003,13 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
   W_SR(0x12, (n - 2) | (r << 5));
   W_SR(0x13, m - 2);
 
+  // I used to use DOS' Delay() here but then realized that Delay()
+  // is likely using VBLank interrupt
+  // CIA access has deterministic speed, use it for a short delay
+  extern volatile struct CIA ciaa;
+  for (int i = 0; i < 10; ++i)
   {
-    LOCAL_DOSBASE();
-    Delay(1);
+    UBYTE x =  ciaa.ciapra;
   }
 
   /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
@@ -2177,10 +2185,10 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   LOCAL_PROMETHEUSBASE();
   LOCAL_SYSBASE();
 
-  getChipData(bi)->DOSBase = (ULONG)OpenLibrary(DOSNAME, 0);
-  if (!getChipData(bi)->DOSBase) {
-    return FALSE;
-  }
+//  getChipData(bi)->DOSBase = (ULONG)OpenLibrary(DOSNAME, 0);
+//  if (!getChipData(bi)->DOSBase) {
+//    return FALSE;
+//  }
 
   bi->GraphicsControllerType = GCT_S3Trio64;
   bi->PaletteChipType = PCT_S3Trio64;
