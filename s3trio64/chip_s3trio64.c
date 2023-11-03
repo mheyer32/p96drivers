@@ -1455,15 +1455,12 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   MMIOBASE();
 
   UBYTE bpp = getBPP(fmt);
-  if (!bpp) {
+  if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
+    DFUNC(1, "Fallback to FillRectDefault\n")
     bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
     return;
   }
 
-  if (!setCR50(bi, ri->BytesPerRow, bpp)) {
-    bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
-    return;
-  }
   UWORD seg;
   UWORD xoffset;
   UWORD yoffset;
@@ -1533,15 +1530,12 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi),
   MMIOBASE();
 
   UBYTE bpp = getBPP(fmt);
-  if (!bpp) {
+  if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
+    DFUNC(1, "Fallback to InvertRectDefault\n")
     bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
     return;
   }
 
-  if (!setCR50(bi, ri->BytesPerRow, bpp)) {
-    bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
-    return;
-  }
   UWORD seg;
   UWORD xoffset;
   UWORD yoffset;
@@ -1602,6 +1596,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
 
   UBYTE bpp = getBPP(fmt);
   if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
+    DFUNC(1, "Fallback to BlitRectDefault\n")
     bi->BlitRectDefault(bi, ri, srcX, srcY, dstX, dstY, width, height, mask,
                         fmt);
     return;
@@ -1703,7 +1698,7 @@ static void ASM BlitRectNoMaskComplete(
   // FIXME: if src and dst bytes per row differ, I could fall back to blitting
   // line by line
   if (sri->BytesPerRow != dri->BytesPerRow) {
-    D(1, "src and dst pitch differ, fallback to default implementation");
+    DFUNC(1, "src and dst pitch differ, fallback to BlitRectNoMaskCompleteDefault\n");
     bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY,
                                       width, height, opCode, format);
     return;
@@ -1713,6 +1708,7 @@ static void ASM BlitRectNoMaskComplete(
 
   UBYTE bpp = getBPP(format);
   if (!bpp || !setCR50(bi, sri->BytesPerRow, bpp)) {
+    DFUNC(1, "fallback to BlitRectNoMaskCompleteDefault\n");
     bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY,
                                       width, height, opCode, format);
     return;
@@ -1823,6 +1819,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
 
   UBYTE bpp = getBPP(fmt);
   if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
+    DFUNC(1, "fallback to BlitTemplateDefault\n");
     bi->BlitTemplateDefault(bi, ri, template, x, y, width, height, mask, fmt);
     return;
   }
@@ -1942,6 +1939,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi),
 
   UBYTE bpp = getBPP(fmt);
   if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
+    DFUNC(1, "fallback to BlitPatternDefault\n");
     bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, fmt);
     return;
   }
@@ -2064,6 +2062,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
 
   if ((projectedRegisterWriteBytes > numPlanarBytes) ||
       !setCR50(bi, ri->BytesPerRow, 1)) {
+    DFUNC(1, "fallback to BlitPlanar2ChunkyDefault\n");
     bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width,
                                  height, minTerm, mask);
     return;
