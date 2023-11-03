@@ -1152,12 +1152,18 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi),
 
   WORD offsetX = 0;
   if (spriteX < 0) {
-    offsetX = -spriteX;
+    if (spriteX > -64)
+      offsetX = -spriteX;
+    else
+      offsetX = 64;
     spriteX = 0;
   }
   WORD offsetY = 0;
   if (spriteY < 0) {
-    offsetY = -spriteY;
+    if (spriteY > -64)
+      offsetY = -spriteY;
+    else
+      offsetY = 64;
     spriteY = 0;
   }
 
