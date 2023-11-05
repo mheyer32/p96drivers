@@ -137,6 +137,13 @@ static inline u32 abs_diff(u32 a, u32 b)
   return (a > b) ? (a - b) : (b - a);
 }
 
+static inline WORD myabs(WORD x)
+{
+  WORD result;
+  result = (x < 0) ? (-x) : x;
+  return (result);
+}
+
 struct svga_pll
 {
   u16 m_min;
@@ -1498,6 +1505,7 @@ static inline void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask,
 #define BOTTOM_RIGHT (0b000 << 5)
 #define POSITIVE_X (0b001 << 5)
 #define POSITIVE_Y (0b100 << 5)
+#define Y_MAJOR (0b010 << 5)
 
 static void ASM FillRect(__REGA0(struct BoardInfo *bi),
                          __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
@@ -2229,6 +2237,104 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
   }
 }
 
+
+void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
+                  __REGA2(struct Line *line), __REGD0(UBYTE mask),
+                  __REGD7(RGBFTYPE fmt))
+{
+  DFUNC(5, "\n");
+
+  MMIOBASE();
+
+  UBYTE bpp = getBPP(fmt);
+  if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp) || !line->Length) {
+    DFUNC(1, "Fallback to DrawLineDefault\n")
+    bi->DrawLineDefault(bi, ri, line, mask, fmt);
+    return;
+  }
+
+  UWORD x, y;
+
+  UWORD seg;
+  UWORD xoffset;
+  UWORD yoffset;
+  getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp,
+                        &seg, &x, &y);
+
+  x += line->X;
+  y += line->Y;
+
+  ChipData_t *cd = getChipData(bi);
+
+  if (cd->GEOp != LINE) {
+    cd->GEOp = LINE;
+    cd->GEdrawMode = 0xFF;
+
+    WaitFifo(bi, 2);
+    // Set MULT_MISC first so that
+    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
+    // Bit 9 CMR 32B - Select 32-Bit Command Registers
+    W_BEE8(MULT_MISC, (1 << 9));
+  }
+  else
+  {
+    WaitFifo(bi, 1);
+  }
+
+  // This could/should get chached as well
+  W_BEE8(MULT_MISC2, seg << 4);
+
+  SetDrawMode(bi, line->FgPen, line->BgPen, line->DrawMode, fmt);
+  SetGEWriteMask(bi, mask, fmt, 0);
+
+  UWORD direction = 0;
+
+  WORD absMAX = myabs(line->lDelta);
+  WORD absMIN = myabs(line->sDelta);
+
+  WORD errTerm = 2 * absMIN - absMAX;
+  if (line->dX > 0) {
+    direction |= POSITIVE_X;
+  } else {
+    errTerm -= 1;
+  }
+  if (line->dY > 0)
+    direction |= POSITIVE_Y;
+
+  if (!line->Horizontal)
+    direction |= Y_MAJOR;
+
+  WaitFifo(bi, 8);
+  W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
+  W_REG_L_MMIO(ALT_STEP, ((2 * (absMIN - absMAX)) << 16) | (2 * absMIN));
+  W_REG_W_MMIO(ERR_TERM, errTerm);
+  W_REG_W_MMIO(MAJ_AXIS_PCNT, line->Length - 1);
+
+  BOOL isSolid = (line->LinePtrn == 0xFFFF);
+  if (isSolid) {
+    W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
+    W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | direction);
+  } else {
+    W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+    W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS |
+                          CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+                          CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED | direction);
+
+    //Line->PatternShift selects which bit of the pattern is to be used for the
+    //origin of the line and thus shifts the pattern to the indicated number of
+    //bits to the left. It is the pattern shift value at the start of the line
+    //segment to be drawn.
+    UWORD rol = line->PatternShift;
+    ULONG pattern = (line->LinePtrn << rol) |
+                    (line->LinePtrn >> (16 - rol));
+    pattern = (pattern << 16) | pattern;
+    WORD numDWords = (line->Length + 31) / 32;
+    for (WORD i = 0; i < numDWords; ++i) {
+      W_REG_L_MMIO(PIX_TRANS, pattern);
+    }
+  }
+}
+
 BOOL InitChipL(__REGA0(struct BoardInfo *bi))
 {
   REGBASE();
@@ -2296,7 +2402,7 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   bi->BlitTemplate = BlitTemplate;
   bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
   bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
-  //  bi->DrawLine = (_func_55.conflict *)&DrawLine;
+  bi->DrawLine = DrawLine;
   bi->BlitPattern = BlitPattern;
 
   DFUNC(15,
