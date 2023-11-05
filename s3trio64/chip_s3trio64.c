@@ -1411,6 +1411,59 @@ static inline ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
   return pen;
 }
 
+static inline void REGARGS DrawModeToMixMode(UBYTE drawMode, UWORD *frgdMix,
+                                             UWORD *bkgdMix)
+{
+  UWORD writeMode = (drawMode & COMPLEMENT) ? MIX_NOT_CURRENT : MIX_NEW;
+  UWORD f, g;
+  switch (drawMode & 1) {
+  case JAM1:
+    f = writeMode;
+    g = MIX_CURRENT;
+    break;
+  case JAM2:
+    f = writeMode;
+    g = writeMode;
+    break;
+  }
+  f |= CLR_SRC_FRGD_COLOR;
+  g |= CLR_SRC_BKGD_COLOR;
+  if (drawMode & INVERSVID) {
+    UWORD t = f;
+    f = g;
+    g = t;
+  }
+  *frgdMix = f;
+  *bkgdMix = g;
+}
+
+static inline void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen,
+                                       ULONG BgPen, UBYTE DrawMode,
+                                       RGBFTYPE format)
+{
+  MMIOBASE();
+  ChipData_t *cd = getChipData(bi);
+
+  if (cd->GEfgPen != FgPen || cd->GEbgPen != BgPen ||
+      cd->GEdrawMode != DrawMode || cd->GEFormat != format) {
+    cd->GEfgPen = FgPen;
+    cd->GEbgPen = BgPen;
+    cd->GEdrawMode = DrawMode;
+    cd->GEFormat = format;
+
+    UWORD frgdMix, bkgdMix;
+    DrawModeToMixMode(DrawMode, &frgdMix, &bkgdMix);
+    ULONG fgPen = PenToColor(FgPen, format);
+    ULONG bgPen = PenToColor(BgPen, format);
+
+    WaitFifo(bi, 6);
+
+    W_REG_L_MMIO(ALT_MIX, (frgdMix << 16) | bkgdMix);
+    W_REG_L_MMIO(FRGD_COLOR, fgPen);
+    W_REG_L_MMIO(BKGD_COLOR, bgPen);
+  }
+}
+
 static inline void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask,
                                           RGBFTYPE fmt, BYTE waitFifoSlots)
 {
@@ -1850,24 +1903,6 @@ static void ASM BlitRectNoMaskComplete(
   }
 }
 
-static inline void REGARGS DrawModeToMixMode(UBYTE drawMode, UWORD *frgdMix,
-                                             UWORD *bkgdMix)
-{
-  switch (drawMode & 3) {
-  case JAM1:
-    *frgdMix = MIX_NEW;
-    *bkgdMix = MIX_CURRENT;
-    break;
-  case JAM2:
-    *frgdMix = MIX_NEW;
-    *bkgdMix = MIX_NEW;
-    break;
-  case COMPLEMENT:
-    *frgdMix = MIX_NOT_CURRENT;
-    *bkgdMix = MIX_CURRENT;
-  }
-}
-
 static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
                              __REGA1(struct RenderInfo *ri),
                              __REGA2(struct Template *template),
@@ -1922,32 +1957,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
     W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
   }
 
-  if (cd->GEfgPen != template->FgPen || cd->GEbgPen != template->BgPen ||
-      cd->GEdrawMode != template->DrawMode || cd->GEFormat != fmt) {
-    cd->GEfgPen = template->FgPen;
-    cd->GEbgPen = template->BgPen;
-    cd->GEdrawMode = template->DrawMode;
-    cd->GEFormat = fmt;
-
-    WaitFifo(bi, 6);
-    UWORD frgdMix, bkgdMix;
-    DrawModeToMixMode(template->DrawMode, &frgdMix, &bkgdMix);
-
-    frgdMix |= CLR_SRC_FRGD_COLOR;
-    bkgdMix |= CLR_SRC_BKGD_COLOR;
-    // Implement the inverted case by swapping roles of the foreground and
-    // background mix
-    if (!(template->DrawMode & INVERSVID)) {
-      W_REG_L_MMIO(ALT_MIX, (frgdMix << 16) | bkgdMix);
-    } else {
-      W_REG_L_MMIO(ALT_MIX, (bkgdMix << 16) | frgdMix);
-    }
-    ULONG fgPen = PenToColor(template->FgPen, fmt);
-    W_REG_L_MMIO(FRGD_COLOR, fgPen);
-    ULONG bgpen = PenToColor(template->BgPen, fmt);
-    W_REG_L_MMIO(BKGD_COLOR, bgpen);
-  }
-
+  SetDrawMode(bi, template->FgPen, template->BgPen, template->DrawMode, fmt);
   SetGEWriteMask(bi, mask, fmt, 6);
 
   // This could/should get chached as well
@@ -2042,31 +2052,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi),
     W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
   }
 
-  if (cd->GEfgPen != pattern->FgPen || cd->GEbgPen != pattern->BgPen ||
-      cd->GEdrawMode != pattern->DrawMode || cd->GEFormat != fmt) {
-    cd->GEfgPen = pattern->FgPen;
-    cd->GEbgPen = pattern->BgPen;
-    cd->GEdrawMode = pattern->DrawMode;
-    cd->GEFormat = fmt;
-
-    WaitFifo(bi, 6);
-    UWORD frgdMix, bkgdMix;
-    DrawModeToMixMode(pattern->DrawMode, &frgdMix, &bkgdMix);
-    frgdMix |= CLR_SRC_FRGD_COLOR;
-    bkgdMix |= CLR_SRC_BKGD_COLOR;
-    // Implement the inverted case by swapping roles of the foreground and
-    // background mix
-    if (!(pattern->DrawMode & INVERSVID)) {
-      W_REG_L_MMIO(ALT_MIX, (frgdMix << 16) | bkgdMix);
-    } else {
-      W_REG_L_MMIO(ALT_MIX, (bkgdMix << 16) | frgdMix);
-    }
-    ULONG fgPen = PenToColor(pattern->FgPen, fmt);
-    W_REG_L_MMIO(FRGD_COLOR, fgPen);
-    ULONG bgpen = PenToColor(pattern->BgPen, fmt);
-    W_REG_L_MMIO(BKGD_COLOR, bgpen);
-  }
-
+  SetDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
   SetGEWriteMask(bi, mask, fmt, 6);
 
   // This could/should get chached as well
