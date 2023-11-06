@@ -7,7 +7,7 @@
 
 #include <boardinfo.h>
 // FIXME: copy header into common location
-#include <../PromLib/endian.h>
+#include "endian.h"
 
 #ifndef DBG
 #define D(...)
@@ -85,7 +85,7 @@ static inline struct ChipData *getChipData(struct BoardInfo *bi)
 }
 
 #define CardPrometheusBase CardData[0]
-#define CardSpriteState CardData[2]
+#define CardPrometheusDevice CardData[1]
 
 #define LOCAL_SYSBASE() struct ExecBase *SysBase = bi->ExecBase
 #define LOCAL_PROMETHEUSBASE() \
@@ -389,6 +389,6 @@ static inline UWORD readBEE8(volatile UBYTE *MMIOBase, UBYTE idx)
     _W_CR_OF(val_W_CR_OVERFLOW3, extOverflowReg2, bitPos4, numBits4);       \
   } while (0);
 
-BOOL InitChipL(__REGA0(struct BoardInfo *bi));
+BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
 #endif

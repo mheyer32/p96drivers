@@ -5,12 +5,14 @@
 #include <exec/types.h>
 #include <graphics/rastport.h>
 #include <proto/exec.h>
-#include <proto/prometheus.h>
 #include <hardware/cia.h>
+
+#include "libraries/prometheus.h"
+#include "proto/prometheus.h"
 
 #include <SDI_stdarg.h>
 
-int debugLevel = 0;
+int debugLevel = 5;
 
 
 #define SUBSYS_STAT 0x42E8  // Read
@@ -126,6 +128,22 @@ int debugLevel = 0;
 #define ALT_MIX 0x8134
 #define ALT_PCNT 0x8148
 #define ALT_PAT 0x8168
+
+
+/******************************************************************************/
+/*                                                                            */
+/* library exports                                                                    */
+/*                                                                            */
+/******************************************************************************/
+
+const char LibName[] = "S3Trio64Plus.chip";
+const char LibIdString[] = "S3Trio32/64/64Plus Picasso96 chip driver version 1.0";
+
+const UWORD LibVersion = 1;
+const UWORD LibRevision = 0;
+
+/******************************************************************************/
+
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -254,7 +272,7 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 
   int currentKhz = svga_compute_pll(&s3_pll, clockHz / 1000, &m, &n, &r);
   if (currentKhz < 0) {
-    KPrintF("cannot set requested pixclock, keeping old value\n");
+    DFUNC(0, "cannot set requested pixclock, keeping old value\n");
     return clockHz;
   }
 
@@ -263,7 +281,7 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
   W_SR(0x11, m - 2);
 
   // CIA access has deterministic speed, use it for a short delay
-  extern volatile struct CIA ciaa;
+  extern volatile FAR struct CIA ciaa;
   for (int i = 0; i < 10; ++i)
   {
     UBYTE x =  ciaa.ciapra;
@@ -980,7 +998,7 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi),
 
   int currentKhz = svga_compute_pll(&s3_pll, pixelClockKhz, &m, &n, &r);
   if (currentKhz < 0) {
-    KPrintF("cannot resolve requested pixclock\n");
+    DFUNC(0, "cannot resolve requested pixclock\n");
     return 0;
   }
   if (mi->Flags & GMF_DOUBLECLOCK) {
@@ -1017,7 +1035,7 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
   // I used to use DOS' Delay() here but then realized that Delay()
   // is likely using VBLank interrupt
   // CIA access has deterministic speed, use it for a short delay
-  extern volatile struct CIA ciaa;
+  extern volatile FAR struct CIA ciaa;
   for (int i = 0; i < 10; ++i)
   {
     UBYTE x =  ciaa.ciapra;
@@ -2339,12 +2357,13 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
   }
 }
 
-BOOL InitChipL(__REGA0(struct BoardInfo *bi))
+BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
   REGBASE();
   MMIOBASE();
-  LOCAL_PROMETHEUSBASE();
   LOCAL_SYSBASE();
+
+  DFUNC(0,"\n");
 
 //  getChipData(bi)->DOSBase = (ULONG)OpenLibrary(DOSNAME, 0);
 //  if (!getChipData(bi)->DOSBase) {
@@ -2453,11 +2472,20 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
   bi->MaxHorResolution[TRUEALPHA] = 1280;
   bi->MaxVerResolution[TRUEALPHA] = 1280;
 
+  {
+      DFUNC(0,"Determine Chip Revision\n");
+
+      ULONG revision;
+      LOCAL_PROMETHEUSBASE();
+      Prm_GetBoardAttrsTags((PCIBoard *)bi->CardPrometheusDevice, PRM_Revision, (ULONG)&revision, TAG_END);
+      getChipData(bi)->Revision = revision;
+  }
+
   if (getChipData(bi)->Revision & 0x40) {
-    /* Chip wakeup Trio64+*/
+    /* Chip wakeup Trio64+ */
     W_REG(0x3C3, 0x01);
   } else {
-    /* Chip wakeup Trio64/32*/
+    /* Chip wakeup Trio64/32 */
     W_REG(0x3C3, 0x10);
     W_REG(0x102, 0x01);
     W_REG(0x3C3, 0x08);
@@ -2648,11 +2676,11 @@ BOOL InitChipL(__REGA0(struct BoardInfo *bi))
     W_CR_MASK(0x53, 0x10, 0x10);
 
     // LAW start address
-    ULONG physAddress = Prm_GetPhysicalAddress(bi->MemoryBase);
-    if (physAddress & 0x3FFFFF) {
-      D(0, "WARNING: card's base address is not 4MB aligned!\n");
-    }
-    W_CR_MASK(0x5a, physAddress >> 16, 0x7F);
+//    ULONG physAddress = Prm_GetPhysicalAddress(bi->MemoryBase);
+//    if (physAddress & 0x3FFFFF) {
+//      D(0, "WARNING: card's base address is not 4MB aligned!\n");
+//    }
+    W_CR_MASK(0x5a, (ULONG)bi->MemoryBase >> 16, 0x7F);
     // Upper address bits may  not be touched as they would result in shifting
     // the PCI window
     //    W_CR_MASK(0x59, physAddress >> 24);
