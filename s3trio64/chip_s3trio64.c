@@ -309,7 +309,12 @@ static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi),
 {
   // Make the bytes per row compatible with the Graphics Engine's presets
   if (width <= 640) {
-    width = 640;
+    // We allow only small resolutions to have a non-Graphics Engine size.
+    // These resolutions (notably 320xY) are often used in games and these games
+    // assume a pitch of 320 bytes (not 640 which expansion to 640 would
+    // require). Nevertheless, align to 8 bytes. We constrain all other
+    // resolutions to Graphics Engine supported pitch.
+    width = (width + 7) & ~7;
   } else if (width <= 800) {
     width = 800;
   } else if (width <= 1024) {
@@ -329,9 +334,8 @@ static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi),
   UBYTE bpp = getBPP(format);
 
   UWORD bytesPerRow = width * bpp;
-  // I believe the Graphics Engine can hadle only 1MB at a time
-  ULONG maxHeight = 1 * 1024 * 1024 / bytesPerRow;
 
+  ULONG maxHeight = 2048;
   if (height > maxHeight) {
     return 0;
   }
