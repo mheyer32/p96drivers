@@ -1487,7 +1487,7 @@ static inline void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen,
 
     WaitFifo(bi, 6);
 
-    W_REG_L_MMIO(ALT_MIX, (frgdMix << 16) | bkgdMix);
+    W_REG_L_MMIO(ALT_MIX, makeDWORD(frgdMix, bkgdMix));
     W_REG_L_MMIO(FRGD_COLOR, fgPen);
     W_REG_L_MMIO(BKGD_COLOR, bgPen);
   }
@@ -1511,10 +1511,9 @@ static inline void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask,
 
       WaitFifo(bi, waitFifoSlots + 2);
 
-      ULONG ulmask = mask;
-      ulmask |= (ulmask << 8);
-      ulmask |= (ulmask << 16);
-      W_REG_L_MMIO(WRT_MASK, ulmask);
+      UWORD wmask = mask;
+      wmask |= (wmask << 8);
+      W_REG_L_MMIO(WRT_MASK, makeDWORD(wmask, wmask));
     } else {
       WaitFifo(bi, waitFifoSlots);
     }
@@ -1596,8 +1595,8 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);
 
-  W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
-  W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+  W_REG_L_MMIO(ALT_CURXY, makeDWORD(x, y));
+  W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
 
   UWORD cmd = CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT;
 
@@ -1659,8 +1658,8 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi),
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);
 
-  W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
-  W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+  W_REG_L_MMIO(ALT_CURXY, makeDWORD(x, y));
+  W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
 
   W_REG_W_MMIO(CMD,
                CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
@@ -1744,9 +1743,9 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
 
   W_BEE8(MULT_MISC2, seg << 4 | seg);
 
-  W_REG_L_MMIO(ALT_CURXY, (srcX << 16) | srcY);
-  W_REG_L_MMIO(ALT_STEP, (dstX << 16) | dstY);
-  W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+  W_REG_L_MMIO(ALT_CURXY, makeDWORD(srcX, srcY));
+  W_REG_L_MMIO(ALT_STEP, makeDWORD(dstX,  dstY));
+  W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1,  height - 1));
 
   W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
 }
@@ -1864,9 +1863,9 @@ static void ASM BlitRectNoMaskComplete(
     WaitFifo(bi, 8);
 
     W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
-    W_REG_L_MMIO(ALT_CURXY, (srcX << 16) | srcY);
-    W_REG_L_MMIO(ALT_STEP, (dstX << 16) | dstY);
-    W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+    W_REG_L_MMIO(ALT_CURXY, makeDWORD(srcX, srcY));
+    W_REG_L_MMIO(ALT_STEP, makeDWORD(dstX, dstY));
+    W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
 
     W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
   } else if (sri->BytesPerRow < dri->BytesPerRow) {
@@ -1893,8 +1892,8 @@ static void ASM BlitRectNoMaskComplete(
 
       WaitFifo(bi, 8);
       W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
-      W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
-      W_REG_L_MMIO(ALT_STEP, (dstX << 16) | (dstY + h));
+      W_REG_L_MMIO(ALT_CURXY, makeDWORD(x, y));
+      W_REG_L_MMIO(ALT_STEP, makeDWORD(dstX, dstY + h));
       W_REG_L_MMIO(ALT_PCNT, (width - 1) << 16);  // copy just one line each time
       W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
 
@@ -1922,11 +1921,10 @@ static void ASM BlitRectNoMaskComplete(
 
       WaitFifo(bi, 8);
       W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
-      W_REG_L_MMIO(ALT_CURXY, (srcX << 16) | (srcY + h));
-      W_REG_L_MMIO(ALT_STEP, (x << 16) | y);
+      W_REG_L_MMIO(ALT_CURXY, makeDWORD(srcX, srcY + h));
+      W_REG_L_MMIO(ALT_STEP, makeDWORD(x, y));
       W_REG_L_MMIO(ALT_PCNT, (width - 1) << 16);  // copy just one line each time
-      W_REG_W_MMIO(CMD,
-                   CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
+      W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
 
       memOffset += dri->BytesPerRow;
     }
@@ -1993,8 +1991,8 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);
 
-  W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
-  W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+  W_REG_L_MMIO(ALT_CURXY, makeDWORD(x, y));
+  W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
 
   W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS |
                         TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
@@ -2088,8 +2086,8 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi),
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);
 
-  W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
-  W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+  W_REG_L_MMIO(ALT_CURXY, makeDWORD(x, y));
+  W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
 
   W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS |
                         TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
@@ -2102,17 +2100,17 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi),
 
   if (!rol) {
     for (WORD y = 0; y < height; ++y) {
-      ULONG bits = bitmap[(y + pattern->YOffset) & patternHeightMask];
-      bits |= bits << 16u;
+      UWORD bits = bitmap[(y + pattern->YOffset) & patternHeightMask];
+      ULONG bitsL =  makeDWORD(bits, bits);
       for (WORD x = 0; x < dwordsPerLine; ++x) {
-        W_REG_L_MMIO(PIX_TRANS, bits);
+        W_REG_L_MMIO(PIX_TRANS, bitsL);
       }
     }
   } else {
     for (WORD y = 0; y < height; ++y) {
       UWORD bits = bitmap[(y + pattern->YOffset) & patternHeightMask];
       bits = (bits << rol) | (bits >> (16 - rol));
-      ULONG bitsL = bits | ((ULONG)bits << 16u);
+      ULONG bitsL = makeDWORD(bits, bits);
       for (WORD x = 0; x < dwordsPerLine; ++x) {
         W_REG_L_MMIO(PIX_TRANS, bitsL);
       }
@@ -2186,8 +2184,8 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
     cd->GEFormat = RGBFB_CLUT;
 
     WaitFifo(bi, 10);
-    W_REG_L_MMIO(ALT_MIX, ((CLR_SRC_FRGD_COLOR | mixMode) << 16) |
-                              (CLR_SRC_BKGD_COLOR | mixMode));
+    W_REG_L_MMIO(ALT_MIX, makeDWORD((CLR_SRC_FRGD_COLOR | mixMode),
+                                    (CLR_SRC_BKGD_COLOR | mixMode)));
     W_REG_L_MMIO(FRGD_COLOR, 0xFFFFFFFF);
     W_REG_L_MMIO(BKGD_COLOR, 0x00000000);
   }
@@ -2209,8 +2207,8 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
 
     SetGEWriteMask(bi, writeMask, RGBFB_CLUT, 8);
 
-    W_REG_L_MMIO(ALT_CURXY, (dstX << 16) | dstY);
-    W_REG_L_MMIO(ALT_PCNT, ((width - 1) << 16) | (height - 1));
+    W_REG_L_MMIO(ALT_CURXY, makeDWORD(dstX, dstY));
+    W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
 
     UBYTE *bitmap = (UBYTE *)bm->Planes[p];
     if ((ULONG)bitmap == 0x00000000) {
@@ -2230,8 +2228,8 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
       // memory. PCI transfers are 32bit anyways, so wasting bus cycles by
       // transferring in chunks of 16bit seems wasteful
       W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
-      W_REG_L_MMIO(ALT_MIX, ((CLR_SRC_FRGD_COLOR | mixMode) << 16) |
-                                (CLR_SRC_BKGD_COLOR | mixMode));
+      W_REG_L_MMIO(ALT_MIX, makeDWORD((CLR_SRC_FRGD_COLOR | mixMode),
+                                      (CLR_SRC_BKGD_COLOR | mixMode)));
       W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS |
                             TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                             CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
@@ -2327,8 +2325,8 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     direction |= Y_MAJOR;
 
   WaitFifo(bi, 8);
-  W_REG_L_MMIO(ALT_CURXY, (x << 16) | y);
-  W_REG_L_MMIO(ALT_STEP, ((2 * (absMIN - absMAX)) << 16) | (2 * absMIN));
+  W_REG_L_MMIO(ALT_CURXY, makeDWORD(x, y));
+  W_REG_L_MMIO(ALT_STEP, makeDWORD(2 * (absMIN - absMAX), (2 * absMIN)));
   W_REG_W_MMIO(ERR_TERM, errTerm);
   W_REG_W_MMIO(MAJ_AXIS_PCNT, line->Length - 1);
 
@@ -2347,12 +2345,12 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     //bits to the left. It is the pattern shift value at the start of the line
     //segment to be drawn.
     UWORD rol = line->PatternShift;
-    ULONG pattern = (line->LinePtrn << rol) |
-                    (line->LinePtrn >> (16 - rol));
-    pattern = (pattern << 16) | pattern;
+    UWORD pattern = (line->LinePtrn << rol) |
+                    (line->LinePtrn >> (16u - rol));
+    ULONG patternL = makeDWORD(pattern, pattern);
     WORD numDWords = (line->Length + 31) / 32;
     for (WORD i = 0; i < numDWords; ++i) {
-      W_REG_L_MMIO(PIX_TRANS, pattern);
+      W_REG_L_MMIO(PIX_TRANS, patternL);
     }
   }
 }

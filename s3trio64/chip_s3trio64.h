@@ -389,6 +389,20 @@ static inline UWORD readBEE8(volatile UBYTE *MMIOBase, UBYTE idx)
     _W_CR_OF(val_W_CR_OVERFLOW3, extOverflowReg2, bitPos4, numBits4);       \
   } while (0);
 
+static inline int makeDWORD(short hi, short lo)
+{
+    int res;
+    __asm __volatile ("swap %0 \n"
+                      "move.w %2,%0"
+                      : "=&r"(res)
+                      : "0"(hi), "g"(lo)
+                      : "cc");
+    return res;
+
+//    return hi << 16 | lo;
+
+}
+
 BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
 #endif
