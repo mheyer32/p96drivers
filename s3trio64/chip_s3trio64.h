@@ -394,7 +394,7 @@ static inline int makeDWORD(short hi, short lo)
     int res;
     __asm __volatile ("swap %0 \n"
                       "move.w %2,%0"
-                      : "=&r"(res)
+                      : "=&d"(res)
                       : "0"(hi), "g"(lo)
                       : "cc");
     return res;
