@@ -13,7 +13,7 @@ ULONG swapw(__reg("d0")ULONG) = "\trol.w\t#8,d0\n";
 
 
 #define swapw(arg)\
- ({short __arg = (arg);\
+ ({unsigned short __arg = (arg);\
   asm ("ROL.W #8,%0"\
     :"=d" (__arg)\
     :"0" (__arg)\
@@ -23,7 +23,7 @@ ULONG swapw(__reg("d0")ULONG) = "\trol.w\t#8,d0\n";
 /* swap long */
 
 #define swapl(arg)\
- ({long __arg = (arg);\
+ ({unsigned long __arg = (arg);\
   asm ("ROL.W #8,%0;\
         SWAP %0;\
         ROL.W #8,%0"\

@@ -92,6 +92,14 @@ static inline struct ChipData *getChipData(struct BoardInfo *bi)
   struct Library *PrometheusBase = (struct Library *)(bi->CardPrometheusBase)
 //#define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
 
+#if TRIO64PLUS
+#define SWAPW(x) x
+#define SWAPL(x) x
+#else
+#define SWAPW(x) swapw(x)
+#define SWAPL(x) swapl(x)
+#endif
+
 static INLINE REGARGS volatile UBYTE *getLegacyBase(const struct BoardInfo *bi)
 {
   return bi->RegisterBase;
@@ -115,7 +123,7 @@ static inline void REGARGS writeReg(volatile UBYTE *regbase, UWORD reg,
 
 static inline UWORD REGARGS readRegW(volatile UBYTE *regbase, UWORD reg)
 {
-  return swapw(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
+  return SWAPW(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
 }
 
 static inline void REGARGS writeRegW(volatile UBYTE *regbase, UWORD reg,
@@ -123,7 +131,7 @@ static inline void REGARGS writeRegW(volatile UBYTE *regbase, UWORD reg,
 {
   D(10, "W 0x%.4lx <- 0x%04lx\n", (LONG)reg, (LONG)value);
 
-  *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = swapw(value);
+  *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = SWAPW(value);
 }
 
 static inline void REGARGS writeRegL(volatile UBYTE *regbase, UWORD reg,
@@ -131,19 +139,19 @@ static inline void REGARGS writeRegL(volatile UBYTE *regbase, UWORD reg,
 {
   D(10, "W 0x%.4lx <- 0x%08lx\n", (LONG)reg, (LONG)value);
 
-  *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = swapl(value);
+  *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = SWAPL(value);
 }
 
 static inline UWORD REGARGS readRegMMIOW(volatile UBYTE *mmiobase, UWORD reg)
 {
-  return swapw(*(volatile UWORD *)(mmiobase + (reg - MMIOREGISTER_OFFSET)));
+  return SWAPW(*(volatile UWORD *)(mmiobase + (reg - MMIOREGISTER_OFFSET)));
 }
 
 static inline void REGARGS writeRegMMIO_W(volatile UBYTE *mmiobase, UWORD reg,
                                           UWORD value)
 {
   D(10, "W 0x%.4lx <- 0x%04lx\n", (LONG)reg, (LONG)value);
-  *(volatile UWORD *)(mmiobase + (reg - MMIOREGISTER_OFFSET)) = swapw(value);
+  *(volatile UWORD *)(mmiobase + (reg - MMIOREGISTER_OFFSET)) = SWAPW(value);
 }
 
 static inline void REGARGS writeRegMMIO_L(volatile UBYTE *mmiobase, UWORD reg,
@@ -151,7 +159,7 @@ static inline void REGARGS writeRegMMIO_L(volatile UBYTE *mmiobase, UWORD reg,
 {
   D(10, "W 0x%.4lx <- 0x%08lx\n", (LONG)reg, (LONG)value);
 
-  *(volatile ULONG *)(mmiobase + (reg - MMIOREGISTER_OFFSET)) = swapl(value);
+  *(volatile ULONG *)(mmiobase + (reg - MMIOREGISTER_OFFSET)) = SWAPL(value);
 }
 
 static inline UBYTE REGARGS readRegister(volatile UBYTE *regbase, UWORD reg)

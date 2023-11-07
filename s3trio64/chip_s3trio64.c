@@ -12,8 +12,9 @@
 
 #include <SDI_stdarg.h>
 
+#ifdef DBG
 int debugLevel = 5;
-
+#endif
 
 #define SUBSYS_STAT 0x42E8  // Read
 #define SUBSYS_CNTL 0x42E8  // Write
@@ -136,7 +137,11 @@ int debugLevel = 5;
 /*                                                                            */
 /******************************************************************************/
 
+#if TRIO64PLUS
 const char LibName[] = "S3Trio64Plus.chip";
+#else
+const char LibName[] = "S3Trio3264.chip";
+#endif
 const char LibIdString[] = "S3Trio32/64/64Plus Picasso96 chip driver version 1.0";
 
 const UWORD LibVersion = 1;
@@ -751,7 +756,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
   //    W_CR(0x54, memClock << 3);
   //  }
 
-  W_CR(0x54, 0x18);
+  W_CR_MASK(0x54, 0xFC, 0x18);
 
   {
     // Extended Memory Control 3 Register (EXT-MCTL-3) (CR60)
@@ -1423,16 +1428,15 @@ static inline ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
     break;
   case RGBFB_R5G6B5PC:
   case RGBFB_R5G5B5PC:
-    pen = swapw(pen) & 0xFFFF;
-    pen |= pen << 16;
-    break;
+    pen = swapw(pen);
+      // Fallthrough
   case RGBFB_R5G6B5:
   case RGBFB_R5G5B5:
-    pen |= (pen & 0xFFFF) << 16;
+    pen = makeDWORD(pen, pen);
     break;
   case RGBFB_CLUT:
     pen |= (pen << 8);
-    pen |= (pen << 16);
+    pen = makeDWORD(pen, pen);
     break;
   default:
     break;
@@ -2527,6 +2531,15 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
    */
   W_REG(ADVFUNC_CNTL, 0x01);
 
+#if TRIO64PLUS
+  if (isTrio64Plus)
+  {
+    // Enable BYTE-Swapping for MMIO register reads/writes
+    // This allows us to write to WORD/DWORD MMIO registers without swapping
+    W_CR_MASK(0x54, 0x03, 0b11);
+  }
+#endif
+
   /* This field contains the upper 6 bits (19-14) of the CPU base address,
    allowing accessing of up to 4 MBytes of display memory via 64K pages.
    When a non-zero value is programmed in this field, bits 3-0 of CR35
@@ -2685,7 +2698,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
   }
 
   // MCLK M Parameter
-  W_CR(0x54, 0x70);
+  W_CR_MASK(0x54, 0xFC, 0x70);
 
   W_CR(0x60, 0xff);
 

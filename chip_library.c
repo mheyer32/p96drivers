@@ -22,7 +22,7 @@ struct ChipBase *LibInit(__REGD0(struct ChipBase *cb), __REGA0(APTR seglist), __
 
 BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
-int main(void)
+int USED _start(void)
 {
     return -1;
 }
@@ -33,7 +33,7 @@ extern const char LibIdString[];
 extern const UWORD LibVersion;
 extern const UWORD LibRevision;
 
-void *FuncTable[] = {(APTR)LibOpen, (APTR)LibClose, (APTR)LibExpunge, (APTR)LibReserved, (APTR)InitChip, (APTR)-1};
+USED_VAR void *FuncTable[] = {(APTR)LibOpen, (APTR)LibClose, (APTR)LibExpunge, (APTR)LibReserved, (APTR)InitChip, (APTR)-1};
 
 struct InitTable /* do not change */
 {
@@ -45,7 +45,7 @@ struct InitTable /* do not change */
 
 /* ------------------- ROM Tag ------------------------ */
 
-const struct Resident ROMTag = /* do not change */
+USED_VAR const struct Resident ROMTag = /* do not change */
     {RTC_MATCHWORD,   (APTR)&ROMTag, &ROMTag.rt_Init + 1, RTF_AUTOINIT, 0, NT_LIBRARY, 0, &LibName[0],
      &LibIdString[0], &InitTab};
 
