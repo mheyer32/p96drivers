@@ -50,5 +50,5 @@ $(OUTDIR)S3Trio64Plus.chip : $(OBJS_S3TRIO64)
 # target 'clean'
 
 clean:
-	rm -rf $(OUTDIR)\*
-	rm -rf $(OBJDIR)\*.o
+	rm -rf $(OUTDIR)*
+	rm -rf $(OBJDIR)*.o
