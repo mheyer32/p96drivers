@@ -15,7 +15,7 @@ BINDIR ?= _bin/
 BUILDDIR ?= _o/
 DEBUG ?= 0
 
-BUILDFLAGS = -flto -noixemul -nostartfiles -msmall-code -m68020-60 -Os -g -ggdb -fomit-frame-pointer
+BUILDFLAGS = -noixemul -msmall-code -m68020-60 -mtune=68030 -O3 -g -ggdb -fomit-frame-pointer
 
 CFLAGS ?=
 CFLAGS +=  $(BUILDFLAGS) -I. -IPicasso96Develop/Include -IPicasso96Develop/PrivateInclude -IPrometheus/include
