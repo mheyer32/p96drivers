@@ -2217,7 +2217,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
   W_BEE8(MULT_MISC2, seg << 4);
 
   WORD bmPitch = bm->BytesPerRow;
-  ULONG bmStartOffset = (srcY * bm->BytesPerRow) + (srcX / 8);
+  ULONG bmStartOffset = (srcY * bm->BytesPerRow) + (srcX / 32) * 4;
   UWORD dwordsPerLine = (width + 31) / 32;
   UBYTE rol = srcX % 32;
 
