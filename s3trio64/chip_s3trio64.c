@@ -927,7 +927,26 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi),
   if (format == RGBFB_NONE)
     return (ULONG)0;
 
-  return RGBFF_CLUT | RGBFF_HICOLOR | RGBFF_TRUECOLOR | RGBFF_TRUEALPHA;
+  // These formats can always reside in the Little Endian Window.
+  // We never need to change any aperture setting for them
+  ULONG compatible = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
+
+  if (getChipData(bi)->Revision & 0x40)  // Trio64+?
+  {
+      switch (format) {
+      case RGBFB_A8R8G8B8:
+          // In Big Endian aperture, configured for byte swapping in long word
+          compatible |= RGBFF_A8R8G8B8;
+          break;
+      case RGBFB_R5G6B5:
+      case RGBFB_R5G5B5:
+          // In Big Endian aperture, configured for byte swapping in words only
+          compatible |= RGBFF_R5G6B5 | RGBFF_R5G5B5;
+          break;
+      }
+  }
+
+  return compatible;
 }
 
 static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
