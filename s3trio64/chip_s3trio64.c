@@ -1593,11 +1593,6 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
     cd->GEOp = FILLRECT;
 
     WaitFifo(bi, 3);
-    // Set MULT_MISC first so that
-    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
-    // Bit 9 CMR 32B - Select 32-Bit Command Registers
-    W_BEE8(MULT_MISC, (1 << 9));
-
     W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
     W_REG_W_MMIO(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
   }
@@ -1666,11 +1661,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi),
   if (cd->GEOp != INVERTRECT) {
     cd->GEOp = INVERTRECT;
 
-    WaitFifo(bi, 3);
-    // Set MULT_MISC first so that
-    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
-    // Bit 9 CMR 32B - Select 32-Bit Command Registers
-    W_BEE8(MULT_MISC, (1 << 9));
+    WaitFifo(bi, 2);
 
     W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
     W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | MIX_NOT_CURRENT);
@@ -1752,11 +1743,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
   if (cd->GEOp != BLITRECT) {
     cd->GEOp = BLITRECT;
 
-    WaitFifo(bi, 3);
-    // Set MULT_MISC first so that
-    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
-    // Bit 9 CMR 32B - Select 32-Bit Command Registers
-    W_BEE8(MULT_MISC, (1 << 9));
+    WaitFifo(bi, 2);
 
     W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
     W_REG_W_MMIO(FRGD_MIX, CLR_SRC_MEMORY | MIX_NEW);
@@ -1824,11 +1811,7 @@ static void ASM BlitRectNoMaskComplete(
     cd->GEmask = 0xFF;
     cd->GEdrawMode = 0xFF;// invalidate minterm cache
 
-    WaitFifo(bi, 4);
-    // Set MULT_MISC first so that
-    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
-    // Bit 9 CMR 32B - Select 32-Bit Command Registers
-    W_BEE8(MULT_MISC, (1 << 9));
+    WaitFifo(bi, 3);
 
     W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
     W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
@@ -1999,11 +1982,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
     // Invalidate the pen and drawmode caches
     cd->GEdrawMode = 0xFF;
 
-    WaitFifo(bi, 2);
-    // Set MULT_MISC first so that
-    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
-    // Bit 9 CMR 32B - Select 32-Bit Command Registers
-    W_BEE8(MULT_MISC, (1 << 9));
+    WaitFifo(bi,1);
 
     W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
   }
@@ -2094,11 +2073,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi),
     // Invalidate the pen and drawmode caches
     cd->GEdrawMode = 0xFF;
 
-    WaitFifo(bi, 2);
-    // Set MULT_MISC first so that
-    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
-    // Bit 9 CMR 32B - Select 32-Bit Command Registers
-    W_BEE8(MULT_MISC, (1 << 9));
+    WaitFifo(bi, 1);
 
     W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
   }
@@ -2188,11 +2163,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
     // Invalidate the pen and drawmode caches
     cd->GEdrawMode = 0xFF;
 
-    WaitFifo(bi, 2);
-    // Set MULT_MISC first so that
-    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
-    // Bit 9 CMR 32B - Select 32-Bit Command Registers
-    W_BEE8(MULT_MISC, (1 << 9));
+    WaitFifo(bi, 1);
 
     W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
   }
@@ -2312,17 +2283,9 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
   if (cd->GEOp != LINE) {
     cd->GEOp = LINE;
     cd->GEdrawMode = 0xFF;
+  }
 
-    WaitFifo(bi, 2);
-    // Set MULT_MISC first so that
-    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
-    // Bit 9 CMR 32B - Select 32-Bit Command Registers
-    W_BEE8(MULT_MISC, (1 << 9));
-  }
-  else
-  {
-    WaitFifo(bi, 1);
-  }
+  WaitFifo(bi, 1);
 
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);
@@ -2873,7 +2836,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
   W_REG_W_MMIO(0xBEE8, 0x3fff);
   W_REG_W_MMIO(0xBEE8, 0x4fff);
 
-  W_BEE8(MULT_MISC, 0);
+  // Set MULT_MISC first so that
+  // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
+  // Bit 9 CMR 32B - Select 32-Bit Command Registers
+  W_BEE8(MULT_MISC, (1 << 9));
+
   W_BEE8(MULT_MISC2, 0);
   // Init GE write/read masks
   W_REG_W_MMIO(WRT_MASK, 0xFFFF);
