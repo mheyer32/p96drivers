@@ -123,7 +123,9 @@ static inline void REGARGS writeReg(volatile UBYTE *regbase, UWORD reg,
 
 static inline UWORD REGARGS readRegW(volatile UBYTE *regbase, UWORD reg)
 {
-  return SWAPW(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
+  UWORD value = SWAPW(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
+  asm volatile ("" :: "r"(value));
+  return value;
 }
 
 static inline void REGARGS writeRegW(volatile UBYTE *regbase, UWORD reg,
@@ -144,7 +146,12 @@ static inline void REGARGS writeRegL(volatile UBYTE *regbase, UWORD reg,
 
 static inline UWORD REGARGS readRegMMIOW(volatile UBYTE *mmiobase, UWORD reg)
 {
-  return SWAPW(*(volatile UWORD *)(mmiobase + (reg - MMIOREGISTER_OFFSET)));
+  // This construct makes sure, the compiler doesn't take shortcuts
+  // performing a byte access (for instance via btst) when the hardware really
+  // requires register access as words
+  UWORD value = SWAPW(*(volatile UWORD *)(mmiobase + (reg - MMIOREGISTER_OFFSET)));
+  asm volatile ("" :: "r"(value));
+  return value;
 }
 
 static inline void REGARGS writeRegMMIO_W(volatile UBYTE *mmiobase, UWORD reg,
