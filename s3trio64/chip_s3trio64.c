@@ -1493,7 +1493,6 @@ static inline void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen,
                                        ULONG BgPen, UBYTE DrawMode,
                                        RGBFTYPE format)
 {
-  MMIOBASE();
   ChipData_t *cd = getChipData(bi);
 
   if (cd->GEfgPen != FgPen || cd->GEbgPen != BgPen ||
@@ -1510,6 +1509,7 @@ static inline void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen,
 
     WaitFifo(bi, 6);
 
+    MMIOBASE();
     W_REG_L_MMIO(ALT_MIX, makeDWORD(frgdMix, bkgdMix));
     W_REG_L_MMIO(FRGD_COLOR, fgPen);
     W_REG_L_MMIO(BKGD_COLOR, bgPen);
@@ -1950,8 +1950,6 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
         (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask,
         (ULONG)fmt, (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
 
-  MMIOBASE();
-
   UBYTE bpp = getBPP(fmt);
   if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
     DFUNC(1, "fallback to BlitTemplateDefault\n");
@@ -1973,6 +1971,9 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
     KPrintF("X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
   }
 #endif
+
+
+  MMIOBASE();
 
   ChipData_t *cd = getChipData(bi);
 
@@ -2162,10 +2163,6 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
 
     // Invalidate the pen and drawmode caches
     cd->GEdrawMode = 0xFF;
-
-    WaitFifo(bi, 1);
-
-    W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
   }
 
   UWORD mixMode = minTermToMix[minTerm];
