@@ -2541,7 +2541,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     BOOL LPBMode = (R_CR(0x6F) & 0x01) == 0;
     CONST_STRPTR modeString =
         (LPBMode ? "Local Peripheral Bus (LPB)" : "Compatibility");
-    D(0, "Chip is Trio64+ (Rev %ld) in %s mode\n", (ULONG)chipRevision & 0x0f,
+    D(0, "Chip is Trio64+/V2 (Rev %ld) in %s mode\n", (ULONG)chipRevision & 0x0f,
       modeString);
 
     // We can support byte-swapped formats on this chip via the Big Linear
@@ -2860,7 +2860,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
   D(1, "S3Trio64: memorySize %ldmb\n", bi->MemorySize / (1024 * 1024));
 
   // Input Status ? Register (STATUS_O)
-  D(1, "Monitor is %s present\n", ((R_REG(0x3C2) & 0x10) ? "" : "NOT"));
+  D(1, "Monitor is %s present\n", (!(R_REG(0x3C2) & 0x10) ? "" : "NOT"));
 
   // Two sprite images, each 64x64*2 bits
   const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
