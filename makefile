@@ -93,10 +93,10 @@ all : S3Trio64Plus.chip S3Trio3264.chip
 S3TRIO_SRC = s3trio64/chip_s3trio64.c \
 			 chip_library.c
 
-S3Trio64Plus.chip : CFLAGS+=-DTRIO64PLUS=1
+S3Trio64Plus.chip : CFLAGS+=-DBIGENDIANREGISTERS=1
 $(eval $(call make_driver,S3Trio64Plus.chip,$(BUILDDIR)s3trio64plus/, ${S3TRIO_SRC}))
 
-S3Trio3264.chip : CFLAGS+=-DTRIO64PLUS=0
+S3Trio3264.chip : CFLAGS+=-DBIGENDIANREGISTERS=0
 $(eval $(call make_driver,S3Trio3264.chip,$(BUILDDIR)s3trio3264/, ${S3TRIO_SRC}))
 
 # target 'clean'

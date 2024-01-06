@@ -63,6 +63,14 @@ typedef enum BlitterOp
 
 } BlitterOp_t;
 
+typedef enum ChipFamily
+{
+    UNKNOWN,
+    VISION864,  // pre-Trio64, separate RAMDAC, oldstyle MMIO
+    TRIO64,     // integrated RAMDAC, oldstyle MMIO
+    TRIO64PLUS  // integrated RAMDAC, newstyle MMIO
+} ChipFamily_t;
+
 typedef struct ChipData
 {
   RGBFTYPE MemFormat;   // programmed memory layout/format
@@ -76,7 +84,7 @@ typedef struct ChipData
   UBYTE GEbpp;          // programmed graphics engine bpp
   UBYTE GEmask;         // programmed mask
   UBYTE GEdrawMode;
-  UBYTE Revision;       // chip revision
+  ChipFamily_t chipFamily;       // chip family
 } ChipData_t;
 
 static inline struct ChipData *getChipData(struct BoardInfo *bi)
@@ -92,7 +100,7 @@ static inline struct ChipData *getChipData(struct BoardInfo *bi)
   struct Library *PrometheusBase = (struct Library *)(bi->CardPrometheusBase)
 //#define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
 
-#if TRIO64PLUS
+#if BIGENDIANREGISTERS
 #define SWAPW(x) x
 #define SWAPL(x) x
 #else

@@ -137,7 +137,7 @@ int debugLevel = 5;
 /*                                                                            */
 /******************************************************************************/
 
-#if TRIO64PLUS
+#if BIGENDIANREGISTERS
 const char LibName[] = "S3Trio64Plus.chip";
 #else
 const char LibName[] = "S3Trio3264.chip";
@@ -902,7 +902,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi),
 static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi),
                                 __REGA1(APTR mem), __REGD7(RGBFTYPE format))
 {
-  if (getChipData(bi)->Revision & 0x40)  // Trio64+?
+    if (getChipData(bi)->chipFamily >= TRIO64PLUS)  // Trio64+?
   {
     switch (format) {
     case RGBFB_A8R8G8B8:
@@ -931,7 +931,7 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi),
   // We never need to change any aperture setting for them
   ULONG compatible = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
 
-  if (getChipData(bi)->Revision & 0x40)  // Trio64+?
+  if (getChipData(bi)->chipFamily >= TRIO64PLUS)  // Trio64+?
   {
       switch (format) {
       case RGBFB_A8R8G8B8:
@@ -1079,7 +1079,7 @@ static void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi),
   REGBASE();
 
   //  DFUNC("\n");
-  if (getChipData(bi)->Revision & 0x40)  // Trio64+?
+  if (getChipData(bi)->chipFamily >= TRIO64PLUS)  // Trio64+?
   {
     if (getChipData(bi)->MemFormat == format) {
       return;
@@ -2454,15 +2454,53 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
   bi->MaxVerResolution[TRUEALPHA] = 1280;
 
   {
-      DFUNC(0,"Determine Chip Revision\n");
+      DFUNC(0, "Determine Chip Family\n");
 
       ULONG revision;
+      ULONG deviceId;
       LOCAL_PROMETHEUSBASE();
-      Prm_GetBoardAttrsTags((PCIBoard *)bi->CardPrometheusDevice, PRM_Revision, (ULONG)&revision, TAG_END);
-      getChipData(bi)->Revision = revision;
+      Prm_GetBoardAttrsTags((PCIBoard *)bi->CardPrometheusDevice, PRM_Device, (ULONG)&deviceId, PRM_Revision,
+                            (ULONG)&revision, TAG_END);
+
+      ChipData_t *cd = getChipData(bi);
+      cd->chipFamily = UNKNOWN;
+
+      switch (deviceId) {
+      case 0x88C0:  // 86c864 Vision 864
+      case 0x88C1:  // 86c864 Vision 864
+          cd->chipFamily = VISION864;
+          break;
+      case 0x8813:                  // 86c764_3 [Trio 32/64 vers 3]
+          cd->chipFamily = TRIO64;  // correct?
+          break;
+      case 0x8811:  // 86c764/765 [Trio32/64/64V+]
+          cd->chipFamily = revision & 0x40 ? TRIO64PLUS : TRIO64;
+          break;
+      case 0x8812:  // 86CM65 Aurora64V+
+      case 0x8814:  // 86c767 [Trio 64UV+]
+      case 0x8900:  // 86c755 [Trio 64V2/DX]
+      case 0x8901:  // 86c775/86c785 [Trio 64V2/DX or /GX]
+      case 0x8905:  // Trio 64V+ family
+      case 0x8906:  // Trio 64V+ family
+      case 0x8907:  // Trio 64V+ family
+      case 0x8908:  // Trio 64V+ family
+      case 0x8909:  // Trio 64V+ family
+      case 0x890a:  // Trio 64V+ family
+      case 0x890b:  // Trio 64V+ family
+      case 0x890c:  // Trio 64V+ family
+      case 0x890d:  // Trio 64V+ family
+      case 0x890e:  // Trio 64V+ family
+      case 0x890f:  // Trio 64V+ family
+          cd->chipFamily = TRIO64PLUS;
+          break;
+      default:
+          cd->chipFamily = UNKNOWN;
+          DFUNC(0, "Unknown chip family, aborting\n");
+          return FALSE;
+      }
   }
 
-  if (getChipData(bi)->Revision & 0x40) {
+  if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
     /* Chip wakeup Trio64+ */
     W_REG(0x3C3, 0x01);
   } else {
@@ -2480,8 +2518,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
   W_CR(0x39, 0xa5);
 
   UBYTE chipRevision = R_CR(0x2F);
-  BOOL isTrio64Plus = (chipRevision & 0x40) != 0;
-  if (isTrio64Plus) {
+  if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
     BOOL LPBMode = (R_CR(0x6F) & 0x01) == 0;
     CONST_STRPTR modeString =
         (LPBMode ? "Local Peripheral Bus (LPB)" : "Compatibility");
@@ -2492,7 +2529,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Adressing Window
     bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
   } else {
-    D(0, "Chip is Trio64/32 (Rev %ld)\n", (ULONG)chipRevision);
+    D(0, "Chip is Visiona864/Trio64/32 (Rev %ld)\n", (ULONG)chipRevision);
   }
 
   /* The Enhanced Graphics Command register group is unlocked
@@ -2510,8 +2547,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
    */
   W_REG(ADVFUNC_CNTL, 0x01);
 
-#if TRIO64PLUS
-  if (isTrio64Plus)
+#if BIGENDIANREGISTERS
+  if (getChipData(bi)->chipFamily >= TRIO64PLUS)
   {
     // Enable BYTE-Swapping for MMIO register reads/writes
     // This allows us to write to WORD/DWORD MMIO registers without swapping
@@ -2655,9 +2692,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
   // Enable 4MB Linear Address Window (LAW)
   W_CR(0x58, 0x13);
-  if (isTrio64Plus) {
+  if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
     // Enable Trio64+ "New MMIO" only and byte swapping in the Big Endian window
-    D(5, "setup New MMIO\n");
+    D(5, "setup newstyle MMIO\n");
     W_CR_MASK(0x53, 0x3E, 0x0c);
   } else {
     D(5, "setup compatible MMIO\n");
