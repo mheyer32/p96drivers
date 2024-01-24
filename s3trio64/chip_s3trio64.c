@@ -2117,12 +2117,58 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi),
   }
 }
 
-static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
-                                  __REGA1(struct BitMap *bm),
-                                  __REGA2(struct RenderInfo *ri),
-                                  __REGD0(SHORT srcX), __REGD1(SHORT srcY),
-                                  __REGD2(SHORT dstX), __REGD3(SHORT dstY),
-                                  __REGD4(SHORT width), __REGD5(SHORT height),
+static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT dstX, SHORT dstY, SHORT width,
+                                                  SHORT height, UWORD mixMode, UBYTE *bitmap, UWORD dwordsPerLine,
+                                                  WORD bmPitch, UBYTE rol)
+{
+    MMIOBASE();
+
+    W_REG_L_MMIO(ALT_CURXY, makeDWORD(dstX, dstY));
+    W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
+
+    if ((ULONG)bitmap == 0x00000000) {
+        W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        W_REG_W_MMIO(FRGD_MIX, (CLR_SRC_BKGD_COLOR | mixMode));
+        W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
+
+    } else if ((ULONG)bitmap == 0xFFFFFFFF) {
+        W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        W_REG_W_MMIO(FRGD_MIX, (CLR_SRC_FRGD_COLOR | mixMode));
+        W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
+
+    } else {
+        // FIXME: Should I have a path for 16bit aligned width?
+        // The only argument for not doing it is unaligned 32bit reads from CPU
+        // memory. PCI transfers are 32bit anyways, so wasting bus cycles by
+        // transferring in chunks of 16bit seems wasteful
+        W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+        W_REG_L_MMIO(ALT_MIX, makeDWORD((CLR_SRC_FRGD_COLOR | mixMode), (CLR_SRC_BKGD_COLOR | mixMode)));
+        W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+                              CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
+
+        if (!rol) {
+            for (UWORD y = 0; y < height; ++y) {
+                for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                    W_REG_L_MMIO(PIX_TRANS, ((ULONG *)bitmap)[x]);
+                }
+                bitmap += bmPitch;
+            }
+        } else {
+            for (UWORD y = 0; y < height; ++y) {
+                for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                    ULONG left = ((ULONG *)bitmap)[x] << rol;
+                    ULONG right = ((ULONG *)bitmap)[x + 1] >> (32 - rol);
+                    W_REG_L_MMIO(PIX_TRANS, (left | right));
+                }
+                bitmap += bmPitch;
+            }
+        }
+    }
+}
+
+static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct BitMap *bm),
+                                  __REGA2(struct RenderInfo *ri), __REGD0(SHORT srcX), __REGD1(SHORT srcY),
+                                  __REGD2(SHORT dstX), __REGD3(SHORT dstY), __REGD4(SHORT width), __REGD5(SHORT height),
                                   __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
 {
   DFUNC(5,
@@ -2135,23 +2181,22 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
 
   MMIOBASE();
 
+  BOOL emulate320 = (ri->BytesPerRow == 320);
+  WORD bytesPerRow = emulate320 ? 640 : ri->BytesPerRow;
   // how many dwords per line in the source plane
   UWORD numPlanarBytes = width / 8 * height * bm->Depth;
   UWORD projectedRegisterWriteBytes = (9 + 8 * 8) * 2;
 
-  if ((projectedRegisterWriteBytes > numPlanarBytes) ||
-      !setCR50(bi, ri->BytesPerRow, 1)) {
-    DFUNC(1, "fallback to BlitPlanar2ChunkyDefault\n");
-    bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width,
-                                 height, minTerm, mask);
-    return;
+  if ((projectedRegisterWriteBytes > numPlanarBytes) || !setCR50(bi, bytesPerRow, 1)) {
+      DFUNC(1, "fallback to BlitPlanar2ChunkyDefault\n");
+      bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
+      return;
   }
 
   UWORD seg;
   UWORD xoffset;
   UWORD yoffset;
-  getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, 1,
-                        &seg, &xoffset, &yoffset);
+  getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), bytesPerRow, 1, &seg, &xoffset, &yoffset);
 
   dstX += xoffset;
   dstY += yoffset;
@@ -2185,7 +2230,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
   W_BEE8(MULT_MISC2, seg << 4);
 
   WORD bmPitch = bm->BytesPerRow;
-  ULONG bmStartOffset = (srcY * bm->BytesPerRow) + (srcX / 32) * 4;
+  ULONG bmStartOffset = (srcY * bmPitch) + (srcX / 32) * 4;
   UWORD dwordsPerLine = (width + 31) / 32;
   UBYTE rol = srcX % 32;
 
@@ -2198,51 +2243,25 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi),
 
     SetGEWriteMask(bi, writeMask, RGBFB_CLUT, 8);
 
-    W_REG_L_MMIO(ALT_CURXY, makeDWORD(dstX, dstY));
-    W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
-
     UBYTE *bitmap = (UBYTE *)bm->Planes[p];
-    if ((ULONG)bitmap == 0x00000000) {
-      W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
-      W_REG_W_MMIO(FRGD_MIX, (CLR_SRC_BKGD_COLOR | mixMode));
-      W_REG_W_MMIO(
-          CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
+    if (bitmap != 0x0 && bitmap != 0xffffffff)
+    {
+       bitmap += bmStartOffset;
+    }
 
-    } else if ((ULONG)bitmap == 0xFFFFFFFF) {
-      W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
-      W_REG_W_MMIO(FRGD_MIX, (CLR_SRC_FRGD_COLOR | mixMode));
-      W_REG_W_MMIO(
-          CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
-    } else {
-      // FIXME: Should I have a path for 16bit aligned width?
-      // The only argument for not doing it is unaligned 32bit reads from CPU
-      // memory. PCI transfers are 32bit anyways, so wasting bus cycles by
-      // transferring in chunks of 16bit seems wasteful
-      W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
-      W_REG_L_MMIO(ALT_MIX, makeDWORD((CLR_SRC_FRGD_COLOR | mixMode),
-                                      (CLR_SRC_BKGD_COLOR | mixMode)));
-      W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS |
-                            TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
-                            CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
+    if (!emulate320)
+    {
+      performBlitPlanar2ChunkyBlits(bi, dstX, dstY, width, height, mixMode, bitmap, dwordsPerLine, bmPitch, rol);
+    }
+    else
+    {
+      SHORT halfHeight1 = (height + 1) / 2;
+      SHORT halfHeight2 = height / 2;
 
-      bitmap += bmStartOffset;
-
-      if (!rol) {
-        for (UWORD y = 0; y < height; ++y) {
-          for (UWORD x = 0; x < dwordsPerLine; ++x) {
-            W_REG_L_MMIO(PIX_TRANS, ((ULONG *)bitmap)[x]);
-          }
-          bitmap += bmPitch;
-        }
-      } else {
-        for (UWORD y = 0; y < height; ++y) {
-          for (UWORD x = 0; x < dwordsPerLine; ++x) {
-            ULONG left = ((ULONG *)bitmap)[x] << rol;
-            ULONG right = ((ULONG *)bitmap)[x + 1] >> (32 - rol);
-            W_REG_L_MMIO(PIX_TRANS, (left | right));
-          }
-          bitmap += bmPitch;
-        }
+      performBlitPlanar2ChunkyBlits(bi, dstX, dstY, width, halfHeight1, mixMode, bitmap, dwordsPerLine, bmPitch * 2, rol);
+      if (halfHeight2)
+      {
+        performBlitPlanar2ChunkyBlits(bi, dstX + 320, dstY, width, halfHeight2, mixMode, bitmap + bmPitch, dwordsPerLine, bmPitch * 2, rol);
       }
     }
   }
