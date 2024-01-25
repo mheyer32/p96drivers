@@ -1,4 +1,5 @@
 #include "chip_s3trio64.h"
+#include "s3ramdac.h"
 
 #define __NOLIBBASE__
 
@@ -13,7 +14,14 @@
 #include <SDI_stdarg.h>
 
 #ifdef DBG
-int debugLevel = 5;
+int debugLevel = 10;
+#endif
+
+
+#if !BUILD_VISION864
+#define HAS_PACKED_MMIO 1
+#else
+#define HAS_PACKED_MMIO 0
 #endif
 
 #define SUBSYS_STAT 0x42E8  // Read
@@ -119,6 +127,7 @@ int debugLevel = 5;
 #define PAT_Y 0xEAE8
 #define PAT_X 0xEAEA
 
+#if HAS_PACKED_MMIO
 // Packed MMIO 32bit registers
 #define ALT_CURXY 0x8100
 #define ALT_CURXY2 0x8104
@@ -129,6 +138,7 @@ int debugLevel = 5;
 #define ALT_MIX 0x8134
 #define ALT_PCNT 0x8148
 #define ALT_PAT 0x8168
+#endif
 
 
 /******************************************************************************/
@@ -139,10 +149,12 @@ int debugLevel = 5;
 
 #if BIGENDIANREGISTERS
 const char LibName[] = "S3Trio64Plus.chip";
+#elif BUILD_VISION864
+const char LibName[] = "S3Vision864.chip";
 #else
 const char LibName[] = "S3Trio3264.chip";
 #endif
-const char LibIdString[] = "S3Trio32/64/64Plus Picasso96 chip driver version 1.0";
+const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 chip driver version 1.0";
 
 const UWORD LibVersion = 1;
 const UWORD LibRevision = 0;
@@ -194,7 +206,10 @@ int svga_compute_pll(const struct svga_pll *pll, u32 f_wanted, u16 *m, u16 *n,
 
   /* overflow check */
   if ((f_vco >> ar) != f_wanted)
+  {
+    DFUNC(0, "pixelclock overflow\n");
     return -1;
+  }
 
   /* It is usually better to have greater VCO clock
      because of better frequency stability.
@@ -206,7 +221,10 @@ int svga_compute_pll(const struct svga_pll *pll, u32 f_wanted, u16 *m, u16 *n,
 
   /* VCO bounds check */
   if ((f_vco < pll->f_vco_min) || (f_vco > pll->f_vco_max))
+  {
+    DFUNC(0, "pixelclock overflow\n");
     return -1;
+  }
 
   delta_best = 0xFFFFFFFF;
   *m = 0;
@@ -245,26 +263,30 @@ int svga_compute_pll(const struct svga_pll *pll, u32 f_wanted, u16 *m, u16 *n,
 
 static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
+  D(20, "Waiting for blitter...");
+// FIXME: ideally you'd want this interrupt driven. I.e. sleep until the HW
+// interrupt indicates its done. Otherwise, whats the point of having the
+// blitter run asynchronous to the CPU?
+// FIXME AS a debug measure, Here we're waiting for the GE to finish AND all
+// FIFO slots to clear
+//  while ((R_REG_W(GP_STAT) & ((1<<9)|(1<<10))) != 1<<10)) {
+//  };
+
+#if BUILD_VISION864
+  REGBASE();
+  while (R_REG_W(GP_STAT) & (1 << 9)) {
+  };
+#else
   MMIOBASE();
-  //  LOCAL_SYSBASE();
-
-        //  D("Waiting for blitter...");
-        // FIXME: ideally you'd want this interrupt driven. I.e. sleep until the HW
-        // interrupt indicates its done. Otherwise, whats the point of having the
-        // blitter run asynchronous to the CPU?
-        // FIXME AS a debug measure, Here we're waiting for the GE to finish AND all
-        // FIFO slots to clear
-        //  while ((R_REG_W(GP_STAT) & ((1<<9)|(1<<10))) != 1<<10)) {
-        //  };
-
   while (R_REG_W_MMIO(GP_STAT) & (1 << 9)) {
   };
+#endif
 
-        //  D("done\n");
+  D(20, "done\n");
 }
 
-static const struct svga_pll s3_pll = {3, 129,   3,      33,   0,
-                                       3, 35000, 240000, 14318};
+static const struct svga_pll s3trio64_pll = {3, 129, 3, 33, 0, 3, 35000, 240000, 14318};
+static const struct svga_pll s3sdac_pll =   {3, 129, 3, 33, 0, 3, 60000, 270000, 14318};
 
 ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 {
@@ -275,28 +297,46 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 
   DFUNC(10, "original Hz: %ld\n", clockHz);
 
-  int currentKhz = svga_compute_pll(&s3_pll, clockHz / 1000, &m, &n, &r);
+  const struct svga_pll *pll = (getChipData(bi)->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
+
+  int currentKhz = svga_compute_pll(pll, clockHz / 1000, &m, &n, &r);
   if (currentKhz < 0) {
     DFUNC(0, "cannot set requested pixclock, keeping old value\n");
     return clockHz;
   }
 
-  /* Set S3 clock registers */
-  W_SR(0x10, (n - 2) | (r << 5));
-  W_SR(0x11, m - 2);
-
-  // CIA access has deterministic speed, use it for a short delay
-  extern volatile FAR struct CIA ciaa;
-  for (int i = 0; i < 10; ++i)
+  if (getChipData(bi)->chipFamily >= TRIO64)
   {
-    UBYTE x =  ciaa.ciapra;
-  }
+    /* Set S3 clock registers */
+    W_SR(0x10, (n - 2) | (r << 5));
+    W_SR(0x11, m - 2);
 
-  /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
-  regval = R_SR(0x15); /* | 0x80; */
-  W_SR(0x15, regval & ~(1 << 5));
-  W_SR(0x15, regval | (1 << 5));
-  W_SR(0x15, regval & ~(1 << 5));
+    // CIA access has deterministic speed, use it for a short delay
+    extern volatile FAR struct CIA ciaa;
+    for (int i = 0; i < 10; ++i)
+    {
+      UBYTE x =  ciaa.ciapra;
+    }
+
+    /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
+    regval = R_SR(0x15); /* | 0x80; */
+    W_SR(0x15, regval & ~(1 << 5));
+    W_SR(0x15, regval | (1 << 5));
+    W_SR(0x15, regval & ~(1 << 5));
+  }
+  else
+  {
+    /* set RS2 via CR55 - I believe this switches to a second "bank" of RAMDAC registers */
+    W_CR_MASK(0x55, 0x01, 0x01);
+
+    // Clock 10 is apparently the clock used for MCLK, weirdly, though the docs say that clock fA(0x09)
+    // Is the one selected at power up
+    W_REG(DAC_WR_AD, 0x0A);
+    W_REG(DAC_DATA, m - 2);
+    W_REG(DAC_DATA, (n - 2) | (r << 5));
+
+    W_CR_MASK(0x55, 0x01, 0x00);
+  }
 
   return currentKhz * 1000;
 }
@@ -316,6 +356,8 @@ static inline UBYTE getBPP(RGBFTYPE format)
     break;
   case RGBFB_A8R8G8B8:
   case RGBFB_B8G8R8A8:
+  case RGBFB_R8G8B8A8:
+  case RGBFB_A8B8G8R8:
     return 4;
     break;
   default:
@@ -399,46 +441,115 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi),
 
 static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
-  REGBASE();
+    REGBASE();
 
-  DFUNC(5, "\n");
-
-  static const UBYTE DAC_ColorModes[] = {
-      0x00,  // RGBFB_NONE
-      0x00,  // RGBFB_CLUT
-      0x70,  // RGBFB_R8G8B8
-      0x70,  // RGBFB_B8G8R8
-      0x50,  // RGBFB_R5G6B5PC
-      0x30,  // RGBFB_R5G5B5PC
-      0xd0,  // RGBFB_A8R8G8B8
-      0xd0,  // RGBFB_A8B8G8R8
-      0xd0,  // RGBFB_R8G8B8A8
-      0xd0,  // RGBFB_B8G8R8A8
-      0x50,  // RGBFB_R5G6B5
-      0x30,  // RGBFB_R5G5B5
-      0x50,  // RGBFB_B5G6R5PC
-      0x30,  // RGBFB_B5G5R5PC
-      0x00,  // RGBFB_YUV422CGX
-      0x00,  // RGBFB_YUV411
-      0x00,  // RGBFB_YUV411PC
-      0x00,  // RGBFB_YUV422
-      0x00,  // RGBFB_YUV422PC
-      0x00,  // RGBFB_YUV422PA
-      0x00,  // RGBFB_YUV422PAPC
-  };
-
-  UBYTE dacMode;
-
-  if (format < RGBFB_MaxFormats) {
-    if ((format == RGBFB_CLUT) &&
-        ((bi->ModeInfo->Flags & GMF_DOUBLECLOCK) != 0)) {
-      dacMode = 0x10;
-    } else {
-      dacMode = DAC_ColorModes[format];
+    DFUNC(5, "\n");
+#if BUILD_VISION864
+    static const UBYTE SDAC_ColorModes[] = {
+        0x00,  // RGBFB_NONE
+        0x00,  // RGBFB_CLUT
+        0x90,  // RGBFB_R8G8B8
+        0x90,  // RGBFB_B8G8R8
+        0x50,  // RGBFB_R5G6B5PC
+        0x30,  // RGBFB_R5G5B5PC
+        0x70,  // RGBFB_A8R8G8B8
+        0x70,  // RGBFB_A8B8G8R8
+        0x70,  // RGBFB_R8G8B8A8
+        0x70,  // RGBFB_B8G8R8A8
+        0x50,  // RGBFB_R5G6B5
+        0x30,  // RGBFB_R5G5B5
+        0x50,  // RGBFB_B5G6R5PC
+        0x30,  // RGBFB_B5G5R5PC
+        0x00,  // RGBFB_YUV422CGX
+        0x00,  // RGBFB_YUV411
+        0x00,  // RGBFB_YUV411PC
+        0x00,  // RGBFB_YUV422
+        0x00,  // RGBFB_YUV422PC
+        0x00,  // RGBFB_YUV422PA
+        0x00,  // RGBFB_YUV422PAPC
+    };
+    if (format < RGBFB_MaxFormats) {
+        UBYTE sdacMode;
+        if ((format == RGBFB_CLUT) && ((bi->ModeInfo->Flags & GMF_DOUBLECLOCK) != 0)) {
+            D(5, "Setting 8bit multiplex SDAC mode\n");
+            sdacMode = 0x10;
+        } else {
+            sdacMode = SDAC_ColorModes[format];
+        }
+        W_CR_MASK(0x55, 0x01, 0x01);
+        W_REG(0x3c6, sdacMode);
+        W_CR_MASK(0x55, 0x01, 0x00);
     }
-    W_CR_MASK(0x67, 0xF0, dacMode);
-  }
-  return;
+#endif
+#if BUILD_VISION864
+    static const UBYTE DAC_ColorModes[] = {
+        0x00,  // RGBFB_NONE
+        0x00,  // RGBFB_CLUT
+        0x70,  // RGBFB_R8G8B8
+        0x70,  // RGBFB_B8G8R8
+        0x50,  // RGBFB_R5G6B5PC
+        0x30,  // RGBFB_R5G5B5PC
+        0x70,  // RGBFB_A8R8G8B8
+        0x70,  // RGBFB_A8B8G8R8
+        0x70,  // RGBFB_R8G8B8A8
+        0x70,  // RGBFB_B8G8R8A8
+        0x50,  // RGBFB_R5G6B5
+        0x30,  // RGBFB_R5G5B5
+        0x50,  // RGBFB_B5G6R5PC
+        0x30,  // RGBFB_B5G5R5PC
+        0x00,  // RGBFB_YUV422CGX
+        0x00,  // RGBFB_YUV411
+        0x00,  // RGBFB_YUV411PC
+        0x00,  // RGBFB_YUV422
+        0x00,  // RGBFB_YUV422PC
+        0x00,  // RGBFB_YUV422PA
+        0x00,  // RGBFB_YUV422PAPC
+    };
+#else
+    static const UBYTE DAC_ColorModes[] = {
+        0x00,  // RGBFB_NONE
+        0x00,  // RGBFB_CLUT
+        0x70,  // RGBFB_R8G8B8
+        0x70,  // RGBFB_B8G8R8
+        0x50,  // RGBFB_R5G6B5PC
+        0x30,  // RGBFB_R5G5B5PC
+        0xd0,  // RGBFB_A8R8G8B8
+        0xd0,  // RGBFB_A8B8G8R8
+        0xd0,  // RGBFB_R8G8B8A8
+        0xd0,  // RGBFB_B8G8R8A8
+        0x50,  // RGBFB_R5G6B5
+        0x30,  // RGBFB_R5G5B5
+        0x50,  // RGBFB_B5G6R5PC
+        0x30,  // RGBFB_B5G5R5PC
+        0x00,  // RGBFB_YUV422CGX
+        0x00,  // RGBFB_YUV411
+        0x00,  // RGBFB_YUV411PC
+        0x00,  // RGBFB_YUV422
+        0x00,  // RGBFB_YUV422PC
+        0x00,  // RGBFB_YUV422PA
+        0x00,  // RGBFB_YUV422PAPC
+    };
+#endif
+
+    if (format < RGBFB_MaxFormats) {
+        UBYTE dacMode;
+
+        if ((format == RGBFB_CLUT) && ((bi->ModeInfo->Flags & GMF_DOUBLECLOCK) != 0)) {
+            D(5, "Setting 8bit multiplex DAC mode\n");
+            // pixel multiplex and invert DCLK; This way it results in double-inversion and thus VCLK/PCLK on the RAMDAC
+            // are in-phase with its internal double-clocked ICLK
+            dacMode = 0x11;
+        } else {
+            dacMode = DAC_ColorModes[format];
+        }
+        W_CR_MASK(0x67, 0xF2, dacMode);
+
+        // XFree86 does this... not sure if I need it?
+//        W_CR(0x6D, 0x02); // Blank Delay
+    }
+
+
+    return;
 }
 
 static inline REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags)
@@ -462,7 +573,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
 {
   REGBASE();
 
-  UWORD interlaced;
+  BOOL  isInterlaced;
   UBYTE depth;
   UBYTE modeFlags;
   UWORD hTotal;
@@ -482,14 +593,18 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
 
   WaitBlitter(bi);
 
-  // Disable Clocking Doubling
-  W_SR_MASK(0x15, 0x10, 0);
+  // Disable Clock Doubling
+#if !BUILD_VISION864
+  W_SR_MASK(0x15, 0x50, 0);
   W_SR_MASK(0x18, 0x80, 0);
+#else
+  W_SR_MASK(0x01, 0x04, 0x00);
+#endif
 
   hTotal = mi->HorTotal;
   ScreenWidth = mi->Width;
   modeFlags = mi->Flags;
-  interlaced = (modeFlags & GMF_INTERLACE) != 0;
+  isInterlaced = (modeFlags & GMF_INTERLACE) != 0;
 
   depth = mi->Depth;
   if (depth <= 8) {
@@ -504,18 +619,30 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
       // o = BLANK active time is defined by CR2 and CR3
       W_CR_MASK(0x33, 0x20, 0x0);
     }
+
+    // Disable horizontal counter double mode used for 16/32bit modes
+    W_CR_MASK(0x43, 0x80, 0x00);
+
     if (modeFlags & GMF_DOUBLECLOCK) {
+      DFUNC(0, "Double-Clock Mode\n");
+#if BUILD_VISION864
+      hTotal = hTotal / 2;
+      ScreenWidth = ScreenWidth / 2;
+//      W_SR_MASK(0x01, 0x04, 0x04);
+#else
       // CLKSVN Control 2 Register (SR15)
       // Bit 4 DCLK/2 - Divide DCLK by 2
       // Either this bit or bit 6 of this register must be set to 1 for clock
       // doubled RAMDAC operation (mode 0001).
       W_SR_MASK(0x15, 0x10, 0x10);
+
       // RAMDAC/CLKSVN Control Register (SR18)
       // Bit 7 CLKx2 - Enable clock doubled mode
       // 1 = RAMDAC clock doubled mode (0001) enabled
       // This bit must be set to 1 when mode 0001 is specified in bits 7-4
       // of CR67 or SRC. Either bit 4 or bit 6 of SR15 must also be set to 1.
       W_SR_MASK(0x18, 0x80, 0x80);
+#endif
     }
   } else if (depth <= 16) {
     D(6, "16-Bit Mode, No Border\n");
@@ -523,15 +650,25 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     // o = BLANK active time is defined by CR2 and CR3
     W_CR_MASK(0x33, 0x20, 0x0);
 
-    // FIXME: what is this?
-    hTotal = hTotal * 2;
-    ScreenWidth = ScreenWidth * 2 + 6;
+    // Double all horizontal parameters.
+    W_CR_MASK(0x43, 0x80, 0x80);
     border = 0;
   } else {
     D(6, "24-Bit Mode, No Border\n");
     // Bit 5 BDR SEL - Blank/Border Select
     // 0 = BLANK active time is defined by CR2 and CR3
     W_CR_MASK(0x33, 0x20, 0x0);
+
+#if BUILD_VISION864
+    // Double all horizontal parameters.
+    W_CR_MASK(0x43, 0x80, 0x80);
+    // And double again. We need x4 "dot clocks"
+    hTotal = hTotal * 2;
+    ScreenWidth = ScreenWidth * 2;
+#else
+    // Reset doubling all horizontal parameters.
+    W_CR_MASK(0x43, 0x80, 0x00);
+#endif
     border = 0;
   }
 
@@ -635,7 +772,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     }
     // FIXME: the blankSize is unaffected by double scan, but affected by
     // interlaced?
-    vBlankStart = ((vBlankStart + vBlankSize) >> interlaced) - 1;
+    vBlankStart = ((vBlankStart + vBlankSize) >> isInterlaced) - 1;
     D(6, "VBlank Start %ld\n", (ULONG)vBlankStart);
     W_CR_OVERFLOW3(vBlankStart, 0x15, 0, 8, 0x7, 3, 1, 0x9, 5, 1, 0x5e, 2, 1);
   }
@@ -646,7 +783,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
     if ((modeFlags & GMF_DOUBLESCAN) != 0) {
       vBlankEnd = vBlankEnd * 2;
     }
-    vBlankEnd = ((vBlankEnd - vBlankSize) >> interlaced) - 1;
+    vBlankEnd = ((vBlankEnd - vBlankSize) >> isInterlaced) - 1;
     D(6, "VBlank End %ld\n", (ULONG)vBlankEnd);
     // FIXME: the blankSize is unaffected by double scan, but affected by
     // interlaced?
@@ -677,7 +814,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
   // Enable Interlace
   {
     UBYTE interlace = R_CR(0x42) & 0xdf;
-    if (interlaced) {
+    if (isInterlaced) {
       interlace = interlace | 0x20;
     }
     W_CR(0x42, interlace);
@@ -694,14 +831,14 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi),
 
   // Vsync/HSync polarity
   {
-    UBYTE polarities = R_REG(0x3CC) & 0x3f;
+    UBYTE polarities = 0;
     if ((modeFlags & GMF_HPOLARITY) != 0) {
       polarities = polarities | 0x40;
     }
     if ((modeFlags & GMF_VPOLARITY) != 0) {
       polarities = polarities | 0x80;
     }
-    W_REG(0x3C2, polarities);
+    W_MISC_MASK(0xC0, polarities);
   }
 
   //  {
@@ -902,7 +1039,8 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi),
 static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi),
                                 __REGA1(APTR mem), __REGD7(RGBFTYPE format))
 {
-    if (getChipData(bi)->chipFamily >= TRIO64PLUS)  // Trio64+?
+#if !BUILD_VISION864
+  if (getChipData(bi)->chipFamily >= TRIO64PLUS)  // Trio64+?
   {
     switch (format) {
     case RGBFB_A8R8G8B8:
@@ -918,6 +1056,7 @@ static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi),
       break;
     }
   }
+#endif
   return mem;
 }
 
@@ -931,7 +1070,8 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi),
   // We never need to change any aperture setting for them
   ULONG compatible = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
 
-  if (getChipData(bi)->chipFamily >= TRIO64PLUS)  // Trio64+?
+#if !BUILD_VISION864
+  if (getChipData(bi)->chipFamily >= TRIO64PLUS)
   {
       switch (format) {
       case RGBFB_A8R8G8B8:
@@ -945,7 +1085,7 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi),
           break;
       }
   }
-
+#endif
   return compatible;
 }
 
@@ -967,44 +1107,70 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi),
                                    __REGD0(ULONG pixelClock),
                                    __REGD7(RGBFTYPE RGBFormat))
 {
+  DFUNC(5, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
+
   mi->Flags &= ~GMF_ALWAYSBORDER;
   if (0x3ff < mi->VerTotal) {
     mi->Flags |= GMF_ALWAYSBORDER;
   }
 
-  // Enable Double Clock for 8Bit modes when pixelclock exceeds 85Mhz
   mi->Flags &= ~GMF_DOUBLECLOCK;
+
+#if !BUILD_VISION864
+  // Enable Double Clock for 8Bit modes when required pixelclock exceeds 80Mhz
+  // I couldn't get this to work on the VISION864
   if (RGBFormat == RGBFB_CLUT || RGBFormat == RGBFB_NONE) {
-    if (pixelClock > 85013001) {
-      mi->Flags |= GMF_DOUBLECLOCK;
-      pixelClock /= 2;
-    }
+
+      if (pixelClock > 80000000) {
+        D(2, "Applying pixel multiplex clocking\n")
+        mi->Flags |= GMF_DOUBLECLOCK;
+#if BUILD_VISION864
+        pixelClock /= 2;
+#endif
+      }
   }
-  if (mi->Height < 400) {
-    mi->Flags |= GMF_DOUBLESCAN;
+#endif
+#if BUILD_VISION864
+  if (getBPP(RGBFormat) >= 3) {
+      // In 24/32bit modes, it takes 2 clock cycles to transfer one pixel to the RAMDAC,
+      // and for the RAMDAC to output this pixel. Therefore, we need to double VCLK
+      D(2, "Applying 2x clocking\n");
+      pixelClock *= 2;
   }
+#endif
+
+//  if (mi->Height < 400) {
+//    mi->Flags |= GMF_DOUBLESCAN;
+//  }
 
   UWORD m, n, r;
 
-  D(15, "original Pixel Hz: %ld\n", pixelClock);
+  D(5, "Adjusted Pixel Hz: %ld\n", pixelClock);
 
-  int currentKhz = svga_compute_pll(&s3_pll, pixelClock / 1000, &m, &n, &r);
+  const struct svga_pll *pll = (getChipData(bi)->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
+
+  int currentKhz = svga_compute_pll(pll, pixelClock / 1000, &m, &n, &r);
   if (currentKhz < 0) {
-    D(0, "cannot resolve requested pixclock\n");
+    DFUNC(0, "Cannot resolve requested pixclock %ld, format %ld\n", pixelClock, RGBFormat);
     return 0;
   }
+
+#if BUILD_VISION864
   if (mi->Flags & GMF_DOUBLECLOCK) {
     currentKhz *= 2;
+  } else if (getBPP(RGBFormat) >= 3) {
+    currentKhz /= 2;
   }
+#endif
+
   mi->PixelClock = currentKhz * 1000;
 
-  D(15, "Pixelclock Hz: %ld\n\n", mi->PixelClock);
+  D(5, "Resulting pixelclock Hz: %ld\n\n", mi->PixelClock);
 
-  // FIXME: would have to encode r here, too
-  mi->pll1.Numerator = n;
-  mi->pll2.Denominator = m;
+  mi->pll1.Numerator = (n - 2) | (r << 5);
+  mi->pll2.Denominator = m - 2;
 
-  return currentKhz / 1000;  // use Mhz as "index"
+  return currentKhz / 1000;  // uses Mhz as "index"
 }
 
 static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi),
@@ -1014,71 +1180,61 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi),
   DFUNC(5, "\n");
 
   ULONG pixelClockKhz = index * 1000;
-  if (mi->Flags & GMF_DOUBLECLOCK) {
-    pixelClockKhz /= 2;
-  }
-
-  UWORD m, n, r;
-
-  int currentKhz = svga_compute_pll(&s3_pll, pixelClockKhz, &m, &n, &r);
-  if (currentKhz < 0) {
-    DFUNC(0, "cannot resolve requested pixclock\n");
-    return 0;
-  }
-  if (mi->Flags & GMF_DOUBLECLOCK) {
-    currentKhz *= 2;
-  }
-  return currentKhz * 1000;
+  return pixelClockKhz * 1000;
 }
 
 static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 {
   REGBASE();
 
-  DFUNC(5, "\n");
+  DFUNC(0, "\n");
 
   ULONG pixelClock = bi->ModeInfo->PixelClock;
 
-  if (bi->ModeInfo->Flags & GMF_DOUBLECLOCK) {
-    pixelClock /= 2;
+#if BUILD_VISION864
+  if (bi->ModeInfo->Depth >= 24) {
+      pixelClock *= 2;
   }
+#endif
+  // FIXME: better actually compute the frequency from the Numerator/Denominator
+  D(0, "SetClock: PixelClock %ldHz -> %ldHz \n", bi->ModeInfo->PixelClock, pixelClock);
 
-  D(6, "SetClock: %ld -> %ld\n", bi->ModeInfo->PixelClock, pixelClock);
-
-  UWORD m, n, r;
-  int currentKhz = svga_compute_pll(&s3_pll, pixelClock / 1000, &m, &n, &r);
-  if (currentKhz < 0) {
-    D(0, "cannot resolve requested pixclock\n");
-  }
-
+#if !BUILD_VISION864
   /* Set S3 DCLK clock registers */
   // Clock-Doubling will be enabled by SetGC
-  W_SR(0x12, (n - 2) | (r << 5));
-  W_SR(0x13, m - 2);
+  W_SR(0x12, bi->ModeInfo->pll1.Numerator);
+  W_SR(0x13, bi->ModeInfo->pll2.Denominator);
 
   // I used to use DOS' Delay() here but then realized that Delay()
   // is likely using VBLank interrupt
   // CIA access has deterministic speed, use it for a short delay
   extern volatile FAR struct CIA ciaa;
-  for (int i = 0; i < 10; ++i)
-  {
-    UBYTE x =  ciaa.ciapra;
+  for (int i = 0; i < 10; ++i) {
+      UBYTE x = ciaa.ciapra;
   }
 
   /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
-
   UBYTE regval = R_SR(0x15); /* | 0x80; */
   W_SR(0x15, regval & ~(1 << 5));
   W_SR(0x15, regval | (1 << 5));
   W_SR(0x15, regval & ~(1 << 5));
+#else
+    W_CR_MASK(0x55, 0x01, 0x01);
+
+  W_REG(DAC_WR_AD, 2);
+  W_REG(DAC_DATA, bi->ModeInfo->pll2.Denominator);
+  W_REG(DAC_DATA, bi->ModeInfo->pll1.Numerator);
+
+  W_CR_MASK(0x55, 0x01, 0x00);
+#endif
 }
 
-static void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi),
-                                      __REGD7(RGBFTYPE format))
+static inline void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi),
+                                             __REGD7(RGBFTYPE format))
 {
+#if !BUILD_VISION864
   REGBASE();
 
-  //  DFUNC("\n");
   if (getChipData(bi)->chipFamily >= TRIO64PLUS)  // Trio64+?
   {
     if (getChipData(bi)->MemFormat == format) {
@@ -1105,12 +1261,14 @@ static void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi),
       break;
     }
   }
+#endif
   return;
 }
 
 static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi),
                               __REGD7(RGBFTYPE format))
 {
+#if !BUILD_VISION864
   __asm __volatile("\t movem.l d0-d1/a0-a1,-(sp)\n"
                    : /* no result */
                    :
@@ -1122,6 +1280,7 @@ static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi),
                    : /* no result */
                    :
                    : "d0", "d1", "a0", "a1", "sp");
+#endif
 }
 
 static void ASM SetWriteMask(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
@@ -1203,6 +1362,16 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi),
     spriteY *= 2;
   }
 
+#if BUILD_VISION864
+  // It seems that the sprite coordinates are not pixel coordinates but
+  // clock counts.
+  // On Vision864 the 24/32 bit modes it take 2 DCLKs per pixel.
+  if (getBPP(fmt) > 2)
+  {
+      spriteX *= 2;
+  }
+#endif
+
   WORD offsetX = 0;
   if (spriteX < 0) {
     if (spriteX > -64)
@@ -1237,7 +1406,38 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi),
 
   // FIXME: need to set temporary memory format?
   // No, MouseImage should be in little endian window and not affected
+#if BUILD_VISION864 && 0
+  //Weird, the Vision864 docs describe the layout as:
+  // "The AND and the XOR cursor image bitmaps are 512 bytes each. These are stored in consecutive bytes
+  // of off-screen display memory, 512 AND bytes followed by 512 XOR bytes. "
+  // But that doesn't work. Instead the Trio32/64 shape programming (AND/XOR images are word-interleaved)
+  // works.
+  const UWORD *image = bi->MouseImage + 2;
+  UWORD *cursorAND = (UWORD *)bi->MouseImageBuffer;
+  UWORD *cursorXOR = (UWORD *)(bi->MouseImageBuffer + 512);
+  for (UWORD y = 0; y < bi->MouseHeight; ++y) {
+      // first 16 bit
+      UWORD plane0 = *image++;
+      UWORD plane1 = *image++;
 
+      UWORD andMask = ~plane0;  // AND mask
+      UWORD xorMask = plane1;   // XOR mask
+      *cursorAND++ = andMask;
+      *cursorXOR++ = xorMask;
+      // padding, should result in  screen color
+      for (UWORD p = 0; p < 3; ++p) {
+          *cursorAND++ = 0xFFFF;
+          *cursorXOR++ = 0x0000;
+      }
+  }
+  // Pad the rest of the cursor image
+  for (UWORD y = bi->MouseHeight; y < 64; ++y) {
+      for (UWORD p = 0; p < 4; ++p) {
+          *cursorAND++ = 0xFFFF;
+          *cursorXOR++ = 0x0000;
+      }
+  }
+#else
   const UWORD *image = bi->MouseImage + 2;
   UWORD *cursor = (UWORD *)bi->MouseImageBuffer;
   for (UWORD y = 0; y < bi->MouseHeight; ++y) {
@@ -1262,6 +1462,7 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi),
       *cursor++ = 0x0000;
     }
   }
+#endif
 }
 
 static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi),
@@ -1278,10 +1479,22 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi),
     return;
 
   UBYTE reg = 0;
-  if (index == 0) {
-    reg = 0x4B;
-  } else {
-    reg = 0x4A;
+
+#if BUILD_VISION864
+  if (fmt == RGBFB_CLUT) {
+      if (index == 0) {
+          reg = 0x0F;
+      } else {
+          reg = 0x0E;
+      }
+  } else
+#endif
+  {
+      if (index == 0) {
+          reg = 0x4B;
+      } else {
+          reg = 0x4A;
+      }
   }
 
   R_CR(0x45);  // Reset "Graphics Cursor Stack"
@@ -1295,6 +1508,7 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi),
       paletteEntry = 19;
     }
     W_CR(reg, paletteEntry);
+    W_REG(CRTC_DATA, paletteEntry);
     W_REG(CRTC_DATA, paletteEntry);
     W_REG(CRTC_DATA, paletteEntry);
   } break;
@@ -1331,7 +1545,19 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
   DFUNC(5, "\n");
   REGBASE();
 
-  W_CR(0x45, activate ? 0x01 : 0x00);
+#if BUILD_VISION864
+  if (getChipData(bi)->chipFamily <= VISION864) {
+      UBYTE bpp = getBPP(RGBFormat);
+      if (bpp < 3) {
+          W_CR_MASK(0x45, 0x0C, 0b0000);
+      } else {
+          // Set Cursor pixel mode to 24/32bit
+          W_CR_MASK(0x45, 0x0C, 0b0100);
+      }
+  }
+#endif
+
+  W_CR_MASK(0x45, 0x01, activate ? 0x01 : 0x00);
 
   if (activate) {
     SetSpriteColor(bi, 0, bi->CLUT[17].Red, bi->CLUT[17].Green,
@@ -1352,8 +1578,6 @@ static inline void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
     return;
   }
 
-  MMIOBASE();
-
   //  assert(numSlots <= 13);
 
   // The FIFO bits are split into two groups, 7-0 and 15-11
@@ -1363,8 +1587,16 @@ static inline void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
   BYTE testBit = 7 - (numSlots - 1);
   testBit &= 0xF;  // handle wrap-around
 
+#if BUILD_VISION864
+  // On Vision864 the MMIO registers are write-only, thus reading the status through IO
+  REGBASE();
+  while (R_REG_W(GP_STAT) & (1 << testBit)) {
+  };
+#else
+  MMIOBASE();
   while (R_REG_W_MMIO(GP_STAT) & (1 << testBit)) {
   };
+#endif
 }
 
 #define MByte(x) ((x) * (1024 * 1024))
@@ -1426,6 +1658,9 @@ static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
 
   W_CR_MASK(0x50, 0xF1, CR50_76_0 | ((bpp - 1) << 4));
   W_CR_MASK(0x31, (1 << 1), CR31_1);
+
+  MMIOBASE();
+  W_BEE8(MULT_MISC, (1 << 9));
 
   getChipData(bi)->GEbytesPerRow = bytesPerRow;
   getChipData(bi)->GEbpp = bpp;
@@ -1489,6 +1724,17 @@ static inline void REGARGS DrawModeToMixMode(UBYTE drawMode, UWORD *frgdMix,
   *bkgdMix = g;
 }
 
+static inline void REGARGS setMix(struct BoardInfo *bi, UWORD frgdMix, UWORD bkgdMix)
+{
+    MMIOBASE();
+#if HAS_PACKED_MMIO
+    W_REG_L_MMIO(ALT_MIX, makeDWORD(frgdMix, bkgdMix));
+#else
+    W_REG_W_MMIO(FRGD_MIX, frgdMix);
+    W_REG_W_MMIO(BKGD_MIX, bkgdMix);
+#endif
+}
+
 static inline void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen,
                                        ULONG BgPen, UBYTE DrawMode,
                                        RGBFTYPE format)
@@ -1510,9 +1756,9 @@ static inline void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen,
     WaitFifo(bi, 6);
 
     MMIOBASE();
-    W_REG_L_MMIO(ALT_MIX, makeDWORD(frgdMix, bkgdMix));
     W_REG_L_MMIO(FRGD_COLOR, fgPen);
     W_REG_L_MMIO(BKGD_COLOR, bgPen);
+    setMix(bi, frgdMix, bkgdMix);
   }
 }
 
@@ -1541,6 +1787,31 @@ static inline void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask,
       WaitFifo(bi, waitFifoSlots);
     }
   }
+}
+
+static inline void REGARGS setBlitSrcPosAndSize(struct BoardInfo *bi, UWORD x, UWORD y, UWORD w, UWORD h)
+{
+    MMIOBASE();
+#if HAS_PACKED_MMIO
+    W_REG_L_MMIO(ALT_CURXY, makeDWORD(x, y));
+    W_REG_L_MMIO(ALT_PCNT, makeDWORD(w - 1, h - 1));
+#else
+    W_REG_W_MMIO(CUR_X, x);
+    W_REG_W_MMIO(CUR_Y, y);
+    W_REG_W_MMIO(MAJ_AXIS_PCNT, w - 1);
+    W_BEE8(MIN_AXIS_PCNT, h - 1);
+#endif
+}
+
+static inline void REGARGS setBlitDestPos(struct BoardInfo *bi, UWORD dstX, UWORD dstY)
+{
+    MMIOBASE();
+#if HAS_PACKED_MMIO
+    W_REG_L_MMIO(ALT_STEP, makeDWORD(dstX, dstY));
+#else
+    W_REG_W_MMIO(DESTX_DIASTP, dstX);
+    W_REG_W_MMIO(DESTY_AXSTP, dstY);
+#endif
 }
 
 #define TOP_LEFT (0b101 << 5)
@@ -1592,7 +1863,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   if (cd->GEOp != FILLRECT) {
     cd->GEOp = FILLRECT;
 
-    WaitFifo(bi, 3);
+    WaitFifo(bi, 2);
     W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
     W_REG_W_MMIO(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
   }
@@ -1613,8 +1884,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);
 
-  W_REG_L_MMIO(ALT_CURXY, makeDWORD(x, y));
-  W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
+  setBlitSrcPosAndSize(bi, x,y, width, height);
 
   UWORD cmd = CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT;
 
@@ -1672,8 +1942,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi),
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);
 
-  W_REG_L_MMIO(ALT_CURXY, makeDWORD(x, y));
-  W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
+  setBlitSrcPosAndSize(bi, x,y, width, height);
 
   W_REG_W_MMIO(CMD,
                CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
@@ -1753,9 +2022,8 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi),
 
   W_BEE8(MULT_MISC2, seg << 4 | seg);
 
-  W_REG_L_MMIO(ALT_CURXY, makeDWORD(srcX, srcY));
-  W_REG_L_MMIO(ALT_STEP, makeDWORD(dstX,  dstY));
-  W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1,  height - 1));
+  setBlitSrcPosAndSize(bi, srcX, srcY, width, height);
+  setBlitDestPos(bi, dstX, dstY);
 
   W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
 }
@@ -1869,9 +2137,9 @@ static void ASM BlitRectNoMaskComplete(
     WaitFifo(bi, 8);
 
     W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
-    W_REG_L_MMIO(ALT_CURXY, makeDWORD(srcX, srcY));
-    W_REG_L_MMIO(ALT_STEP, makeDWORD(dstX, dstY));
-    W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
+
+    setBlitSrcPosAndSize(bi, srcX, srcY, width, height);
+    setBlitDestPos(bi, dstX, dstY);
 
     W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
   } else if (sri->BytesPerRow < dri->BytesPerRow) {
@@ -1898,9 +2166,10 @@ static void ASM BlitRectNoMaskComplete(
 
       WaitFifo(bi, 8);
       W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
-      W_REG_L_MMIO(ALT_CURXY, makeDWORD(x, y));
-      W_REG_L_MMIO(ALT_STEP, makeDWORD(dstX, dstY + h));
-      W_REG_L_MMIO(ALT_PCNT, (width - 1) << 16);  // copy just one line each time
+
+      setBlitSrcPosAndSize(bi, x, y, width, 1);
+      setBlitDestPos(bi, dstX, dstY + h);
+
       W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
 
       memOffset += sri->BytesPerRow;
@@ -1927,9 +2196,10 @@ static void ASM BlitRectNoMaskComplete(
 
       WaitFifo(bi, 8);
       W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
-      W_REG_L_MMIO(ALT_CURXY, makeDWORD(srcX, srcY + h));
-      W_REG_L_MMIO(ALT_STEP, makeDWORD(x, y));
-      W_REG_L_MMIO(ALT_PCNT, (width - 1) << 16);  // copy just one line each time
+
+      setBlitSrcPosAndSize(bi, srcX, srcY + h, width, 1);
+      setBlitDestPos(bi, x, y);
+
       W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
 
       memOffset += dri->BytesPerRow;
@@ -1994,8 +2264,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi),
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);
 
-  W_REG_L_MMIO(ALT_CURXY, makeDWORD(x, y));
-  W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
+  setBlitSrcPosAndSize(bi, x, y, width, height);
 
   W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS |
                         TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
@@ -2085,8 +2354,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi),
   // This could/should get chached as well
   W_BEE8(MULT_MISC2, seg << 4);
 
-  W_REG_L_MMIO(ALT_CURXY, makeDWORD(x, y));
-  W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
+  setBlitSrcPosAndSize(bi, x, y, width, height);
 
   W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS |
                         TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
@@ -2123,8 +2391,7 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
 {
     MMIOBASE();
 
-    W_REG_L_MMIO(ALT_CURXY, makeDWORD(dstX, dstY));
-    W_REG_L_MMIO(ALT_PCNT, makeDWORD(width - 1, height - 1));
+    setBlitSrcPosAndSize(bi, dstX, dstY, width, height);
 
     if ((ULONG)bitmap == 0x00000000) {
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
@@ -2142,7 +2409,7 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
         // memory. PCI transfers are 32bit anyways, so wasting bus cycles by
         // transferring in chunks of 16bit seems wasteful
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
-        W_REG_L_MMIO(ALT_MIX, makeDWORD((CLR_SRC_FRGD_COLOR | mixMode), (CLR_SRC_BKGD_COLOR | mixMode)));
+        setMix(bi, (CLR_SRC_FRGD_COLOR | mixMode), (CLR_SRC_BKGD_COLOR | mixMode));
         W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
                               CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
@@ -2220,8 +2487,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     cd->GEFormat = RGBFB_CLUT;
 
     WaitFifo(bi, 10);
-    W_REG_L_MMIO(ALT_MIX, makeDWORD((CLR_SRC_FRGD_COLOR | mixMode),
-                                    (CLR_SRC_BKGD_COLOR | mixMode)));
+    setMix(bi, (CLR_SRC_FRGD_COLOR | mixMode), (CLR_SRC_BKGD_COLOR | mixMode));
     W_REG_L_MMIO(FRGD_COLOR, 0xFFFFFFFF);
     W_REG_L_MMIO(BKGD_COLOR, 0x00000000);
   }
@@ -2244,7 +2510,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     SetGEWriteMask(bi, writeMask, RGBFB_CLUT, 8);
 
     UBYTE *bitmap = (UBYTE *)bm->Planes[p];
-    if (bitmap != 0x0 && bitmap != 0xffffffff)
+    if (bitmap != 0x0 && (ULONG)bitmap != 0xffffffff)
     {
        bitmap += bmStartOffset;
     }
@@ -2327,10 +2593,19 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     direction |= Y_MAJOR;
 
   WaitFifo(bi, 8);
+
+#if HAS_PACKED_MMIO
   W_REG_L_MMIO(ALT_CURXY, makeDWORD(x, y));
   W_REG_L_MMIO(ALT_STEP, makeDWORD(2 * (absMIN - absMAX), (2 * absMIN)));
-  W_REG_W_MMIO(ERR_TERM, errTerm);
+#else
+  W_REG_W_MMIO(CUR_X, x);
+  W_REG_W_MMIO(CUR_Y, y);
+  W_REG_W_MMIO(DESTX_DIASTP, 2 * (absMIN - absMAX));
+  W_REG_W_MMIO(DESTY_AXSTP, (2 * absMIN));
+#endif
+
   W_REG_W_MMIO(MAJ_AXIS_PCNT, line->Length - 1);
+  W_REG_W_MMIO(ERR_TERM, errTerm);
 
   BOOL isSolid = (line->LinePtrn == 0xFFFF);
   if (isSolid) {
@@ -2438,17 +2713,28 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         bi->DrawLine);
 
   bi->PixelClockCount[PLANAR] = 0;
-  bi->PixelClockCount[CHUNKY] =
-      135;  // > 80Mhz can be achieved via Double Clock mode
+#if BUILD_VISION864
+  bi->PixelClockCount[CHUNKY] = 135;
   bi->PixelClockCount[HICOLOR] = 80;
   bi->PixelClockCount[TRUECOLOR] = 50;
   bi->PixelClockCount[TRUEALPHA] = 50;
+#else
+  bi->PixelClockCount[CHUNKY] =
+      135;  // > 67Mhz can be achieved via Double Clock mode
+  bi->PixelClockCount[HICOLOR] = 80;
+  bi->PixelClockCount[TRUECOLOR] = 50;
+  bi->PixelClockCount[TRUEALPHA] = 50;
+#endif
+
+  // Informed by the largest X/Y coordinates the blitter can talk to
+  bi->MaxBMWidth = 2048;
+  bi->MaxBMHeight = 2048;
 
   bi->BitsPerCannon = 6;
-  bi->MaxHorValue[PLANAR] = 4088;
+  bi->MaxHorValue[PLANAR] = 4088; // 511 * 8dclks
   bi->MaxHorValue[CHUNKY] = 4088;
-  bi->MaxHorValue[HICOLOR] = 8176;
-  bi->MaxHorValue[TRUECOLOR] = 16352;
+  bi->MaxHorValue[HICOLOR] = 8176; // 511 * 8 * 2
+  bi->MaxHorValue[TRUECOLOR] = 16352; // 511 * 8 * 4
   bi->MaxHorValue[TRUEALPHA] = 16352;
 
   bi->MaxVerValue[PLANAR] = 2047;
@@ -2457,6 +2743,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
   bi->MaxVerValue[TRUECOLOR] = 2047;
   bi->MaxVerValue[TRUEALPHA] = 2047;
 
+  // Determined by 10bit value divided by bpp
   bi->MaxHorResolution[PLANAR] = 1600;
   bi->MaxVerResolution[PLANAR] = 1600;
 
@@ -2471,6 +2758,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
   bi->MaxHorResolution[TRUEALPHA] = 1280;
   bi->MaxVerResolution[TRUEALPHA] = 1280;
+
+
 
   {
       DFUNC(0, "Determine Chip Family\n");
@@ -2520,17 +2809,22 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
   }
 
   if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
-    /* Chip wakeup Trio64+ */
-    W_REG(0x3C3, 0x01);
+      /* Chip wakeup Trio64+ */
+      W_REG(0x3C3, 0x01);
   } else {
-    /* Chip wakeup Trio64/32 */
-    W_REG(0x3C3, 0x10);
-    W_REG(0x102, 0x01);
-    W_REG(0x3C3, 0x08);
+      /* Chip wakeup Trio64/32 */
+      W_REG(0x3C3, 0x10);
+      W_REG(0x102, 0x01);
+      W_REG(0x3C3, 0x08);
+
+      //FIXME: The Vision864 BIOS seems to lookup a ROM adress to decide which register to use for chip wakeup
+      /* Also try 0x46E8 */
+      W_REG(0x46E8, 0x10);
+      W_REG(0x102, 0x01);
+      W_REG(0x46E8, 0x08);
   }
 
-  // Color-Emulation, 0x3D4/5 for CR_IDX/DATA
-  W_REG(0x3C2, 0x63);
+  W_REG(0x3C2, 0x0F);// Enable clock via clock select CR42; Color-Emulation, 0x3D4/5 for CR_IDX/DATA
 
   // Unlock S3 registers
   W_CR(0x38, 0x48);
@@ -2549,6 +2843,13 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
   } else {
     D(0, "Chip is Visiona864/Trio64/32 (Rev %ld)\n", (ULONG)chipRevision);
+#if BUILD_VISION864
+    if (!CheckForSDAC(bi))
+    {
+        D(0, "Unsupported RAMDAC.\n");
+        return FALSE;
+    }
+#endif
   }
 
   /* The Enhanced Graphics Command register group is unlocked
@@ -2582,12 +2883,18 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
    Bit 0 of CR31 must be set to 1 to enable this field.  */
   W_CR(0x6a, 0x0);
 
-  W_SR(0x8, 0x6);
-  W_SR(0x1, 0x1);
-  W_SR(0x0, 0x3);
-  W_SR(0x2, 0xff);
-  W_SR(0x3, 0x0);
-  W_SR(0x4, 0x2);
+  W_SR(0x08, 0x06); // Unlock Extended Sequencer Registers SR9-SR1C
+  W_SR(0x00, 0x00);
+  W_SR(0x01, 0x21); // 8 DCLK per character clock, Display off
+  W_SR(0x02, 0x0f);
+  W_SR(0x03, 0x00);
+  W_SR(0x04, 0x02);
+  W_SR(0x0D, 0x00);
+  W_SR(0x14, 0x00);
+#if !BUILD_VISION864
+  W_SR(0x15, 0x00);
+  W_SR(0x18, 0x00);
+#endif
 
   // FIXME: this has memory setting implications potentially only valid for the
   // Cybervision
@@ -2595,15 +2902,30 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
   //  W_SR(0x18, 0xc0);
 
   // Init RAMDAC
+#if BUILD_VISION864
+  W_CR(0x42, 0x02);  // Select clock 2 (see initialization of 0x3C2)
+  W_CR(0x55, 0x00);  // RS2 = 0
+#endif
+
+  // RAMDAC Mask register
   W_REG(0x3C6, 0xff);
 
   ULONG clock = bi->MemoryClock;
+#if BUILD_VISION864
+  if (clock < 40000000) {
+      clock = 40000000;
+  }
+  if (60000000 < clock) {
+    clock = 60000000;
+  }
+#else
   if (clock < 54000000) {
-    clock = 54000000;
+      clock = 54000000;
   }
   if (65000000 < clock) {
-    clock = 65000000;
+      clock = 65000000;
   }
+#endif
 
   clock = SetMemoryClock(bi, clock);
   bi->MemoryClock = clock;
@@ -2706,6 +3028,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
   // Extended Mode Register (EXT_MODE) (CR43)
   W_CR(0x43, 0x00);
 
+  // Extended System Conttrol 1 Register (EX_SCTL_1)  (CR50)
+  W_CR(0x50, 0x00);
+
   // Extended System Control 2 Register (EX_SCTL_2) (CR51)
   W_CR(0x51, 0x00);
 
@@ -2721,16 +3046,28 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // physical address. Need to make sure, nothing else sits there
     W_CR_MASK(0x53, 0x10, 0x10);
 
-    // LAW start address
-//    ULONG physAddress = Prm_GetPhysicalAddress(bi->MemoryBase);
-//    if (physAddress & 0x3FFFFF) {
-//      D(0, "WARNING: card's base address is not 4MB aligned!\n");
-//    }
-    W_CR_MASK(0x5a, (ULONG)bi->MemoryBase >> 16, 0x7F);
+    // Test, also enable MMIO and Linear addressing via the other register
+    //W_REG_MASK(ADVFUNC_CNTL, 0x30, 0x30);
+
+#if 0
+    {
+      LOCAL_PROMETHEUSBASE();
+      // LAW start address
+      ULONG physAddress = Prm_GetPhysicalAddress(bi->MemoryBase);
+      if (physAddress & 0x3FFFFF) {
+          D(0, "WARNING: card's base address is not 4MB aligned!\n");
+      }
+    }
+#endif
+    // Beware: while bi->MemoryBase is a 'virtual' address, the register wants a physical address
+    // We basically achieve this translation by chopping off the topmost bits.
+    W_CR_MASK(0x5a, 0xE0, (ULONG)bi->MemoryBase >> 16);
+    D(0, "CR59: 0x%lx CR5A: 0x%lx\n", (ULONG)R_CR(0x59), (ULONG)R_CR(0x5a));
     // Upper address bits may  not be touched as they would result in shifting
     // the PCI window
     //    W_CR_MASK(0x59, physAddress >> 24);
   }
+  D(0, "MMIO base address: 0x%lx\n", (ULONG)getMMIOBase(bi));
 
   // MCLK M Parameter
   W_CR_MASK(0x54, 0xFC, 0x70);
@@ -2749,7 +3086,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
   W_GR(0x7, 0xf);
   W_GR(0x8, 0xff);
 
-  // Enable writing attribute pallette registers, disable video
+  // Enable writing attribute palette registers, disable video
   R_REG(0x3DA);
   W_REG(ATR_AD, 0x0);
 
@@ -2778,13 +3115,15 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
   W_AR(0x34, 0x0);
 
   // Enable video
-  R_REG(0x3DA);
+  R_REG(0x3DA); // reset AFF
   W_REG(ATR_AD, 0x20);
 
+#if !BUILD_VISION864
   /* Enable PLL load */
   W_MISC_MASK(0x0c, 0x0c);
+#endif
 
-  // Just some diagnostics
+  // Just some diagnostics; FIXME: this is different between various series of Vision/Trio chips
 #ifdef DBG
   UBYTE memType = (R_CR(0x36) >> 2) & 3;
   switch (memType) {
@@ -2844,9 +3183,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     ULONG readbackLow = *lowOffset;
     ULONG readbackZero = *framebuffer;
 
-    D(5,
-      "S3Trio64: probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= "
-      "0x%lx\n",
+    D(10,
+      "Probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= 0x%lx\n",
       highOffset, readbackHigh, lowOffset, readbackLow, readbackZero);
 
     if (readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset &&
@@ -2857,7 +3195,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->MemorySize >>= 1;
   }
 
-  D(1, "S3Trio64: memorySize %ldmb\n", bi->MemorySize / (1024 * 1024));
+  D(1, "MemorySize: %ldmb\n", bi->MemorySize / (1024 * 1024));
 
   // Input Status ? Register (STATUS_O)
   D(1, "Monitor is %s present\n", (!(R_REG(0x3C2) & 0x10) ? "" : "NOT"));
@@ -2873,6 +3211,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
       bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
 
   // Start Address in terms of 1024byte segments
+  W_CR(0x4c, 0); // init to 0
+  W_CR(0x4d, 0);
   W_CR_OVERFLOW1((bi->MemorySize >> 10), 0x4d, 0, 8, 0x4c, 0, 4);
   // Sprite image offsets
   W_CR(0x4e, 0);
@@ -2884,10 +3224,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
   W_CR(0x49, 0);
 
   // Write conservative scissors
-  W_REG_W_MMIO(0xBEE8, 0x1000);
-  W_REG_W_MMIO(0xBEE8, 0x2000);
-  W_REG_W_MMIO(0xBEE8, 0x3fff);
-  W_REG_W_MMIO(0xBEE8, 0x4fff);
+  W_BEE8(SCISSORS_T, 0x0000);
+  W_BEE8(SCISSORS_L, 0x0000);
+  W_BEE8(SCISSORS_B, 0x0fff);
+  W_BEE8(SCISSORS_R, 0x0fff);
 
   // Set MULT_MISC first so that
   // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
@@ -2896,17 +3236,16 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
   W_BEE8(MULT_MISC2, 0);
   // Init GE write/read masks
-  W_REG_W_MMIO(WRT_MASK, 0xFFFF);
-  W_REG_W_MMIO(WRT_MASK, 0xFFFF);
-  W_REG_W_MMIO(RD_MASK, 0xFFFF);
-  W_REG_W_MMIO(RD_MASK, 0xFFFF);
-  W_REG_W_MMIO(COLOR_CMP, 0x0);
-  W_REG_W_MMIO(COLOR_CMP, 0x0);
+  W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
+  W_REG_L_MMIO(RD_MASK, 0xFFFFFFFF);
+  W_REG_L_MMIO(COLOR_CMP, 0x0);
 
   W_REG_W_MMIO(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
   W_REG_W_MMIO(BKGD_MIX, CLR_SRC_BKGD_COLOR | MIX_NEW);
 
+  // Flush FIFO
   W_REG_W_MMIO(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
 
   return TRUE;
 }
+

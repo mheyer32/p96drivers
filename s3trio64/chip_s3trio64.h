@@ -26,7 +26,7 @@ extern int debugLevel;
 #define VA_ARGS(...) , ##__VA_ARGS__
 #define DFUNC(level, fmt, ...)                         \
   if (debugLevel >= (level)) {                         \
-    KPrintF("%s:" fmt, __func__ VA_ARGS(__VA_ARGS__)); \
+    KPrintF("%s: " fmt, __func__ VA_ARGS(__VA_ARGS__)); \
   }
 #endif
 
@@ -66,16 +66,16 @@ typedef enum BlitterOp
 typedef enum ChipFamily
 {
     UNKNOWN,
-    VISION864,  // pre-Trio64, separate RAMDAC, oldstyle MMIO
-    TRIO64,     // integrated RAMDAC, oldstyle MMIO
-    TRIO64PLUS  // integrated RAMDAC, newstyle MMIO
+    VISION864,  // pre-Trio64, separate RAMDAC, oldstyle MMIO, no packed MMIO
+    TRIO64,     // integrated RAMDAC, oldstyle+packed MMIO
+    TRIO64PLUS  // integrated RAMDAC, newstyle+packed MMIO
 } ChipFamily_t;
 
 typedef struct ChipData
 {
   RGBFTYPE MemFormat;   // programmed memory layout/format
 //  struct Library *DOSBase;
-  BlitterOp_t GEOp;     // programmed grpahics engine setup
+  BlitterOp_t GEOp;     // programmed graphics engine setup
   ULONG GEfgPen;
   ULONG GEbgPen;
   RGBFTYPE GEFormat;
@@ -253,8 +253,13 @@ static inline void REGARGS writeSRx(volatile UBYTE *regbase, UBYTE regIndex,
 static inline void REGARGS writeSRxMask(volatile UBYTE *regbase, UBYTE regIndex,
                                         UBYTE mask, UBYTE value)
 {
-  writeSRx(regbase, regIndex,
-           (readSRx(regbase, regIndex) & ~mask) | (value & mask));
+  writeReg(regbase, SEQX, regIndex);
+  UBYTE regvalue = (readReg(regbase, SEQ_DATA) & ~mask) | (value & mask);
+  writeReg(regbase, SEQ_DATA, regvalue);
+
+  D(10, "W SR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
+//  writeSRx(regbase, regIndex,
+//           (readSRx(regbase, regIndex) & ~mask) | (value & mask));
 }
 
 static inline UBYTE REGARGS readGRx(volatile UBYTE *regbase, UBYTE regIndex)
@@ -334,7 +339,7 @@ static inline void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask,
 
 #define W_BEE8(idx, value) W_REG_W_MMIO(0xBEE8, ((idx << 12) | value))
 
-static inline UWORD readBEE8(volatile UBYTE *MMIOBase, UBYTE idx)
+static inline UWORD readBEE8(volatile UBYTE *RegBase, UBYTE idx)
 {
   // BEWARE: the read index bit value does not fully match 'idx'
   // We do not cover 9AE8, 42E8, 476E8 here (which can be read, too through this
@@ -351,10 +356,12 @@ static inline UWORD readBEE8(volatile UBYTE *MMIOBase, UBYTE idx)
     break;
   }
 
-  W_BEE8(0xF, idx);
-  return R_REG_W_MMIO(0xBEE8) & 0xFFF;
+  // The read select register cannot be MMIO mapped on older chip series, thus
+  // always read through I/O register
+  W_REG_W(0xBEE8, (0xF << 12) | idx);
+  return R_REG_W(0xBEE8) & 0xFFF;
 }
-#define R_BEE8(idx) readBEE8(MMIOBase, idx)
+#define R_BEE8(idx) readBEE8(RegBase, idx)
 
 #define W_MISC_MASK(mask, value) writeMISC_OUT(RegBase, mask, value)
 
