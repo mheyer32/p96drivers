@@ -1326,7 +1326,7 @@ static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi),
   static const UBYTE DPMSLevels[4] = {0x00, 0x90, 0x60, 0x50};
 
   REGBASE();
-  W_REG_MASK(0xd, 0xF0, DPMSLevels[level]);
+  W_SR_MASK(0xD, 0xF0, DPMSLevels[level]);
 }
 
 static void ASM SetSplitPosition(__REGA0(struct BoardInfo *bi),
