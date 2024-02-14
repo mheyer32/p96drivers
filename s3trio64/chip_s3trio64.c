@@ -1755,9 +1755,10 @@ static inline void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen,
 
     WaitFifo(bi, 6);
 
-    MMIOBASE();
-    W_REG_L_MMIO(FRGD_COLOR, fgPen);
-    W_REG_L_MMIO(BKGD_COLOR, bgPen);
+    REGBASE();
+    W_REG_L(FRGD_COLOR, fgPen);
+    W_REG_L(BKGD_COLOR, bgPen);
+
     setMix(bi, frgdMix, bkgdMix);
   }
 }
@@ -1765,14 +1766,14 @@ static inline void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen,
 static inline void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask,
                                           RGBFTYPE fmt, BYTE waitFifoSlots)
 {
-  MMIOBASE();
+  REGBASE();
   ChipData_t *cd = getChipData(bi);
 
   if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
     // 16/32 bit modes ignore the mask
     cd->GEmask = 0xFF;
     WaitFifo(bi, waitFifoSlots + 2);
-    W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
+      W_REG_L(WRT_MASK, 0xFFFFFFFF);
   } else {
     // 8bit modes use the mask
     if (cd->GEmask != mask) {
@@ -1782,7 +1783,7 @@ static inline void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask,
 
       UWORD wmask = mask;
       wmask |= (wmask << 8);
-      W_REG_L_MMIO(WRT_MASK, makeDWORD(wmask, wmask));
+      W_REG_L(WRT_MASK, makeDWORD(wmask, wmask));
     } else {
       WaitFifo(bi, waitFifoSlots);
     }
@@ -1876,7 +1877,8 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi),
     pen = PenToColor(pen, fmt);
 
     WaitFifo(bi, 8);
-    W_REG_L_MMIO(FRGD_COLOR, pen);
+    REGBASE();
+    W_REG_L(FRGD_COLOR, pen);
   } else {
     WaitFifo(bi, 6);
   }
@@ -2082,7 +2084,9 @@ static void ASM BlitRectNoMaskComplete(
     WaitFifo(bi, 3);
 
     W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
-    W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
+
+    REGBASE();
+    W_REG_L(WRT_MASK, 0xFFFFFFFF);
   }
 
   if (cd->GEdrawMode != opCode)
@@ -2488,8 +2492,10 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
 
     WaitFifo(bi, 10);
     setMix(bi, (CLR_SRC_FRGD_COLOR | mixMode), (CLR_SRC_BKGD_COLOR | mixMode));
-    W_REG_L_MMIO(FRGD_COLOR, 0xFFFFFFFF);
-    W_REG_L_MMIO(BKGD_COLOR, 0x00000000);
+
+    REGBASE();
+    W_REG_L(FRGD_COLOR, 0xFFFFFFFF);
+    W_REG_L(BKGD_COLOR, 0x00000000);
   }
 
   // This could/should get chached as well
@@ -3235,10 +3241,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
   W_BEE8(MULT_MISC, (1 << 9));
 
   W_BEE8(MULT_MISC2, 0);
-  // Init GE write/read masks
-  W_REG_L_MMIO(WRT_MASK, 0xFFFFFFFF);
-  W_REG_L_MMIO(RD_MASK, 0xFFFFFFFF);
-  W_REG_L_MMIO(COLOR_CMP, 0x0);
+  // Init GE write/read masks. The use of IO instead of MMIO is delibeerate.
+  // Apparently when we switch these registers to 32bit via MULT_MISC above,
+  // Only the registers in the IO space become 32bit, but not in MMIO!
+  W_REG_L(WRT_MASK, 0xFFFFFFFF);
+  W_REG_L(RD_MASK, 0xFFFFFFFF);
+  W_REG_L(COLOR_CMP, 0x0);
 
   W_REG_W_MMIO(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
   W_REG_W_MMIO(BKGD_MIX, CLR_SRC_BKGD_COLOR | MIX_NEW);
