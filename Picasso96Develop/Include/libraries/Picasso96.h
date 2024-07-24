@@ -29,7 +29,7 @@
 /* Types for RGBFormat used
  */
 typedef enum {
-	RGBFB_NONE,				/* no valid RGB format (should not happen) */
+	RGBFB_NONE,				/* planar mode (the name is historical) */
 	RGBFB_CLUT,				/* palette mode, set colors when opening screen using
 									tags or use SetRGB32/LoadRGB32(...) */
 	RGBFB_R8G8B8,			/* TrueColor RGB (8 bit each) */

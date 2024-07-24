@@ -75,6 +75,11 @@ MAXSPRITEHEIGHT equ     48
         EITEM   BT_Reserved2                    ;added, thor
 	EITEM	BT_MNT_VA2000
 	EITEM	BT_MNT_ZZ9000
+        EITEM   BT_RetinaZ2
+        EITEM   BT_Visiona
+        EITEM   BT_GVP110
+	EITEM   BT_GBAPII
+	EITEM	BT_RainbowII
         EITEM   BT_MaxBoardTypes
 
         ENUM    0
@@ -98,6 +103,11 @@ MAXSPRITEHEIGHT equ     48
 	EITEM   PCT_reserved2
 	EITEM   PCT_MNT_VA2000
 	EITEM   PCT_MNT_ZZ9000
+	EITEM   PCT_ATT_20C492
+	EITEM	PCT_IMSG300
+   	EITEM	PCT_IMSG364
+	EITEM	PCT_BT458
+	EITEM	PCT_ADV7120
 	EITEM   PCT_MaxPaletteChipTypes
 
         ENUM    0
@@ -118,6 +128,9 @@ MAXSPRITEHEIGHT equ     48
         EITEM   GCT_reserved2
 	EITEM   GCT_MNT_VA2000
 	EITEM   GCT_MNT_ZZ9000
+	EITEM   GCT_NCR77C22E
+	EITEM	GCT_IMSG300
+   	EITEM	GCT_IMSG364
 	EITEM   GCT_MaxGraphicsControllerTypes
 
 ************************************************************************
@@ -314,6 +327,12 @@ BME_ColorMaskArray      MACRO
         EITEM   ABMA_Locked
 * the following are new
         EITEM   ABMA_System
+
+ABMA_DisplayID		equ	(TAG_USER + 32 + $12)
+ABMA_BitmapInvisible	equ	(TAG_USER + 32 + $17)
+ABMA_BitmapColors	equ	(TAG_USER + 32 + $09)
+ABMA_BitmapColors32	equ	(TAG_USER + 32 + $23)
+				    
 ************************************************************************
 
 * Tags for bi->GetBitMapAttr()
@@ -428,8 +447,8 @@ BME_ColorMaskArray      MACRO
         APTR    gbi_AllocCardMemAbs
         APTR    gbi_SetSplitPosition
         APTR    gbi_ReInitMemory
-        APTR    gbi_Reserved2Default
-	APTR    gbi_Reserved3
+        APTR    gbi_GetCompatibleDACFormats
+	APTR    gbi_CoerceMode
         APTR    gbi_Reserved3Default
         APTR    gbi_WriteYUVRect
         APTR    gbi_WriteYUVRectDefault
@@ -513,7 +532,13 @@ BME_ColorMaskArray      MACRO
         ULONG   gbi_MaxPlanarMemory ; Size of a bitplane if planar. If left blank, MemorySize>>2 
         ULONG   gbi_MaxBMWidth      ; Maximum width of a bitmap
         ULONG   gbi_MaxWMHeight     ; Maximum height of a bitmap
-
+        STRUCT  gbi_SecondaryCLUT,256*3
+        ULONG   gbi_RGBFormatBack
+        ULONG   gbi_RGBFormatSprite
+        APTR    gbi_spriteExtra
+	APTR	gbi_HostMouseImage	;the original mouse image in host memory
+	UWORD   gbi_MonitorWidth	;in mm
+	UWORD	gbi_MonitorHeight	;in mm
         LABEL   gbi_SIZEOF
 
         BITDEF  BI,HARDWARESPRITE,0
@@ -543,7 +568,10 @@ BME_ColorMaskArray      MACRO
         BITDEF  BI,NOBLITTER,24
         BITDEF  BI,SYSTEM2SCREENBLITS,25
         BITDEF  BI,GRANTDIRECTACCESS,26
-        BITDEF  BI,OVERCLOCK,31
+        BITDEF  BI,PALETTESWITCH,27
+        BITDEF  BI,DACSWITCH,28
+        BITDEF  BI,NOMASKEDBLITS,29
+	BITDEF  BI,OVERCLOCK,31
 
         BITDEF  BI,NOC2PBLITS,23
 

@@ -1,5 +1,5 @@
 #
-#	$Id: GNUmakefile 1.1 1997/05/08 23:50:33 Alex Exp Alex $
+#	$Id: GNUmakefile,v 1.1 2020/04/13 17:28:41 thor Exp $
 #
 
 FILES :=	$(wildcard *.c *.h *.asm *.i *.rev *.fd *.doc smakefile GNUmakefile SCOPTIONS)

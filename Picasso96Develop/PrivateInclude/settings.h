@@ -45,9 +45,12 @@ struct P96MonitorInfo
 					// DPMS-fähige Monitor muß es unterstützen.
 					// Aktivierung: hsync aus, vsync aus
 
+#define MIB_NoInterlace         (3)     // Monitor does not support interlace
+
 #define MIF_DPMS_StandBy	(1UL << MIB_DPMS_StandBy)
 #define MIF_DPMS_Suspend	(1UL << MIB_DPMS_Suspend)
 #define MIF_DPMS_ActiveOff	(1UL << MIB_DPMS_ActiveOff)
+#define MIF_NoInterlace         (1UL << MIB_NoInterlace)
 
 struct Settings{
 	struct Node			Node;

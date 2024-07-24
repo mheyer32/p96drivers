@@ -176,10 +176,9 @@ InitGC:
         move.l  #PCT_CirrusGD5434,gbi_PaletteChipType(a2)
         or.l    #BIF_NOMEMORYMODEMIX|BIF_DBLSCANDBLSPRITEY|BIF_DBLCLOCKHALFSPRITEX|BIF_VGASCREENSPLIT,gbi_Flags(a2)
         or.w    #RGBFF_PLANAR|RGBFF_CHUNKY|RGBFF_B8G8R8A8|RGBFF_B8G8R8|RGBFF_R5G6B5PC|RGBFF_R5G5B5PC,gbi_RGBFormats(a2)
-        or.w    #RGBFF_PLANAR|RGBFF_B8G8R8|RGBFF_R8G8B8,gbi_SoftSpriteFlags(a2)
-
+        or.w    #RGBFF_B8G8R8|RGBFF_R8G8B8,gbi_SoftSpriteFlags(a2)
 	;; this chip supports at most 1MB planar memory, that is 256K per plane
-	move.l #256*1024,gbi_MaxPlanarMemory(a2)
+	move.l #256*1024-(2*SPRITEBUFFERSIZE/4),gbi_MaxPlanarMemory(a2)
 	clr.w gbi_SpriteBank(a2)
 	
 ; now, write pointers to the chip functions into boardinfo
@@ -198,7 +197,12 @@ InitGC:
 ; GetCompatibleFormats returns a mask of compatible RGBFormats to a supplied RGBFormat
         lea     GetCompatibleFormats(pc),a1
         move.l  a1,gbi_GetCompatibleFormats(a2) ; mandatory
-
+	;; GetDACCompatibleFormats returns a mask of formats that can be displayed along with the supplied mode
+	lea	GetCompatibleDACFormats(pc),a1
+	move.l	a1,gbi_GetCompatibleDACFormats(a2) ;optional
+	;; CoerceMode performs mode coercions between different DAC formats
+	lea	CoerceMode(pc),a1
+	move.l	a1,gbi_CoerceMode(a2)
 ; Cirrus has internal DAC, so put this function here
 ; SetDAC sets DAC mode (CLUT, HiColor15 etc)
         lea     SetDAC(pc),a1
@@ -366,7 +370,7 @@ InitGC:
         SetTSc  #$80,TS_ExtendedSequencerMode
         SetTSc  #$80,TS_EEPROMControl
         SetTSc  #$54,TS_PerformanceTuning       ; Bus delay & fifo setting
-        SetTSc  #$02,TS_SignatureGeneratorControl
+        SetTSc  #$42,TS_SignatureGeneratorControl
         SetTSc  #$65,TS_VCLK3Numerator
         SetTSc  #$3b,TS_VCLK3Denominator
 
@@ -996,7 +1000,6 @@ SetPanning:
 * d2:   WORD YOffset
 * d7:   RGBFTYPE Format
 ************************************************************************
-
         PUSH    d2-d3
 
         move.w  d1,gbi_XOffset(a0)
@@ -1072,6 +1075,10 @@ SetPanning:
         add.l   d1,d2
         lsl.l   #1,d2                   ; Relative startaddress
         lsr.w   #2,d0                   ; Offset
+	cmp.w	#RGBFB_CHUNKY,2+gbi_DACModes(a0) ;is the lower part chunky?
+	bne.s	.regular
+	and.b	#$02,d1			; no fine scroll
+.regular:
         and.b   #$03,d1                 ; Pixelpanning
         bra     .non_planar_formats
 
@@ -1258,8 +1265,10 @@ SetSpriteImage:
 * a0:   struct BoardInfo
 * d7:   RGBFTYPE RGBFormat
 *************************************
-        PUSH    a2/d2-d7
+        PUSH    a2-a3/a5-a6/d2-d7
+	ext.w	d7
         move.l  a0,a2
+	move.l	d7,a3		;save RGBFormat
 
         movem.w (gbi_MouseX,a2),d4/d5
         sub.w   (gbi_XOffset,a2),d4
@@ -1279,7 +1288,23 @@ SetSpriteImage:
         add.w   d5,d5
 	add.w	d7,d7
 .no_doublescan:
+	;; potentially fixup the mouse position if we are in the
+	;; upper part of the screen, and we have screen split enabled.
+	cmp.w	gbi_DACModes(a2),a3 	;upper part of the screen split?
+	bne.s	.no_fixup
 
+	cmp.w	#RGBFB_CHUNKY,a3 	;is the upper part in chunky?
+	beq.s	.updirect
+	cmp.w	#RGBFB_CHUNKY,2+gbi_DACModes(a2) ;is the lower part in chunky?
+	bne.s	.no_fixup
+	asl.w	#1,d4
+	bra.s	.no_fixup
+.updirect:
+	cmp.w	#RGBFB_CHUNKY,2+gbi_DACModes(a2) ;is the lower part chunky?
+	beq.s	.no_fixup
+	asr.w	#1,d4
+.no_fixup:
+	
         btst    #GMB_DOUBLEVERTICAL,d6
         beq.s   .no_doublevert
         asr.w   #1,d5
@@ -1334,6 +1359,29 @@ SetSpriteImage:
 	neg.w	d3		;signal a fill-in offset
 	
 .noshift:
+	cmp.w #RGBFB_PLANAR,a3	;"sane" modes
+	bne.s .rendersane
+
+	;; The function that writes
+	;; data to the sprite planes
+	lea	PokeSpritePlanar(pc),a6
+	
+        btst   	#BIB_HIRESSPRITE,d6
+        bne.s   .hiresplanar
+
+        btst  	#BIB_BIGSPRITE,d6
+        bne.s   .zoomplanar
+
+        bsr     RenderSpriteNormalPlanar
+        bra.s   .done
+.hiresplanar:
+        bsr     RenderSpriteHiresPlanar
+        bra.s   .done
+.zoomplanar:
+        bsr     RenderSpriteZoomedPlanar
+	bra.s	.done
+
+.rendersane:
         btst   	#BIB_HIRESSPRITE,d6
         bne.s   .hires
 
@@ -1366,9 +1414,394 @@ SetSpriteImage:
         move.w  d4,TSI(a0)      ;Cursor X
         move.w  d5,TSI(a0)      ;Cursor Y
 
-        POP     a2/d2-d7
+        POP     a2-a3/a5-a6/d2-d7
         rts
 	
+*************************************
+PokeSpritePlanar:	
+* a5: data to write (32 bit wide = 32 pixels)
+* a0: adress relative to the base of the card
+*************************************
+	PUSH	a1/a3/d0-d2
+
+	move.l	a0,d1
+	move.l	gbi_MemoryBase(a2),a1
+	move.l	a5,d0
+	sub.l 	a1,d1 			;offset to the start of the memory
+	move.l	gbi_RegisterBase(a2),a3	;registers
+	sub.l	gbi_MemorySize(a2),d1	;offset from the end of the card
+	sub.l	#RESERVEDMEMORY,d1
+	asr.l	#2,d1			;divide by four
+	move.b	#TS_WritePlaneMask,TSI(a3) ;the write mask
+	lea	(256*1024,a1,d1.l),a1	;address of the sprite
+	move.b	TSD(a3),d2		;store
+	nop
+
+	move.b	#8,TSD(a3)		;plane 3
+	move.b	d0,(a1)
+	lsr.l	#8,d0
+	move.b	#4,TSD(a3)		;plane 2
+	move.b	d0,(a1)
+	lsr.l	#8,d0
+	move.b	#2,TSD(a3)		;plane 1
+	move.b	d0,(a1)
+	lsr.l	#8,d0
+	move.b	#1,TSD(a3)		;plane 0
+	move.b	d0,(a1)
+	move.b	d2,TSD(a3)		;restore write plane mask
+
+	addq.l	#4,a0			;increment
+	POP	d0-d2/a1/a3
+	rts
+*************************************
+RenderSpriteNormalPlanar:
+* set sprite image for small sprites (i.e. user did not select "BIGSPRITE=Yes")
+* a2:   struct BoardInfo
+* d0.w: Width
+* d1.w: Height
+* d2.w: OffsetX
+* d3.w: OffsetY (into the source data, i.e. positive values shift the sprite up)
+*************************************
+        PUSH    d2-d4/a3
+
+        move.l  gbi_MemoryBase(a2),a0
+        add.l   gbi_MemorySize(a2),a0
+        add.l   #rm_HardWareSprite2,a0
+	tst.w	gbi_SpriteBank(a2)
+	beq.s	.bank2
+	sub.l   #SPRITEBUFFERSIZE,a0
+.bank2:
+	lea	SPRITEBUFFERSIZE(a0),a3	;end of the sprite data
+	
+	tst.w	d3		; a negative fill-in offset? Start at a later line (offset as given by d3)
+	bpl.s	.regular
+	neg.w	d3
+	sub.l	a5,a5
+	subq.w	#1,d3
+.initial_clear_loop:
+	jsr	(a6)
+	jsr	(a6)
+	jsr	(a6)
+	jsr	(a6)
+        dbra    d3,.initial_clear_loop
+	moveq	#0,d3
+	
+.regular:	
+        sub.w   d3,d1           ; Start line
+        cmp.w   #64,d1
+        ble.s   .ok
+        move.w  #64,d1
+.ok:
+        move.w  d2,d4
+
+        move.l  gbi_MouseImage(a2),a1
+	tst.w   a1
+	beq.s	.plane_done
+	lea	4(a1,d3.w*4),a1	;YOffset
+
+        move.w  d1,d0
+        subq.w  #1,d0
+        bmi     .plane_done
+.plane_loop:
+        movem.w (a1)+,d2/d3
+
+        lsl.w   d4,d3
+        lsl.w   d4,d2
+
+	swap	d3
+	swap	d2
+	
+	clr.w	d3
+	clr.w	d2
+	
+	move.l	d3,a5
+	jsr	(a6)
+	sub.l	a5,a5
+	jsr	(a6)
+
+	move.l	d2,a5
+	jsr	(a6)
+	sub.l	a5,a5
+	jsr	(a6)
+        dbra    d0,.plane_loop
+
+.plane_done:
+	sub.l	a5,a5
+.plane_clear_loop:
+	cmp.l	a3,a0
+	bhs.s	.plane_clear_done
+	jsr	(a6)
+	jsr	(a6)
+	jsr	(a6)
+	jsr	(a6)
+        bra.s	.plane_clear_loop
+.plane_clear_done:
+
+        POP     d2-d4/a3
+        rts
+
+*************************************
+RenderSpriteZoomedPlanar:
+* set sprite image for big sprites (i.e. user did select "BIGSPRITE=Yes")
+* a2:   struct BoardInfo
+* d0.w: Width
+* d1.w: Height
+* d2.w: OffsetX
+* d3.w: OffsetY
+*************************************
+
+        PUSH    d2-d7/a3-a4
+
+        lsr.w   #1,d0
+        lsr.w   #1,d1
+
+        move.l  gbi_MemoryBase(a2),a0
+        add.l   gbi_MemorySize(a2),a0
+        add.l   #rm_HardWareSprite2,a0
+	tst.w	gbi_SpriteBank(a2)
+	beq.s	.bank2
+	sub.l   #SPRITEBUFFERSIZE,a0
+.bank2:
+        move.w  d2,d6           ; XOffset
+	lea	SPRITEBUFFERSIZE(a0),a4	;end of the sprite data
+
+	tst.w	d3		; a negative fill-in offset? Start at a later line (offset as given by d3)
+	bpl.s	.regular
+	neg.w	d3
+	sub.l	a5,a5
+	subq.w	#1,d3
+.initial_clear_loop:
+	jsr	(a6)
+	jsr	(a6)
+	jsr	(a6)
+	jsr	(a6)
+        dbra    d3,.initial_clear_loop
+	moveq	#0,d3
+.regular:	
+	
+;**
+;** offset calculation is wrong, d3 must
+;** be divided by two to get the same units
+;** as the position/offset data
+;** Fixed.
+;** 5.3.99, THOR
+;**
+        move.w  d3,d7           ; keep it
+        lsr.w   #1,d3           ; calculate the offset
+        sub.w   d3,d1           ; Start line
+	ble	.plane_done
+        move.w  d1,d0
+        add.w   d1,d1
+        lsr.w   #1,d7           ; carry implies shifted source data access
+        bcc     .bit
+        bset    #31,d1
+        sub.w   #1,d1
+.bit:
+        move.w  d3,d7           ; YOffset
+        lsl.w   #2,d7
+
+;**
+;** d0 is the loop counter, not d1.
+;** corrected, 5.3.99, THOR
+;**
+        cmp.w   #32,d0
+        ble.s   .ok
+        move.w  #32,d0
+.ok:
+.plane:
+        move.l  gbi_MouseImage(a2),a1
+	tst.w   a1
+	beq.s	.plane_done
+        add.w   #4,a1
+        add.w   d7,a1
+
+        subq.w  #1,d0
+        bmi     .plane_done
+.plane_loop:
+        move.w  (a1)+,d2                ;get data
+        move.w  d2,d5
+        lsr.w   #4,d2
+        move.w  d2,d4
+        lsr.w   #4,d2
+        move.w  d2,d3
+        lsr.w   #4,d2
+        and.w   #15,d3
+        and.w   #15,d4
+        and.w   #15,d5
+        move.b  .table(pc,d4.w),d4
+        swap    d4
+        move.b  .table(pc,d2.w),d4
+        lsl.l   #8,d4
+        move.b  .table(pc,d3.w),d4
+        swap    d4
+        move.b  .table(pc,d5.w),d4
+        lsl.l   d6,d4
+        move.l  d4,a3                   ;magnify by two
+
+        move.w  (a1)+,d2                ;get data
+        move.w  d2,d5
+        lsr.w   #4,d2
+        move.w  d2,d4
+        lsr.w   #4,d2
+        move.w  d2,d3
+        lsr.w   #4,d2
+        and.w   #15,d3
+        and.w   #15,d4
+        and.w   #15,d5
+        move.b  .table(pc,d4.w),d4
+        swap    d4
+        move.b  .table(pc,d2.w),d4
+        lsl.l   #8,d4
+        move.b  .table(pc,d3.w),d4
+        swap    d4
+        move.b  .table(pc,d5.w),d4
+        lsl.l   d6,d4                   ;ditto
+
+        bclr    #31,d1                  ;round off?
+        bne     .skip
+
+	move.l	d4,a5
+	jsr	(a6)
+	sub.l	a5,a5
+	jsr	(a6)
+	move.l	a3,a5
+	jsr	(a6)
+	sub.l	a5,a5
+	jsr	(a6)
+.skip:
+	move.l	d4,a5
+	jsr	(a6)
+	sub.l	a5,a5
+	jsr	(a6)
+	move.l	a3,a5
+	jsr	(a6)
+	sub.l	a5,a5
+	jsr	(a6)
+        dbra    d0,.plane_loop
+;**
+;** erase the remaining lines
+;**
+
+;**
+;** the following failed if d1 was negative. This happens
+;** if an autoscroll screen is scrolled downwards very fast
+;** while holding the mouse pointer fixed at the drag bar
+;** Fixed, THOR 5.4.99
+;**
+.plane_done:
+        sub.l	a5,a5
+.plane_clear_loop:
+	cmp.l	a4,a0
+	bhs.s	.plane_clear_done
+	jsr	(a6)
+	jsr	(a6)
+	jsr	(a6)
+	jsr	(a6)
+        bra.s	.plane_clear_loop
+.plane_clear_done:
+
+        POP     d2-d7/a3-a4
+        rts
+	
+.table:
+        dc.b    %00000000
+        dc.b    %00000011
+        dc.b    %00001100
+        dc.b    %00001111
+        dc.b    %00110000
+        dc.b    %00110011
+        dc.b    %00111100
+        dc.b    %00111111
+        dc.b    %11000000
+        dc.b    %11000011
+        dc.b    %11001100
+        dc.b    %11001111
+        dc.b    %11110000
+        dc.b    %11110011
+        dc.b    %11111100
+        dc.b    %11111111
+
+*************************************
+RenderSpriteHiresPlanar:
+* set sprite image for hires sprites
+* a2:   struct BoardInfo
+* d0.w: Width
+* d1.w: Height
+* d2.w: OffsetX
+* d3.w: OffsetY
+*************************************
+        PUSH    d2-d4/a3
+
+        move.l  gbi_MemoryBase(a2),a0
+        add.l   gbi_MemorySize(a2),a0
+        add.l   #rm_HardWareSprite2,a0
+	tst.w	gbi_SpriteBank(a2)
+	beq.s	.bank2
+	sub.l   #SPRITEBUFFERSIZE,a0
+.bank2:
+	lea	SPRITEBUFFERSIZE(a0),a3	;end of the sprite data
+
+	tst.w	d3		; a negative fill-in offset? Start at a later line (offset as given by d3)
+	bpl.s	.regular
+	neg.w	d3
+	sub.l	a5,a5
+	subq.w	#1,d3
+.initial_clear_loop:
+	jsr	(a6)
+	jsr	(a6)
+	jsr	(a6)
+	jsr	(a6)
+        dbra    d3,.initial_clear_loop
+	moveq	#0,d3
+	
+.regular:
+        sub.w   d3,d1           ; Start line
+
+        cmp.w   #64,d1
+        ble     .ok
+        move.w  #64,d1
+.ok:
+
+        move.w  d2,d4
+
+        move.l  gbi_MouseImage(a2),a1
+	tst.w   a1
+	beq.s	.plane_done
+	lea	8(a1,d3.w*8),a1
+
+        move.w  d1,d0
+        subq.w  #1,d0
+        bmi     .plane_done
+.plane_loop:
+        movem.l (a1)+,d2/d3
+
+        lsl.l   d4,d3
+        lsl.l   d4,d2
+
+	move.l	d3,a5
+	jsr	(a6)
+	sub.l	a5,a5
+	jsr	(a6)
+	move.l	d2,a5
+	jsr	(a6)
+	sub.l	a5,a5
+	jsr	(a6)
+        dbra    d0,.plane_loop
+
+.plane_done:
+	sub.l	a5,a5
+.plane_clear_loop:
+	cmp.l	a3,a0
+	bhs.s	.plane_clear_done
+	jsr	(a6)
+	jsr	(a6)
+	jsr	(a6)
+	jsr	(a6)
+        bra.s	.plane_clear_loop
+.plane_clear_done:
+
+        POP     d2-d4/a3
+        rts	
 *************************************
 RenderSpriteNormal:
 * set sprite image for small sprites (i.e. user did not select "BIGSPRITE=Yes")
@@ -1379,8 +1812,6 @@ RenderSpriteNormal:
 * d3.w: OffsetY (into the source data, i.e. positive values shift the sprite up)
 *************************************
         PUSH    d2-d4/a3
-        move.l  gbi_RegisterBase(a2),a0
-        move.w  #(TS_MemoryMode<<8)|$0e,(TSI,a0)
 
         move.l  gbi_MemoryBase(a2),a0
         add.l   gbi_MemorySize(a2),a0
@@ -1457,7 +1888,6 @@ RenderSpriteZoomed:
 * d2.w: OffsetX
 * d3.w: OffsetY
 *************************************
-
         PUSH    d2-d7/a3-a4
 
         lsr.w   #1,d0
@@ -1629,11 +2059,7 @@ RenderSpriteHires:
 * d2.w: OffsetX
 * d3.w: OffsetY
 *************************************
-
         PUSH    d2-d4/a3
-
-        move.l  gbi_RegisterBase(a2),a0
-        move.w  #(TS_MemoryMode<<8)|$0e,(TSI,a0)
 
         move.l  gbi_MemoryBase(a2),a0
         add.l   gbi_MemorySize(a2),a0
@@ -1792,43 +2218,144 @@ SetDAC:
 *************************************
 DACD    equ     $3c6
 
-        cmp.l   #RGBFB_MaxFormats,d7
-        bcc     .end
-        cmp.l   #RGBFB_CLUT,d7
-        bne     .not_clut
-        move.l  gbi_ModeInfo(a0),a1
-        btst    #GMB_DOUBLECLOCK,gmi_Flags(a1)
-        beq     .not_doubleclocked
-        move.b  #$4a,d0
-        bra     .clock_doubled
+	PUSH	d2
+	
+	cmp.l	#RGBFB_MaxFormats,d7
+	bcc	.end
+
+	move.w	d0,d2			;upper or lower part?
+	bne.s	.lower
+	move.w	d7,gbi_DACModes(a0) 	;upper part
+.lower:
+	move.w	d7,2+gbi_DACModes(a0) 	;also sets lower
+	
+	cmp.l	#RGBFB_CHUNKY,d7
+	bne	.not_clut
+	move.l	gbi_ModeInfo(a0),a1
+	btst	#GMB_DOUBLECLOCK,gmi_Flags(a1)
+	beq	.not_doubleclocked
+	move.b	#$4a,d0
+	bra	.clock_doubled
 .not_doubleclocked:
 .not_clut:
-        move.b  (.formats,pc,d7.l),d0
+	move.b	(.formats,pc,d7.l),d0
 .clock_doubled:
+	move.l	gbi_RegisterBase(a0),a1
 
-        move.l  gbi_RegisterBase(a0),a0
+	tst.w	d2		;lower part set?
+	beq.s	.upper
+	;; here on the lower part
+	;; check whether the modes are identical. If so, we can disable
+	;; the hack
+	
+	cmp.w	gbi_DACModes(a0),d7
+	beq.s	.disable
+	;; could be that the two modes are different, but only by apperture
+	;; thus, also disable if the two modes are different from chunky.
+	cmp.w	#RGBFB_CHUNKY,d7
+	beq.s	.enable
+	cmp.w	#RGBFB_CHUNKY,gbi_DACModes(a0)
+	bne.s	.disable
+.enable:	
+	;; here enable
+	move.b	#CRTC_MiscellaneousControl,CRTCI(a1)
+	move.b	CRTCD(a1),d1
+	and.b	#~((1<<2)|(1<<3)),d1		;disable
+	or.b	#(1<<2),d1			;enable switching
+	move.b	d1,CRTCD(a1)
+	move.b	#CRTC_OverlayExtendedControl,CRTCI(a1)
+	move.b	CRTCD(a1),d1			;which signal
+	and.b	#~((1<<2)!(1<<1)),d1		;clear selection bits, select EVIDEO as source
+*	cmp.w	#RGBFB_CHUNKY,gbi_DACModes(a0)	;chunky in the upper part of the screen?
+*	beq.s	.chunkyup			;ok
+	or.b	#(1<<1),d1			;thor: invert the selection
+*.chunkyup:
+	move.b	d1,CRTCD(a1)
+	;; border must be OFF for this to work
+	;; we probably need a fix/workaround in SetGC for this to work
+	move.b	#CRTC_ExtendedDisplayControls,CRTCI(a1)
+	move.b	CRTCD(a1),d1
+	or.b	#(1<<5),d1
+	move.b	d1,CRTCD(a1)
+	;; blank outside the active display area
+	move.b	#CRTC_HorizontalDisplayEnd,CRTCI(a1)
+	move.b	CRTCD(a1),d1
+	move.b	#CRTC_HorizontalBlankStart,CRTCI(a1)
+	move.b	d1,CRTCD(a1)	;blank outside of the visible window
+	move.b	#CRTC_HorizontalTotal,CRTCI(a1)
+	move.b	CRTCD(a1),d1
+	addq.b	#4,d1
+	move.b	#CRTC_HorizontalBlankEnd,CRTCI(a1)
+	move.b	CRTCD(a1),d2
+	eor.b	d1,d2
+	and.b	#%11100000,d2
+	eor.b	d1,d2
+	move.b	d2,CRTCD(a1)	;bits 0-4 are in this register
+	move.b	#CRTC_HorizontalSyncEnd,CRTCI(a1)
+	move.b	CRTCD(a1),d2
+	rol.b	#2,d1		;move bit 5 to bit 7, bits 6-7 to bits 0-1
+	eor.b	d1,d2
+	and.b	#%01111111,d2
+	eor.b	d1,d2		;mask in bit 7
+	move.b	d2,CRTCD(a1)
+	move.b	#CRTC_MiscellaneousControl,CRTCI(a1)
+	rol.b	#4,d1		;move bits 0-1 to bits 4 and 5
+	move.b	CRTCD(a1),d2
+	eor.b	d1,d2
+	and.b	#%11001111,d2
+	eor.b	d1,d2
+	move.b	d2,CRTCD(a1)
+	bra.s	.upper
+	
+.disable:
+	;; here not needed, disable it
+	move.b	#CRTC_MiscellaneousControl,CRTCI(a1)
+	move.b	CRTCD(a1),d1
+	and.b	#~((1<<2)|(1<<3)),d1	;disable
+	move.b	d1,CRTCD(a1)
+	move.b	#CRTC_OverlayExtendedControl,CRTCI(a1)
+	move.b	CRTCD(a1),d1			;which signal
+	or.b	#(1<<2)!(1<<1),d1		;disable DAC switching
+	move.b	d1,CRTCD(a1)
+.upper:	
+	cmp.l	#RGBFB_CHUNKY,d7 ;the direct color modes are always set (chunky is enforced)
+	bhi.s	.setme
+	move.l	(gbi_Flags,a0),d1 
+	btst	#BIB_DACSWITCH,d1
+	beq.s	.setme
+	tst.w	d2		;delay to lower display
+	beq.s	.end
+	;; here in the lower part, d7 is chunky or planar
+	cmp.w	gbi_DACModes(a0),d7
+	blo.s	.end
+	;; here the upper part is planar or chunky,
+	;; finally install
+.setme:
+	move.b	DACD(a1),d1
+	move.b	#0,DACD(a1)
+	DELAY
+	tst.b	DACD(a1)
+	DELAY
+	tst.b	DACD(a1)
+	DELAY
+	tst.b	DACD(a1)
+	DELAY
+	tst.b	DACD(a1)
+	DELAY
+	move.b	d0,DACD(a1)	; Hidden DAC
+	DELAY
+	move.b	d1,DACD(a1)	; Pixel Mask
+.end:
+	POP	d2
+	rts
 
-        move.b  DACD(a0),d1
-        DELAY
-        move.b  #0,DACD(a0)
-        DELAY
-        tst.b   DACD(a0)
-        DELAY
-        tst.b   DACD(a0)
-        DELAY
-        tst.b   DACD(a0)
-        DELAY
-        tst.b   DACD(a0)
-        DELAY
-        move.b  d0,DACD(a0)     ; Hidden DAC
-        DELAY
-        move.b  d1,DACD(a0)     ; Pixel Mask
-.end:   rts
-
+	;; the 5446 uses c5 instead of e5 for the true-color
+	;; modes. This is probably not relevant
 .formats:
-        dc.b    0,0,$e5,$e5,$e1,$e0
-        dc.b    $e5,$e5,$e5,$e5,0,0
-        dc.b    $e1,$e0
+        dc.b    0,0,$e5,$e5
+	dc.b	$e1,$e0
+        dc.b    $e5,$e5,$e5,$e5
+        dc.b    $e1,$e0,$e1,$e0
         dc.b    0,0,0,0,0,0,0
 
         cnop    0,4
@@ -4496,10 +5023,11 @@ SetScreenSplit:
 * a0:   struct BoardInfo
 * d0:	YPosition for the screen split	
 ************************************************************************
-
+	PUSH	d2
+	
+	;; Now adjust the split position for the target mode
 	move.w  d0,(gbi_YSplit,a0)
-	subq.w	#1,d0		;the register is the split position-1
-
+	subq.w	#1,d0
 	move.l	gbi_ModeInfo(a0),a1
         btst    #GMB_DOUBLESCAN,gmi_Flags(a1)
         beq.s .regular
@@ -4507,15 +5035,92 @@ SetScreenSplit:
 	or.w 	#1,d0
 .regular:
 	btst    #GMB_DOUBLEVERTICAL,gmi_Flags(a1)
-        beq.s   .no_doublevert
+	beq.s   .no_doublevert
 	lsr.w	#1,d0
 .no_doublevert:
 	move.w #$3ff,d1		;maximum split position
-	move.l  gbi_ExecBase(a0),a1
 	cmp.w d1,d0		;beyond maximum position
 	blo.s .okclip
 	move.w d1,d0
-.okclip:	
+.okclip:
+	move.l	gbi_RegisterBase(a0),a1
+	
+	;; potentially drive the DAC switch
+	move.w	gbi_DACModes(a0),d1 		;
+	cmp.w	2+gbi_DACModes(a0),d1		;DAC switch enabled?
+	beq.s	.nodacswitch
+
+	cmp.w	#RGBFB_CHUNKY,d1 		;upper is chunky? switch blank on top
+	*bne.s	.blanktop
+	beq.s	.blanktop 			;thor: try the inverted relation.
+	;; here start blanking at the split position
+	;; stop blanking regularly
+	;; Vertical blank Start only has 9 bits, bummer!
+	;; Apparently, this limits panning to 1023 high screens.
+	move.w	d0,d1
+	move.b	#CRTC_VerticalBlankStart,CRTCI(a1)
+	move.b	d1,CRTCD(a1)			;lower bits
+	move.b	#CRTC_OverflowLow,CRTCI(a1)
+	ror.w	#5,d1				;bit 8->bit3
+	move.b	CRTCD(a1),d2			;get overflow register
+	eor.b	d1,d2
+	and.b	#%11110111,d2
+	eor.b	d1,d2
+	move.b	d2,CRTCD(a1)			;insert bit 8 to bit 3
+	move.b	#CRTC_MaximumRowAddress,CRTCI(a1)
+	rol.w	#1,d1				;insert bit 9 to bit 5
+	move.b	CRTCD(a1),d2
+	eor.b	d1,d2
+	and.b	#%11011111,d2
+	eor.b	d1,d2
+	move.b	d2,CRTCD(a1)
+
+	move.b	#CRTC_VerticalBlankEnd,CRTCI(a1)
+	move.b	#0,CRTCD(a1)			;stop at top
+	move.b	#CRTC_MiscellaneousControl,CRTCI(a1)
+	move.b	CRTCD(a1),d1
+	and.b	#%00111111,d1
+	move.b	d1,CRTCD(a1)
+	bra.s	.nodacswitch
+.blanktop:
+	cmp.w	#RGBFB_CHUNKY,2+gbi_DACModes(a0)
+	bne.s	.nodacswitch
+	;; here: start blanking at bottom of screen regularly
+	;; end blanking at the split position
+	move.w	d0,d1		;keep register
+	move.b	#CRTC_VerticalBlankEnd,CRTCI(a1)
+	move.b	d1,CRTCD(a1)		;stop at split position
+	move.b	#CRTC_MiscellaneousControl,CRTCI(a1)
+	ror.w	#2,d1
+	move.b	CRTCD(a1),d2
+	eor.b	d1,d2
+	and.b	#%00111111,d2
+	eor.b	d1,d2
+	move.b	d2,CRTCD(a1)
+	;; Write vertical sync start to vertical blank start
+	move.b	#CRTC_VerticalSyncStart,CRTCI(a1)
+	move.b	CRTCD(a1),d2
+	move.b	#CRTC_VerticalBlankStart,CRTCI(a1)
+	move.b	d2,CRTCD(a1)
+	;; VerticalBlankStart bit 9 is in bit 5 of MaximumRowAddress
+	;; VerticalBlankStart bit 8 is in bit 3 of the overflow register
+	move.b	#CRTC_OverflowLow,CRTCI(a1) ;get the overflow register contains bits 8-9 of sync start
+	move.b	CRTCD(a1),d2
+	move.b	d2,d1
+	rol.b	#1,d1		;move bit 2 to bit 3, bit 7 to bit 0
+	eor.b	d1,d2
+	and.b	#%11110111,d2	;mask out bit 3
+	eor.b	d1,d2
+	move.b	d2,CRTCD(a1)	;write bit 8 of the vertical blank start
+	rol.b	#5,d1		;move bit 0 to bit 5, the bit in Maximum RowAdress
+	move.b	#CRTC_MaximumRowAddress,CRTCI(a1)
+	move.b	CRTCD(a1),d2
+	eor.b	d1,d2
+	and.b	#%11011111,d2	;inject bit 5
+	eor.b	d1,d2		
+	move.b	d2,CRTCD(a1)	;done
+.nodacswitch:	
+	move.l	gbi_ExecBase(a0),a1
 	move.l	gbi_RegisterBase(a0),a0
 
         DISABLE a1,NOFETCH              ; no disturbance while modifying registers
@@ -4545,9 +5150,10 @@ SetScreenSplit:
 	move.b	d0,CRTCD(a0)
 	
         ENABLE a1,NOFETCH              ; no disturbance while modifying registers
-	
+
+	POP	d2
 	rts
-	
+
 ************************************************************************
 SetClock:
 ************************************************************************
@@ -4863,8 +5469,96 @@ GetCompatibleFormats:
 
 .end:
         rts
+************************************************************************
+GetCompatibleDACFormats:
+************************************************************************
+* a0: struct BoardInfo *bi
+* d7: RGBFTYPE RGBFormat
+* returns a bitmask of formats that can be displayed along with the supplied
+* format. Due to a hardware hack, the GD5446 can mix chunky with any other
+* mode.	
+************************************************************************
+	moveq	#0,d0
+	bset	d7,d0		;the format itself, of course
+	cmp.l	#RGBFB_PLANAR,d7
+	beq.s	.planar
+	cmp.l	#RGBFB_CHUNKY,d7
+	beq.s	.chunky
+	cmp.l	#RGBFB_R5G6B5PC,d7
+	beq.s	.high6
+	cmp.l	#RGBFB_R5G5B5PC,d7
+	beq.s	.high5
+	cmp.l	#RGBFB_R5G6B5,d7
+	beq.s	.high6
+	cmp.l	#RGBFB_R5G5B5,d7
+	bne.s	.planar
+.high5:
+	;; a high-color 555 mode. Compatible to the other endianness, and to chunky.
+	or.l	#RGBFF_CHUNKY|RGBFF_R5G5B5PC|RGBFF_R5G5B5,d0
+	rts
+.high6:
+	;; a high-color 565 mode. Compatible to the other endianness, and to chunky.
+	or.l	#RGBFF_CHUNKY|RGBFF_R5G6B5PC|RGBFF_R5G6B5,d0
+	rts
+.chunky:
+	or.l	#RGBFF_R5G6B5PC|RGBFF_R5G6B5|RGBFF_R5G5B5PC|RGBFF_R5G5B5,d0
+.planar:			;planar is only compatible to itself
+	rts
+************************************************************************
+CoerceMode:
+************************************************************************
+* a0: struct BoardInfo *bi
+* a1: struct ModeInfo *mi  the target mode info to coerce to
+* to be modified to represent the mode after coercion
+* a2: my own mode, not to be altered.	
+* d0: RGBFTYPE srcFormat   format of the source, original intended mode
+* d1: RGBFTYPE dstFormat   format of the mode used for displaying
+* d2: width in pixels of the screen being coerced (source format)
+* d3: width in pixels of the screen being coerced to (destination format)
+* Result:
+* d0: width in pixels of the frame buffer to be allocated, in the mode of
+* the destination.	
+************************************************************************
+	cmp.l	d0,d1
+	beq.s	.same
+	
+        btst    #GMB_DOUBLECLOCK,gmi_Flags(a1)
+        bne.s	.notdouble
+	
+        btst    #GMB_DOUBLECLOCK,gmi_Flags(a2)
+        bne.s	.notdouble
 
-
+.same:
+	PUSH d2-d3
+	
+	cmp.l	#RGBFB_CHUNKY,d1
+	beq.s	.destchunky
+	;; here from chunky to a direct front viewport
+	lsl.w	gmi_Width(a1)
+	lsl.w	#1,d3			       	;convert dest format to bytes
+.destchunky:
+	cmp.l	#RGBFB_CHUNKY,d0
+	beq.s	.srcchunky
+	;; here from hi-color to a chunky front viewport
+	lsr.w	gmi_Width(a1) 			;appears twice as wide
+	lsl.w	#1,d2			       	;convert source format width to bytes
+.srcchunky:
+	move.w	d2,d0				;compute the maximum
+	cmp.w	d2,d3
+	blo.s	.havemax
+	move.w	d3,d0
+.havemax:
+	;; is the destination format chunky?
+	cmp.l	#RGBFB_CHUNKY,d1
+	beq.s	.done				;if so, the result in bytes is already the width
+	lsr.w	#1,d0				;otherwise, it was in words
+.done:	
+	POP d2-d3
+	rts
+.notdouble:
+	moveq	#0,d0
+	rts
+	
 ************************************************************************
 
 EndCode:

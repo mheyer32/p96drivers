@@ -32,7 +32,7 @@ P96NAME	MACRO
 * Types for RGBFormat used
 *
 	ENUM	0
-	EITEM	RGBFB_NONE	; no valid RGB format (should not happen)
+	EITEM	RGBFB_NONE	; planar mode (the name is historical)
 	EITEM	RGBFB_CLUT	; palette mode, set colors with LeadRGB32, etc.
 	EITEM	RGBFB_R8G8B8	; TrueColor RGB (8 bit each)
 	EITEM	RGBFB_B8G8R8	; TrueColor BGR (8 bit each)
@@ -149,6 +149,7 @@ BMF_USERPRIVATE		EQU	$8000
 	EITEM	P96IDA_VIDEOCOMPATIBLE
 	EITEM	P96IDA_PABLOIVCOMPATIBLE
 	EITEM	P96IDA_PALOMAIVCOMPATIBLE
+	EITEM	P96IDA_MODE * private
 
 ************************************************************************
 * Tags for p96BestModeIDTagList

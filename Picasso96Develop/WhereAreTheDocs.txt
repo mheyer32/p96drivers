@@ -1,0 +1,7 @@
+The card/board driver development moved, it is no
+longer included in the package.
+
+
+You find the card driver development now online:
+
+http://wiki.icomp.de/wiki/P96_Driver_Development

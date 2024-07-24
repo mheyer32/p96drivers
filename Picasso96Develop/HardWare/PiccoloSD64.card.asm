@@ -9,6 +9,7 @@
 	incdir	include:
 	include	lvo/exec.i
 	include	lvo/expansion.i
+	include	lvo/utility.i
 	include	exec/libraries.i
 	include	exec/resident.i
 	include	exec/initializers.i
@@ -264,12 +265,35 @@ FindCard:
 InitCard:
 ************************************************************************
 * a0:	APTR BoardInfo
+* a1:	ToolTypes	
 ************************************************************************
-
-	PUSH	d3-d4/a2-a6
+	PUSH	d3-d5/a2-a6
 	movea.l	(card_ExecBase,a6),a5
 
 	movea.l	a0,a2
+	movea.l	a1,a3
+	moveq	#0,d5
+	
+	tst.l	(gbi_GetVSyncState,a2)
+	beq	.checkdone			; Old Picasso96 version
+
+	move.l	a3,d0
+	beq	.checkdone
+	lea	(.dachack_tooltype,pc),a4
+	movea.l	(gbi_UtilBase,a2),a6
+
+.checkloop:
+	move.l	(a3)+,d0
+	beq	.checkdone
+
+	movea.l	d0,a0
+	movea.l	a4,a1
+	CALL	Stricmp
+	tst.l	d0
+	bne	.checkloop
+
+	moveq	#1,d5
+.checkdone:
 
 	lea	(ChipName,pc),a1
 	moveq	#0,d0
@@ -286,6 +310,11 @@ InitCard:
 	CALL	AddIntServer
 
 	ori.l	#BIF_VBLANKINTERRUPT,(gbi_Flags,a2)
+
+	tst.b	d5
+	beq.s	.nodachack
+	or.l	#BIF_DACSWITCH,(gbi_Flags,a2) ;experimental
+.nodachack:
 
 ; wakeup
 	movea.l	(gbi_RegisterBase,a2),a0
@@ -382,6 +411,11 @@ InitCard:
 	bra	.done			; 4 MB minus cursors etc.
 
 .has0MB:
+	movea.l	(gbi_ExecBase,a2),a6
+	lea	(gbi_HardInterrupt,a2),a1
+	moveq	#INTB_EXTER,d0
+	CALL	RemIntServer
+
 	moveq	#0,d0			; Houston, we have a problem...
 	bra	.end
 
@@ -405,10 +439,14 @@ InitCard:
 .ok_end:
 	moveq	#-1,d0
 .end:
-	POP	d3-d4/a2-a6
+	POP	d3-d5/a2-a6
 	rts
 
-
+	cnop	0,4
+.dachack_tooltype:
+	dc.b	"ENABLEDACSWITCH=Yes",0
+	cnop	0,4
+	
 ************************************************************************
 SetSwitch:
 ************************************************************************
