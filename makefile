@@ -88,7 +88,7 @@ endef
 
 # target 'all' (default target)
 
-all : S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip
+all : S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip ATIMach64.chip
 
 S3TRIO_SRC = s3trio64/chip_s3trio64.c \
 			 s3trio64/s3ramdac.c \
@@ -103,6 +103,12 @@ $(eval $(call make_driver,S3Trio3264.chip,$(BUILDDIR)s3trio3264/, ${S3TRIO_SRC})
 S3Vision864.chip : CFLAGS+=-DBIGENDIANREGISTERS=0 -DBUILD_VISION864=1
 $(eval $(call make_driver,S3Vision864.chip,$(BUILDDIR)s3vision864/, ${S3TRIO_SRC}))
 
+
+ATIMACH64_SRC = mach64/chip_mach64.c \
+                chip_library.c
+
+ATIMach64.chip : CFLAGS+=-DBIGENDIANREGISTERS=0
+$(eval $(call make_driver,ATIMach64.chip,$(BUILDDIR)mach64/, ${ATIMACH64_SRC}))
 
 # target 'clean'
 
