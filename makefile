@@ -1,3 +1,5 @@
+#!/usr/bin/make
+
 #disable built-in rules
 .SUFFIXES:
 # don't delete intermeditae .o and build directories
@@ -15,19 +17,17 @@ BINDIR ?= _bin/
 BUILDDIR ?= _o/
 DEBUG ?= 0
 
-BUILDFLAGS = -nostartfiles -noixemul -msmall-code -m68020-60 -mtune=68030 -O3 -g -ggdb -fomit-frame-pointer
+BUILDFLAGS = -noixemul -msmall-code -m68020-60 -mtune=68030 -O3 -g -ggdb -fomit-frame-pointer
 
 CFLAGS ?=
 CFLAGS +=  $(BUILDFLAGS) -I. -IPicasso96Develop/Include -IPicasso96Develop/PrivateInclude -IPrometheus/include
 LDFLAGS ?=
-LDFLAGS += $(BUILDFLAGS) -ramiga-lib
+LDFLAGS += $(BUILDFLAGS)
 LIBS = -lamiga
 
 ifeq ($(DEBUG),1)
 	CFLAGS += -DDBG
 	LIBS += -ldebug
-else
-	LDFLAGS += -nodefaultlibs
 endif
 
 ###############################################################################
@@ -73,10 +73,15 @@ ${1}_SRC = ${3} # $$(call collect_sources,$$(SOURCES))
 ${1}_OBJS = $$(call create_objlist,$$(${1}_SRC),${2})
 ${1}_TARGET = $$(BINDIR)/${1}
 
+${1} : LDFLAGS += -ramiga-lib -nostartfiles
+
+ifeq ($(DEBUG),0)
+${1} : LDFLAGS += -nodefaultlibs
+endif
+
 echo "Building: $${${1}_TARGET}"
 
 $$(eval $$(call build_rules,${2}))
-
 ${1} : $$(BUILDDIR)=${2}
 ${1} : $$(${1}_OBJS)
 	$$(MKDIR) $$(dir $$(${1}_TARGET))
@@ -84,11 +89,30 @@ ${1} : $$(${1}_OBJS)
 	$$(STRIP) $$(<D)/${1} -o $$(${1}_TARGET)
 endef
 
+define make_exe
+${1}_SRC = ${3}
+${1}_OBJS = $$(call create_objlist,$$(${1}_SRC),${2})
+${1}_TARGET = $$(BINDIR)/${1}
+
+echo "Building: $${${1}_TARGET}"
+
+${1} : CFLAGS += -DTESTEXE -DDBG -DDEBUG
+${1} : LIBS += -ldebug
+
+$$(eval $$(call build_rules,${2}))
+
+${1} : $$(BUILDDIR)=${2}
+${1} : $$(${1}_OBJS)
+	$$(MKDIR) $$(dir $$(${1}_TARGET))
+	$$(LD) $$^ $$(LIBS) $$(LDFLAGS) -o $$(<D)/${1}
+	$$(STRIP) $$(<D)/${1} -o $$(${1}_TARGET)
+endef
+
 ###############################################################################
 
 # target 'all' (default target)
 
-all : S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip ATIMach64.chip
+all : S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip ATIMach64.chip TestMach64
 
 S3TRIO_SRC = s3trio64/chip_s3trio64.c \
 			 s3trio64/s3ramdac.c \
@@ -109,6 +133,11 @@ ATIMACH64_SRC = mach64/chip_mach64.c \
 
 ATIMach64.chip : CFLAGS+=-DBIGENDIAN_MMIO=0
 $(eval $(call make_driver,ATIMach64.chip,$(BUILDDIR)mach64/, ${ATIMACH64_SRC}))
+
+ATIMACH64_TESTEXE_SRC = mach64/chip_mach64.c
+
+$(eval $(call make_exe,TestMach64,$(BUILDDIR)testmach64/, ${ATIMACH64_TESTEXE_SRC}))
+
 
 # target 'clean'
 
