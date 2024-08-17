@@ -27,7 +27,7 @@ typedef struct ChipData
   ChipFamily_t chipFamily;       // chip family
 } ChipData_t;
 
-#define W_BEE8(idx, value) W_REG_W_MMIO(0xBEE8, ((idx << 12) | value))
+#define W_BEE8(idx, value) W_MMIO_W(0xBEE8, ((idx << 12) | value))
 
 static inline UWORD readBEE8(volatile UBYTE *RegBase, UBYTE idx)
 {
@@ -48,8 +48,8 @@ static inline UWORD readBEE8(volatile UBYTE *RegBase, UBYTE idx)
 
   // The read select register cannot be MMIO mapped on older chip series, thus
   // always read through I/O register
-  W_REG_W(0xBEE8, (0xF << 12) | idx);
-  return R_REG_W(0xBEE8) & 0xFFF;
+  W_IO_W(0xBEE8, (0xF << 12) | idx);
+  return R_IO_W(0xBEE8) & 0xFFF;
 }
 #define R_BEE8(idx) readBEE8(RegBase, idx)
 
