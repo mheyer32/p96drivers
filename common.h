@@ -146,13 +146,13 @@ static inline ULONG REGARGS readMMIO_L(volatile UBYTE *mmiobase, UWORD regOffset
 
 static inline void REGARGS writeMMIO_W(volatile UBYTE *mmiobase, UWORD regOffset, UWORD value)
 {
-    D(10, "W 0x%.4lx <- 0x%04lx\n", (LONG)reg, (LONG)value);
+    D(10, "W 0x%.4lx <- 0x%04lx\n", (LONG)regOffset, (LONG)value);
     *(volatile UWORD *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPW(value);
 }
 
 static inline void REGARGS writeMMIO_L(volatile UBYTE *mmiobase, UWORD regOffset, ULONG value)
 {
-    D(10, "W 0x%.4lx <- 0x%08lx\n", (LONG)reg, (LONG)value);
+    D(10, "W 0x%.4lx <- 0x%08lx\n", (LONG)regOffset, (LONG)value);
 
     *(volatile ULONG *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPL(value);
 }
