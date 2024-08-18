@@ -2,12 +2,15 @@
 
 #include <proto/prometheus.h>
 
-#define PCI_VENDOR 0x1002
+#include <string.h> // memcmp
 
 #ifdef TESTEXE
 #include <stdio.h>
 #define KPrintf printf
 #endif
+
+#define PCI_VENDOR 0x1002
+
 /******************************************************************************/
 /*                                                                            */
 /* library exports                                                                    */
@@ -22,7 +25,35 @@ const UWORD LibRevision = 0;
 
 /*******************************************************************************/
 
-int debugLevel = 0;
+int debugLevel = 15;
+
+Mach64RomHeader_t *findRomHeader(struct BoardInfo *bi)
+{
+    LOCAL_PROMETHEUSBASE();
+
+    UBYTE *romBase = NULL;
+    Prm_GetBoardAttrsTags((PCIBoard *)bi->CardPrometheusDevice, PRM_ROM_Address, (ULONG)&romBase, TAG_END);
+    if (!romBase)
+        return NULL;
+
+    OptionRomHeader_t *romHeader = (OptionRomHeader_t *)romBase;
+    if (swapw(romHeader->signature) != 0xaa55)
+        return NULL;
+
+    PciRomData_t *pciData = (PciRomData_t *)(romBase + swapw(romHeader->pcir_offset));
+    if (memcmp(pciData->signature, "PCIR", 4) != 0)
+        return NULL;
+
+    WORD atiRomHeaderOffset = swapw(*(UWORD *)(romBase + 0x48));
+
+    Mach64RomHeader_t *mach64RomHeader = (Mach64RomHeader_t *)(romBase + atiRomHeaderOffset - 2);
+
+    const char *logOnMessage = romBase + swapw(mach64RomHeader->logon_message_ptr);
+
+    D(0, "ATI Mach64 ROM header found at 0x%lx\n%s\n", mach64RomHeader, logOnMessage);
+
+    return mach64RomHeader;
+}
 
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
@@ -156,7 +187,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         cd->chipFamily = UNKNOWN;
 
         switch (deviceId) {
-        case 0x5456:
+        case 0x5654:
             cd->chipFamily = MACH64VT;
             break;
         default:
@@ -167,12 +198,22 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
 
     // Test scratch register response
-    W_MMIO_L(SCRATCH_REG0, 0xA5A5A5A5);
-    W_MMIO_L(SCRATCH_REG1, 0x5A5A5A5A);
-    if (R_MMIO_L(SCRATCH_REG0) != 0xA5A5A5A5 || R_MMIO_L(SCRATCH_REG1) != 0x5A5A5A5A) {
-        DFUNC(0, "Chip scratch register response broken");
+    W_IO_L(SCRATCH_REG1, 0xAAAAAAAA);
+    ULONG scratchA = R_IO_L(SCRATCH_REG1);
+    W_IO_L(SCRATCH_REG1, 0x55555555);
+    ULONG scratch5 = R_IO_L(SCRATCH_REG1);
+    if (scratchA != 0xAAAAAAAA || scratch5 != 0x55555555) {
+        DFUNC(0, "scratch register response broken.\n");
         return FALSE;
     }
+    DFUNC(0, "scratch register response good.\n");
+
+    findRomHeader(bi);
+
+    W_IO_L(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
+
+    ULONG memSize = R_IO_L(MEM_CNTL) & 0x7;
+    // W_IO_L(MEM_CNTL, )
 
     ULONG clock = bi->MemoryClock;
 #if BUILD_VISION864
@@ -206,42 +247,43 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         bi->MemorySize = 0x400000;
     }
 
-    volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
-    framebuffer[0] = 0;
-    while (bi->MemorySize) {
-        D(1, "Probing memory size %ld\n", bi->MemorySize);
+    // volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
+    // framebuffer[0] = 0;
+    // while (bi->MemorySize) {
+    //     D(1, "Probing memory size %ld\n", bi->MemorySize);
 
-        CacheClearU();
+    //     CacheClearU();
 
-        // Probe the last and the first longword for the current segment,
-        // as well as offset 0 to check for wrap arounds
-        volatile ULONG *highOffset = framebuffer + (bi->MemorySize >> 2) - 1;
-        volatile ULONG *lowOffset = framebuffer + (bi->MemorySize >> 3);
-        // Probe  memory
-        *framebuffer = 0;
-        *highOffset = (ULONG)highOffset;
-        *lowOffset = (ULONG)lowOffset;
+    //     // Probe the last and the first longword for the current segment,
+    //     // as well as offset 0 to check for wrap arounds
+    //     volatile ULONG *highOffset = framebuffer + (bi->MemorySize >> 2) - 1;
+    //     volatile ULONG *lowOffset = framebuffer + (bi->MemorySize >> 3);
+    //     // Probe  memory
+    //     *framebuffer = 0;
+    //     *highOffset = (ULONG)highOffset;
+    //     *lowOffset = (ULONG)lowOffset;
 
-        CacheClearU();
+    //     CacheClearU();
 
-        ULONG readbackHigh = *highOffset;
-        ULONG readbackLow = *lowOffset;
-        ULONG readbackZero = *framebuffer;
+    //     ULONG readbackHigh = *highOffset;
+    //     ULONG readbackLow = *lowOffset;
+    //     ULONG readbackZero = *framebuffer;
 
-        D(10, "Probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= 0x%lx\n", highOffset, readbackHigh, lowOffset,
-          readbackLow, readbackZero);
+    //     D(10, "Probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= 0x%lx\n", highOffset, readbackHigh,
+    //     lowOffset,
+    //       readbackLow, readbackZero);
 
-        if (readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset && readbackZero == 0) {
-            break;
-        }
-        // reduce available memory size
-        bi->MemorySize >>= 1;
-    }
+    //     if (readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset && readbackZero == 0) {
+    //         break;
+    //     }
+    //     // reduce available memory size
+    //     bi->MemorySize >>= 1;
+    // }
 
     D(1, "MemorySize: %ldmb\n", bi->MemorySize / (1024 * 1024));
 
     // Input Status ? Register (STATUS_O)
-    D(1, "Monitor is %s present\n", (!(R_REG(0x3C2) & 0x10) ? "" : "NOT"));
+    // D(1, "Monitor is %s present\n", (!(R_REG(0x3C2) & 0x10) ? "" : "NOT"));
 
     // Two sprite images, each 64x64*2 bits
     const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
@@ -297,15 +339,17 @@ APTR findLegacyIOBase()
 
 int main()
 {
+    int rval = EXIT_FAILURE;
+
     if (!(PrometheusBase = OpenLibrary(PROMETHEUSNAME, 0))) {
         printf("Unable to open prometheus.library\n");
-        return EXIT_FAILURE;
+        goto exit;
     }
 
     APTR legacyIOBase = NULL;
     if (!(legacyIOBase = findLegacyIOBase())) {
         printf("Unable to find legacy IO base\n");
-        return EXIT_FAILURE;
+        goto exit;
     }
 
     ULONG dmaSize = 128 * 1024;
@@ -378,11 +422,16 @@ int main()
             //     cb->cb_DMAMemGranted = TRUE;
             // }
             // no need to continue - we have found a match
-            return EXIT_SUCCESS;
+            rval = EXIT_SUCCESS;
+            goto exit;
         }
     }  // while
 
     printf("no Mach64 found.\n");
+
+exit:
+    if (PrometheusBase)
+        CloseLibrary(PrometheusBase);
 
     return EXIT_FAILURE;
 }

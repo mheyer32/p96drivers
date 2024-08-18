@@ -65,6 +65,7 @@ extern int debugLevel;
 #define SWAPL(x) swapl(x)
 #endif
 
+#define BIT(x) (1 << (x))
 typedef enum BlitterOp
 {
     None,
@@ -77,6 +78,30 @@ typedef enum BlitterOp
     LINE
 
 } BlitterOp_t;
+
+// Remember: all in Little Endian!
+typedef struct OptionROMHeader
+{
+    UWORD signature;       // 0x0000: Signature (should be 0xAA55)
+    UBYTE reserved[22];    // 0x0002: Reserved (usually 0, may contain PCI data structure pointer)
+    UWORD pcir_offset;  // 0x0018: Pointer to PCI Data Structure (offset within the ROM)
+} OptionRomHeader_t;
+
+typedef struct PCI_DataStructure
+{
+    UBYTE signature[4];            // 0x0000: Signature ('PCIR')
+    UWORD vendor_id;               // 0x0004: Vendor ID (from PCI Configuration Space)
+    UWORD device_id;               // 0x0006: Device ID (from PCI Configuration Space)
+    UWORD vital_product_data_ptr;  // 0x0008: Pointer to Vital Product Data (VPD) (if used, otherwise 0)
+    UWORD length;                  // 0x000A: Length of the PCI Data Structure in bytes
+    UBYTE revision;                // 0x000C: Revision level of the code/data in the ROM
+    UBYTE class_code[3];           // 0x000D: Class Code (same as PCI Configuration Space)
+    UWORD image_length;            // 0x0010: Image length in 512-byte units
+    UWORD code_revision;           // 0x0012: Revision level of the code
+    UBYTE code_type;               // 0x0014: Code Type (e.g., 0x00 for x86, 0x01 for Open Firmware, etc.)
+    UBYTE indicator;               // 0x0015: Indicator (0x80 = last image, 0x00 = more images follow)
+    UWORD reserved;                // 0x0016: Reserved (typically 0)
+} PciRomData_t;
 
 static inline struct ChipData *getChipData(struct BoardInfo *bi)
 {
@@ -105,8 +130,11 @@ static inline void REGARGS writeReg(volatile UBYTE *regbase, UWORD reg, UBYTE va
 
 static inline UWORD REGARGS readRegW(volatile UBYTE *regbase, UWORD reg)
 {
-    UWORD value = swapw(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
+    UWORD value = swapl(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
     asm volatile("" ::"r"(value));
+
+    D(10, "R 0x%.4lx -> 0x%04lx\n", (LONG)reg, (LONG)value);
+
     return value;
 }
 
@@ -122,6 +150,16 @@ static inline void REGARGS writeRegL(volatile UBYTE *regbase, UWORD reg, ULONG v
     D(10, "W 0x%.4lx <- 0x%08lx\n", (LONG)reg, (LONG)value);
 
     *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = swapl(value);
+}
+
+static inline ULONG REGARGS readRegL(volatile UBYTE *regbase, UWORD reg)
+{
+    ULONG value = swapl(*(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)));
+    asm volatile("" ::"r"(value));
+
+    D(10, "R 0x%.4lx -> 0x%08lx\n", (LONG)reg, (LONG)value);
+
+    return value;
 }
 
 static inline UWORD REGARGS readMMIO_W(volatile UBYTE *mmiobase, UWORD regOffset)
@@ -299,6 +337,7 @@ static inline void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
 #define W_REG_MASK(reg, mask, value) writeRegisterMask(RegBase, reg, mask, value)
 
 #define R_IO_W(reg) readRegW(RegBase, reg)
+#define R_IO_L(reg) readRegL(RegBase, reg)
 #define W_IO_W(reg, value) writeRegW(RegBase, reg, value)
 #define W_IO_L(reg, value) writeRegL(RegBase, reg, value)
 
