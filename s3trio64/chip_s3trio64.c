@@ -3,6 +3,8 @@
 
 #define __NOLIBBASE__
 
+#include <clib/debug_protos.h>
+#include <debuglib.h>
 #include <exec/types.h>
 #include <graphics/rastport.h>
 #include <hardware/cia.h>

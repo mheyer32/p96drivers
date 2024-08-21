@@ -17,16 +17,18 @@
 extern int debugLevel;
 #define LOCAL_DEBUGLEVEL(level) int debugLevel = level;
 
+extern void myPrintF(const char *fmt, ...);
+
 #define D(level, ...)            \
     if (debugLevel >= (level)) { \
-        KPrintF(__VA_ARGS__);    \
+        myPrintF(__VA_ARGS__);    \
     }
 // Helper macro to allow call DFUNC with just one argument (and __VA_ARGS__
 // being empty)
 #define VA_ARGS(...) , ##__VA_ARGS__
 #define DFUNC(level, fmt, ...)                              \
     if (debugLevel >= (level)) {                            \
-        KPrintF("%s: " fmt, __func__ VA_ARGS(__VA_ARGS__)); \
+        myPrintF("%s: " fmt, __func__ VA_ARGS(__VA_ARGS__)); \
     }
 #endif
 

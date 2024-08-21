@@ -114,9 +114,11 @@ endef
 
 all : S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip ATIMach64.chip TestMach64
 
-S3TRIO_SRC = s3trio64/chip_s3trio64.c \
-			 s3trio64/s3ramdac.c \
-			 chip_library.c
+S3TRIO_SRC = common.c \
+             s3trio64/chip_s3trio64.c \
+             s3trio64/s3ramdac.c \
+             chip_library.c 
+
 
 S3Trio64Plus.chip : CFLAGS+=-DBIGENDIAN_MMIO=1 -DBUILD_VISION864=0
 $(eval $(call make_driver,S3Trio64Plus.chip,$(BUILDDIR)s3trio64plus/, ${S3TRIO_SRC}))
@@ -128,13 +130,15 @@ S3Vision864.chip : CFLAGS+=-DBIGENDIAN_MMIO=0 -DBUILD_VISION864=1
 $(eval $(call make_driver,S3Vision864.chip,$(BUILDDIR)s3vision864/, ${S3TRIO_SRC}))
 
 
-ATIMACH64_SRC = mach64/chip_mach64.c \
+ATIMACH64_SRC = common.c \
+                mach64/chip_mach64.c \
                 chip_library.c
 
 ATIMach64.chip : CFLAGS+=-DBIGENDIAN_MMIO=0
 $(eval $(call make_driver,ATIMach64.chip,$(BUILDDIR)mach64/, ${ATIMACH64_SRC}))
 
-ATIMACH64_TESTEXE_SRC = mach64/chip_mach64.c
+ATIMACH64_TESTEXE_SRC = common.c \
+                        mach64/chip_mach64.c
 
 $(eval $(call make_exe,TestMach64,$(BUILDDIR)testmach64/, ${ATIMACH64_TESTEXE_SRC}))
 
