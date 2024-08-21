@@ -68,14 +68,14 @@ typedef struct Mach64RomHeader {
 } Mach64RomHeader_t;
 
 #define DWORD_OFFSET(x) (x * 4)
-#define SCRATCH_REG0 DWORD_OFFSET(0x20)
-#define SCRATCH_REG1 DWORD_OFFSET(0x21)
-#define BUS_CNTL DWORD_OFFSET(0x28)
-#define MEM_CNTL DWORD_OFFSET(0x2C)
-#define GEN_TEST_CNTL DWORD_OFFSET(0x34)
-#define CONFIG_CNTL DWORD_OFFSET(0x37)
-#define CONFIG_CHIP_ID DWORD_OFFSET(0x38)
-#define CONFIG_STAT0 DWORD_OFFSET(0x39)
+#define SCRATCH_REG0 (0x20)
+#define SCRATCH_REG1 (0x21)
+#define BUS_CNTL (0x28)
+#define MEM_CNTL (0x2C)
+#define GEN_TEST_CNTL (0x34)
+#define CONFIG_CNTL (0x37)
+#define CONFIG_CHIP_ID (0x38)
+#define CONFIG_STAT0 (0x39)
 
 #define BUS_FIFO_ERR_INT_EN BIT(20)
 #define BUS_FIFO_ERR_INT BIT(21)
@@ -84,5 +84,36 @@ typedef struct Mach64RomHeader {
 #define BUS_HOST_ERR_INT BIT(23)
 #define BUS_HOST_ERR_AK BIT(23)
 
+static inline ULONG REGARGS readATIRegisterL(volatile UBYTE *regbase, UWORD regIndex, const char *regName)
+{
+    ULONG value = readRegL(regbase, DWORD_OFFSET(regIndex));
+    D(10, "R %s -> 0x%08lx\n", regName, (LONG)value);
+
+    return value;
+}
+
+static inline void REGARGS writeATIRegisterL(volatile UBYTE *regbase, UWORD regIndex, ULONG value, const char *regName)
+{
+    D(10, "W %s <- 0x%08lx\n", regName, (LONG)value);
+    writeRegL(regbase, DWORD_OFFSET(regIndex), value);
+}
+
+static inline void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, UWORD regIndex, ULONG mask, ULONG value, const char *regName)
+{
+    ULONG regValue = readATIRegisterL(regbase, regIndex, regName);
+    regValue = (regValue & ~mask) | (mask & value);
+    writeRegL(regbase, DWORD_OFFSET(regIndex), regValue);
+}
+
+// FIXME reusing the same function for IO and MMIO shouldn't work because MMIOREGISTER_OFFSET and REGISTER_OFFSET might
+// be different, but in practise they aren't. Refactor the code.
+#define R_BLKIO_L(regIndex) readATIRegisterL(RegBase, regIndex, #regIndex)
+#define W_BLKIO_L(regIndex, value) writeATIRegisterL(RegBase, regIndex, (ULONG)value, #regIndex)
+#define W_BLKIO_MASK_L(regIndex, mask, value) writeATIRegisterMaskL(RegBase, regIndex, mask, (ULONG)value, #regIndex)
+
+#undef R_MMIO_L
+#undef W_MMIO_L
+#define R_MMIO_L(regIndex) readATIRegisterL(MMIOBase, regIndex, #regIndex)
+#define W_MMIO_L(regIndex, value) writeATIRegisterL(MMIOBase, regIndex, value, #regIndex)
 
 #endif

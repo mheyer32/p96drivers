@@ -198,10 +198,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
 
     // Test scratch register response
-    W_IO_L(SCRATCH_REG1, 0xAAAAAAAA);
-    ULONG scratchA = R_IO_L(SCRATCH_REG1);
-    W_IO_L(SCRATCH_REG1, 0x55555555);
-    ULONG scratch5 = R_IO_L(SCRATCH_REG1);
+    W_BLKIO_L(SCRATCH_REG0, 0xAAAAAAAA);
+    ULONG scratchA = R_BLKIO_L(SCRATCH_REG0);
+    W_BLKIO_L(SCRATCH_REG0, 0x55555555);
+    ULONG scratch5 = R_BLKIO_L(SCRATCH_REG0);
     if (scratchA != 0xAAAAAAAA || scratch5 != 0x55555555) {
         DFUNC(0, "scratch register response broken.\n");
         return FALSE;
@@ -210,7 +210,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     findRomHeader(bi);
 
-    W_IO_L(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
+    D(0, "CONFIG_STAT0: 0x%lx\n", R_BLKIO_L(CONFIG_STAT0));
+
+    W_BLKIO_L(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
 
     ULONG memSize = R_IO_L(MEM_CNTL) & 0x7;
     // W_IO_L(MEM_CNTL, )
