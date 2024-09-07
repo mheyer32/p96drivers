@@ -132,7 +132,7 @@ static inline void REGARGS writeReg(volatile UBYTE *regbase, UWORD reg, UBYTE va
 
 static inline UWORD REGARGS readRegW(volatile UBYTE *regbase, UWORD reg)
 {
-    UWORD value = swapl(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
+    UWORD value = swapw(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
     asm volatile("" ::"r"(value));
 
     D(10, "R 0x%.4lx -> 0x%04lx\n", (LONG)reg, (LONG)value);
