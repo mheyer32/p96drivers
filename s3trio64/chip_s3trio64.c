@@ -159,100 +159,6 @@ const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 chip driver v
 const UWORD LibVersion = 1;
 const UWORD LibRevision = 0;
 
-/******************************************************************************/
-
-typedef uint8_t u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-
-static inline u32 abs_diff(u32 a, u32 b)
-{
-    return (a > b) ? (a - b) : (b - a);
-}
-
-static inline WORD myabs(WORD x)
-{
-    WORD result;
-    result = (x < 0) ? (-x) : x;
-    return (result);
-}
-
-struct svga_pll
-{
-    u16 m_min;
-    u16 m_max;
-    u16 n_min;
-    u16 n_max;
-    u16 r_min;
-    u16 r_max; /* r_max < 32 */
-    u32 f_vco_min;
-    u32 f_vco_max;
-    u32 f_base;
-};
-
-// f_wanted is in Khz
-int svga_compute_pll(const struct svga_pll *pll, u32 f_wanted, u16 *m, u16 *n, u16 *r)
-{
-    u16 am, an, ar;
-    u32 f_vco, f_current, delta_current, delta_best;
-
-    DFUNC(8, "ideal frequency: %ld kHz\n", (unsigned int)f_wanted);
-
-    ar = pll->r_max;
-    f_vco = f_wanted << ar;
-
-    /* overflow check */
-    if ((f_vco >> ar) != f_wanted) {
-        DFUNC(0, "pixelclock overflow\n");
-        return -1;
-    }
-
-    /* It is usually better to have greater VCO clock
-       because of better frequency stability.
-       So first try r_max, then r smaller. */
-    while ((ar > pll->r_min) && (f_vco > pll->f_vco_max)) {
-        ar--;
-        f_vco = f_vco >> 1;
-    }
-
-    /* VCO bounds check */
-    if ((f_vco < pll->f_vco_min) || (f_vco > pll->f_vco_max)) {
-        DFUNC(0, "pixelclock overflow\n");
-        return -1;
-    }
-
-    delta_best = 0xFFFFFFFF;
-    *m = 0;
-    *n = 0;
-    *r = ar;
-
-    am = pll->m_min;
-    an = pll->n_min;
-
-    while ((am <= pll->m_max) && (an <= pll->n_max)) {
-        f_current = (pll->f_base * am) / an;
-        delta_current = abs_diff(f_current, f_vco);
-
-        if (delta_current < delta_best) {
-            delta_best = delta_current;
-            *m = am;
-            *n = an;
-        }
-
-        if (f_current <= f_vco) {
-            am++;
-        } else {
-            an++;
-        }
-    }
-
-    f_current = (pll->f_base * *m) / *n;
-
-    D(15, "found frequency: %ld kHz (VCO %ld kHz)\n", (int)(f_current >> ar), (int)f_current);
-    D(15, "m = %ld n = %ld r = %ld\n", (unsigned int)*m, (unsigned int)*n, (unsigned int)*r);
-
-    return (f_current >> ar);
-}
 
 static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
@@ -285,8 +191,8 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 {
     REGBASE();
 
-    u16 m, n, r;
-    u8 regval;
+    USHORT m, n, r;
+    UBYTE regval;
 
     DFUNC(10, "original Hz: %ld\n", clockHz);
 

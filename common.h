@@ -105,6 +105,40 @@ typedef struct PCI_DataStructure
     UWORD reserved;                // 0x0016: Reserved (typically 0)
 } PciRomData_t;
 
+struct svga_pll
+{
+    USHORT m_min;
+    USHORT m_max;
+    USHORT n_min;
+    USHORT n_max;
+    USHORT r_min; // post divider log2
+    USHORT r_max; // post divider log2
+    ULONG f_vco_min;
+    ULONG f_vco_max;
+    ULONG f_base;
+};
+
+// f_wanted is in Khz
+int svga_compute_pll(const struct svga_pll *pll, ULONG f_wanted_khz, USHORT *m, USHORT *n, USHORT *r);
+
+void delayMicroSeconds(ULONG us);
+void deleyMilliSeconds(ULONG ms);
+
+/******************************************************************************/
+static inline ULONG abs_diff(ULONG a, ULONG b)
+{
+    return (a > b) ? (a - b) : (b - a);
+}
+
+static inline WORD myabs(WORD x)
+{
+    WORD result;
+    result = (x < 0) ? (-x) : x;
+    return (result);
+}
+
+typedef struct BoardInfo BoardInfo_t;
+
 static inline struct ChipData *getChipData(struct BoardInfo *bi)
 {
     return (struct ChipData *)&bi->ChipData[0];
