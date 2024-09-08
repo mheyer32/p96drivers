@@ -27,7 +27,7 @@ extern void myPrintF(const char *fmt, ...);
 #define VA_ARGS(...) , ##__VA_ARGS__
 #define DFUNC(level, fmt, ...)                              \
     if (debugLevel >= (level)) {                            \
-        myPrintF("%s: " fmt, __func__ VA_ARGS(__VA_ARGS__)); \
+        myPrintF("%s (%ld): " fmt, __func__, __LINE__ VA_ARGS(__VA_ARGS__)); \
     }
 #endif
 
@@ -67,6 +67,9 @@ extern void myPrintF(const char *fmt, ...);
 #endif
 
 #define BIT(x) (1 << (x))
+
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
+
 typedef enum BlitterOp
 {
     None,
@@ -81,7 +84,7 @@ typedef enum BlitterOp
 } BlitterOp_t;
 
 // Remember: all in Little Endian!
-typedef struct OptionROMHeader
+typedef struct OptionRomHeader
 {
     UWORD signature;       // 0x0000: Signature (should be 0xAA55)
     UBYTE reserved[22];    // 0x0002: Reserved (usually 0, may contain PCI data structure pointer)
@@ -121,7 +124,7 @@ struct svga_pll
 int svga_compute_pll(const struct svga_pll *pll, ULONG f_wanted_khz, USHORT *m, USHORT *n, USHORT *r);
 
 void delayMicroSeconds(ULONG us);
-void deleyMilliSeconds(ULONG ms);
+void delayMilliSeconds(ULONG ms);
 
 /******************************************************************************/
 static inline ULONG abs_diff(ULONG a, ULONG b)
@@ -182,8 +185,6 @@ static inline void REGARGS writeRegW(volatile UBYTE *regbase, UWORD reg, UWORD v
 
 static inline void REGARGS writeRegL(volatile UBYTE *regbase, UWORD reg, ULONG value)
 {
-    D(10, "W 0x%.4lx <- 0x%08lx\n", (LONG)reg, (LONG)value);
-
     *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = swapl(value);
 }
 
@@ -191,8 +192,6 @@ static inline ULONG REGARGS readRegL(volatile UBYTE *regbase, UWORD reg)
 {
     ULONG value = swapl(*(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)));
     asm volatile("" ::"r"(value));
-
-    D(10, "R 0x%.4lx -> 0x%08lx\n", (LONG)reg, (LONG)value);
 
     return value;
 }

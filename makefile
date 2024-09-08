@@ -17,7 +17,7 @@ BINDIR ?= _bin/
 BUILDDIR ?= _o/
 DEBUG ?= 0
 
-BUILDFLAGS = -noixemul -msmall-code -m68020-60 -mtune=68030 -O3 -g -ggdb -fomit-frame-pointer
+BUILDFLAGS = -noixemul -msmall-code -m68020-60 -mtune=68030 -g -ggdb -fomit-frame-pointer
 
 CFLAGS ?=
 CFLAGS +=  $(BUILDFLAGS) -I. -IPicasso96Develop/Include -IPicasso96Develop/PrivateInclude -IPrometheus/include
@@ -28,6 +28,9 @@ LIBS = -lamiga
 ifeq ($(DEBUG),1)
 	CFLAGS += -DDBG
 	LIBS += -ldebug
+    BUILDFLAGS += -O0
+else
+    BUILDFLAGS += -O3
 endif
 
 ###############################################################################
