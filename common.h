@@ -2,7 +2,6 @@
 #define COMMON_H
 
 #include <SDI_compiler.h>
-#include <clib/debug_protos.h>
 #include <proto/exec.h>
 
 #include <boardinfo.h>
