@@ -94,7 +94,7 @@ typedef struct
 
 typedef struct FrequencyTable
 {
-    UBYTE frequency_table_id;          // Frequency table identification
+    UBYTE frequency_table_id;  // Frequency table identification
     UBYTE reserved2;
     UWORD min_pclk_freq;               // Minimum PCLK frequency (in 100Hz)
     UWORD max_pclk_freq;               // Maximum PCLK frequency (in 100Hz)
@@ -119,12 +119,13 @@ typedef struct PLLTable
     USHORT pllValues[20];
 } PLLTable_t;
 
-#define COLOR_DEPTH_4       1
-#define COLOR_DEPTH_8       2
-#define COLOR_DEPTH_15      3
-#define COLOR_DEPTH_16      4
-#define COLOR_DEPTH_24      5
-#define COLOR_DEPTH_32      6
+#define COLOR_DEPTH_1  0
+#define COLOR_DEPTH_4  1
+#define COLOR_DEPTH_8  2
+#define COLOR_DEPTH_15 3
+#define COLOR_DEPTH_16 4
+#define COLOR_DEPTH_24 5
+#define COLOR_DEPTH_32 6
 
 typedef struct MaxColorDepthTableEntry
 {
@@ -138,24 +139,36 @@ typedef struct MaxColorDepthTableEntry
 
 #define DWORD_OFFSET(x) (x * 4)
 
-#define SCRATCH_REG0 (0x20)
-#define SCRATCH_REG1 (0x21)
-#define BUS_CNTL (0x28)
-#define MEM_CNTL (0x2C)
-#define GEN_TEST_CNTL (0x34)
-#define CONFIG_CNTL (0x37)
+#define SCRATCH_REG0   (0x20)
+#define SCRATCH_REG1   (0x21)
+#define BUS_CNTL       (0x28)
+#define MEM_CNTL       (0x2C)
+#define GEN_TEST_CNTL  (0x34)
+#define CONFIG_CNTL    (0x37)
 #define CONFIG_CHIP_ID (0x38)
-#define CONFIG_STAT0 (0x39)
-#define CLOCK_CNTL (0x24)
-#define DAC_CNTL 0x31
+#define CONFIG_STAT0   (0x39)
+#define CLOCK_CNTL     (0x24)
+#define DAC_REGS       (0x30)
+#define DAC_CNTL       (0x31)
 
+#define CRTC_H_TOTAL_DISP     0x00
+#define CRTC_H_SYNC_STRT_WID  0x01
+#define CRTC_V_TOTAL_DISP     0x02
+#define CRTC_V_SYNC_STRT_WID  0x03
+#define CRTC_VLINE_CRNT_VLINE 0x04
+#define CRTC_OFF_PITCH        0x05
+#define CRTC_INT_CNTL         0x06
+#define CRTC_GEN_CNTL         0x07
+#define OVR_CLR               0x10
+#define OVR_WID_LEFT_RIGHT    0x11
+#define OVR_WID_TOP_BOTTOM    0x12
 
 #define BUS_FIFO_ERR_INT_EN BIT(20)
-#define BUS_FIFO_ERR_INT BIT(21)
-#define BUS_FIFO_ERR_AK BIT(21) //
+#define BUS_FIFO_ERR_INT    BIT(21)
+#define BUS_FIFO_ERR_AK     BIT(21)  // INT and ACK are the same bit, distiguished by R/W operation
 #define BUS_HOST_ERR_INT_EN BIT(22)
-#define BUS_HOST_ERR_INT BIT(23)
-#define BUS_HOST_ERR_AK BIT(23) // INT and ACK are the same bit
+#define BUS_HOST_ERR_INT    BIT(23)
+#define BUS_HOST_ERR_AK     BIT(23)  // INT and ACK are the same bit, distiguished by R/W operation
 
 static inline UBYTE REGARGS readATIRegisterB(volatile UBYTE *regbase, UWORD regIndex, UWORD byteIndex,
                                              const char *regName)
@@ -191,7 +204,6 @@ static inline void REGARGS writeATIRegisterB(volatile UBYTE *regbase, UWORD regI
     writeReg(regbase, DWORD_OFFSET(regIndex) + byteIndex, value);
 }
 
-
 static inline void REGARGS writeATIRegisterL(volatile UBYTE *regbase, UWORD regIndex, ULONG value, const char *regName)
 {
     D(10, "W %s <- 0x%08lx\n", regName, (LONG)value);
@@ -202,22 +214,23 @@ static inline void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, UWORD 
                                                  const char *regName)
 {
     ULONG regValue = readATIRegisterL(regbase, regIndex, regName);
-    regValue = (regValue & ~mask) | (mask & value);
+    regValue       = (regValue & ~mask) | (mask & value);
     writeATIRegisterL(regbase, regIndex, regValue, regName);
 }
 
 // FIXME reusing the same function for IO and MMIO shouldn't work because MMIOREGISTER_OFFSET and REGISTER_OFFSET might
 // be different, but in practise they aren't. Refactor the code.
-#define R_BLKIO_B(regIndex, byteIndex) readATIRegisterB(RegBase, regIndex, byteIndex, #regIndex)
-#define R_BLKIO_L(regIndex) readATIRegisterL(RegBase, regIndex, #regIndex)
-#define W_BLKIO_B(regIndex, value) writeATIRegisterB(RegBase, regIndex, byteIndex, value, #regIndex)
-#define W_BLKIO_MASK_B(regIndex, byteIndex, mask, value) writeATIRegisterMaskB(RegBase, regIndex, byteIndex, mask, value, #regIndex)
-#define W_BLKIO_L(regIndex, value) writeATIRegisterL(RegBase, regIndex, value, #regIndex)
+#define R_BLKIO_B(regIndex, byteIndex)        readATIRegisterB(RegBase, regIndex, byteIndex, #regIndex)
+#define R_BLKIO_L(regIndex)                   readATIRegisterL(RegBase, regIndex, #regIndex)
+#define W_BLKIO_B(regIndex, byteIndex, value) writeATIRegisterB(RegBase, regIndex, byteIndex, value, #regIndex)
+#define W_BLKIO_MASK_B(regIndex, byteIndex, mask, value) \
+    writeATIRegisterMaskB(RegBase, regIndex, byteIndex, mask, value, #regIndex)
+#define W_BLKIO_L(regIndex, value)            writeATIRegisterL(RegBase, regIndex, value, #regIndex)
 #define W_BLKIO_MASK_L(regIndex, mask, value) writeATIRegisterMaskL(RegBase, regIndex, mask, value, #regIndex)
 
 #undef R_MMIO_L
 #undef W_MMIO_L
-#define R_MMIO_L(regIndex) readATIRegisterL(MMIOBase, regIndex, #regIndex)
+#define R_MMIO_L(regIndex)        readATIRegisterL(MMIOBase, regIndex, #regIndex)
 #define W_MMIO_L(regIndex, value) writeATIRegisterL(MMIOBase, regIndex, value, #regIndex)
 
 #endif
