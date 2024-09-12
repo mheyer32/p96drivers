@@ -236,32 +236,6 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
     return currentKhz * 1000;
 }
 
-static inline UBYTE getBPP(RGBFTYPE format)
-{
-    // FIXME: replace with fixed table?
-    switch (format) {
-    case RGBFB_CLUT:
-        return 1;
-        break;
-    case RGBFB_R5G6B5PC:
-    case RGBFB_R5G5B5PC:
-    case RGBFB_R5G6B5:
-    case RGBFB_R5G5B5:
-        return 2;
-        break;
-    case RGBFB_A8R8G8B8:
-    case RGBFB_B8G8R8A8:
-    case RGBFB_R8G8B8A8:
-    case RGBFB_A8B8G8R8:
-        return 4;
-        break;
-    default:
-        // fallthrough
-        break;
-    }
-    return 0;
-}
-
 static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
                                   __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
 {
