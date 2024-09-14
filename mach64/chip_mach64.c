@@ -457,7 +457,7 @@ static void InitPLLTable(BoardInfo_t *bi)
     LOCAL_SYSBASE();
 
     ChipData_t *cd        = getChipData(bi);
-    UWORD maxNumEntries   = (cd->maxPClock + 999) / 100 - (cd->minPClock + 99) / 100;
+    UWORD maxNumEntries   = (cd->maxPClock + 99) / 100 - (cd->minPClock + 99) / 100;
     PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_PUBLIC);
     cd->pllValues         = pllValues;
 
@@ -592,6 +592,8 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
 #define CRTC_DISPLAY_DIS_MASK BIT(6)
 #define CRTC_PIX_WIDTH(x)     ((x) << 8)
 #define CRTC_PIX_WIDTH_MASK   (0x3 << 8)
+#define CRTC_FIFO_LWM(x)      ((x) << 16)
+#define CRTC_FIFO_LWM_MASK    (0xF << 16)
 #define CRTC_EXT_DISP_EN      BIT(24)
 #define CRTC_EXT_DISP_EN_MASK BIT(24)
 #define CRTC_ENABLE           BIT(25)
@@ -1269,7 +1271,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_BLKIO_B(DAC_REGS, DAC_MASK, 0xFF);
 
     // Init CRTC
-    W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK, CRTC_ENABLE | CRTC_EXT_DISP_EN);
+    W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_FIFO_LWM_MASK,
+                   CRTC_ENABLE | CRTC_EXT_DISP_EN | CRTC_FIFO_LWM(0xF));
 
     // Input Status ? Register (STATUS_O)
     // D(1, "Monitor is %s present\n", (!(R_REG(0x3C2) & 0x10) ? "" : "NOT"));
