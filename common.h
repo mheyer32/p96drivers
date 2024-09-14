@@ -8,6 +8,12 @@
 // FIXME: copy header into common location
 #include "endian.h"
 
+#define ALWAYS  0           // Always print when DEBUG is enabled
+#define ERROR   ALWAYS      // Function failed, likely not recoverable
+#define WARN    5           // Function failed, but is recoverable
+#define INFO    10          // Informational messages
+#define VERBOSE 15          // Verbose output
+
 #ifndef DBG
 #define D(...)
 #define DFUNC(...)
@@ -27,7 +33,7 @@ extern void myPrintF(const char *fmt, ...);
 #define VA_ARGS(...) , ##__VA_ARGS__
 #define DFUNC(level, fmt, ...)                              \
     if (debugLevel >= (level)) {                            \
-        myPrintF("%s (%ld): " fmt, __func__, __LINE__ VA_ARGS(__VA_ARGS__)); \
+        myPrintF("%s:%ld: " fmt, __func__, __LINE__ VA_ARGS(__VA_ARGS__)); \
     }
 #endif
 
@@ -69,6 +75,9 @@ extern void myPrintF(const char *fmt, ...);
 #define BIT(x) (1 << (x))
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
+
+#define STATIC_ASSERT(COND,MSG) typedef char static_assertion_##MSG[(COND)?1:-1]
+#define SIZEOF_MEMBER(type, member) (sizeof( ((type *)0)->member ))
 
 typedef enum BlitterOp
 {

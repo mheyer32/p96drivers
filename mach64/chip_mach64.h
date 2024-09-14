@@ -3,12 +3,21 @@
 
 #include "common.h"
 
+#include <exec/types.h>  // This header is required for UBYTE and UWORD
+
+
 typedef enum ChipFamily
 {
     UNKNOWN,
     MACH64GX,
     MACH64VT  // no 8mb aperture only
 } ChipFamily_t;
+
+typedef struct PLLValue
+{
+    UBYTE Plog2;  // post divider log2
+    UBYTE N;      // feedback divider
+} PLLValue_t;
 
 typedef struct ChipData
 {
@@ -27,9 +36,12 @@ typedef struct ChipData
     UWORD referenceFrequency;
     UWORD referenceDivider;
     UWORD memClock;
+    UWORD minPClock;
+    UWORD maxPClock;
+    PLLValue_t *pllValues;
 } ChipData_t;
 
-#include <exec/types.h>  // This header is required for UBYTE and UWORD
+STATIC_ASSERT(sizeof(ChipData_t) < SIZEOF_MEMBER(BoardInfo_t, ChipData), check_chipdata_size);
 
 typedef struct Mach64RomHeader
 {

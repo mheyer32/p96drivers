@@ -48,31 +48,33 @@ static const UBYTE g_bitWidths[] = {
     COLOR_DEPTH_1,   // RGBFB_YUV422PAPC
 };
 
+// FIXME: No good, need dynamic allocations. If the same chipdriver needs to talk to multiple
+//  cards, these tables will have different values for each card
 static PLLTable_t g_pllTable;
 static MaxColorDepthTableEntry_t g_maxCDepthTable[50];
 static MaxColorDepthTableEntry_t g_maxCDepthSecondTable[50];  // JY 04/07/94
 
 void printFrequencyTable(FrequencyTable_t *ft)
 {
-    D(0, "Frequency Table ID: 0x%02X\n", (ULONG)ft->frequency_table_id);
-    D(0, "Minimum PCLK Frequency: %u KHz\n", (ULONG)swapw(ft->min_pclk_freq) * 10);
-    D(0, "Maximum PCLK Frequency: %u KHz\n", (ULONG)swapw(ft->max_pclk_freq) * 10);
-    D(0, "Extended Coprocessor Mode: 0x%02X\n", (ULONG)ft->extended_coprocessor_mode);
-    D(0, "Extended VGA Mode: 0x%02X\n", (ULONG)ft->extended_vga_mode);
-    D(0, "Reference Clock Frequency: %u KHz\n", (ULONG)swapw(ft->ref_clock_freq) * 10);
-    D(0, "Reference Clock Divider: %u\n", (ULONG)swapw(ft->ref_clock_divider));
-    D(0, "Hardware Specific Information: 0x%04X\n", (ULONG)swapw(ft->hardware_specific_info));
-    D(0, "MCLK Frequency (Power Down Mode): %u KHz\n", (ULONG)swapw(ft->mclk_freq_power_down) * 10);
-    D(0, "MCLK Frequency (Normal DRAM Mode): %u KHz\n", (ULONG)swapw(ft->mclk_freq_normal_dram) * 10);
-    D(0, "MCLK Frequency (Normal VRAM Mode): %u KHz\n", (ULONG)swapw(ft->mclk_freq_normal_vram) * 10);
-    D(0, "SCLK Frequency: %u KHz\n", (ULONG)swapw(ft->sclk_freq) * 10);
-    D(0, "MCLK Entry Number: 0x%02X\n", ft->mclk_entry_num);
-    D(0, "SCLK Entry Number: 0x%02X\n", ft->sclk_entry_num);
+    D(0, "Frequency Table ID: 0x%02lX\n", (ULONG)ft->frequency_table_id);
+    D(0, "Minimum PCLK Frequency: %lu KHz\n", (ULONG)swapw(ft->min_pclk_freq) * 10);
+    D(0, "Maximum PCLK Frequency: %lu KHz\n", (ULONG)swapw(ft->max_pclk_freq) * 10);
+    D(0, "Extended Coprocessor Mode: 0x%02lX\n", (ULONG)ft->extended_coprocessor_mode);
+    D(0, "Extended VGA Mode: 0x%02lX\n", (ULONG)ft->extended_vga_mode);
+    D(0, "Reference Clock Frequency: %lu KHz\n", (ULONG)swapw(ft->ref_clock_freq) * 10);
+    D(0, "Reference Clock Divider: %lu\n", (ULONG)swapw(ft->ref_clock_divider));
+    D(0, "Hardware Specific Information: 0x%04lX\n", (ULONG)swapw(ft->hardware_specific_info));
+    D(0, "MCLK Frequency (Power Down Mode): %lu KHz\n", (ULONG)swapw(ft->mclk_freq_power_down) * 10);
+    D(0, "MCLK Frequency (Normal DRAM Mode): %lu KHz\n", (ULONG)swapw(ft->mclk_freq_normal_dram) * 10);
+    D(0, "MCLK Frequency (Normal VRAM Mode): %lu KHz\n", (ULONG)swapw(ft->mclk_freq_normal_vram) * 10);
+    D(0, "SCLK Frequency: %lu KHz\n", (ULONG)swapw(ft->sclk_freq) * 10);
+    D(0, "MCLK Entry Number: 0x%02lX\n", ft->mclk_entry_num);
+    D(0, "SCLK Entry Number: 0x%02lX\n", ft->sclk_entry_num);
     if (ft->coprocessor_mode_mclk_freq != 0) {
-        D(0, "Coprocessor Mode MCLK Frequency: %u KHz\n", (ULONG)swapw(ft->coprocessor_mode_mclk_freq) * 10);
+        D(0, "Coprocessor Mode MCLK Frequency: %lu KHz\n", (ULONG)swapw(ft->coprocessor_mode_mclk_freq) * 10);
     }
-    D(0, "Reserved: 0x%04X\n", (ULONG)swapw(ft->reserved));
-    D(0, "Terminator: 0x%04X\n", (ULONG)swapw(ft->terminator));
+    D(0, "Reserved: 0x%04lX\n", (ULONG)swapw(ft->reserved));
+    D(0, "Terminator: 0x%04lX\n", (ULONG)swapw(ft->terminator));
 }
 
 UBYTE getDACType(BoardInfo_t *bi)
@@ -94,12 +96,12 @@ void printPLLTable(PLLTable_t *pllTable)
 void printCdepthTable(MaxColorDepthTableEntry_t *table)
 {
     for (int i = 0; table[i].h_disp != 0; i++) {
-        D(0, "MaxColorDepthTableEntry[%d]:\n", i);
-        D(0, "  h_disp: %u\n", table[i].h_disp);
-        D(0, "  dacmask: %u\n", table[i].dacmask);
-        D(0, "  ram_req: %u\n", table[i].ram_req);
-        D(0, "  max_dot_clk: %u\n", table[i].max_dot_clk);
-        D(0, "  color_depth: %u\n", table[i].color_depth);
+        D(0, "MaxColorDepthTableEntry[%ld]:\n", i);
+        D(0, "  h_disp: %lu\n", table[i].h_disp);
+        D(0, "  dacmask: %lu\n", table[i].dacmask);
+        D(0, "  ram_req: %lu\n", table[i].ram_req);
+        D(0, "  max_dot_clk: %lu\n", table[i].max_dot_clk);
+        D(0, "  color_depth: %lu\n", table[i].color_depth);
     }
 }
 
@@ -151,6 +153,8 @@ Mach64RomHeader_t *findRomHeader(struct BoardInfo *bi)
     getChipData(bi)->referenceFrequency = swapw(freqTable->ref_clock_freq);
     getChipData(bi)->referenceDivider   = swapw(freqTable->ref_clock_divider);
     getChipData(bi)->memClock           = swapw(freqTable->mclk_freq_normal_dram);
+    getChipData(bi)->minPClock          = swapw(freqTable->min_pclk_freq);
+    getChipData(bi)->maxPClock          = swapw(freqTable->max_pclk_freq);
 
     USHORT cdepthTableOffset = ROM_WORD(freqTableOffset - 6);
     ROM_TABLE(cdepthTable, MaxColorDepthTableEntry_t, cdepthTableOffset);
@@ -331,19 +335,22 @@ UBYTE ReadPLL(struct BoardInfo *bi, UBYTE pllAddr)
 // R = Reference Frequency from BIOS
 // M = Reference Divider from BIOS
 //
-typedef struct PLLValue
-{
-    UBYTE Plog2;  // post divider log2
-    UBYTE N;      // feedback divider
-} PLLValue_t;
 
-ULONG computeFrequency(UWORD R, UBYTE N, UWORD M, UBYTE P)
+static ULONG computeFrequencyKhz10(UWORD R, UBYTE N, UWORD M, UBYTE Plog2)
 {
-    return ((ULONG)2 * R * N) / (M << P);
+    return ((ULONG)2 * R * N) / (M << Plog2);
 }
 
-ULONG computePLLValues(BoardInfo_t *bi, ULONG targetFrequency, PLLValue_t *pllValues)
+static ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues)
 {
+    ChipData_t *cd = getChipData(bi);
+    return computeFrequencyKhz10(cd->referenceFrequency, pllValues->N, cd->referenceDivider, pllValues->Plog2);
+}
+
+static ULONG computePLLValues(const BoardInfo_t *bi, ULONG targetFrequency, PLLValue_t *pllValues)
+{
+    DFUNC(10, "bi %p, targetFrequency: %ld0 KHz, pllValues %p \n", bi, targetFrequency, pllValues);
+
     UWORD R = getChipData(bi)->referenceFrequency;
     UWORD M = getChipData(bi)->referenceDivider;
 
@@ -371,7 +378,7 @@ ULONG computePLLValues(BoardInfo_t *bi, ULONG targetFrequency, PLLValue_t *pllVa
     pllValues->N     = N;
     pllValues->Plog2 = P;
 
-    ULONG outputFreq = computeFrequency(R, N, M, P);
+    ULONG outputFreq = computeFrequencyKhz10(R, N, M, P);
 
     DFUNC(8, "target: %ld0 KHz, Output: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %ld, N: %ld\n", targetFrequency, outputFreq,
           R, M, (ULONG)1 << P, (ULONG)N);
@@ -418,15 +425,15 @@ void printMemoryClock(BoardInfo_t *bi)
 
     mClkSrcSel &= 3;
 
-    ULONG mClock = computeFrequency(getChipData(bi)->referenceFrequency, fbDiv, refDiv, mClkSrcSel);
+    ULONG mClock = computeFrequencyKhz10(getChipData(bi)->referenceFrequency, fbDiv, refDiv, mClkSrcSel);
 
-    DFUNC(5, "Current memory clock source: %s, PLL frequency: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %d, N: %d\n", mClockSrc,
+    DFUNC(5, "Current memory clock source: %s, PLL frequency: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %ld, N: %ld\n", mClockSrc,
           mClock, (ULONG)getChipData(bi)->referenceFrequency, (ULONG)refDiv, (ULONG)1 << mClkSrcSel, (ULONG)fbDiv);
 }
 
 void SetMemoryClock(BoardInfo_t *bi, USHORT kHz10)
 {
-    DFUNC(5, "Setting memory clock to %ld0 KHz\n", kHz10);
+    DFUNC(5, "Setting memory clock to %ld0 KHz\n", (ULONG)kHz10);
 
     PLLValue_t pllValues;
     if (computePLLValues(bi, kHz10, &pllValues)) {
@@ -437,14 +444,63 @@ void SetMemoryClock(BoardInfo_t *bi, USHORT kHz10)
         WRITE_PLL_MASK(PLL_GEN_CNTL, MCLK_SRC_SEL_MASK, MCLK_SRC_SEL(pllValues.Plog2));
         printMemoryClock(bi);
     } else {
-        DFUNC(0, "Unable to compute PLL values for %d0 KHz\n", kHz10);
+        DFUNC(0, "Unable to compute PLL values for %ld0 KHz\n", (ULONG)kHz10);
     }
 }
 
 BOOL TestMemory(BoardInfo_t bi) {}
 
+static void InitPLLTable(BoardInfo_t *bi)
+{
+    DFUNC(5, "bi %p\n", bi);
+
+    LOCAL_SYSBASE();
+
+    ChipData_t *cd        = getChipData(bi);
+    UWORD maxNumEntries   = (cd->maxPClock + 999) / 100 - (cd->minPClock + 99) / 100;
+    PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_PUBLIC);
+    cd->pllValues         = pllValues;
+
+    UWORD minFreq = cd->minPClock;
+    UWORD e       = 0;
+    for (; e < maxNumEntries; ++e) {
+        ULONG frequency = computePLLValues(bi, minFreq, &pllValues[e]);
+        if (!frequency) {
+            DFUNC(0, "Unable to compute PLL values for %ld0 KHz\n", minFreq);
+            break;
+        } else {
+            DFUNC(VERBOSE, "Pixelclock %03ld %09ldHz: \n", e, frequency * 10000);
+        }
+        minFreq += 100;
+    }
+    // See if we can squeeze the max frequency still in there
+    if (e < maxNumEntries - 1 && minFreq < cd->maxPClock) {
+        ULONG frequency = computePLLValues(bi, cd->maxPClock, &pllValues[e]);
+        if (frequency) {
+            ++e;
+        }
+    }
+
+    memset(bi->PixelClockCount, 0, sizeof(bi->PixelClockCount));
+
+    //FIXME: Account for OVERCLOCK
+    for (UWORD i = 0; i < e; ++i) {
+        ULONG frequency = computeFrequencyKhz10FromPllValue(bi, &pllValues[i]);
+        D(VERBOSE, "Pixelclock %03ld %09ldHz: \n", i, frequency * 10000);
+        if (frequency <= 13500) {
+            bi->PixelClockCount[CHUNKY]++;
+        }
+        if (frequency <= 8000) {
+            bi->PixelClockCount[HICOLOR]++;
+            bi->PixelClockCount[TRUECOLOR]++;
+        }
+    }
+}
+
 void InitPLL(BoardInfo_t *bi)
 {
+    InitPLLTable(bi);
+
     WRITE_PLL(PLL_MACRO_CNTL, 0xa0);  // PLL_DUTY_CYC = 5
 
     WRITE_PLL(PLL_VFC_CNTL, 0x1b);
@@ -798,26 +854,41 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 {
     DFUNC(5, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
 
-    mi->Flags &= ~GMF_ALWAYSBORDER;
-    if (0x7FF < mi->VerTotal) {
-        mi->Flags |= GMF_ALWAYSBORDER;
+    const ChipData_t *cd = getChipData(bi);
+
+    UWORD targetFreq = pixelClock / 10000;
+
+    // find pixel clock in pllValues via bisection
+    UWORD upper     = bi->PixelClockCount[CHUNKY] - 1;
+    UWORD upperFreq = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[upper]);
+    UWORD lower     = 0;
+    UWORD lowerFreq = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[lower]);
+
+    while (lower + 1 < upper) {
+        UWORD middle     = (upper + lower) / 2;
+        UWORD middleFreq = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[middle]);
+        if (middleFreq < targetFreq) {
+            lower     = middle;
+            lowerFreq = middleFreq;
+        } else {
+            upper     = middle;
+            upperFreq = middleFreq;
+        }
+    }
+    // Return the best match between upper and lower
+    if (targetFreq - lowerFreq > upperFreq - targetFreq) {
+        lower = upper;
+        lowerFreq = upperFreq;
     }
 
-    PLLValue_t pllValues;
-    ULONG frequency = 0;
-    if (!(frequency = computePLLValues(bi, pixelClock / 10000, &pllValues))) {
-        DFUNC(0, "Unable to compute PLL values for %d0 KHz\n", pixelClock);
-        return 0;
-    }
-
-    mi->PixelClock = frequency * 10000;
+    mi->PixelClock = lowerFreq * 10000;
 
     D(5, "Resulting pixelclock Hz: %ld\n\n", mi->PixelClock);
 
-    mi->pll1.Numerator   = pllValues.N;
-    mi->pll2.Denominator = pllValues.Plog2;
+    mi->pll1.Numerator   = cd->pllValues[lower].N;
+    mi->pll2.Denominator = cd->pllValues[lower].Plog2;
 
-    return mi->PixelClock / 1000;  // uses Mhz as "index"
+    return lower;
 }
 
 static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(ULONG index),
@@ -825,10 +896,10 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct Mod
 {
     DFUNC(5, "\n");
 
-    // return mi->PixelClock;
+    const ChipData_t *cd = getChipData(bi);
+    UWORD freq     = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[index]);
 
-    ULONG pixelClockKhz = index * 1000;
-    return pixelClockKhz * 1000;
+    return freq * 10000;
 }
 
 #define VCLK_SRC_SEL(x)   ((x))
@@ -855,19 +926,19 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 
 #ifdef DBG
     ULONG minVClkKhz10 = 2 * getChipData(bi)->referenceFrequency * 128 / (getChipData(bi)->referenceDivider * 8);
-    D(0, "minimm VCLK %ldHz\n", minVClkKhz10 * 10000);
+
+    D(10, "minimm VCLK %ldHz\n", minVClkKhz10 * 10000);
     if (pixelClock < minVClkKhz10 * 10000) {
         D(0, "PixelClock %ldHz is too low, minimum is %ldHz\n", pixelClock, minVClkKhz10 * 100000);
         return;
     }
-#endif
 
-    // FIXME: better actually compute the frequency from the Numerator/Denominator
-    D(0, "SetClock: PixelClock %ldHz -> %ldHz \n", bi->ModeInfo->PixelClock, pixelClock);
+    D(10, "SetClock: PixelClock %ldHz -> %ldHz \n", bi->ModeInfo->PixelClock, pixelClock);
     if (mi->pll1.Numerator < 0x80 || mi->pll1.Numerator > 0xFF) {
         D(0, "Invalid PLL1 Numerator %d\n", mi->pll1.Numerator);
         return;
     }
+#endif
 
     // Select PLLVCLK as VCLK source
     WRITE_PLL_MASK(PLL_VCLK_CNTL, (PLL_PRESET_MASK | VCLK_SRC_SEL_MASK), VCLK_SRC_SEL(0b11));
@@ -951,7 +1022,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     bi->GraphicsControllerType = GCT_ATIRV100;
     bi->PaletteChipType        = PCT_ATT_20C492;
-    bi->Flags                  = bi->Flags | BIF_GRANTDIRECTACCESS | BIF_HASSPRITEBUFFER;
+    bi->Flags                  = bi->Flags | BIF_GRANTDIRECTACCESS ; //| BIF_HASSPRITEBUFFER;
     // |BIF_BLITTER |
     // BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
 
@@ -981,8 +1052,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->SetClock             = SetClock;
 
     // // VSYNC
-    // bi->WaitVerticalSync = WaitVerticalSync;
-    // bi->GetVSyncState = GetVSyncState;
+    bi->WaitVerticalSync = WaitVerticalSync;
+    bi->GetVSyncState    = GetVSyncState;
 
     // // DPMS
     // bi->SetDPMSLevel = SetDPMSLevel;
@@ -1006,12 +1077,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
     // bi->DrawLine = DrawLine;
     // bi->BlitPattern = BlitPattern;
-
-    bi->PixelClockCount[PLANAR]    = 0;
-    bi->PixelClockCount[CHUNKY]    = 135;
-    bi->PixelClockCount[HICOLOR]   = 80;
-    bi->PixelClockCount[TRUECOLOR] = 80;
-    bi->PixelClockCount[TRUEALPHA] = 80;
 
     // Informed by the largest X/Y coordinates the blitter can talk to
     bi->MaxBMWidth  = 16384;  // 15bits
@@ -1119,6 +1184,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         W_IO_W(defaultRegs[r], defaultRegs[r + 1]);
     }
 
+    InitPLL(bi);
+
     ULONG clock = bi->MemoryClock;
     if (clock < 33000000) {
         clock = 33000000;
@@ -1127,19 +1194,15 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         clock = 68000000;
     }
 
+    SetMemoryClock(bi, getChipData(bi)->memClock);
+    bi->MemoryClock = getChipData(bi)->memClock * 10000;
+
     R_BLKIO_L(CONFIG_STAT0);
     W_BLKIO_L(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
 
     W_BLKIO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK, CFG_VGA_DIS);
     W_BLKIO_MASK_L(CONFIG_STAT0, CFG_VGA_EN_MASK, 0);
-
     ULONG configCntl = R_BLKIO_L(CONFIG_CNTL);
-
-    InitPLL(bi);
-
-    SetMemoryClock(bi, getChipData(bi)->memClock);
-    bi->MemoryClock = getChipData(bi)->memClock * 10000;
-
     // These values are being set by the Mach64VT BIOS, but are inline with the code, not somewhere in an accessible
     // table. CONFIG_STAT0 is apparently not strapped to the right memory type and only by setting it here we get access
     // to the framebuffer memory.
@@ -1359,6 +1422,8 @@ int main()
                 mi.VerTotal         = 525;
 
                 bi->ModeInfo = &mi;
+
+                ULONG index = ResolvePixelClock(bi, &mi, mi.PixelClock, RGBFB_CLUT);
 
                 DFUNC(0, "SetClock\n");
 
