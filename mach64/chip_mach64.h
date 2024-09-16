@@ -206,7 +206,7 @@ static inline void REGARGS writeATIRegisterMaskB(volatile UBYTE *regbase, UWORD 
     regValue &= ~mask;
     regValue |= value & mask;
     D(10, "W %s_%ld <- 0x%02lx\n", regName, (LONG)byteIndex, (LONG)value);
-    writeReg(regbase, DWORD_OFFSET(regIndex) + byteIndex, value);
+    writeReg(regbase, DWORD_OFFSET(regIndex) + byteIndex, regValue);
 }
 
 static inline void REGARGS writeATIRegisterB(volatile UBYTE *regbase, UWORD regIndex, UWORD byteIndex, UBYTE value,

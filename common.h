@@ -8,11 +8,12 @@
 // FIXME: copy header into common location
 #include "endian.h"
 
-#define ALWAYS  0           // Always print when DEBUG is enabled
-#define ERROR   ALWAYS      // Function failed, likely not recoverable
-#define WARN    5           // Function failed, but is recoverable
-#define INFO    10          // Informational messages
-#define VERBOSE 15          // Verbose output
+#define ALWAYS  0       // Always print when DEBUG is enabled
+#define ERROR   ALWAYS  // Function failed, not recoverable
+#define WARN    5       // Function failed, but is recoverable
+#define INFO    10      // Informational messages
+#define VERBOSE 15      // Verbose output
+#define CHATTY  20      // Very verbose output
 
 #ifndef DBG
 #define D(...)

@@ -20,7 +20,7 @@ const UWORD LibRevision = 0;
 
 /*******************************************************************************/
 
-int debugLevel = 6;
+int debugLevel = VERBOSE;
 
 static const struct svga_pll mach64_pll = {3, 129, 0x80, 0xFF, 0, 3, 100000, 200000, 14318};
 
@@ -80,9 +80,6 @@ void printFrequencyTable(FrequencyTable_t *ft)
 UBYTE getDACType(BoardInfo_t *bi)
 {
     REGBASE();
-    // ULONG cfgStat0 = R_BLKIO_L(CONFIG_STAT0);
-    // return (cfgStat0>>8) & 0x7;
-    // return (R_BLKIO_B(CONFIG_STAT0, 1) & 0x7);
     return (R_BLKIO_B(DAC_CNTL, 2) & 0x7);
 }
 
@@ -336,7 +333,7 @@ UBYTE ReadPLL(struct BoardInfo *bi, UBYTE pllAddr)
 // M = Reference Divider from BIOS
 //
 
-static ULONG computeFrequencyKhz10(UWORD R, UBYTE N, UWORD M, UBYTE Plog2)
+static ULONG computeFrequencyKhz10(UWORD R, UWORD N, UWORD M, UBYTE Plog2)
 {
     return ((ULONG)2 * R * N) / (M << Plog2);
 }
@@ -349,7 +346,7 @@ static ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLV
 
 static ULONG computePLLValues(const BoardInfo_t *bi, ULONG targetFrequency, PLLValue_t *pllValues)
 {
-    DFUNC(10, "bi %p, targetFrequency: %ld0 KHz, pllValues %p \n", bi, targetFrequency, pllValues);
+    DFUNC(VERBOSE, "bi %lx, targetFrequency: %ld0 KHz, pllValues %p \n", bi, targetFrequency, pllValues);
 
     UWORD R = getChipData(bi)->referenceFrequency;
     UWORD M = getChipData(bi)->referenceDivider;
@@ -380,13 +377,13 @@ static ULONG computePLLValues(const BoardInfo_t *bi, ULONG targetFrequency, PLLV
 
     ULONG outputFreq = computeFrequencyKhz10(R, N, M, P);
 
-    DFUNC(8, "target: %ld0 KHz, Output: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %ld, N: %ld\n", targetFrequency, outputFreq,
-          R, M, (ULONG)1 << P, (ULONG)N);
+    DFUNC(CHATTY, "target: %ld0 KHz, Output: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %ld, N: %ld\n", targetFrequency,
+          outputFreq, R, M, (ULONG)1 << P, (ULONG)N);
 
     return outputFreq;
 
 failure:
-    DFUNC(0, "target frequency out of range:  %ld0Khz\n", targetFrequency);
+    DFUNC(ERROR, "target frequency out of range:  %ld0Khz\n", targetFrequency);
     return 0;
 }
 
@@ -398,6 +395,9 @@ failure:
 #define OSC_EN_MASK       BIT(2)
 #define MCLK_SRC_SEL(x)   (((x) & 7) << 4)
 #define MCLK_SRC_SEL_MASK (7 << 4)
+
+#define MFB_TIMES_4_2b      BIT(2)
+#define MFB_TIMES_4_2b_MASK BIT(2)
 
 void printMemoryClock(BoardInfo_t *bi)
 {
@@ -425,10 +425,14 @@ void printMemoryClock(BoardInfo_t *bi)
 
     mClkSrcSel &= 3;
 
+    ULONG xclkCntl = READ_PLL(PLL_XCLK_CNTL);
+    if (xclkCntl & MFB_TIMES_4_2b) {
+        fbDiv <<= 1;
+    }
     ULONG mClock = computeFrequencyKhz10(getChipData(bi)->referenceFrequency, fbDiv, refDiv, mClkSrcSel);
 
-    DFUNC(5, "Current memory clock source: %s, PLL frequency: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %ld, N: %ld\n", mClockSrc,
-          mClock, (ULONG)getChipData(bi)->referenceFrequency, (ULONG)refDiv, (ULONG)1 << mClkSrcSel, (ULONG)fbDiv);
+    DFUNC(5, "clock source: %s, PLL frequency: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %ld, N: %ld\n", mClockSrc, mClock,
+          (ULONG)getChipData(bi)->referenceFrequency, (ULONG)refDiv, (ULONG)1 << mClkSrcSel, (ULONG)fbDiv);
 }
 
 void SetMemoryClock(BoardInfo_t *bi, USHORT kHz10)
@@ -437,6 +441,15 @@ void SetMemoryClock(BoardInfo_t *bi, USHORT kHz10)
 
     PLLValue_t pllValues;
     if (computePLLValues(bi, kHz10, &pllValues)) {
+        UBYTE minN     = 0x80;
+        ULONG xclkCntl = READ_PLL(PLL_XCLK_CNTL);
+        if (xclkCntl & MFB_TIMES_4_2b) {
+            minN = 0x40;
+        }
+        if (pllValues.N < minN) {
+            DFUNC(WARN, "N value too low for MCLK: %ld\n", (ULONG)pllValues.N);
+            return;
+        }
         WRITE_PLL_MASK(PLL_GEN_CNTL, (PLL_OVERRIDE_MASK | PLL_MRESET_MASK | OSC_EN_MASK | MCLK_SRC_SEL_MASK),
                        (OSC_EN | MCLK_SRC_SEL(0b100)));
         WRITE_PLL(PLL_MCLK_FB_DIV, pllValues.N);
@@ -483,7 +496,7 @@ static void InitPLLTable(BoardInfo_t *bi)
 
     memset(bi->PixelClockCount, 0, sizeof(bi->PixelClockCount));
 
-    //FIXME: Account for OVERCLOCK
+    // FIXME: Account for OVERCLOCK
     for (UWORD i = 0; i < e; ++i) {
         ULONG frequency = computeFrequencyKhz10FromPllValue(bi, &pllValues[i]);
         D(VERBOSE, "Pixelclock %03ld %09ldHz: \n", i, frequency * 10000);
@@ -493,6 +506,7 @@ static void InitPLLTable(BoardInfo_t *bi)
         if (frequency <= 8000) {
             bi->PixelClockCount[HICOLOR]++;
             bi->PixelClockCount[TRUECOLOR]++;
+            bi->PixelClockCount[TRUEALPHA]++;
         }
     }
 }
@@ -503,12 +517,18 @@ void InitPLL(BoardInfo_t *bi)
 
     WRITE_PLL(PLL_MACRO_CNTL, 0xa0);  // PLL_DUTY_CYC = 5
 
-    WRITE_PLL(PLL_VFC_CNTL, 0x1b);
+    // WRITE_PLL(PLL_VFC_CNTL, 0x1b);
+    WRITE_PLL(PLL_VFC_CNTL, 0x03);
+
     WRITE_PLL(PLL_REF_DIV, getChipData(bi)->referenceDivider);
     WRITE_PLL(PLL_VCLK_CNTL, 0x00);
-    WRITE_PLL(PLL_FCP_CNTL, 0xc0);
+
+    // WRITE_PLL(PLL_FCP_CNTL, 0xc0);
+    WRITE_PLL(PLL_FCP_CNTL, 0x40);
+
     WRITE_PLL(PLL_XCLK_CNTL, 0x00);
     WRITE_PLL(PLL_VCLK_POST_DIV, 0x9c);
+
     WRITE_PLL(PLL_VCLK_CNTL, 0x0b);
     WRITE_PLL(PLL_MACRO_CNTL, 0x90);
 }
@@ -527,8 +547,6 @@ void InitPLL(BoardInfo_t *bi)
 #define VGA_ATI_LINEAR         BIT(27)
 #define VGA_ATI_LINEAR_MASK    BIT(27)
 
-#define CFG_VGA_EN              BIT(4)
-#define CFG_VGA_EN_MASK         BIT(4)
 #define CFG_MEM_TYPE(x)         ((x) & 7)
 #define CFG_MEM_TYPE_MASK       (7)
 #define CFG_MEM_TYPE_DISABLE    0b000
@@ -538,6 +556,10 @@ void InitPLL(BoardInfo_t *bi)
 #define CFG_MEM_TYPE_SDRAM      0b100
 #define CFG_DUAL_CAS_EN         BIT(3)
 #define CFG_DUAL_CAS_EN_MASK    BIT(3)
+#define CFG_VGA_EN              BIT(4)
+#define CFG_VGA_EN_MASK         BIT(4)
+#define CFG_CLOCK_EN            BIT(5)
+#define CFG_CLOCK_EN_MASK       BIT(5)
 
 #define DAC_W_INDEX 0
 #define DAC_W_DATA  1
@@ -562,26 +584,27 @@ static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD w
     return bytesPerRow;
 }
 
-static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count))
+static void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count),
+                                      __REGA1(const struct CLUTEntry *colors))
 {
     REGBASE();
-    LOCAL_SYSBASE();
-
-    DFUNC(5, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
 
     const UBYTE bppDiff = 0;  // 8 - bi->BitsPerCannon;
 
     W_BLKIO_B(DAC_REGS, DAC_W_INDEX, startIndex);
 
-    struct CLUTEntry *entry = &bi->CLUT[startIndex];
-    for (UWORD c = 0; c < count; ++c) {
-        writeReg(RegBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, entry->Red >> bppDiff);
-        writeReg(RegBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, entry->Green >> bppDiff);
-        writeReg(RegBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, entry->Blue >> bppDiff);
-        ++entry;
+    for (UWORD c = startIndex; c < startIndex + count; ++c) {
+        writeReg(RegBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Red >> bppDiff);
+        writeReg(RegBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Green >> bppDiff);
+        writeReg(RegBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Blue >> bppDiff);
     }
+}
 
-    return;
+static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count))
+{
+    DFUNC(5, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
+
+    SetColorArrayInternal(bi, startIndex, count, bi->CLUT);
 }
 
 #define CRTC_DBL_SCAN_EN      BIT(0)
@@ -591,7 +614,7 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
 #define CRTC_DISPLAY_DIS      BIT(6)
 #define CRTC_DISPLAY_DIS_MASK BIT(6)
 #define CRTC_PIX_WIDTH(x)     ((x) << 8)
-#define CRTC_PIX_WIDTH_MASK   (0x3 << 8)
+#define CRTC_PIX_WIDTH_MASK   (0x7 << 8)
 #define CRTC_FIFO_LWM(x)      ((x) << 16)
 #define CRTC_FIFO_LWM_MASK    (0xF << 16)
 #define CRTC_EXT_DISP_EN      BIT(24)
@@ -606,6 +629,18 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
     DFUNC(5, "format %ld\n", (ULONG)format);
 
     W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_PIX_WIDTH_MASK, CRTC_PIX_WIDTH(g_bitWidths[format]));
+    if (format != RGBFB_CLUT) {
+        // I think in Hi-Color modes, the palette acts as gamma ramp
+        struct CLUTEntry colors[256];
+        for (int c = 0; c < 256; c++) {
+            colors[c].Red   = c;
+            colors[c].Green = c;
+            colors[c].Blue  = c;
+        }
+        SetColorArrayInternal(bi, 0, 256, colors);
+    } else {
+        SetColorArrayInternal(bi, 0, 256, bi->CLUT);
+    }
 
     return;
 }
@@ -694,12 +729,9 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     REGBASE();
 
     BOOL isInterlaced;
-    UBYTE depth;
     UBYTE modeFlags;
-    UWORD hTotal;
-    UWORD ScreenWidth;
 
-    DFUNC(5,
+    DFUNC(INFO,
           "W %ld, H %ld,\n"
           "HTotal %ld, HBlankSize %ld, HSyncStart %ld, HSyncSize %ld,\n"
           "nVTotal %ld, VBlankSize %ld,  VSyncStart %ld ,  VSyncSize %ld\n",
@@ -710,39 +742,39 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     bi->ModeInfo = mi;
     bi->Border   = border;
 
-    hTotal       = mi->HorTotal;
-    ScreenWidth  = mi->Width;
     modeFlags    = mi->Flags;
     isInterlaced = !!(modeFlags & GMF_INTERLACE);
 
-    UWORD hTotalChars = TO_CHARS(mi->HorTotal);
-    D(6, "Horizontal Total %ld\n", (ULONG)hTotalChars);
+    UWORD hTotalChars = TO_CHARS(mi->HorTotal) - 1;
+    D(VERBOSE, "Horizontal Total %ld\n", (ULONG)hTotalChars);
     UWORD hDisplay = TO_CHARS(mi->Width) - 1;
-    D(6, "Display %ld\n", (ULONG)hDisplay);
+    D(VERBOSE, "Display %ld\n", (ULONG)hDisplay);
     W_BLKIO_L(CRTC_H_TOTAL_DISP, CRTC_H_TOTAL(hTotalChars) | CRTC_H_DISP(hDisplay));
 
-    UWORD hSyncStart = TO_CHARS(mi->HorSyncStart + ScreenWidth);
-    D(6, "HSync start %ld\n", (ULONG)hSyncStart);
+    UWORD hSyncStart = TO_CHARS(mi->HorSyncStart + mi->Width) - 1;
+    D(VERBOSE, "HSync start %ld\n", (ULONG)hSyncStart);
 
-    ULONG crtc_h_sync_strt_wid =
+    ULONG crtcHSyncStrtWid =
         CRTC_H_SYNC_STRT(hSyncStart) | CRTC_H_SYNC_STRT_HI(hSyncStart >> 8) | CRTC_H_SYNC_WID(mi->HorSyncSize);
+
     if (modeFlags & GMF_HPOLARITY) {
-        crtc_h_sync_strt_wid |= CRTC_H_SYNC_POL;
+        crtcHSyncStrtWid |= CRTC_H_SYNC_POL;
     }
-    W_BLKIO_L(CRTC_H_SYNC_STRT_WID, crtc_h_sync_strt_wid);
+    W_BLKIO_L(CRTC_H_SYNC_STRT_WID, crtcHSyncStrtWid);
 
-    UWORD vTotal = TO_SCANLINES(mi->VerTotal);
-    D(6, "VTotal %ld\n", (ULONG)vTotal);
-    W_BLKIO_L(CRTC_V_TOTAL_DISP, CRTC_V_TOTAL(vTotal) | CRTC_V_DISP(TO_SCANLINES(mi->Height) - 1));
+    UWORD vTotal = TO_SCANLINES(mi->VerTotal) - 1;
+    D(VERBOSE, "VTotal %ld\n", (ULONG)vTotal) - 1;
+    UWORD vDisp = TO_SCANLINES(mi->Height) - 1;
+    W_BLKIO_L(CRTC_V_TOTAL_DISP, CRTC_V_TOTAL(vTotal) | CRTC_V_DISP(vDisp));
 
-    UWORD vSyncStart = TO_SCANLINES(mi->VerSyncStart + mi->Height);
-    D(6, "VSync Start %ld\n", (ULONG)vSyncStart);
+    UWORD vSyncStart = TO_SCANLINES(mi->VerSyncStart + mi->Height) - 1;
+    D(VERBOSE, "VSync Start %ld\n", (ULONG)vSyncStart);
 
-    ULONG crtc_v_sync_strt_wid = CRTC_V_SYNC_STRT(vSyncStart) | CRTC_V_SYNC_WID(TO_SCANLINES(mi->VerSyncSize));
+    ULONG crtcVSyncStrtWid = CRTC_V_SYNC_STRT(vSyncStart) | CRTC_V_SYNC_WID(TO_SCANLINES(mi->VerSyncSize));
     if (modeFlags & GMF_VPOLARITY) {
-        crtc_v_sync_strt_wid |= CRTC_V_SYNC_POL;
+        crtcVSyncStrtWid |= CRTC_V_SYNC_POL;
     }
-    W_BLKIO_L(CRTC_V_SYNC_STRT_WID, crtc_v_sync_strt_wid);
+    W_BLKIO_L(CRTC_V_SYNC_STRT_WID, crtcVSyncStrtWid);
 
     if (border) {
         UWORD hBorder = TO_CHARS(mi->HorBlankSize);
@@ -754,15 +786,15 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         W_BLKIO_L(OVR_WID_TOP_BOTTOM, 0);
     }
 
-    ULONG crtc_gen_cntl = R_BLKIO_L(CRTC_GEN_CNTL);
-    crtc_gen_cntl &= ~(CRTC_DBL_SCAN_EN | CRTC_INTERLACE_EN);
+    ULONG crtcGenCntl = R_BLKIO_L(CRTC_GEN_CNTL);
+    crtcGenCntl &= ~(CRTC_DBL_SCAN_EN | CRTC_INTERLACE_EN);
     if (isInterlaced) {
-        crtc_gen_cntl |= CRTC_INTERLACE_EN;
+        crtcGenCntl |= CRTC_INTERLACE_EN;
     }
     if (modeFlags & GMF_DOUBLESCAN) {
-        crtc_gen_cntl |= CRTC_DBL_SCAN_EN;
+        crtcGenCntl |= CRTC_DBL_SCAN_EN;
     }
-    W_BLKIO_L(CRTC_GEN_CNTL, crtc_gen_cntl);
+    W_BLKIO_L(CRTC_GEN_CNTL, crtcGenCntl);
 }
 
 static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width),
@@ -772,7 +804,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     REGBASE();
     LOCAL_SYSBASE();
 
-    DFUNC(5,
+    DFUNC(INFO,
           "mem 0x%lx, width %ld, height %ld, xoffset %ld, yoffset %ld, "
           "format %ld\n",
           memory, (ULONG)width, (ULONG)height, (LONG)xoffset, (LONG)yoffset, (ULONG)format);
@@ -796,7 +828,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     pitch     = width / 8;                    // pitch in 8 pixels
     panOffset = (panOffset + memOffset) / 8;  // offset in 64bit words
 
-    D(5, "panOffset 0x%lx, pitch %ld qwords\n", panOffset, (ULONG)pitch);
+    D(VERBOSE, "panOffset 0x%lx, pitch %ld qwords\n", panOffset, (ULONG)pitch);
 
     W_BLKIO_L(CRTC_OFF_PITCH, CRTC_OFFSET(panOffset) | CRTC_PITCH(pitch));
 
@@ -805,12 +837,15 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
 
 static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REGD7(RGBFTYPE format))
 {
+    DFUNC(VERBOSE, "mem 0x%lx, format %ld\n", mem, (ULONG)format);
     switch (format) {
-    case RGBFB_A8R8G8B8:
+    case RGBFB_R8G8B8A8:
     case RGBFB_R5G6B5:
     case RGBFB_R5G5B5:
+        mem += 0x800000;
+        D(CHATTY, "redirecting to  %ld\n", mem);
         // Redirect to Big Endian Linear Address Window.
-        return mem + 0x800000;
+        return mem;
         break;
     default:
         break;
@@ -825,12 +860,12 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGB
 
     // These formats can always reside in the Little Endian Window.
     // We never need to change any aperture setting for them
-    ULONG compatible = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
+    ULONG compatible = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_A8B8G8R8;
 
     switch (format) {
-    case RGBFB_A8R8G8B8:
+    case RGBFB_A8B8G8R8:
         // In Big Endian aperture, configured MEM_CNTL for byte swapping in long word
-        compatible |= RGBFF_A8R8G8B8;
+        compatible |= RGBFF_R8G8B8A8;
         break;
     case RGBFB_R5G6B5:
     case RGBFB_R5G5B5:
@@ -854,7 +889,7 @@ static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
                                    __REGD0(ULONG pixelClock), __REGD7(RGBFTYPE RGBFormat))
 {
-    DFUNC(5, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
+    DFUNC(CHATTY, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
 
     const ChipData_t *cd = getChipData(bi);
 
@@ -879,13 +914,13 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
     }
     // Return the best match between upper and lower
     if (targetFreq - lowerFreq > upperFreq - targetFreq) {
-        lower = upper;
+        lower     = upper;
         lowerFreq = upperFreq;
     }
 
     mi->PixelClock = lowerFreq * 10000;
 
-    D(5, "Resulting pixelclock Hz: %ld\n\n", mi->PixelClock);
+    D(CHATTY, "Resulting pixelclock Hz: %ld\n\n", mi->PixelClock);
 
     mi->pll1.Numerator   = cd->pllValues[lower].N;
     mi->pll2.Denominator = cd->pllValues[lower].Plog2;
@@ -899,7 +934,7 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct Mod
     DFUNC(5, "\n");
 
     const ChipData_t *cd = getChipData(bi);
-    UWORD freq     = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[index]);
+    UWORD freq           = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[index]);
 
     return freq * 10000;
 }
@@ -943,10 +978,12 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 #endif
 
     // Select PLLVCLK as VCLK source
-    WRITE_PLL_MASK(PLL_VCLK_CNTL, (PLL_PRESET_MASK | VCLK_SRC_SEL_MASK), VCLK_SRC_SEL(0b11));
+    WRITE_PLL_MASK(PLL_VCLK_CNTL, (PLL_PRESET_MASK | VCLK_SRC_SEL_MASK), VCLK_SRC_SEL(0b11) | PLL_PRESET);
     // Write the new PLL values
     WRITE_PLL(PLL_VCLK0_FB_DIV, mi->pll1.Numerator);
     WRITE_PLL_MASK(PLL_VCLK_POST_DIV, VCLK0_POST_MASK, VCLK0_POST(mi->pll2.Denominator));
+
+    WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, 0);
 
     delayMilliSeconds(5);
 
@@ -961,12 +998,12 @@ static inline void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __RE
 {
     REGBASE();
 
-    DFUNC(5, "format %ld\n", (ULONG)format);
-
     if (getChipData(bi)->MemFormat == format) {
         return;
     }
     getChipData(bi)->MemFormat = format;
+
+    DFUNC(VERBOSE, "format %ld\n", (ULONG)format);
 
     W_BLKIO_MASK_L(MEM_CNTL, MEM_PIX_WIDTH_MASK, MEM_PIX_WIDTH(g_bitWidths[format]));
 }
@@ -1024,14 +1061,14 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     bi->GraphicsControllerType = GCT_ATIRV100;
     bi->PaletteChipType        = PCT_ATT_20C492;
-    bi->Flags                  = bi->Flags | BIF_GRANTDIRECTACCESS ; //| BIF_HASSPRITEBUFFER;
+    bi->Flags                  = bi->Flags | BIF_GRANTDIRECTACCESS;  //| BIF_HASSPRITEBUFFER;
     // |BIF_BLITTER |
     // BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
 
-    bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
+    bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_A8B8G8R8;
     // We can support byte-swapped formats on this chip via the Big Linear
     // Adressing Window
-    bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
+    bi->RGBFormats |= RGBFF_R8G8B8A8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
 
     // We don't support these modes, but if we did, they would not allow for a HW
     // sprite
@@ -1182,7 +1219,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
                                         0x00c4, 0x0000, 0x00c6, 0x8000, 0x007a, 0x0000, 0x00d0, 0x0100};
 
     for (int r = 0; r < ARRAY_SIZE(defaultRegs); r += 2) {
-        D(10, "[%lX_%ldh] = 0x%lx\n", (ULONG)defaultRegs[r] / 4, (ULONG)defaultRegs[r] % 4, (ULONG)defaultRegs[r + 1]);
+        D(10, "[%lX_%ldh] = 0x%04lx\n", (ULONG)defaultRegs[r] / 4, (ULONG)defaultRegs[r] % 4,
+          (ULONG)defaultRegs[r + 1]);
         W_IO_W(defaultRegs[r], defaultRegs[r + 1]);
     }
 
@@ -1208,9 +1246,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // These values are being set by the Mach64VT BIOS, but are inline with the code, not somewhere in an accessible
     // table. CONFIG_STAT0 is apparently not strapped to the right memory type and only by setting it here we get access
     // to the framebuffer memory.
-    // W_BLKIO_MASK_L(CONFIG_STAT0, CFG_MEM_TYPE_MASK | CFG_DUAL_CAS_EN_MASK,
-    //                CFG_MEM_TYPE(CFG_MEM_TYPE_EDO) | CFG_DUAL_CAS_EN);
-    W_BLKIO_MASK_B(CONFIG_STAT0, 0, 0xf8, 0x3b);
+    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_MEM_TYPE_MASK | CFG_DUAL_CAS_EN_MASK | CFG_VGA_EN_MASK | CFG_CLOCK_EN_MASK,
+                   CFG_MEM_TYPE(CFG_MEM_TYPE_PSEUDO_EDO) | CFG_DUAL_CAS_EN | CFG_CLOCK_EN);
+    // W_BLKIO_MASK_B(CONFIG_STAT0, 0, ~0xf8, 0x3b);
 
     D(0, "MMIO base address: 0x%lx\n", (ULONG)getMMIOBase(bi));
 
@@ -1228,7 +1266,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     int memSizeIdx = 0b11;
     while (memSizeIdx >= 0) {
-        D(1, "Probing memory size %ld\n", bi->MemorySize);
+        D(VERBOSE, "Probing memory size %ld\n", bi->MemorySize);
 
         W_BLKIO_MASK_L(MEM_CNTL, 0x7, memSizeIdx);
 
@@ -1249,8 +1287,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         ULONG readbackLow  = *lowOffset;
         ULONG readbackZero = *framebuffer;
 
-        D(10, "Probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= 0x%lx\n", highOffset, readbackHigh, lowOffset,
-          readbackLow, readbackZero);
+        D(VERBOSE, "Probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= 0x%lx\n", highOffset, readbackHigh,
+          lowOffset, readbackLow, readbackZero);
 
         if (readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset && readbackZero == 0) {
             break;
@@ -1260,7 +1298,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         memSizeIdx -= 1;
     }
 
-    D(1, "MemorySize: %ldmb\n", bi->MemorySize / (1024 * 1024));
+    D(INFO, "MemorySize: %ldmb\n", bi->MemorySize / (1024 * 1024));
 
     MEM_CNTL_Register memCntl;
     *(ULONG *)&memCntl = R_BLKIO_L(MEM_CNTL);
@@ -1275,19 +1313,24 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
                    CRTC_ENABLE | CRTC_EXT_DISP_EN | CRTC_FIFO_LWM(0xF));
 
     // Input Status ? Register (STATUS_O)
-    // D(1, "Monitor is %s present\n", (!(R_REG(0x3C2) & 0x10) ? "" : "NOT"));
+    D(INFO, "Monitor is %s present\n", ((R_BLKIO_B(DAC_CNTL, 0) & 0x80) ? "NOT" : ""));
 
     // Two sprite images, each 64x64*2 bits
     const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
+    // bi->MemorySize       = (bi->MemorySize - maxSpriteBuffersSize) & ~(1024 - 1);
 
-    // take sprite image data off the top of the memory
-    // sprites can be placed at segment boundaries of 1kb
-    bi->MemorySize       = (bi->MemorySize - maxSpriteBuffersSize) & ~(1024 - 1);
-    bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
-    bi->MouseSaveBuffer  = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
+    // FIXME: P96 needs 64x64x4 BYTE for each. Only allocate when using softsprites
+    //  take sprite image data off the top of the memory
+    //  sprites can be placed at segment boundaries of 1kb
+    //  bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
+    //  bi->MouseSaveBuffer  = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
 
     return TRUE;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #ifdef TESTEXE
 
@@ -1300,8 +1343,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #include <stdlib.h>
 #include <string.h>
 
-#define VENDOR_E3B        3643
-#define VENDOR_MATAY      44359
+#define VENDOR_E3B        0xE3B
+#define VENDOR_MATAY      0xAD47
 #define DEVICE_FIRESTORM  200
 #define DEVICE_PROMETHEUS 1
 
