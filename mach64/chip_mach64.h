@@ -174,6 +174,11 @@ typedef struct MaxColorDepthTableEntry
 #define OVR_CLR               0x10
 #define OVR_WID_LEFT_RIGHT    0x11
 #define OVR_WID_TOP_BOTTOM    0x12
+#define CUR_CLR0              0x18
+#define CUR_CLR1              0x19
+#define CUR_OFFSET            0x1A
+#define CUR_HORZ_VERT_POSN    0x1B
+#define CUR_HORZ_VERT_OFF     0x1C
 
 #define BUS_FIFO_ERR_INT_EN BIT(20)
 #define BUS_FIFO_ERR_INT    BIT(21)

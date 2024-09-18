@@ -1051,6 +1051,144 @@ static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expect
 
 static void WaitVerticalSync(__REGA0(struct BoardInfo *bi)) {}
 
+#define CUR_OFFSET_X(x)   (x)
+#define CUR_OFFSET_X_MASK (0xFFFFF)
+#define CUR_HORZ_OFF(x)   ((x))
+#define CUR_HORZ_OFF_MASK (0x3F)
+#define CUR_VERT_OFF(x)   ((x) << 16)
+#define CUR_VERT_OFF_MASK (0x3F << 16)
+
+#define CUR_HORZ_POSN(x)   ((x))
+#define CUR_HORZ_POSN_MASK (0x7FF)
+#define CUR_VERT_POSN(x)   ((x) << 16)
+#define CUR_VERT_POSN_MASK (0x7FF << 16)
+
+static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xpos), __REGD1(WORD ypos),
+                                  __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(5, "\n");
+    REGBASE();
+
+    bi->MouseX = xpos;
+    bi->MouseY = ypos;
+
+    WORD spriteX = xpos - bi->XOffset;
+    WORD spriteY = ypos - bi->YOffset + bi->YSplit;
+
+    WORD offsetX = 0;
+    if (spriteX < 0) {
+        if (spriteX > -64)
+            offsetX = -spriteX;
+        else
+            offsetX = 64;
+        spriteX = 0;
+    }
+    WORD offsetY = 0;
+    if (spriteY < 0) {
+        if (spriteY > -64)
+            offsetY = -spriteY;
+        else
+            offsetY = 64;
+        spriteY = 0;
+    }
+
+    D(5, "SpritePos X: %ld 0x%lx, Y: %ld 0x%lx\n", (LONG)spriteX, (ULONG)spriteX, (LONG)spriteY, (ULONG)spriteY);
+
+    ULONG memOffset = (ULONG)bi->MouseImageBuffer - (ULONG)bi->MemoryBase;
+    W_BLKIO_L(CUR_OFFSET, memOffset / 8);
+
+    W_BLKIO_L(CUR_HORZ_VERT_POSN, CUR_HORZ_POSN(spriteX) | CUR_VERT_POSN(spriteY));
+    W_BLKIO_L(CUR_HORZ_VERT_OFF, CUR_HORZ_OFF(offsetX) | CUR_VERT_OFF(offsetY));
+}
+
+ULONG spreadBits(ULONG word)
+{
+    // reverse the bits in the word
+    word = ((word & 0xFF00) >> 8) | ((word & 0x00FF) << 8);
+    word = ((word & 0xF0F0) >> 4) | ((word & 0x0F0F) << 4);
+    word = ((word & 0xCCCC) >> 2) | ((word & 0x3333) << 2);
+    word = ((word & 0xAAAA) >> 1) | ((word & 0x5555) << 1);
+
+    // spread out the bits ( could probably be done more efficiently in combination with above)
+    word = (word | (word << 8)) & 0x00FF00FF;
+    word = (word | (word << 4)) & 0x0F0F0F0F;
+    word = (word | (word << 2)) & 0x33333333;
+    word = (word | (word << 1)) & 0x55555555;
+
+    return word;
+}
+
+static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(5, "\n");
+
+    const UWORD *image = bi->MouseImage + 2;
+    ULONG *cursor      = (ULONG *)bi->MouseImageBuffer;
+    for (UWORD y = 0; y < bi->MouseHeight; ++y) {
+        // first 16 bit
+        ULONG plane0 = *image++;
+        ULONG plane1 = *image++;
+
+        plane0 = ~plane0;
+
+        *cursor++ = swapl((spreadBits(plane0) << 1) | spreadBits((plane1)));
+        *cursor++ = 0xAAAAAAAA;  // encodes 0b10 per cursor pixel (transparent)
+        *cursor++ = 0xAAAAAAAA;
+        *cursor++ = 0xAAAAAAAA;
+    }
+    // Pad the rest of the cursor image
+    for (UWORD y = bi->MouseHeight; y < 64; ++y) {
+        for (UWORD p = 0; p < 4; ++p) {
+            *cursor++ = 0xAAAAAAAA;
+        }
+    }
+}
+
+#define CUR_CLR_8(x)   (x)
+#define CUR_CLR_8_MASK (0xFF)
+#define CUR_CLR_B(x)   ((x) << 8)
+#define CUR_CLR_B_MASK (0xFF << 8)
+#define CUR_CLR_G(x)   ((x) << 16)
+#define CUR_CLR_G_MASK (0xFF << 16)
+#define CUR_CLR_R(x)   ((x) << 24)
+#define CUR_CLR_R_MASK (0xFF << 24)
+
+static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
+                               __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
+    REGBASE();
+    switch (index) {
+    case 0:
+        W_BLKIO_L(CUR_CLR0, CUR_CLR_R(red) | CUR_CLR_G(green) | CUR_CLR_B(blue) | CUR_CLR_8(17));
+        break;
+    case 2:
+        W_BLKIO_L(CUR_CLR1, CUR_CLR_R(red) | CUR_CLR_G(green) | CUR_CLR_B(blue) | CUR_CLR_8(19));
+        break;
+    default:
+        break;
+    }
+}
+
+#define GEN_CUR_ENABLE      BIT(7)
+#define GEN_CUR_ENABLE_MASK BIT(7)
+
+static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate), __REGD7(RGBFTYPE RGBFormat))
+{
+    DFUNC(VERBOSE, "\n");
+    REGBASE();
+
+    W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_CUR_ENABLE_MASK, activate ? GEN_CUR_ENABLE : 0);
+
+    if (activate) {
+        SetSpriteColor(bi, 0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, bi->RGBFormat);
+        SetSpriteColor(bi, 1, bi->CLUT[18].Red, bi->CLUT[18].Green, bi->CLUT[18].Blue, bi->RGBFormat);
+        SetSpriteColor(bi, 2, bi->CLUT[19].Red, bi->CLUT[19].Green, bi->CLUT[19].Blue, bi->RGBFormat);
+    }
+
+    return TRUE;
+}
+
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     REGBASE();
@@ -1061,7 +1199,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     bi->GraphicsControllerType = GCT_ATIRV100;
     bi->PaletteChipType        = PCT_ATT_20C492;
-    bi->Flags                  = bi->Flags | BIF_GRANTDIRECTACCESS;  //| BIF_HASSPRITEBUFFER;
+    bi->Flags                  = bi->Flags | BIF_GRANTDIRECTACCESS | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
     // |BIF_BLITTER |
     // BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
 
@@ -1101,10 +1239,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // bi->SetSplitPosition = SetSplitPosition;
 
     // // Mouse Sprite
-    // bi->SetSprite = SetSprite;
-    // bi->SetSpritePosition = SetSpritePosition;
-    // bi->SetSpriteImage = SetSpriteImage;
-    // bi->SetSpriteColor = SetSpriteColor;
+    bi->SetSprite         = SetSprite;
+    bi->SetSpritePosition = SetSpritePosition;
+    bi->SetSpriteImage    = SetSpriteImage;
+    bi->SetSpriteColor    = SetSpriteColor;
 
     // // Blitter acceleration
     // bi->WaitBlitter = WaitBlitter;
@@ -1317,13 +1455,13 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     // Two sprite images, each 64x64*2 bits
     const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
-    // bi->MemorySize       = (bi->MemorySize - maxSpriteBuffersSize) & ~(1024 - 1);
+    bi->MemorySize                   = (bi->MemorySize - maxSpriteBuffersSize) & ~(63);
 
     // FIXME: P96 needs 64x64x4 BYTE for each. Only allocate when using softsprites
     //  take sprite image data off the top of the memory
     //  sprites can be placed at segment boundaries of 1kb
-    //  bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
-    //  bi->MouseSaveBuffer  = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
+    bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
+    bi->MouseSaveBuffer  = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
 
     return TRUE;
 }
