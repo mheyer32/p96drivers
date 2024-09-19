@@ -839,7 +839,7 @@ static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem)
 {
     DFUNC(VERBOSE, "mem 0x%lx, format %ld\n", mem, (ULONG)format);
     switch (format) {
-    case RGBFB_R8G8B8A8:
+    case RGBFB_A8R8G8B8:
     case RGBFB_R5G6B5:
     case RGBFB_R5G5B5:
         mem += 0x800000;
@@ -865,7 +865,7 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGB
     switch (format) {
     case RGBFB_A8B8G8R8:
         // In Big Endian aperture, configured MEM_CNTL for byte swapping in long word
-        compatible |= RGBFF_R8G8B8A8;
+        compatible |= RGBFF_A8B8G8R8;
         break;
     case RGBFB_R5G6B5:
     case RGBFB_R5G5B5:
@@ -1203,10 +1203,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // |BIF_BLITTER |
     // BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
 
-    bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_A8B8G8R8;
+    bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
     // We can support byte-swapped formats on this chip via the Big Linear
     // Adressing Window
-    bi->RGBFormats |= RGBFF_R8G8B8A8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
+    bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
 
     // We don't support these modes, but if we did, they would not allow for a HW
     // sprite
