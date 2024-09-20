@@ -26,12 +26,14 @@ typedef struct ChipData
     BlitterOp_t GEOp;    // programmed graphics engine setup
     ULONG GEfgPen;
     ULONG GEbgPen;
-    RGBFTYPE GEFormat;
-    UWORD GEbytesPerRow;  // programmed graphics engine bytes per row
-    UWORD GEsegs;         // programmed src/dst memory segments
-    UBYTE GEbpp;          // programmed graphics engine bpp
+    // RGBFTYPE GEFormat;
+
+    struct RenderInfo dstBuffer;
+    // struct RenderInfo srcBuffer;
+
     UBYTE GEmask;         // programmed mask
     UBYTE GEdrawMode;
+
     ChipFamily_t chipFamily;  // chip family
     UWORD referenceFrequency;
     UWORD referenceDivider;
@@ -179,6 +181,68 @@ typedef struct MaxColorDepthTableEntry
 #define CUR_OFFSET            0x1A
 #define CUR_HORZ_VERT_POSN    0x1B
 #define CUR_HORZ_VERT_OFF     0x1C
+
+#define FIFO_STAT             0xC4
+#define GUI_STAT              0xCE
+#define HOST_CNTL             0x90
+#define HOST_DATA0            0x80  // 16 registers
+
+#define DST_OFF_PITCH    0x40
+// #define DST_X            0x41
+// #define DST_Y            0x42
+#define DST_Y_X          0x43
+// #define DST_WIDTH        0x44
+// #define DST_HEIGHT       0x45
+#define DST_HEIGHT_WIDTH 0x46
+#define DST_X_WIDTH      0x47
+#define DST_BRES_LNTH    0x48
+#define DST_BRES_ERR     0x49
+#define DST_BRES_INC     0x4A
+#define DST_BRES_DEC     0x4B
+#define DST_CNTL         0x4C
+
+#define SRC_OFF_PITCH      0x60
+#define SRC_X              0x61
+#define SRC_Y              0x62
+#define SRC_Y_X            0x63
+#define SRC_WIDTH1         0x64
+#define SRC_HEIGHT1        0x65
+#define SRC_HEIGHT1_WIDTH1 0x66
+#define SRC_X_START        0x67
+#define SRC_Y_START        0x68
+#define SRC_Y_X_START      0x69
+#define SRC_WIDTH2         0x6A
+#define SRC_HEIGHT2        0x6B
+#define SRC_HEIGHT2_WIDTH2 0x6C
+#define SRC_CNTL           0x6D
+
+#define PAT_REG0 0xA0
+#define PAT_REG1 0xA1
+#define PAT_CNTL 0xA2
+
+// #define SC_LEFT       0xA8
+// #define SC_RIGHT      0xA9
+#define SC_LEFT_RIGHT 0xAA
+// #define SC_TOP        0xAB
+// #define SC_BOTTOM     0xAC
+#define SC_TOP_BOTTOM 0xAD
+
+#define DP_BKGD_CLR  0xB0
+#define DP_FRGD_CLR  0xB1
+#define DP_WRITE_MSK 0xB2
+#define DP_CHAIN_MSK 0xB3
+#define DP_PIX_WIDTH 0xB4
+#define DP_MIX       0xB5
+#define DP_SRC       0xB6
+
+#define CLR_CMP_CLR  0xC0
+#define CLR_CMP_MSK  0xC1
+#define CLR_CMP_CNTL 0xC2
+
+#define CONTEXT_MSK       0xC8
+#define CONTEXT_LOAD_CNTL 0xCB
+#define GUI_TRAJ_CNTL     0xCC
+#define GUI_STAT          0xCE
 
 #define BUS_FIFO_ERR_INT_EN BIT(20)
 #define BUS_FIFO_ERR_INT    BIT(21)

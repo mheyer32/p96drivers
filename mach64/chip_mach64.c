@@ -1,5 +1,6 @@
 #include "chip_mach64.h"
 
+#include <graphics/rastport.h>
 #include <proto/prometheus.h>
 
 #include <string.h>  // memcmp
@@ -344,7 +345,7 @@ static ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLV
 
 static ULONG computePLLValues(const BoardInfo_t *bi, ULONG targetFrequency, PLLValue_t *pllValues)
 {
-    DFUNC(VERBOSE, "bi %lx, targetFrequency: %ld0 KHz, pllValues %p \n", bi, targetFrequency, pllValues);
+    DFUNC(VERBOSE, "bi %lx, targetFrequency: %ld0 KHz, pllValues %lx \n", bi, targetFrequency, pllValues);
 
     UWORD R = getConstChipData(bi)->referenceFrequency;
     UWORD M = getConstChipData(bi)->referenceDivider;
@@ -575,7 +576,7 @@ static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD w
     UWORD bytesPerRow = width * bpp;
     bytesPerRow       = (bytesPerRow + 7) & ~7;
 
-    ULONG maxHeight = 2048;
+    ULONG maxHeight = 2048;  // FIXME: check this value
     if (height > maxHeight) {
         return 0;
     }
@@ -997,15 +998,21 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 static inline void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
     REGBASE();
-
-    if (getChipData(bi)->MemFormat == format) {
-        return;
-    }
-    getChipData(bi)->MemFormat = format;
-
     DFUNC(VERBOSE, "format %ld\n", (ULONG)format);
 
-    W_BLKIO_MASK_L(MEM_CNTL, MEM_PIX_WIDTH_MASK, MEM_PIX_WIDTH(g_bitWidths[format]));
+    // These are the formats we place in the big endian aperture.
+    // And only for those we have to do anything.
+    switch (format) {
+    case RGBFB_A8B8G8R8:
+    case RGBFB_R5G6B5:
+    case RGBFB_R5G5B5:
+        if (getChipData(bi)->MemFormat == format) {
+            return;
+        }
+        getChipData(bi)->MemFormat = format;
+        W_BLKIO_MASK_L(MEM_CNTL, MEM_PIX_WIDTH_MASK, MEM_PIX_WIDTH(g_bitWidths[format]));
+        break;
+    }
 }
 
 static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
@@ -1172,6 +1179,8 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE inde
 
 #define GEN_CUR_ENABLE      BIT(7)
 #define GEN_CUR_ENABLE_MASK BIT(7)
+#define GEN_GUI_RESETB      BIT(8)
+#define GEN_GUI_RESETB_MASK BIT(8)
 
 static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate), __REGD7(RGBFTYPE RGBFormat))
 {
@@ -1187,6 +1196,272 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
     }
 
     return TRUE;
+}
+
+static inline void waitFifo(const BoardInfo_t *bi, UBYTE entries)
+{
+    MMIOBASE();
+
+    if (!entries)
+        return;
+
+    while ((R_MMIO_L(FIFO_STAT) & 0xffff) > ((ULONG)(0x8000 >> entries)))
+        ;
+}
+
+static inline void waitIdle(const BoardInfo_t *bi)
+{
+    MMIOBASE();
+
+    waitFifo(bi, 16);
+    while (R_MMIO_L(GUI_STAT) & 1)
+        ;
+}
+
+static inline void REGARGS setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fmt, BYTE waitFifoSlots)
+{
+    MMIOBASE();
+    ChipData_t *cd = getChipData(bi);
+
+    if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
+        // 16/32 bit modes ignore the mask
+        cd->GEmask = 0xFF;
+        waitFifo(bi, waitFifoSlots + 1);
+        W_MMIO_L(DP_WRITE_MSK, 0xFFFFFFFF);
+    } else {
+        // 8bit modes use the mask
+        if (cd->GEmask != mask) {
+            cd->GEmask = mask;
+
+            waitFifo(bi, waitFifoSlots + 1);
+
+            UWORD longMask = (mask << 8) | mask;
+
+            W_MMIO_L(DP_WRITE_MSK, makeDWORD(longMask, longMask));
+        } else {
+            waitFifo(bi, waitFifoSlots);
+        }
+    }
+}
+
+static inline ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
+{
+    ULONG offset = (ULONG)memory - (ULONG)bi->MemoryBase;
+    return offset;
+}
+
+#define DST_OFFSET(x)   (x)
+#define DST_OFFSET_MASK (0xFFFFF)
+#define DST_PITCH(x)    ((x) << 22)
+#define DST_PITCH_MASK  (0x3FF << 22)
+
+#define DP_DST_PIX_WIDTH(x)    (x)
+#define DP_DST_PIX_WIDTH_MASK  (0x7)
+#define DP_SRC_PIX_WIDTH(x)    ((x) << 8)
+#define DP_SRC_PIX_WIDTH_MASK  (0x7 << 8)
+#define DP_HOST_PIX_WIDTH(x)   ((x) << 16)
+#define DP_HOST_PIX_WIDTH_MASK (0x7 << 16)
+
+static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *ri)
+{
+    ChipData_t *cd = getChipData(bi);
+
+    if (memcmp(ri, &cd->dstBuffer, sizeof(struct RenderInfo)) == 0) {
+        return TRUE;
+    }
+    cd->dstBuffer = *ri;
+    UBYTE bpp     = getBPP(ri->RGBFormat);
+
+    waitFifo(bi, 2);
+
+    MMIOBASE();
+
+    // Offset is in unite of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'
+    // So convert BytesPerRow for
+    W_MMIO_L(DST_OFF_PITCH, DST_OFFSET(getMemoryOffset(bi, ri->Memory) / 8) | DST_PITCH((ri->BytesPerRow / bpp) / 8));
+
+    UBYTE dstPixWidth = COLOR_DEPTH_8;
+    if (ri->RGBFormat != RGBFB_CLUT && ri->RGBFormat != RGBFB_B8G8R8 && ri->RGBFormat != RGBFB_R8G8B8) {
+        dstPixWidth = g_bitWidths[ri->RGBFormat];
+    }
+
+    W_MMIO_MASK_L(DP_PIX_WIDTH, DP_DST_PIX_WIDTH_MASK | DP_SRC_PIX_WIDTH_MASK | DP_HOST_PIX_WIDTH_MASK,
+                  DP_DST_PIX_WIDTH(dstPixWidth) | DP_SRC_PIX_WIDTH(dstPixWidth) | DP_HOST_PIX_WIDTH(dstPixWidth));
+
+    return TRUE;
+}
+
+static inline ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
+{
+    switch (fmt) {
+    case RGBFB_A8R8G8B8:
+        pen = swapl(pen);
+        break;
+    case RGBFB_R5G6B5PC:
+    case RGBFB_R5G5B5PC:
+        pen = swapw(pen);
+        break;
+    default:
+        break;
+    }
+    return pen;
+}
+
+#define DP_BKGD_SRC(x)      ((x))
+#define DP_BKGD_SRC_MASK(x) (0x7)
+#define DP_FRGD_SRC(x)      ((x) << 8)
+#define DP_FRGD_SRCMASK(x)  ((0x7) << 8)
+#define DP_MONO_SRC(x)      ((x) << 16)
+#define DP_MONO_SRC_MASK(x) ((0x3) << 16)
+
+#define CLR_SRC_BKGD_COLOR 0x0
+#define CLR_SRC_FRGD_COLOR 0x1
+#define CLR_SRC_HOST_DATA  0x2
+#define CLR_SRC_BLIT_SRC   0x3
+#define CLR_SRC_PATTERN    0x4
+
+#define MONO_SRC_ONE       0x0
+#define MONO_SRC_PATTERN   0x1
+#define MONO_SRC_HOST_DATA 0x2
+#define MONO_SRC_BLIT_SRC  0x3
+
+#define DP_BKGD_MIX(x)      (x)
+#define DP_BKGD_MIX_MASK(x) (0x1F)
+#define DP_FRGD_MIX(x)      ((x) << 16)
+#define DP_FRGD_MIX_MASK    (0x1F << 16)
+
+#define DST_X(x)   ((x) << 16)
+#define DST_X_MASK (0x7FFF < 16)
+#define DST_Y(y)   (y)
+#define DST_Y_MASK (0x7FFF)
+
+#define DST_WIDTH(w)    ((w) << 16)
+#define DST_WIDTH_MASK  ((0x1FFF) << 16)
+#define DST_HEIGHT(h)   (h)
+#define DST_HEIGHT_MASK (0x7FFF)
+
+#define DST_X_DIR              BIT(0)
+#define DST_Y_DIR              BIT(1)
+#define DST_Y_MAJOR            BIT(2)
+#define DST_TILE_X             BIT(3)
+#define DST_TILE_Y             BIT(4)
+#define DST_LAST_PEL           BIT(5)
+#define DST_24_ROT_EN          BIT(7)
+#define DST_24_ROT(x)          ((x) << 8)
+#define DST_24_ROT_MASK        (0x7 << 8)
+#define DST_BRES_SIGN          BIT(11)
+#define DST_POLYGON_RTEDGE_DIS BIT(12)
+#define SRC_PATT_EN            BIT(16)
+#define SRC_PATT_ROT_EN        BIT(17)
+#define SRC_LINEAR_EN          BIT(18)
+#define SRC_BYTE_ALIGN         BIT(19)
+#define SRC_LINE_X_DIR         BIT(20)
+#define PAT_MONO_EN            BIT(24)
+#define PAT_CLR_4x2_EN         BIT(25)
+#define PAT_CLR_8x1_EN         BIT(26)
+#define HOST_BYTE_ALIGN        BIT(28)
+#define HOST_BIG_ENDIAN_EN     BIT(29)
+
+#define SC_LEFT(x)     (x)
+#define SC_LEFT_MASK   (0x1FFF)
+#define SC_RIGHT(x)    ((x) << 16)
+#define SC_RIGHT_MASK  (0x1FFF << 16)
+#define SC_TOP(x)      (x)
+#define SC_TOP_MASK    (0x7FFF)
+#define SC_BOTTOM(x)   ((x) << 16)
+#define SC_BOTTOM_MASK (0x7FFF << 16)
+
+static void drawRect(__REGA0(struct BoardInfo *bi), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
+                     __REGD3(WORD height))
+{
+    MMIOBASE();
+    waitFifo(bi, 2);
+    W_MMIO_L(DST_Y_X, DST_Y(y) | DST_X(x));
+    W_MMIO_L(DST_HEIGHT_WIDTH, DST_HEIGHT(height) | DST_WIDTH(width));
+}
+
+static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
+                         __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(ULONG pen),
+                         __REGD5(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE,
+          "\nx %ld, y %ld, w %ld, h %ld\npen %08lx, mask 0x%lx fmt %ld\n"
+          "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+          (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)pen, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
+          (ULONG)ri->Memory);
+
+    setDstBuffer(bi, ri);
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != FILLRECT) {
+        cd->GEOp = FILLRECT;
+
+        waitFifo(bi, 3);
+
+        MMIOBASE();
+
+        W_MMIO_L(DP_SRC, DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_ONE));
+        W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(MIX_NEW));
+        W_MMIO_L(GUI_TRAJ_CNTL, DST_X_DIR | DST_Y_DIR | DST_LAST_PEL);
+    }
+
+    if (cd->GEfgPen != pen) {
+        cd->GEfgPen  = pen;
+        cd->GEdrawMode = 0xFF; // invalidate minterm cache
+
+        pen          = penToColor(pen, fmt);
+
+        waitFifo(bi, 1);
+
+        MMIOBASE();
+        W_MMIO_L(DP_FRGD_CLR, pen);
+    }
+
+    setWriteMask(bi, mask, fmt, 0);
+
+    drawRect(bi, x, y, width, height);
+}
+
+static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
+                           __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask),
+                           __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE,
+          "\nx %ld, y %ld, w %ld, h %ld\nmask 0x%lx fmt %ld\n"
+          "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+          (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
+          (ULONG)ri->Memory);
+
+    setDstBuffer(bi, ri);
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != INVERTRECT) {
+        cd->GEOp = INVERTRECT;
+        cd->GEdrawMode = 0xFF; // invalidate minterm cache
+
+        waitFifo(bi, 3);
+
+        MMIOBASE();
+
+        W_MMIO_L(DP_SRC, DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_ONE));
+        W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(MIX_NOT_CURRENT));
+        W_MMIO_L(GUI_TRAJ_CNTL, DST_X_DIR | DST_Y_DIR | DST_LAST_PEL);
+    }
+
+    setWriteMask(bi, mask, fmt, 0);
+
+    drawRect(bi, x, y, width, height);
+}
+
+static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
+{
+    D(CHATTY, "Waiting for blitter...");
+
+    waitIdle(bi);
+
+    D(CHATTY, "done\n");
 }
 
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
@@ -1245,10 +1520,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->SetSpriteColor    = SetSpriteColor;
 
     // // Blitter acceleration
-    // bi->WaitBlitter = WaitBlitter;
+    bi->WaitBlitter = WaitBlitter;
     // bi->BlitRect = BlitRect;
-    // bi->InvertRect = InvertRect;
-    // bi->FillRect = FillRect;
+    bi->InvertRect = InvertRect;
+    bi->FillRect = FillRect;
     // bi->BlitTemplate = BlitTemplate;
     // bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
     // bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
@@ -1337,11 +1612,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
 
     // Test scratch register response
-    ULONG saveScratchReg1 = R_BLKIO_L(SCRATCH_REG1);
+    ULONG saveScratchReg1 = R_MMIO_L(SCRATCH_REG1);
     W_BLKIO_L(SCRATCH_REG1, 0xAAAAAAAA);
-    ULONG scratchA = R_BLKIO_L(SCRATCH_REG1);
+    ULONG scratchA = R_MMIO_L(SCRATCH_REG1);
     W_BLKIO_L(SCRATCH_REG1, 0x55555555);
-    ULONG scratch5 = R_BLKIO_L(SCRATCH_REG1);
+    ULONG scratch5 = R_MMIO_L(SCRATCH_REG1);
     W_BLKIO_L(SCRATCH_REG1, saveScratchReg1);
     if (scratchA != 0xAAAAAAAA || scratch5 != 0x55555555) {
         DFUNC(0, "scratch register response broken.\n");
@@ -1450,7 +1725,41 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_FIFO_LWM_MASK,
                    CRTC_ENABLE | CRTC_EXT_DISP_EN | CRTC_FIFO_LWM(0xF));
 
-    // Input Status ? Register (STATUS_O)
+    // Init Engine
+    // Reset engine. FIXME: older models use the same bit, but in a different way(?)
+    ULONG genTestCntl = R_MMIO_L(GEN_TEST_CNTL) & ~GEN_GUI_RESETB_MASK;
+    W_MMIO_L(GEN_TEST_CNTL, genTestCntl | GEN_GUI_RESETB);
+    W_MMIO_L(GEN_TEST_CNTL, genTestCntl);
+    W_MMIO_L(GEN_TEST_CNTL, genTestCntl | GEN_GUI_RESETB);
+
+    waitFifo(bi, 16);
+    W_MMIO_L(CONTEXT_MSK, 0xFFFFFFFF);
+    W_MMIO_L(DST_Y_X, 0);
+    W_MMIO_L(DST_BRES_ERR, 0);
+    W_MMIO_L(DST_BRES_INC, 0);
+    W_MMIO_L(DST_BRES_DEC, 0);
+    W_MMIO_L(DST_CNTL, DST_LAST_PEL | DST_Y_DIR | DST_X_DIR);
+
+    W_MMIO_L(SRC_Y_X, 0);
+    W_MMIO_L(SRC_HEIGHT1_WIDTH1, 1);
+    W_MMIO_L(SRC_Y_X_START, 0);
+    W_MMIO_L(SRC_HEIGHT2_WIDTH2, 1);
+    // set source pixel retrieving attributes
+    // W_MMIO_L(SRC_CNTL, SRC_LINE_X_LEFT_TO_RIGHT);
+
+    waitFifo(bi, 16);
+    W_MMIO_L(DP_BKGD_CLR, 0x0);
+    W_MMIO_L(DP_FRGD_CLR, 0xFFFFFFFF);
+    W_MMIO_L(DP_WRITE_MSK, 0xFFFFFFFF);
+    W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(MIX_NEW));
+    W_MMIO_L(DP_SRC, DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_ONE));
+    W_MMIO_L(DP_PIX_WIDTH,
+             DP_DST_PIX_WIDTH(COLOR_DEPTH_8) | DP_SRC_PIX_WIDTH(COLOR_DEPTH_8) | DP_HOST_PIX_WIDTH(COLOR_DEPTH_8));
+    W_MMIO_L(CLR_CMP_CNTL, 0x0);
+    W_MMIO_L(GUI_TRAJ_CNTL, DST_X_DIR | DST_Y_DIR | DST_LAST_PEL);
+    W_MMIO_L(SC_LEFT_RIGHT, SC_LEFT(0) | ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK));
+    W_MMIO_L(SC_TOP_BOTTOM, SC_TOP(0) | ((SC_BOTTOM_MASK >> 1) & SC_BOTTOM_MASK));
+
     D(INFO, "Monitor is %s present\n", ((R_BLKIO_B(DAC_CNTL, 0) & 0x80) ? "NOT" : ""));
 
     // Two sprite images, each 64x64*2 bits
@@ -1624,7 +1933,7 @@ int main()
             {
                 DFUNC(0, "SetColorArray\n");
                 UBYTE colors[256 * 3];
-                for (int c = 0; c < 255; c++) {
+                for (int c = 0; c < 256; c++) {
                     bi->CLUT[c].Red   = c;
                     bi->CLUT[c].Green = c;
                     bi->CLUT[c].Blue  = c;
@@ -1643,6 +1952,15 @@ int main()
                 for (int x = 0; x < 640; x++) {
                     *(volatile UBYTE *)(bi->MemoryBase + y * 640 + x) = x;
                 }
+            }
+
+            {
+                struct RenderInfo ri;
+                ri.Memory      = bi->MemoryBase;
+                ri.BytesPerRow = 640;
+                ri.RGBFormat   = RGBFB_CLUT;
+
+                FillRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, 0xFF, RGBFB_CLUT);
             }
 
             // RegisterOwner(cb, board, (struct Node *)ChipBase);
