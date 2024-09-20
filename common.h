@@ -6,7 +6,7 @@
 
 #include <boardinfo.h>
 // FIXME: copy header into common location
-#include "endian.h"
+// #include "endian.h"
 
 #define ALWAYS  0       // Always print when DEBUG is enabled
 #define ERROR   ALWAYS  // Function failed, not recoverable
@@ -64,6 +64,21 @@ extern void myPrintF(const char *fmt, ...);
 #define LOCAL_SYSBASE() struct ExecBase *SysBase = bi->ExecBase
 #define LOCAL_PROMETHEUSBASE() struct Library *PrometheusBase = (struct Library *)(bi->CardPrometheusBase)
 // #define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
+
+static inline ULONG swapl(ULONG value)
+{
+    // endian swap value
+    value = (value & 0xFFFF0000) >> 16 | (value & 0x0000FFFF) << 16;
+    value = (value & 0xFF00FF00) >> 8 | (value & 0x00FF00FF) << 8;
+    return value;
+}
+
+static inline UWORD swapw(UWORD value)
+{
+    // endian swap value
+    value = (value & 0xFF00) >> 8 | (value & 0x00FF) << 8;
+    return value;
+}
 
 #if BIGENDIAN_MMIO
 #define SWAPW(x) x
@@ -196,6 +211,19 @@ static inline void REGARGS writeRegW(volatile UBYTE *regbase, UWORD reg, UWORD v
 static inline void REGARGS writeRegL(volatile UBYTE *regbase, UWORD reg, ULONG value)
 {
     *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = swapl(value);
+}
+
+static inline ULONG REGARGS readRegLNoSwap(volatile UBYTE *regbase, UWORD reg)
+{
+    ULONG value = *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET));
+    asm volatile("" ::"r"(value));
+
+    return value;
+}
+
+static inline void REGARGS writeRegLNoSwap(volatile UBYTE *regbase, UWORD reg, ULONG value)
+{
+    *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = value;
 }
 
 static inline ULONG REGARGS readRegL(volatile UBYTE *regbase, UWORD reg)

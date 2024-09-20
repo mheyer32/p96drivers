@@ -204,6 +204,15 @@ static inline ULONG REGARGS readATIRegisterL(volatile UBYTE *regbase, UWORD regI
     return value;
 }
 
+static inline ULONG REGARGS readATIRegisterAndMaskL(volatile UBYTE *regbase, UWORD regIndex, ULONG mask, const char *regName)
+{
+    ULONG value = swapl(readRegL(regbase, DWORD_OFFSET(regIndex)) & swapl(mask));
+    D(VERBOSE, "R %s -> 0x%08lx\n", regName, (LONG)value);
+
+    return value;
+}
+
+
 static inline void REGARGS writeATIRegisterMaskB(volatile UBYTE *regbase, UWORD regIndex, UWORD byteIndex, UBYTE mask,
                                                  UBYTE value, const char *regName)
 {
@@ -230,15 +239,22 @@ static inline void REGARGS writeATIRegisterL(volatile UBYTE *regbase, UWORD regI
 static inline void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, UWORD regIndex, ULONG mask, ULONG value,
                                                  const char *regName)
 {
-    ULONG regValue = readATIRegisterL(regbase, regIndex, regName);
+    ULONG regValue = readRegLNoSwap(regbase, DWORD_OFFSET(regIndex));
+    D(VERBOSE, "R %s -> 0x%08lx\n", regName, (LONG)swapl(regValue));
+
+    mask = swapl(mask);
+    value = swapl(value);
     regValue       = (regValue & ~mask) | (mask & value);
-    writeATIRegisterL(regbase, regIndex, regValue, regName);
+
+    D(VERBOSE, "W %s <- 0x%08lx\n", regName, (LONG)swapl(regValue));
+    writeRegLNoSwap(regbase, DWORD_OFFSET(regIndex), regValue);
 }
 
 // FIXME reusing the same function for IO and MMIO shouldn't work because MMIOREGISTER_OFFSET and REGISTER_OFFSET might
 // be different, but in practise they aren't. Refactor the code.
 #define R_BLKIO_B(regIndex, byteIndex)        readATIRegisterB(RegBase, regIndex, byteIndex, #regIndex)
 #define R_BLKIO_L(regIndex)                   readATIRegisterL(RegBase, regIndex, #regIndex)
+#define R_BLKIO_AND_L(regIndex, mask)        readATIRegisterAndMaskL(RegBase, regIndex, mask, #regIndex)
 #define W_BLKIO_B(regIndex, byteIndex, value) writeATIRegisterB(RegBase, regIndex, byteIndex, value, #regIndex)
 #define W_BLKIO_MASK_B(regIndex, byteIndex, mask, value) \
     writeATIRegisterMaskB(RegBase, regIndex, byteIndex, mask, value, #regIndex)
