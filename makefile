@@ -30,7 +30,7 @@ ifeq ($(DEBUG),1)
 	LIBS += -ldebug
     BUILDFLAGS += -O0
 else
-    BUILDFLAGS += -O3
+    BUILDFLAGS += -O3 -mregparm=4
 endif
 
 ###############################################################################
