@@ -512,5 +512,22 @@ static inline UBYTE getBPP(RGBFTYPE format)
 BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
 
+// Apparently the mix modes can be shared between S3 cards and ATI Mach64
+#define MIX_NOT_CURRENT 0b0000
+#define MIX_ZERO 0b0001
+#define MIX_ONE 0b0010
+#define MIX_CURRENT 0b0011
+#define MIX_NOT_NEW 0b0100
+#define MIX_CURRENT_XOR_NEW 0b0101
+#define MIX_NOT_CURRENT_XOR_NEW 0b0110
+#define MIX_NEW 0b0111
+#define MIX_NOT_CURRENT_OR_NOT_NEW 0b1000
+#define MIX_CURRENT_OR_NOT_NEW 0b1001
+#define MIX_NOT_CURRENT_OR_NEW 0b1010
+#define MIX_CURRENT_OR_NEW 0b1011
+#define MIX_CURRENT_AND_NEW 0b1100
+#define MIX_NOT_CURRENT_AND_NEW 0b1101
+#define MIX_CURRENT_AND_NOT_NEW 0b1110
+#define MIX_NOT_CURRENT_AND_NOT_NEW 0b1111
 
 #endif  // COMMON_H
