@@ -171,6 +171,11 @@ static inline struct ChipData *getChipData(struct BoardInfo *bi)
     return (struct ChipData *)&bi->ChipData[0];
 }
 
+static inline const struct ChipData *getConstChipData(const struct BoardInfo *bi)
+{
+    return (const struct ChipData *)&bi->ChipData[0];
+}
+
 static INLINE REGARGS volatile UBYTE *getLegacyBase(const struct BoardInfo *bi)
 {
     return bi->RegisterBase;
