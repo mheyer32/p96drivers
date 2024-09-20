@@ -249,9 +249,9 @@ void WritePLL(struct BoardInfo *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllD
     DFUNC(8, "pllAddr: %d, pllDataMask: 0x%02X, pllData: 0x%02X\n", (ULONG)pllAddr, (ULONG)pllDataMask, (ULONG)pllData);
 
     // FIXME: its possible older Mach chips want 8bit access here
-    ULONG oldClockCntl = R_BLKIO_L(CLOCK_CNTL);
-    ULONG clockCntl = oldClockCntl & ~(PLL_ADDR_MASK | PLL_DATA_MASK | PLL_WR_ENABLE_MASK);  // Clear PLL_ADDR, PLL_DATA
+    ULONG oldClockCntl = R_BLKIO_AND_L(CLOCK_CNTL, ~(PLL_ADDR_MASK | PLL_DATA_MASK | PLL_WR_ENABLE_MASK));
 
+    ULONG clockCntl = oldClockCntl;
     // Set PLL Adress
     clockCntl |= PLL_ADDR(pllAddr);
     W_BLKIO_L(CLOCK_CNTL, clockCntl);
@@ -273,9 +273,7 @@ UBYTE ReadPLL(struct BoardInfo *bi, UBYTE pllAddr)
     DFUNC(8, "ReadPLL: pllAddr: %d\n", (ULONG)pllAddr);
 
     // FIXME: its possible older Mach chips want 8bit access here
-    ULONG oldClockCntl = R_BLKIO_L(CLOCK_CNTL);
-    ULONG clockCntl =
-        oldClockCntl & ~(PLL_ADDR_MASK | PLL_DATA_MASK | PLL_WR_ENABLE_MASK);  // Clear PLL_ADDR, PLL_DATA, PLL_WR_EN
+    ULONG clockCntl = R_BLKIO_AND_L(CLOCK_CNTL, ~(PLL_ADDR_MASK | PLL_DATA_MASK | PLL_WR_ENABLE_MASK));
 
     // Set PLL Adress
     clockCntl |= PLL_ADDR(pllAddr);
@@ -340,7 +338,7 @@ static ULONG computeFrequencyKhz10(UWORD R, UWORD N, UWORD M, UBYTE Plog2)
 
 static ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues)
 {
-    ChipData_t *cd = getChipData(bi);
+    const ChipData_t *cd = getConstChipData(bi);
     return computeFrequencyKhz10(cd->referenceFrequency, pllValues->N, cd->referenceDivider, pllValues->Plog2);
 }
 
@@ -348,8 +346,8 @@ static ULONG computePLLValues(const BoardInfo_t *bi, ULONG targetFrequency, PLLV
 {
     DFUNC(VERBOSE, "bi %lx, targetFrequency: %ld0 KHz, pllValues %p \n", bi, targetFrequency, pllValues);
 
-    UWORD R = getChipData(bi)->referenceFrequency;
-    UWORD M = getChipData(bi)->referenceDivider;
+    UWORD R = getConstChipData(bi)->referenceFrequency;
+    UWORD M = getConstChipData(bi)->referenceDivider;
 
     ULONG Qtimes2 = (targetFrequency * M + R - 1) / R;
     if (Qtimes2 >= 511)
@@ -951,6 +949,8 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct Mod
 #define VCLK2_POST(x)     (((x) & 3) << 4)
 #define VCLK3_POST_MASK   (0x3 << 6)
 #define VCLK3_POST(x)     (((x) & 3) << 6)
+#define DCLK_BY2_EN       BIT(7)
+#define DCLK_BY2_EN_MASK  BIT(7)
 
 static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 {
@@ -979,7 +979,7 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 
     // Select PLLVCLK as VCLK source
     WRITE_PLL_MASK(PLL_VCLK_CNTL, (PLL_PRESET_MASK | VCLK_SRC_SEL_MASK), VCLK_SRC_SEL(0b11) | PLL_PRESET);
-    // Write the new PLL values
+    WRITE_PLL_MASK(PLL_FCP_CNTL, DCLK_BY2_EN_MASK, 0);
     WRITE_PLL(PLL_VCLK0_FB_DIV, mi->pll1.Numerator);
     WRITE_PLL_MASK(PLL_VCLK_POST_DIV, VCLK0_POST_MASK, VCLK0_POST(mi->pll2.Denominator));
 
