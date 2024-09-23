@@ -1576,6 +1576,56 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
     drawRect(bi, dstX, dstY, width, height);
 }
 
+static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD srcX),
+                         __REGD1(WORD srcY), __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
+                         __REGD5(WORD height), __REGD6(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE,
+          "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
+          "h %ld\nmask 0x%lx fmt %ld\n"
+          "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+          (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt,
+          (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
+
+    //FIXME: optimize into one function
+    setDstBuffer(bi, ri, fmt);
+    setSrcBuffer(bi, ri, fmt);
+
+    MMIOBASE();
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != BLITRECT) {
+        cd->GEOp = BLITRECT;
+        cd->GEdrawMode = 0xFF;  // invalidate minterm cache
+
+        waitFifo(bi, 2);
+
+        W_MMIO_L(DP_SRC, DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_BLIT_SRC) | DP_MONO_SRC(MONO_SRC_ONE));
+        W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(MIX_NEW));
+    }
+
+    setWriteMask(bi, mask, fmt, 3);
+
+    ULONG dir = DST_X_DIR | DST_Y_DIR; // left-to-right, top-to-bottom
+    if (dstX > srcX) {
+        dir &= ~DST_X_DIR;
+        srcX = srcX + width - 1;
+        dstX = dstX + width - 1;
+    }
+    if (dstY > srcY) {
+        dir &= ~DST_Y_DIR;
+        srcY = srcY + height - 1;
+        dstY = dstY + height - 1;
+    }
+
+    W_MMIO_L(GUI_TRAJ_CNTL, dir);
+
+    W_MMIO_L(SRC_Y_X, SRC_Y(srcY) | SRC_X(srcX));
+    W_MMIO_L(SRC_HEIGHT1_WIDTH1, SRC_HEIGHT1(height) | SRC_WIDTH1(width));
+
+    drawRect(bi, dstX, dstY, width, height);
+}
 
 static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
@@ -1643,7 +1693,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     // // Blitter acceleration
     bi->WaitBlitter = WaitBlitter;
-    // bi->BlitRect = BlitRect;
+    bi->BlitRect = BlitRect;
     bi->InvertRect = InvertRect;
     bi->FillRect = FillRect;
     // bi->BlitTemplate = BlitTemplate;
