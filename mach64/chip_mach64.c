@@ -1262,7 +1262,7 @@ static inline ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
 #define DP_HOST_PIX_WIDTH(x)   ((x) << 16)
 #define DP_HOST_PIX_WIDTH_MASK (0x7 << 16)
 
-static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *ri)
+static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *ri, RGBFTYPE format)
 {
     ChipData_t *cd = getChipData(bi);
 
@@ -1270,7 +1270,7 @@ static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *r
         return TRUE;
     }
     cd->dstBuffer = *ri;
-    UBYTE bpp     = getBPP(ri->RGBFormat);
+    UBYTE bpp     = getBPP(format);
 
     waitFifo(bi, 2);
 
@@ -1281,12 +1281,45 @@ static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *r
     W_MMIO_L(DST_OFF_PITCH, DST_OFFSET(getMemoryOffset(bi, ri->Memory) / 8) | DST_PITCH((ri->BytesPerRow / bpp) / 8));
 
     UBYTE dstPixWidth = COLOR_DEPTH_8;
-    if (ri->RGBFormat != RGBFB_CLUT && ri->RGBFormat != RGBFB_B8G8R8 && ri->RGBFormat != RGBFB_R8G8B8) {
-        dstPixWidth = g_bitWidths[ri->RGBFormat];
+    if (format != RGBFB_CLUT && format != RGBFB_B8G8R8 && format != RGBFB_R8G8B8) {
+        dstPixWidth = g_bitWidths[format];
     }
 
-    W_MMIO_MASK_L(DP_PIX_WIDTH, DP_DST_PIX_WIDTH_MASK | DP_SRC_PIX_WIDTH_MASK | DP_HOST_PIX_WIDTH_MASK,
-                  DP_DST_PIX_WIDTH(dstPixWidth) | DP_SRC_PIX_WIDTH(dstPixWidth) | DP_HOST_PIX_WIDTH(dstPixWidth));
+    W_MMIO_MASK_L(DP_PIX_WIDTH, DP_DST_PIX_WIDTH_MASK, DP_DST_PIX_WIDTH(dstPixWidth));
+
+    return TRUE;
+}
+
+
+#define SRC_OFFSET(x)   (x)
+#define SRC_OFFSET_MASK (0xFFFFF)
+#define SRC_PITCH(x)    ((x) << 22)
+#define SRC_PITCH_MASK  (0x3FF << 22)
+
+static inline BOOL setSrcBuffer(struct BoardInfo *bi, const struct RenderInfo *ri, RGBFTYPE format)
+{
+    ChipData_t *cd = getChipData(bi);
+
+    // if (memcmp(ri, &cd->srcBuffer, sizeof(struct RenderInfo)) == 0) {
+    //     return TRUE;
+    // }
+    // cd->dstBuffer = *ri;
+    UBYTE bpp     = getBPP(format);
+
+    waitFifo(bi, 2);
+
+    MMIOBASE();
+
+    // Offset is in unite of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'
+    // So convert BytesPerRow for
+    W_MMIO_L(SRC_OFF_PITCH, SRC_OFFSET(getMemoryOffset(bi, ri->Memory) / 8) | SRC_PITCH((ri->BytesPerRow / bpp) / 8));
+
+    UBYTE srcPixWidth = COLOR_DEPTH_8;
+    if (format != RGBFB_CLUT && format != RGBFB_B8G8R8 && format != RGBFB_R8G8B8) {
+        srcPixWidth = g_bitWidths[format];
+    }
+
+    W_MMIO_MASK_L(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH_MASK, DP_SRC_PIX_WIDTH(srcPixWidth));
 
     return TRUE;
 }
@@ -1331,7 +1364,7 @@ static inline ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 #define DP_FRGD_MIX_MASK    (0x1F << 16)
 
 #define DST_X(x)   ((x) << 16)
-#define DST_X_MASK (0x7FFF < 16)
+#define DST_X_MASK (0x1FFF < 16)
 #define DST_Y(y)   (y)
 #define DST_Y_MASK (0x7FFF)
 
@@ -1371,8 +1404,7 @@ static inline ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 #define SC_BOTTOM(x)   ((x) << 16)
 #define SC_BOTTOM_MASK (0x7FFF << 16)
 
-static void drawRect(__REGA0(struct BoardInfo *bi), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
-                     __REGD3(WORD height))
+static void drawRect(struct BoardInfo *bi, WORD x, WORD y, WORD width, WORD height)
 {
     MMIOBASE();
     waitFifo(bi, 2);
@@ -1390,7 +1422,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)pen, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
           (ULONG)ri->Memory);
 
-    setDstBuffer(bi, ri);
+    setDstBuffer(bi, ri, fmt);
 
     ChipData_t *cd = getChipData(bi);
 
@@ -1433,7 +1465,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
           (ULONG)ri->Memory);
 
-    setDstBuffer(bi, ri);
+    setDstBuffer(bi, ri, fmt);
 
     ChipData_t *cd = getChipData(bi);
 
@@ -1454,6 +1486,96 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
 
     drawRect(bi, x, y, width, height);
 }
+
+
+const static UWORD minTermToMix[16] = {
+    MIX_ZERO,                     // 0000
+    MIX_NOT_CURRENT_AND_NOT_NEW,  // 0001  (!dst ^ !src)
+    MIX_CURRENT_AND_NOT_NEW,      // 0010  (dst ^ !src)
+    MIX_NOT_NEW,                  // 0011  (!dst ^ !src) v (dst ^ !src)
+    MIX_NOT_CURRENT_AND_NEW,      // 0100  (!dst ^ src)
+    MIX_NOT_CURRENT,              // 0101  (!dst ^ src) v (!dst ^ !src)
+    MIX_CURRENT_XOR_NEW,          // 0110  (!dst ^ src) v (dst ^ !src)
+    MIX_NOT_CURRENT_AND_NOT_NEW,  // 0111  (!dst ^ src) v (dst ^ !src) v (!dst ^ !src)
+    MIX_CURRENT_AND_NEW,          // 1000  (dst ^ src)
+    MIX_NOT_CURRENT_XOR_NEW,      // 1001  (!dst ^ !src) v (dst ^ src)
+    MIX_CURRENT,                  // 1010  (dst ^ src) v (dst ^ !src)
+    MIX_CURRENT_OR_NOT_NEW,       // 1011  (dst ^ src) v (dst ^ !src) v (!dst ^ !src)
+    MIX_NEW,                      // 1100  (dst ^ src) v (!dst ^ src)
+    MIX_NOT_CURRENT_OR_NEW,       // 1101  (dst ^ src) v (!dst ^ src) v (!dst ^ !src)
+    MIX_CURRENT_OR_NEW,           // 1110  (dst ^ src) v (!dst ^ src) v (dst ^ !src)
+    MIX_ONE,                      // 1111  (!dst ^ !src) v (dst ^ !src) v (!dst ^ src) v (dst ^ src)
+};
+
+#define SRC_X(x)   ((x) << 16)
+#define SRC_X_MASK (0x1FFF < 16)
+#define SRC_Y(y)   (y)
+#define SRC_Y_MASK (0x7FFF)
+
+#define SRC_WIDTH1(x)    ((x) << 16)
+#define SRC_WIDTH1_MASK  (0x1FFF < 16)
+#define SRC_HEIGHT1(y)   (y)
+#define SRC_HEIGHT1_MASK (0x7FFF)
+
+static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri),
+                                      __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY),
+                                      __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
+                                      __REGD5(WORD height), __REGD6(UBYTE opCode), __REGD7(RGBFTYPE format))
+{
+    DFUNC(VERBOSE,
+          "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
+          "h %ld\nminTerm 0x%lx fmt %ld\n"
+          "sri->bytesPerRow %ld, sri->memory 0x%lx\n",
+          (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)opCode, (ULONG)format,
+          (ULONG)sri->BytesPerRow, (ULONG)sri->Memory);
+
+    setDstBuffer(bi, dri, format);
+    setSrcBuffer(bi, sri, format);
+
+    MMIOBASE();
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
+        cd->GEOp = BLITRECTNOMASKCOMPLETE;
+        cd->GEmask = 0xFF;
+        cd->GEdrawMode = 0xFF;  // invalidate minterm cache
+
+        waitFifo(bi, 2);
+
+        W_MMIO_L(DP_WRITE_MSK, 0xFFFFFFFF);
+        W_MMIO_L(DP_SRC, DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_BLIT_SRC) | DP_MONO_SRC(MONO_SRC_ONE));
+    }
+
+    if (cd->GEdrawMode != opCode) {
+        cd->GEdrawMode = opCode;
+
+        waitFifo(bi, 1);
+        W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(minTermToMix[opCode]));
+    }
+
+    waitFifo(bi, 3);
+
+    ULONG dir = DST_X_DIR | DST_Y_DIR; // left-to-right, top-to-bottom
+    if (dstX > srcX) {
+        dir &= ~DST_X_DIR;
+        srcX = srcX + width - 1;
+        dstX = dstX + width - 1;
+    }
+    if (dstY > srcY) {
+        dir &= ~DST_Y_DIR;
+        srcY = srcY + height - 1;
+        dstY = dstY + height - 1;
+    }
+
+    W_MMIO_L(GUI_TRAJ_CNTL, dir);
+
+    W_MMIO_L(SRC_Y_X, SRC_Y(srcY) | SRC_X(srcX));
+    W_MMIO_L(SRC_HEIGHT1_WIDTH1, SRC_HEIGHT1(height) | SRC_WIDTH1(width));
+
+    drawRect(bi, dstX, dstY, width, height);
+}
+
 
 static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
@@ -1526,7 +1648,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->FillRect = FillRect;
     // bi->BlitTemplate = BlitTemplate;
     // bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
-    // bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
+    bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
     // bi->DrawLine = DrawLine;
     // bi->BlitPattern = BlitPattern;
 

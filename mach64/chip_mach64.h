@@ -22,7 +22,6 @@ typedef struct PLLValue
 typedef struct ChipData
 {
     RGBFTYPE MemFormat;  // programmed memory layout/format
-                         //  struct Library *DOSBase;
     BlitterOp_t GEOp;    // programmed graphics engine setup
     ULONG GEfgPen;
     ULONG GEbgPen;
@@ -202,17 +201,17 @@ typedef struct MaxColorDepthTableEntry
 #define DST_CNTL         0x4C
 
 #define SRC_OFF_PITCH      0x60
-#define SRC_X              0x61
-#define SRC_Y              0x62
+// #define SRC_X              0x61
+// #define SRC_Y              0x62
 #define SRC_Y_X            0x63
-#define SRC_WIDTH1         0x64
-#define SRC_HEIGHT1        0x65
+// #define SRC_WIDTH1         0x64
+// #define SRC_HEIGHT1        0x65
 #define SRC_HEIGHT1_WIDTH1 0x66
-#define SRC_X_START        0x67
-#define SRC_Y_START        0x68
-#define SRC_Y_X_START      0x69
-#define SRC_WIDTH2         0x6A
-#define SRC_HEIGHT2        0x6B
+// #define SRC_X_START        0x67
+// #define SRC_Y_START        0x68
+ #define SRC_Y_X_START      0x69
+// #define SRC_WIDTH2         0x6A
+// #define SRC_HEIGHT2        0x6B
 #define SRC_HEIGHT2_WIDTH2 0x6C
 #define SRC_CNTL           0x6D
 
