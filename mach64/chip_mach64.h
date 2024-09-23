@@ -187,11 +187,13 @@ typedef struct MaxColorDepthTableEntry
 #define BUS_HOST_ERR_INT    BIT(23)
 #define BUS_HOST_ERR_AK     BIT(23)  // INT and ACK are the same bit, distiguished by R/W operation
 
+
+
 static inline UBYTE REGARGS readATIRegisterB(volatile UBYTE *regbase, UWORD regIndex, UWORD byteIndex,
                                              const char *regName)
 {
     UBYTE value = readReg(regbase, DWORD_OFFSET(regIndex) + byteIndex);
-    D(10, "R %s_%ld -> 0x%02lx\n", regName, (LONG)byteIndex, (LONG)value);
+    D(VERBOSE, "R %s_%ld -> 0x%02lx\n", regName, (LONG)byteIndex, (LONG)value);
 
     return value;
 }
@@ -199,7 +201,7 @@ static inline UBYTE REGARGS readATIRegisterB(volatile UBYTE *regbase, UWORD regI
 static inline ULONG REGARGS readATIRegisterL(volatile UBYTE *regbase, UWORD regIndex, const char *regName)
 {
     ULONG value = readRegL(regbase, DWORD_OFFSET(regIndex));
-    D(10, "R %s -> 0x%08lx\n", regName, (LONG)value);
+    D(VERBOSE, "R %s -> 0x%08lx\n", regName, (LONG)value);
 
     return value;
 }
@@ -219,20 +221,20 @@ static inline void REGARGS writeATIRegisterMaskB(volatile UBYTE *regbase, UWORD 
     UBYTE regValue = readReg(regbase, DWORD_OFFSET(regIndex) + byteIndex);
     regValue &= ~mask;
     regValue |= value & mask;
-    D(10, "W %s_%ld <- 0x%02lx\n", regName, (LONG)byteIndex, (LONG)value);
+    D(VERBOSE, "W %s_%ld <- 0x%02lx\n", regName, (LONG)byteIndex, (LONG)value);
     writeReg(regbase, DWORD_OFFSET(regIndex) + byteIndex, regValue);
 }
 
 static inline void REGARGS writeATIRegisterB(volatile UBYTE *regbase, UWORD regIndex, UWORD byteIndex, UBYTE value,
                                              const char *regName)
 {
-    D(10, "W %s_%ld <- 0x%02lx\n", regName, (LONG)byteIndex, (LONG)value);
+    D(VERBOSE, "W %s_%ld <- 0x%02lx\n", regName, (LONG)byteIndex, (LONG)value);
     writeReg(regbase, DWORD_OFFSET(regIndex) + byteIndex, value);
 }
 
 static inline void REGARGS writeATIRegisterL(volatile UBYTE *regbase, UWORD regIndex, ULONG value, const char *regName)
 {
-    D(10, "W %s <- 0x%08lx\n", regName, (LONG)value);
+    D(VERBOSE, "W %s <- 0x%08lx\n", regName, (LONG)value);
     writeRegL(regbase, DWORD_OFFSET(regIndex), value);
 }
 
@@ -263,7 +265,9 @@ static inline void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, UWORD 
 
 #undef R_MMIO_L
 #undef W_MMIO_L
+#undef W_MMIO_MASK_L
 #define R_MMIO_L(regIndex)        readATIRegisterL(MMIOBase, regIndex, #regIndex)
 #define W_MMIO_L(regIndex, value) writeATIRegisterL(MMIOBase, regIndex, value, #regIndex)
+#define W_MMIO_MASK_L(regIndex, mask, value) writeATIRegisterMaskL(MMIOBase, regIndex, mask, value, #regIndex)
 
 #endif
