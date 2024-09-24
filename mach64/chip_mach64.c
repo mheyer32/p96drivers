@@ -1261,6 +1261,13 @@ static inline ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
 #define DP_SRC_PIX_WIDTH_MASK  (0x7 << 8)
 #define DP_HOST_PIX_WIDTH(x)   ((x) << 16)
 #define DP_HOST_PIX_WIDTH_MASK (0x7 << 16)
+#define DP_BYTE_PIX_ORDER      BIT(24)
+#define DP_BYTE_PIX_ORDER_MASK BIT(24)
+
+// #define HOST_BIG_ENDIAN      BIT(1)
+// #define HOST_BIG_ENDIAN_MASK BIT(1)
+// #define HOST_BYTE_ALIGN      BIT(0)
+// #define HOST_BYTE_ALIGN_MASK BIT(0)
 
 static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *ri, RGBFTYPE format)
 {
@@ -1276,16 +1283,18 @@ static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *r
 
     MMIOBASE();
 
+    UWORD dstWidth = ri->BytesPerRow / bpp;
     // Offset is in unite of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'
     // So convert BytesPerRow for
-    W_MMIO_L(DST_OFF_PITCH, DST_OFFSET(getMemoryOffset(bi, ri->Memory) / 8) | DST_PITCH((ri->BytesPerRow / bpp) / 8));
+    W_MMIO_L(DST_OFF_PITCH, DST_OFFSET(getMemoryOffset(bi, ri->Memory) / 8) | DST_PITCH(dstWidth / 8));
 
     UBYTE dstPixWidth = COLOR_DEPTH_8;
     if (format != RGBFB_CLUT && format != RGBFB_B8G8R8 && format != RGBFB_R8G8B8) {
         dstPixWidth = g_bitWidths[format];
     }
 
-    W_MMIO_MASK_L(DP_PIX_WIDTH, DP_DST_PIX_WIDTH_MASK, DP_DST_PIX_WIDTH(dstPixWidth));
+    W_MMIO_MASK_L(DP_PIX_WIDTH, DP_DST_PIX_WIDTH_MASK | DP_HOST_PIX_WIDTH_MASK,
+                  DP_DST_PIX_WIDTH(dstPixWidth) | DP_HOST_PIX_WIDTH(COLOR_DEPTH_1));
 
     return TRUE;
 }
@@ -1435,7 +1444,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
         W_MMIO_L(DP_SRC, DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_ONE));
         W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(MIX_NEW));
-        W_MMIO_L(GUI_TRAJ_CNTL, DST_X_DIR | DST_Y_DIR | DST_LAST_PEL);
+        W_MMIO_L(GUI_TRAJ_CNTL, DST_X_DIR | DST_Y_DIR);
     }
 
     if (cd->GEfgPen != pen) {
@@ -1627,6 +1636,151 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     drawRect(bi, dstX, dstY, width, height);
 }
 
+
+static inline void REGARGS drawModeToMixMode(UBYTE drawMode, UWORD *frgdMix, UWORD *bkgdMix)
+{
+    UWORD writeMode = (drawMode & COMPLEMENT) ? MIX_NOT_CURRENT : MIX_NEW;
+    UWORD f, g;
+    switch (drawMode & 1) {
+    case JAM1:
+        f = writeMode;
+        g = MIX_CURRENT;
+        break;
+    case JAM2:
+        f = writeMode;
+        g = writeMode;
+        break;
+    }
+    f |= CLR_SRC_FRGD_COLOR;
+    g |= CLR_SRC_BKGD_COLOR;
+    if (drawMode & INVERSVID) {
+        UWORD t = f;
+        f = g;
+        g = t;
+    }
+    *frgdMix = f;
+    *bkgdMix = g;
+}
+
+static inline void REGARGS setDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format)
+{
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEfgPen != FgPen || cd->GEbgPen != BgPen || cd->GEdrawMode != DrawMode) {
+        cd->GEfgPen = FgPen;
+        cd->GEbgPen = BgPen;
+        cd->GEdrawMode = DrawMode;
+
+        UWORD frgdMix, bkgdMix;
+        drawModeToMixMode(DrawMode, &frgdMix, &bkgdMix);
+        ULONG fgPen = penToColor(FgPen, format);
+        ULONG bgPen = penToColor(BgPen, format);
+
+        waitFifo(bi, 3);
+
+        MMIOBASE();
+        W_MMIO_L(DP_FRGD_CLR, fgPen);
+        W_MMIO_L(DP_BKGD_CLR, bgPen);
+
+        W_MMIO_L(DP_MIX, DP_BKGD_MIX(bkgdMix) | DP_FRGD_MIX(frgdMix));
+    }
+}
+
+ULONG reverseLong(ULONG x)
+{
+    // reverse the bits in the word
+    x = ((x & 0xFFFF0000) >> 16) | ((x & 0x0000FFFF) << 16);
+    x = ((x & 0xFF00FF00) >> 8) | ((x & 0x00FF00FF) << 8);
+    x = ((x & 0xF0F0F0F0) >> 4) | ((x & 0x0F0F0F0F) << 4);
+    x = ((x & 0xCCCCCCCC) >> 2) | ((x & 0x33333333) << 2);
+    x = ((x & 0xAAAAAAAA) >> 1) | ((x & 0x55555555) << 1);
+
+    return x;
+}
+
+static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
+                             __REGA2(struct Template *template), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
+                             __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE,
+          "\nx %ld, y %ld, w %ld, h %ld\nmask 0x%lx fmt %ld\n"
+          "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+          (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
+          (ULONG)ri->Memory);
+
+    setDstBuffer(bi, ri, fmt);
+
+    MMIOBASE();
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != BLITTEMPLATE) {
+        cd->GEOp = BLITTEMPLATE;
+
+        // Invalidate the pen and drawmode caches
+        cd->GEdrawMode = 0xFF;
+
+        waitFifo(bi, 2);
+
+        W_MMIO_L(DP_SRC,
+                 DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_HOST_DATA) );
+        W_MMIO_L(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
+    }
+
+    setDrawMode(bi, template->FgPen, template->BgPen, template->DrawMode, fmt);
+    setWriteMask(bi, mask, fmt, 0);
+
+    waitFifo(bi, 1);
+    W_MMIO_L(SC_LEFT_RIGHT, SC_RIGHT(width + x - 1));
+
+    drawRect(bi, x, y, (width + 31) & ~31, height);
+
+    waitFifo(bi, 16);
+    // FIXME: there's no promise that template->Memory and template->BytesPerRow
+    // are 32bit aligned. This might either be slower than it could be on 030+ or
+    // just crashing on 68k.
+
+    UWORD hostDataReg = 0;
+
+    const UBYTE *bitmap = (const UBYTE *)template->Memory;
+    bitmap += (template->XOffset / 32) * 4;
+    UWORD dwordsPerLine = (width + 31) / 32;
+    UBYTE rol           = template->XOffset % 32;
+    WORD bitmapPitch    = template->BytesPerRow;
+    if (!rol) {
+        for (UWORD y = 0; y < height; ++y) {
+            for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                W_MMIO_L(HOST_DATA0 + hostDataReg, swapl(((const ULONG *)bitmap)[x]));
+                hostDataReg = (hostDataReg + 1) & 15;
+                if (!hostDataReg)
+                {
+                    waitFifo(bi, 16);
+                }
+            }
+            bitmap += bitmapPitch;
+        }
+    } else {
+        for (UWORD y = 0; y < height; ++y) {
+            for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                ULONG left  = ((const ULONG *)bitmap)[x] << rol;
+                ULONG right = ((const ULONG *)bitmap)[x + 1] >> (32 - rol);
+                waitFifo(bi, 1);
+                W_MMIO_L(HOST_DATA0+hostDataReg, swapl((left | right)));
+                hostDataReg = (hostDataReg + 1) & 15;
+                if (!hostDataReg)
+                {
+                    waitFifo(bi, 16);
+                }
+            }
+            bitmap += bitmapPitch;
+        }
+    }
+
+    waitFifo(bi, 1);
+    // reset right scissor
+    W_MMIO_L(SC_LEFT_RIGHT, ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK));
+}
+
 static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
     D(CHATTY, "Waiting for blitter...");
@@ -1696,7 +1850,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->BlitRect = BlitRect;
     bi->InvertRect = InvertRect;
     bi->FillRect = FillRect;
-    // bi->BlitTemplate = BlitTemplate;
+    bi->BlitTemplate = BlitTemplate;
     // bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
     bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
     // bi->DrawLine = DrawLine;
