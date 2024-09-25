@@ -150,7 +150,7 @@ typedef struct MaxColorDepthTableEntry
     UBYTE DUMMY;
 } MaxColorDepthTableEntry_t;
 
-#define DWORD_OFFSET(x) (x * 4)
+#define DWORD_OFFSET(x) ((x) * 4)
 
 #define SCRATCH_REG0   (0x20)
 #define SCRATCH_REG1   (0x21)
