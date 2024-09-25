@@ -1723,7 +1723,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         waitFifo(bi, 2);
 
         W_MMIO_L(DP_SRC,
-                 DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_HOST_DATA) );
+                 DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_HOST_DATA));
         W_MMIO_L(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
     }
 
@@ -1731,54 +1731,47 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     setWriteMask(bi, mask, fmt, 0);
 
     waitFifo(bi, 1);
-    W_MMIO_L(SC_LEFT_RIGHT, SC_RIGHT(width + x - 1));
 
-    drawRect(bi, x, y, (width + 31) & ~31, height);
+    // 0 <= XOffset <= 15
+    UWORD blitWidth = (width + template->XOffset + 31) & ~31;
 
-    waitFifo(bi, 16);
-    // FIXME: there's no promise that template->Memory and template->BytesPerRow
-    // are 32bit aligned. This might either be slower than it could be on 030+ or
-    // just crashing on 68k.
+    // Since we feed the monochrome expansion in units of 32bit (i.e. 32 pixels width),
+    // we need to align the width to the next 32bit boundary. To make that padding not get rendered, use
+    // the right scissor. And since we're setting the scissor anyways, we might as well set the left side
+    // and spare ourselves the CPU work to "left-rotate" the template bits.
+    W_MMIO_L(SC_LEFT_RIGHT, SC_RIGHT(width + x - 1) | SC_LEFT(x));
+    drawRect(bi, x - template->XOffset, y, blitWidth, height);
 
-    UWORD hostDataReg = 0;
+    UWORD dwordsPerLine = blitWidth / 32;
+
+    UWORD numFifoSlots = dwordsPerLine * height;
+    if (numFifoSlots > 16) {
+        numFifoSlots = 16;
+    }
+
+    waitFifo(bi, numFifoSlots);
+
+    UWORD hostDataReg = 16 - numFifoSlots;
 
     const UBYTE *bitmap = (const UBYTE *)template->Memory;
-    bitmap += (template->XOffset / 32) * 4;
-    UWORD dwordsPerLine = (width + 31) / 32;
-    UBYTE rol           = template->XOffset % 32;
     WORD bitmapPitch    = template->BytesPerRow;
-    if (!rol) {
-        for (UWORD y = 0; y < height; ++y) {
-            for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                W_MMIO_L(HOST_DATA0 + hostDataReg, swapl(((const ULONG *)bitmap)[x]));
-                hostDataReg = (hostDataReg + 1) & 15;
-                if (!hostDataReg)
-                {
-                    waitFifo(bi, 16);
-                }
+
+    for (UWORD y = 0; y < height; ++y) {
+        for (UWORD x = 0; x < dwordsPerLine; ++x) {
+
+            writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), ((const ULONG *)bitmap)[x]);
+
+            hostDataReg = (hostDataReg + 1) & 15;
+            if (!hostDataReg) {
+                waitFifo(bi, 16);
             }
-            bitmap += bitmapPitch;
         }
-    } else {
-        for (UWORD y = 0; y < height; ++y) {
-            for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                ULONG left  = ((const ULONG *)bitmap)[x] << rol;
-                ULONG right = ((const ULONG *)bitmap)[x + 1] >> (32 - rol);
-                waitFifo(bi, 1);
-                W_MMIO_L(HOST_DATA0+hostDataReg, swapl((left | right)));
-                hostDataReg = (hostDataReg + 1) & 15;
-                if (!hostDataReg)
-                {
-                    waitFifo(bi, 16);
-                }
-            }
-            bitmap += bitmapPitch;
-        }
+        bitmap += bitmapPitch;
     }
 
     waitFifo(bi, 1);
     // reset right scissor
-    W_MMIO_L(SC_LEFT_RIGHT, ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK));
+    W_MMIO_L(SC_LEFT_RIGHT, ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK) | SC_LEFT(0));
 }
 
 static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
