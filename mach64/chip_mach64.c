@@ -1780,6 +1780,152 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     W_MMIO_L(SC_LEFT_RIGHT, ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK) | SC_LEFT(0));
 }
 
+static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT dstX, SHORT dstY, SHORT width,
+                                                  SHORT height, UBYTE *bitmap, UWORD dwordsPerLine, WORD bmPitch,
+                                                  UBYTE rol)
+{
+    MMIOBASE();
+
+    if ((ULONG)bitmap == 0x00000000) {
+        waitFifo(bi, 3);
+        W_MMIO_L(DP_SRC, DP_FRGD_SRC(CLR_SRC_BKGD_COLOR) | DP_BKGD_SRC(CLR_SRC_FRGD_COLOR) |
+                             DP_MONO_SRC(MONO_SRC_ONE));  // Background color, 0x0
+        drawRect(bi, dstX, dstY, width, height);
+    } else if ((ULONG)bitmap == 0xFFFFFFFF) {
+        waitFifo(bi, 3);
+        W_MMIO_L(DP_SRC, DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) |
+                             DP_MONO_SRC(MONO_SRC_ONE));  // Forground color, 0xFF
+        drawRect(bi, dstX, dstY, width, height);
+    } else {
+        UWORD numFifoSlots = dwordsPerLine * height + 3;
+        if (numFifoSlots > 16) {
+            numFifoSlots = 16;
+        }
+        waitFifo(bi, numFifoSlots);
+
+        UWORD hostDataReg = 3;
+
+        // planar bitmap selects between 0x00 and 0xFF
+        W_MMIO_L(DP_SRC,
+                 DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_MONO_SRC(MONO_SRC_HOST_DATA));
+        drawRect(bi, dstX, dstY, width, height);
+
+        if (!rol) {
+            for (UWORD y = 0; y < height; ++y) {
+                for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), ((ULONG *)bitmap)[x]);
+
+                    hostDataReg = (hostDataReg + 1) & 15;
+                    if (!hostDataReg) {
+                        waitFifo(bi, 16);
+                    }
+                }
+                bitmap += bmPitch;
+            }
+        } else {
+            for (UWORD y = 0; y < height; ++y) {
+                for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                    ULONG left  = ((ULONG *)bitmap)[x] << rol;
+                    ULONG right = ((ULONG *)bitmap)[x + 1] >> (32 - rol);
+
+                    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), (left | right));
+
+                    hostDataReg = (hostDataReg + 1) & 15;
+                    if (!hostDataReg) {
+                        waitFifo(bi, 16);
+                    }
+                }
+                bitmap += bmPitch;
+            }
+        }
+    }
+}
+
+static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct BitMap *bm),
+                                  __REGA2(struct RenderInfo *ri), __REGD0(SHORT srcX), __REGD1(SHORT srcY),
+                                  __REGD2(SHORT dstX), __REGD3(SHORT dstY), __REGD4(SHORT width), __REGD5(SHORT height),
+                                  __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
+{
+    DFUNC(VERBOSE,
+          "\nsrcX %ld, srcY %ld, dstX %ld, dstY %ld, w %ld, h %ld"
+          "\nmask 0x%lx minTerm %ld\n"
+          "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+          (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)minTerm,
+          (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
+
+    MMIOBASE();
+
+    WORD bytesPerRow = ri->BytesPerRow;
+    // how many dwords per line in the source plane
+    UWORD numPlanarBytes = width / 8 * height * bm->Depth;
+    // UWORD projectedRegisterWriteBytes = (9 + 8 * 8) * 2;
+
+    // if ((projectedRegisterWriteBytes > numPlanarBytes) || !setCR50(bi, bytesPerRow, 1)) {
+    //     DFUNC(1, "fallback to BlitPlanar2ChunkyDefault\n");
+    //     bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
+    //     return;
+    // }
+
+    setDstBuffer(bi, ri, RGBFB_CLUT);
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != BLITPLANAR2CHUNKY) {
+        cd->GEOp = BLITPLANAR2CHUNKY;
+        // Invalidate the pen and drawmode caches
+        cd->GEdrawMode = 0xFF;
+        cd->GEmask = mask;
+        cd->GEfgPen = 0xFFFFFFFF;
+        cd->GEbgPen = 0x0;
+
+        waitFifo(bi, 3);
+        W_MMIO_L(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
+        W_MMIO_L(DP_FRGD_CLR, 0xFFFFFFFF);
+        W_MMIO_L(DP_BKGD_CLR, 0x0);
+    }
+
+    if (cd->GEdrawMode != minTerm) {
+        cd->GEdrawMode = minTerm;
+
+        waitFifo(bi, 1);
+        // Set the mix mode (minterm)
+        UWORD mixMode = minTermToMix[minTerm];
+        W_MMIO_L(DP_MIX, DP_BKGD_MIX(mixMode) | DP_FRGD_MIX(mixMode));
+    }
+
+    waitFifo(bi, 1);
+    // clip potential 32bit padding
+    W_MMIO_L(SC_LEFT_RIGHT, SC_RIGHT(dstX + width - 1) | SC_LEFT(dstX));
+    // pad up to 32bit
+    width = (width + 31) & ~31;
+
+    WORD bmPitch        = bm->BytesPerRow;
+    ULONG bmStartOffset = (srcY * bmPitch) + (srcX / 32) * 4;
+    UWORD dwordsPerLine = width / 32;
+    UBYTE rol           = srcX % 32;
+
+    for (short p = 0; p < 8; ++p) {
+        UBYTE writeMask = 1 << p;
+
+        if (!(mask & writeMask)) {
+            continue;
+        }
+
+        setWriteMask(bi, writeMask, RGBFB_CLUT, 0);
+
+        UBYTE *bitmap = (UBYTE *)bm->Planes[p];
+        if (bitmap != 0x0 && (ULONG)bitmap != 0xffffffff) {
+            bitmap += bmStartOffset;
+        }
+
+        performBlitPlanar2ChunkyBlits(bi, dstX, dstY, width, height, bitmap, dwordsPerLine, bmPitch, rol);
+    }
+
+    waitFifo(bi, 1);
+    // reset right scissor
+    W_MMIO_L(SC_LEFT_RIGHT, ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK) | SC_LEFT(0));
+}
+
 static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
     D(CHATTY, "Waiting for blitter...");
@@ -1845,12 +1991,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->SetSpriteColor    = SetSpriteColor;
 
     // // Blitter acceleration
-    bi->WaitBlitter = WaitBlitter;
-    bi->BlitRect = BlitRect;
-    bi->InvertRect = InvertRect;
-    bi->FillRect = FillRect;
-    bi->BlitTemplate = BlitTemplate;
-    // bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
+    bi->WaitBlitter            = WaitBlitter;
+    bi->BlitRect               = BlitRect;
+    bi->InvertRect             = InvertRect;
+    bi->FillRect               = FillRect;
+    bi->BlitTemplate           = BlitTemplate;
+    bi->BlitPlanar2Chunky      = BlitPlanar2Chunky;
     bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
     // bi->DrawLine = DrawLine;
     // bi->BlitPattern = BlitPattern;
