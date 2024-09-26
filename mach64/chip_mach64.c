@@ -1099,6 +1099,11 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xp
         spriteY = 0;
     }
 
+    // FIXME: what about BIB_DBLSCANDBLSPRITEY? Doesn't seem to do anything
+    if (bi->ModeInfo->Flags & GMF_DOUBLESCAN) {
+        spriteY *= 2;
+    }
+
     D(5, "SpritePos X: %ld 0x%lx, Y: %ld 0x%lx\n", (LONG)spriteX, (ULONG)spriteX, (LONG)spriteY, (ULONG)spriteY);
 
     ULONG memOffset = (ULONG)bi->MouseImageBuffer - (ULONG)bi->MemoryBase;
