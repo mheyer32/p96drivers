@@ -1505,7 +1505,7 @@ const static UWORD minTermToMix[16] = {
     MIX_NOT_CURRENT_AND_NEW,      // 0100  (!dst ^ src)
     MIX_NOT_CURRENT,              // 0101  (!dst ^ src) v (!dst ^ !src)
     MIX_CURRENT_XOR_NEW,          // 0110  (!dst ^ src) v (dst ^ !src)
-    MIX_NOT_CURRENT_AND_NOT_NEW,  // 0111  (!dst ^ src) v (dst ^ !src) v (!dst ^ !src)
+    MIX_NOT_CURRENT_OR_NOT_NEW,   // 0111  (!dst ^ src) v (dst ^ !src) v (!dst ^ !src)
     MIX_CURRENT_AND_NEW,          // 1000  (dst ^ src)
     MIX_NOT_CURRENT_XOR_NEW,      // 1001  (!dst ^ !src) v (dst ^ src)
     MIX_CURRENT,                  // 1010  (dst ^ src) v (dst ^ !src)

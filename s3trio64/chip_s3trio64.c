@@ -1820,6 +1820,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 }
 
 const static UWORD minTermToMix[16] = {
+                                  // MinTerm
     MIX_ZERO,                     // 0000
     MIX_NOT_CURRENT_AND_NOT_NEW,  // 0001  (!dst ^ !src)
     MIX_CURRENT_AND_NOT_NEW,      // 0010  (dst ^ !src)
@@ -1827,7 +1828,7 @@ const static UWORD minTermToMix[16] = {
     MIX_NOT_CURRENT_AND_NEW,      // 0100  (!dst ^ src)
     MIX_NOT_CURRENT,              // 0101  (!dst ^ src) v (!dst ^ !src)
     MIX_CURRENT_XOR_NEW,          // 0110  (!dst ^ src) v (dst ^ !src)
-    MIX_NOT_CURRENT_AND_NOT_NEW,  // 0111  (!dst ^ src) v (dst ^ !src) v (!dst ^ !src)
+    MIX_NOT_CURRENT_OR_NOT_NEW,   // 0111  (!dst ^ src) v (dst ^ !src) v (!dst ^ !src)
     MIX_CURRENT_AND_NEW,          // 1000  (dst ^ src)
     MIX_NOT_CURRENT_XOR_NEW,      // 1001  (!dst ^ !src) v (dst ^ src)
     MIX_CURRENT,                  // 1010  (dst ^ src) v (dst ^ !src)
