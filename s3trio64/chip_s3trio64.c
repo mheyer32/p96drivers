@@ -2248,6 +2248,10 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
 
         // Invalidate the pen and drawmode caches
         cd->GEdrawMode = 0xFF;
+
+        REGBASE();
+        W_IO_L(FRGD_COLOR, 0xFFFFFFFF);
+        W_IO_L(BKGD_COLOR, 0x00000000);
     }
 
     UWORD mixMode = minTermToMix[minTerm];
@@ -2260,10 +2264,6 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
 
         WaitFifo(bi, 10);
         setMix(bi, (CLR_SRC_FRGD_COLOR | mixMode), (CLR_SRC_BKGD_COLOR | mixMode));
-
-        REGBASE();
-        W_IO_L(FRGD_COLOR, 0xFFFFFFFF);
-        W_IO_L(BKGD_COLOR, 0x00000000);
     }
 
     // This could/should get chached as well
