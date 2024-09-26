@@ -1235,9 +1235,9 @@ static inline void REGARGS setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fm
 
             waitFifo(bi, waitFifoSlots + 1);
 
-            UWORD longMask = (mask << 8) | mask;
+            UWORD wordMask = (mask << 8) | mask;
 
-            W_MMIO_L(DP_WRITE_MSK, makeDWORD(longMask, longMask));
+            W_MMIO_L(DP_WRITE_MSK, makeDWORD(wordMask, wordMask));
         } else {
             waitFifo(bi, waitFifoSlots);
         }
@@ -1299,7 +1299,6 @@ static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *r
     return TRUE;
 }
 
-
 #define SRC_OFFSET(x)   (x)
 #define SRC_OFFSET_MASK (0xFFFFF)
 #define SRC_PITCH(x)    ((x) << 22)
@@ -1313,7 +1312,7 @@ static inline BOOL setSrcBuffer(struct BoardInfo *bi, const struct RenderInfo *r
     //     return TRUE;
     // }
     // cd->dstBuffer = *ri;
-    UBYTE bpp     = getBPP(format);
+    UBYTE bpp = getBPP(format);
 
     waitFifo(bi, 2);
 
@@ -1349,10 +1348,10 @@ static inline ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
     return pen;
 }
 
-#define DP_BKGD_SRC(x)      ((x))
+#define DP_BKGD_SRC(x)      (x)
 #define DP_BKGD_SRC_MASK(x) (0x7)
 #define DP_FRGD_SRC(x)      ((x) << 8)
-#define DP_FRGD_SRCMASK(x)  ((0x7) << 8)
+#define DP_FRGD_SRC_MASK(x) ((0x7) << 8)
 #define DP_MONO_SRC(x)      ((x) << 16)
 #define DP_MONO_SRC_MASK(x) ((0x3) << 16)
 
@@ -1447,10 +1446,10 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     }
 
     if (cd->GEfgPen != pen) {
-        cd->GEfgPen  = pen;
-        cd->GEdrawMode = 0xFF; // invalidate minterm cache
+        cd->GEfgPen    = pen;
+        cd->GEdrawMode = 0xFF;  // invalidate drawmode cache
 
-        pen          = penToColor(pen, fmt);
+        pen = penToColor(pen, fmt);
 
         waitFifo(bi, 1);
 
@@ -1478,8 +1477,8 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEOp != INVERTRECT) {
-        cd->GEOp = INVERTRECT;
-        cd->GEdrawMode = 0xFF; // invalidate minterm cache
+        cd->GEOp       = INVERTRECT;
+        cd->GEdrawMode = 0xFF;  // invalidate minterm cache
 
         waitFifo(bi, 3);
 
@@ -1494,7 +1493,6 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
 
     drawRect(bi, x, y, width, height);
 }
-
 
 const static UWORD minTermToMix[16] = {
     MIX_ZERO,                     // 0000
@@ -1526,9 +1524,9 @@ const static UWORD minTermToMix[16] = {
 #define SRC_HEIGHT1_MASK (0x7FFF)
 
 static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri),
-                                      __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY),
-                                      __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
-                                      __REGD5(WORD height), __REGD6(UBYTE opCode), __REGD7(RGBFTYPE format))
+                                       __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY),
+                                       __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
+                                       __REGD5(WORD height), __REGD6(UBYTE opCode), __REGD7(RGBFTYPE format))
 {
     DFUNC(VERBOSE,
           "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
@@ -1545,8 +1543,8 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
-        cd->GEOp = BLITRECTNOMASKCOMPLETE;
-        cd->GEmask = 0xFF;
+        cd->GEOp       = BLITRECTNOMASKCOMPLETE;
+        cd->GEmask     = 0xFF;
         cd->GEdrawMode = 0xFF;  // invalidate minterm cache
 
         waitFifo(bi, 2);
@@ -1594,7 +1592,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
           (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt,
           (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
 
-    //FIXME: optimize into one function
+    // FIXME: optimize into one function
     setDstBuffer(bi, ri, fmt);
     setSrcBuffer(bi, ri, fmt);
 
@@ -1603,7 +1601,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEOp != BLITRECT) {
-        cd->GEOp = BLITRECT;
+        cd->GEOp       = BLITRECT;
         cd->GEdrawMode = 0xFF;  // invalidate minterm cache
 
         waitFifo(bi, 2);
@@ -1742,7 +1740,6 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
 
     for (UWORD y = 0; y < height; ++y) {
         for (UWORD x = 0; x < dwordsPerLine; ++x) {
-
             writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), ((const ULONG *)bitmap)[x]);
 
             hostDataReg = (hostDataReg + 1) & 15;
