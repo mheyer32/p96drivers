@@ -1416,7 +1416,6 @@ static inline ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 static void drawRect(struct BoardInfo *bi, WORD x, WORD y, WORD width, WORD height)
 {
     MMIOBASE();
-    waitFifo(bi, 2);
     W_MMIO_L(DST_Y_X, DST_Y(y) | DST_X(x));
     W_MMIO_L(DST_HEIGHT_WIDTH, DST_HEIGHT(height) | DST_WIDTH(width));
 }
@@ -1459,7 +1458,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         W_MMIO_L(DP_FRGD_CLR, pen);
     }
 
-    setWriteMask(bi, mask, fmt, 0);
+    setWriteMask(bi, mask, fmt, 2);
 
     drawRect(bi, x, y, width, height);
 }
@@ -1491,7 +1490,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
         W_MMIO_L(GUI_TRAJ_CNTL, DST_X_DIR | DST_Y_DIR | DST_LAST_PEL);
     }
 
-    setWriteMask(bi, mask, fmt, 0);
+    setWriteMask(bi, mask, fmt, 2);
 
     drawRect(bi, x, y, width, height);
 }
@@ -1563,9 +1562,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(minTermToMix[opCode]));
     }
 
-    waitFifo(bi, 3);
-
-    ULONG dir = DST_X_DIR | DST_Y_DIR; // left-to-right, top-to-bottom
+    ULONG dir = DST_X_DIR | DST_Y_DIR;  // left-to-right, top-to-bottom
     if (dstX > srcX) {
         dir &= ~DST_X_DIR;
         srcX = srcX + width - 1;
@@ -1577,6 +1574,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         dstY = dstY + height - 1;
     }
 
+    waitFifo(bi, 5);
     W_MMIO_L(GUI_TRAJ_CNTL, dir);
 
     W_MMIO_L(SRC_Y_X, SRC_Y(srcY) | SRC_X(srcX));
@@ -1614,9 +1612,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(MIX_NEW));
     }
 
-    setWriteMask(bi, mask, fmt, 3);
-
-    ULONG dir = DST_X_DIR | DST_Y_DIR; // left-to-right, top-to-bottom
+    ULONG dir = DST_X_DIR | DST_Y_DIR;  // left-to-right, top-to-bottom
     if (dstX > srcX) {
         dir &= ~DST_X_DIR;
         srcX = srcX + width - 1;
@@ -1627,6 +1623,9 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         srcY = srcY + height - 1;
         dstY = dstY + height - 1;
     }
+
+    // FIFO wait in setWriteMask
+    setWriteMask(bi, mask, fmt, 5);
 
     W_MMIO_L(GUI_TRAJ_CNTL, dir);
 
@@ -1722,24 +1721,22 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
 
     if (cd->GEOp != BLITTEMPLATE) {
         cd->GEOp = BLITTEMPLATE;
-
-        // Invalidate the pen and drawmode caches
-        cd->GEdrawMode = 0xFF;
-
-        waitFifo(bi, 2);
-
-        W_MMIO_L(DP_SRC,
-                 DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_HOST_DATA));
+        waitFifo(bi, 1);
         W_MMIO_L(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
     }
 
     setDrawMode(bi, template->FgPen, template->BgPen, template->DrawMode, fmt);
     setWriteMask(bi, mask, fmt, 0);
 
-    waitFifo(bi, 1);
-
     // 0 <= XOffset <= 15
-    UWORD blitWidth = (width + template->XOffset + 31) & ~31;
+    UWORD blitWidth     = (width + template->XOffset + 31) & ~31;
+    UWORD dwordsPerLine = blitWidth / 32;
+
+    UWORD numFifoSlots = dwordsPerLine * height + 3;
+    if (numFifoSlots > 16) {
+        numFifoSlots = 16;
+    }
+    waitFifo(bi, numFifoSlots);
 
     // Since we feed the monochrome expansion in units of 32bit (i.e. 32 pixels width),
     // we need to align the width to the next 32bit boundary. To make that padding not get rendered, use
@@ -1748,16 +1745,8 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     W_MMIO_L(SC_LEFT_RIGHT, SC_RIGHT(width + x - 1) | SC_LEFT(x));
     drawRect(bi, x - template->XOffset, y, blitWidth, height);
 
-    UWORD dwordsPerLine = blitWidth / 32;
-
-    UWORD numFifoSlots = dwordsPerLine * height;
-    if (numFifoSlots > 16) {
-        numFifoSlots = 16;
-    }
-
-    waitFifo(bi, numFifoSlots);
-
-    UWORD hostDataReg = 16 - numFifoSlots;
+    // We already used up 3 fifo slots for the setup above
+    UWORD hostDataReg = 3;
 
     const UBYTE *bitmap = (const UBYTE *)template->Memory;
     WORD bitmapPitch    = template->BytesPerRow;
