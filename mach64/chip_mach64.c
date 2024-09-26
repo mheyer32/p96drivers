@@ -1636,30 +1636,43 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     drawRect(bi, dstX, dstY, width, height);
 }
 
-
-static inline void REGARGS drawModeToMixMode(UBYTE drawMode, UWORD *frgdMix, UWORD *bkgdMix)
+static void REGARGS setDrawModeInternal(BoardInfo_t *bi, UBYTE drawMode, ULONG fgPen, ULONG bgPen)
 {
     UWORD writeMode = (drawMode & COMPLEMENT) ? MIX_NOT_CURRENT : MIX_NEW;
-    UWORD f, g;
+    UWORD fMix, bMix;
     switch (drawMode & 1) {
     case JAM1:
-        f = writeMode;
-        g = MIX_CURRENT;
+        fMix = writeMode;
+        bMix = MIX_CURRENT;
         break;
     case JAM2:
-        f = writeMode;
-        g = writeMode;
+        fMix = writeMode;
+        bMix = writeMode;
         break;
     }
-    f |= CLR_SRC_FRGD_COLOR;
-    g |= CLR_SRC_BKGD_COLOR;
+
+    UWORD fSrc, bSrc;
+    fSrc = CLR_SRC_FRGD_COLOR;
+    bSrc = CLR_SRC_BKGD_COLOR;
+
     if (drawMode & INVERSVID) {
-        UWORD t = f;
-        f = g;
-        g = t;
+        UWORD t = fMix;
+        fMix       = bMix;
+        bMix       = t;
+        t       = fSrc;
+        fSrc    = bSrc;
+        bSrc    = t;
     }
-    *frgdMix = f;
-    *bkgdMix = g;
+
+    waitFifo(bi, 4);
+
+    MMIOBASE();
+
+    W_MMIO_L(DP_FRGD_CLR, fgPen);
+    W_MMIO_L(DP_BKGD_CLR, bgPen);
+
+    W_MMIO_L(DP_MIX, DP_BKGD_MIX(bMix) | DP_FRGD_MIX(fMix));
+    W_MMIO_L(DP_SRC, DP_FRGD_SRC(fSrc) | DP_BKGD_SRC(bSrc) | DP_MONO_SRC(MONO_SRC_HOST_DATA));
 }
 
 static inline void REGARGS setDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format)
@@ -1667,22 +1680,15 @@ static inline void REGARGS setDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG 
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEfgPen != FgPen || cd->GEbgPen != BgPen || cd->GEdrawMode != DrawMode) {
-        cd->GEfgPen = FgPen;
-        cd->GEbgPen = BgPen;
+        cd->GEfgPen    = FgPen;
+        cd->GEbgPen    = BgPen;
         cd->GEdrawMode = DrawMode;
 
         UWORD frgdMix, bkgdMix;
-        drawModeToMixMode(DrawMode, &frgdMix, &bkgdMix);
         ULONG fgPen = penToColor(FgPen, format);
         ULONG bgPen = penToColor(BgPen, format);
 
-        waitFifo(bi, 3);
-
-        MMIOBASE();
-        W_MMIO_L(DP_FRGD_CLR, fgPen);
-        W_MMIO_L(DP_BKGD_CLR, bgPen);
-
-        W_MMIO_L(DP_MIX, DP_BKGD_MIX(bkgdMix) | DP_FRGD_MIX(frgdMix));
+        setDrawModeInternal(bi, DrawMode, fgPen, bgPen);
     }
 }
 
