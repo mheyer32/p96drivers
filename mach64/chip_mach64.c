@@ -2091,15 +2091,24 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     InitPLL(bi);
 
     ULONG clock = bi->MemoryClock;
-    if (clock < 33000000) {
-        clock = 33000000;
+    if (!clock)
+    {
+        clock = getChipData(bi)->memClock;
     }
-    if (68000000 < clock) {
-        clock = 68000000;
+    else
+    {
+        clock /= 10000;
     }
 
-    SetMemoryClock(bi, getChipData(bi)->memClock);
-    bi->MemoryClock = getChipData(bi)->memClock * 10000;
+    if (clock < 3300) {
+        clock = 3300;
+    }
+    if (clock > 7000) {
+        clock = 7000;
+    }
+
+    SetMemoryClock(bi, clock);
+    bi->MemoryClock = clock * 10000;
 
     R_BLKIO_L(CONFIG_STAT0);
     W_BLKIO_L(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
