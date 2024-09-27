@@ -1906,6 +1906,73 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     W_MMIO_L(SC_LEFT_RIGHT, ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK) | SC_LEFT(0));
 }
 
+static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
+                            __REGA2(struct Pattern *pattern), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
+                            __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE,
+          "\nx %ld, y %ld, w %ld, h %ld\nmask 0x%lx fmt %ld\n"
+          "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+          (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
+          (ULONG)ri->Memory);
+
+    setDstBuffer(bi, ri, fmt);
+
+    MMIOBASE();
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != BLITTEMPLATE) {
+        cd->GEOp       = BLITTEMPLATE;
+        cd->GEdrawMode = 0xFF;
+        waitFifo(bi, 1);
+        W_MMIO_L(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
+    }
+
+    setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
+    setWriteMask(bi, mask, fmt, 0);
+
+    // 0 <= XOffset <= 15
+    UWORD blitWidth     = (width + pattern->XOffset + 31) & ~31;
+    UWORD dwordsPerLine = blitWidth / 32;
+
+    UWORD numFifoSlots = dwordsPerLine * height + 3;
+    if (numFifoSlots > 16) {
+        numFifoSlots = 16;
+    }
+    waitFifo(bi, numFifoSlots);
+
+    // Since we feed the monochrome expansion in units of 32bit (i.e. 32 pixels width),
+    // we need to align the width to the next 32bit boundary. To make that padding not get rendered, use
+    // the right scissor. And since we're setting the scissor anyways, we might as well set the left side
+    // and spare ourselves the CPU work to "left-rotate" the template bits.
+    W_MMIO_L(SC_LEFT_RIGHT, SC_RIGHT(width + x - 1) | SC_LEFT(x));
+    drawRect(bi, x - pattern->XOffset, y, blitWidth, height);
+
+    // We already used up 3 fifo slots for the setup above
+    UWORD hostDataReg = 3;
+
+    const UWORD *bitmap           = (const UBYTE *)pattern->Memory;
+    const UWORD patternHeightMask = (1 << pattern->Size) - 1;
+
+    for (UWORD y = 0; y < height; ++y) {
+        UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
+        ULONG bitsL = makeDWORD(bits, bits);
+        for (UWORD x = 0; x < dwordsPerLine; ++x) {
+            writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), bitsL);
+
+            hostDataReg = (hostDataReg + 1) & 15;
+            if (!hostDataReg) {
+                waitFifo(bi, 16);
+            }
+        }
+    }
+
+    waitFifo(bi, 1);
+    // reset right scissor
+    W_MMIO_L(SC_LEFT_RIGHT, ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK) | SC_LEFT(0));
+}
+
 static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
     D(CHATTY, "Waiting for blitter...");
@@ -1979,7 +2046,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->BlitPlanar2Chunky      = BlitPlanar2Chunky;
     bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
     // bi->DrawLine = DrawLine;
-    // bi->BlitPattern = BlitPattern;
+    bi->BlitPattern = BlitPattern;
 
     // Informed by the largest X/Y coordinates the blitter can talk to
     bi->MaxBMWidth  = 16384;  // 15bits
