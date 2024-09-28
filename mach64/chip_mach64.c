@@ -2018,9 +2018,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     bi->GraphicsControllerType = GCT_ATIRV100;
     bi->PaletteChipType        = PCT_ATT_20C492;
-    bi->Flags                  = bi->Flags | BIF_GRANTDIRECTACCESS | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
-    // |BIF_BLITTER |
-    // BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
+    bi->Flags                  = bi->Flags | BIF_GRANTDIRECTACCESS | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE | BIF_BLITTER;
+    // BIF_VGASCREENSPLIT ;
 
     bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
     // We can support byte-swapped formats on this chip via the Big Linear
