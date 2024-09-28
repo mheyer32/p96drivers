@@ -565,7 +565,10 @@ void InitPLL(BoardInfo_t *bi)
 #define DAC_MASK    2
 #define DAC_R_INDEX 3
 
-#define DAC_8BIT_EN BIT(8)
+#define DAC_BLANKING      BIT(0)
+#define DAC_BLANKING_MASK BIT(0)
+#define DAC_8BIT_EN       BIT(8)
+#define DAC_8BIT_EN_MASK  BIT(8)
 
 static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
                                   __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
@@ -2270,7 +2273,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     print_MEM_CNTL_Register(&memCntl);
 
     // Init DAC
-    W_BLKIO_MASK_L(DAC_CNTL, DAC_8BIT_EN, DAC_8BIT_EN);
+    W_BLKIO_MASK_L(DAC_CNTL, DAC_8BIT_EN_MASK | DAC_BLANKING_MASK, DAC_8BIT_EN | DAC_BLANKING);
     W_BLKIO_B(DAC_REGS, DAC_MASK, 0xFF);
 
     // Init CRTC
