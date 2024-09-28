@@ -29,6 +29,9 @@ typedef struct ChipData
 
     struct RenderInfo dstBuffer;
     // struct RenderInfo srcBuffer;
+    ULONG *patternVideoBuffer; // points to video memory
+    ULONG patternCache;
+    UWORD *patternCacheBuffer; // points to system memory
 
     UBYTE GEmask;         // programmed mask
     UBYTE GEdrawMode;

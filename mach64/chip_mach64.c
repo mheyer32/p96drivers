@@ -1298,6 +1298,9 @@ static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *r
         dstPixWidth = g_bitWidths[format];
     }
 
+    // FIXME: reading from the register is not FIFO'd. In theory to use W_MMIO_MASK_L we would need to wait for engine
+    // idle to be sure
+    //  that the previous write has completed. For now we just wait for 2 slots and write the register directly.
     W_MMIO_MASK_L(DP_PIX_WIDTH, DP_DST_PIX_WIDTH_MASK | DP_HOST_PIX_WIDTH_MASK,
                   DP_DST_PIX_WIDTH(dstPixWidth) | DP_HOST_PIX_WIDTH(COLOR_DEPTH_1));
 
@@ -1528,6 +1531,11 @@ const static UWORD minTermToMix[16] = {
 #define SRC_HEIGHT1(y)   (y)
 #define SRC_HEIGHT1_MASK (0x7FFF)
 
+#define SRC_WIDTH2(x)    ((x) << 16)
+#define SRC_WIDTH2_MASK  (0x1FFF < 16)
+#define SRC_HEIGHT2(y)   (y)
+#define SRC_HEIGHT2_MASK (0x7FFF)
+
 static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri),
                                        __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY),
                                        __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
@@ -1638,7 +1646,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     drawRect(bi, dstX, dstY, width, height);
 }
 
-static void REGARGS setDrawModeInternal(BoardInfo_t *bi, UBYTE drawMode, ULONG fgPen, ULONG bgPen)
+static void REGARGS setDrawModeInternal(BoardInfo_t *bi, UBYTE drawMode, ULONG fgPen, ULONG bgPen, BYTE monoSource)
 {
     UWORD writeMode = (drawMode & COMPLEMENT) ? MIX_NOT_CURRENT : MIX_NEW;
     UWORD fMix, bMix;
@@ -1659,8 +1667,8 @@ static void REGARGS setDrawModeInternal(BoardInfo_t *bi, UBYTE drawMode, ULONG f
 
     if (drawMode & INVERSVID) {
         UWORD t = fMix;
-        fMix       = bMix;
-        bMix       = t;
+        fMix    = bMix;
+        bMix    = t;
         t       = fSrc;
         fSrc    = bSrc;
         bSrc    = t;
@@ -1674,10 +1682,11 @@ static void REGARGS setDrawModeInternal(BoardInfo_t *bi, UBYTE drawMode, ULONG f
     W_MMIO_L(DP_BKGD_CLR, bgPen);
 
     W_MMIO_L(DP_MIX, DP_BKGD_MIX(bMix) | DP_FRGD_MIX(fMix));
-    W_MMIO_L(DP_SRC, DP_FRGD_SRC(fSrc) | DP_BKGD_SRC(bSrc) | DP_MONO_SRC(MONO_SRC_HOST_DATA));
+    W_MMIO_L(DP_SRC, DP_FRGD_SRC(fSrc) | DP_BKGD_SRC(bSrc) | DP_MONO_SRC(monoSource));
 }
 
-static inline void REGARGS setDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format)
+static inline void REGARGS setDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format,
+                                       BYTE monoSource)
 {
     ChipData_t *cd = getChipData(bi);
 
@@ -1690,7 +1699,7 @@ static inline void REGARGS setDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG 
         ULONG fgPen = penToColor(FgPen, format);
         ULONG bgPen = penToColor(BgPen, format);
 
-        setDrawModeInternal(bi, DrawMode, fgPen, bgPen);
+        setDrawModeInternal(bi, DrawMode, fgPen, bgPen, monoSource);
     }
 }
 
@@ -1717,7 +1726,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         W_MMIO_L(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
     }
 
-    setDrawMode(bi, template->FgPen, template->BgPen, template->DrawMode, fmt);
+    setDrawMode(bi, template->FgPen, template->BgPen, template->DrawMode, fmt, MONO_SRC_HOST_DATA);
     setWriteMask(bi, mask, fmt, 0);
 
     // 0 <= XOffset <= 15
@@ -1916,61 +1925,78 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
           (ULONG)ri->Memory);
 
-    setDstBuffer(bi, ri, fmt);
-
-    MMIOBASE();
+    if (pattern->Size > 8) {
+        bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, fmt);
+        return;
+    }
 
     ChipData_t *cd = getChipData(bi);
 
-    if (cd->GEOp != BLITTEMPLATE) {
-        cd->GEOp       = BLITTEMPLATE;
-        cd->GEdrawMode = 0xFF;
-        waitFifo(bi, 1);
-        W_MMIO_L(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
+    UWORD patternHeight        = 1 << pattern->Size;
+    const UWORD *sysMemPattern = (const UWORD *)pattern->Memory;
+    UWORD *cachedPattern       = cd->patternCacheBuffer;
+    ULONG *videoMemPattern     = cd->patternVideoBuffer;
+
+    // Try to avoid wait-for-idle by first checking if the pattern changed.
+    // I'm not expecting huge patterns, so this will hopefully be fast
+    BOOL patternChanged = FALSE;
+    for (UWORD i = 0; i < patternHeight; ++i) {
+        if (sysMemPattern[i] != cachedPattern[i]) {
+            patternChanged = TRUE;
+            break;
+        }
     }
+    if (patternChanged) {
+        waitIdle(bi);
 
-    setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
-    setWriteMask(bi, mask, fmt, 0);
-
-    // 0 <= XOffset <= 15
-    UWORD blitWidth     = (width + pattern->XOffset + 31) & ~31;
-    UWORD dwordsPerLine = blitWidth / 32;
-
-    UWORD numFifoSlots = dwordsPerLine * height + 3;
-    if (numFifoSlots > 16) {
-        numFifoSlots = 16;
-    }
-    waitFifo(bi, numFifoSlots);
-
-    // Since we feed the monochrome expansion in units of 32bit (i.e. 32 pixels width),
-    // we need to align the width to the next 32bit boundary. To make that padding not get rendered, use
-    // the right scissor. And since we're setting the scissor anyways, we might as well set the left side
-    // and spare ourselves the CPU work to "left-rotate" the template bits.
-    W_MMIO_L(SC_LEFT_RIGHT, SC_RIGHT(width + x - 1) | SC_LEFT(x));
-    drawRect(bi, x - pattern->XOffset, y, blitWidth, height);
-
-    // We already used up 3 fifo slots for the setup above
-    UWORD hostDataReg = 3;
-
-    const UWORD *bitmap           = (const UBYTE *)pattern->Memory;
-    const UWORD patternHeightMask = (1 << pattern->Size) - 1;
-
-    for (UWORD y = 0; y < height; ++y) {
-        UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
-        ULONG bitsL = makeDWORD(bits, bits);
-        for (UWORD x = 0; x < dwordsPerLine; ++x) {
-            writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), bitsL);
-
-            hostDataReg = (hostDataReg + 1) & 15;
-            if (!hostDataReg) {
-                waitFifo(bi, 16);
-            }
+        for (UWORD i = 0; i < patternHeight; ++i) {
+            cachedPattern[i] = sysMemPattern[i];
+            // The video pattern has an 8-byte pitch. 64pixels (bits) is the minimum pitch for monochrome src blit data.
+            videoMemPattern[i * 2] = sysMemPattern[i] << 16;
         }
     }
 
-    waitFifo(bi, 1);
-    // reset right scissor
-    W_MMIO_L(SC_LEFT_RIGHT, ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK) | SC_LEFT(0));
+    if (cd->GEOp != BLITPATTERN) {
+        cd->GEOp         = BLITPATTERN;
+        cd->GEdrawMode   = 0xFF;
+        cd->patternCache = 0xFFFFFFFF;
+
+        waitFifo(bi, 3);
+
+        MMIOBASE();
+
+        ULONG trajectory = DST_X_DIR | DST_Y_DIR | SRC_PATT_EN | SRC_PATT_ROT_EN;
+
+        W_MMIO_L(GUI_TRAJ_CNTL, trajectory);
+
+        // Offset is in units of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'.
+        W_MMIO_L(SRC_OFF_PITCH, SRC_OFFSET(getMemoryOffset(bi, cd->patternVideoBuffer) / 8) | SRC_PITCH(8));
+        W_MMIO_MASK_L(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH_MASK, DP_SRC_PIX_WIDTH(COLOR_DEPTH_1));
+    }
+
+    setDstBuffer(bi, ri, fmt);
+    setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt, MONO_SRC_BLIT_SRC);
+    setWriteMask(bi, mask, fmt, 0);
+
+    UBYTE xOff = pattern->XOffset & 15;
+    UWORD yOff = pattern->YOffset & (patternHeight - 1);
+
+    ULONG pattCache = (yOff << 16) | (xOff << 8) | pattern->Size;
+    if (pattCache != cd->patternCache) {
+        cd->patternCache = pattCache;
+
+        MMIOBASE();
+
+        waitFifo(bi, 5);
+
+        W_MMIO_L(SRC_Y_X, SRC_X(xOff) | SRC_Y(yOff));
+        W_MMIO_L(SRC_HEIGHT1_WIDTH1, SRC_HEIGHT1(patternHeight - yOff) | SRC_WIDTH1(16 - xOff));
+        W_MMIO_L(SRC_HEIGHT2_WIDTH2, SRC_HEIGHT2(patternHeight) | SRC_WIDTH2(16));
+    } else {
+        waitFifo(bi, 2);
+    }
+
+    drawRect(bi, x, y, width, height);
 }
 
 static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
@@ -2286,6 +2312,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_MMIO_L(GUI_TRAJ_CNTL, DST_X_DIR | DST_Y_DIR | DST_LAST_PEL);
     W_MMIO_L(SC_LEFT_RIGHT, SC_LEFT(0) | ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK));
     W_MMIO_L(SC_TOP_BOTTOM, SC_TOP(0) | ((SC_BOTTOM_MASK >> 1) & SC_BOTTOM_MASK));
+    W_MMIO_L(SRC_Y_X_START, 0);
 
     D(INFO, "Monitor is %s present\n", ((R_BLKIO_B(DAC_CNTL, 0) & 0x80) ? "NOT" : ""));
 
@@ -2298,6 +2325,14 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     //  sprites can be placed at segment boundaries of 1kb
     bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
     bi->MouseSaveBuffer  = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
+
+    // reserve memory for a pattern that can be up to 256 lines high (2kb)
+    // Since the minimum pitch for SRC_PITCH is 64 monochrome pixels (8 byte), we need to overallocate.
+    // The P96 pattern is just 16 pixels wide.
+    ULONG patternSize                   = 8 * 256;
+    bi->MemorySize                      = (bi->MemorySize - patternSize) & ~(7);
+    getChipData(bi)->patternVideoBuffer = (ULONG *)(bi->MemoryBase + bi->MemorySize);
+    getChipData(bi)->patternCacheBuffer = AllocVec(patternSize, MEMF_PUBLIC);
 
     return TRUE;
 }
@@ -2481,13 +2516,27 @@ int main()
                 }
             }
 
-            {
-                struct RenderInfo ri;
-                ri.Memory      = bi->MemoryBase;
-                ri.BytesPerRow = 640;
-                ri.RGBFormat   = RGBFB_CLUT;
+            struct RenderInfo ri;
+            ri.Memory      = bi->MemoryBase;
+            ri.BytesPerRow = 640;
+            ri.RGBFormat   = RGBFB_CLUT;
 
+            {
                 FillRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, 0xFF, RGBFB_CLUT);
+            }
+
+            {
+                UWORD patternData[] = {0xAAAA, 0x5555, 0x3333, 0xCCCC};
+                struct Pattern pattern;
+                pattern.BgPen    = 127;
+                pattern.FgPen    = 255;
+                pattern.DrawMode = JAM2;
+                pattern.Size     = 2;
+                pattern.Memory   = patternData;
+                pattern.XOffset  = 0;
+                pattern.YOffset  = 0;
+
+                BlitPattern(bi, &ri, &pattern, 150, 150, 640 - 300, 480 - 300, 0xFF, RGBFB_CLUT);
             }
 
             // RegisterOwner(cb, board, (struct Node *)ChipBase);

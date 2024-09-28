@@ -104,6 +104,7 @@ typedef enum BlitterOp
     BLITRECTNOMASKCOMPLETE,
     BLITTEMPLATE,
     BLITPLANAR2CHUNKY,
+    BLITPATTERN,
     LINE
 
 } BlitterOp_t;
