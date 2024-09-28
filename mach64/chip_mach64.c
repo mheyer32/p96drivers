@@ -53,7 +53,7 @@ static const UBYTE g_bitWidths[] = {
 //  cards, these tables will have different values for each card
 static PLLTable_t g_pllTable;
 static MaxColorDepthTableEntry_t g_maxCDepthTable[50];
-static MaxColorDepthTableEntry_t g_maxCDepthSecondTable[50];  // JY 04/07/94
+static MaxColorDepthTableEntry_t g_maxCDepthSecondTable[50];
 
 void printFrequencyTable(FrequencyTable_t *ft)
 {
@@ -1723,7 +1723,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEOp != BLITTEMPLATE) {
-        cd->GEOp = BLITTEMPLATE;
+        cd->GEOp       = BLITTEMPLATE;
         cd->GEdrawMode = 0xFF;
         waitFifo(bi, 1);
         W_MMIO_L(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
@@ -1866,9 +1866,9 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         cd->GEOp = BLITPLANAR2CHUNKY;
         // Invalidate the pen and drawmode caches
         cd->GEdrawMode = 0xFF;
-        cd->GEmask = mask;
-        cd->GEfgPen = 0xFFFFFFFF;
-        cd->GEbgPen = 0x0;
+        cd->GEmask     = mask;
+        cd->GEfgPen    = 0xFFFFFFFF;
+        cd->GEbgPen    = 0x0;
 
         waitFifo(bi, 3);
         W_MMIO_L(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
@@ -2029,9 +2029,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Adressing Window
     bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
 
-    // We don't support these modes, but if we did, they would not allow for a HW
-    // sprite
-    bi->SoftSpriteFlags = RGBFF_B8G8R8 | RGBFF_R8G8B8;
+    bi->SoftSpriteFlags = 0;
 
     bi->SetGC                = SetGC;
     bi->SetPanning           = SetPanning;
@@ -2186,12 +2184,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     InitPLL(bi);
 
     ULONG clock = bi->MemoryClock;
-    if (!clock)
-    {
+    if (!clock) {
         clock = getChipData(bi)->memClock;
-    }
-    else
-    {
+    } else {
         clock /= 10000;
     }
 
@@ -2319,12 +2314,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     D(INFO, "Monitor is %s present\n", ((R_BLKIO_B(DAC_CNTL, 0) & 0x80) ? "NOT" : ""));
 
     // Two sprite images, each 64x64*2 bits
+    // BEWARE: softsprite data would use 4 byte per pixel
     const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
-    bi->MemorySize                   = (bi->MemorySize - maxSpriteBuffersSize) & ~(63);
+    bi->MemorySize                   = (bi->MemorySize - maxSpriteBuffersSize) & ~(63); // align to 64 byte boundary
 
-    // FIXME: P96 needs 64x64x4 BYTE for each. Only allocate when using softsprites
-    //  take sprite image data off the top of the memory
-    //  sprites can be placed at segment boundaries of 1kb
     bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
     bi->MouseSaveBuffer  = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
 
