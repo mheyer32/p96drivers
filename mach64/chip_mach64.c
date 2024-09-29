@@ -963,7 +963,7 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 {
     REGBASE();
 
-    DFUNC(VREBOSE, "\n");
+    DFUNC(VERBOSE, "\n");
 
     struct ModeInfo *mi = bi->ModeInfo;
     ULONG pixelClock    = mi->PixelClock;
