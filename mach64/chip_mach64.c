@@ -1285,16 +1285,16 @@ static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *r
         return TRUE;
     }
     cd->dstBuffer = *ri;
-    UBYTE bpp     = getBPP(format);
+    BYTE bppLog2  = getBPPLog2(format);
 
     waitFifo(bi, 2);
 
     MMIOBASE();
 
-    UWORD dstWidth = ri->BytesPerRow / bpp;
-    // Offset is in unite of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'
-    // So convert BytesPerRow for
-    W_MMIO_L(DST_OFF_PITCH, DST_OFFSET(getMemoryOffset(bi, ri->Memory) / 8) | DST_PITCH(dstWidth / 8));
+    // Offset is in units of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'
+    // So convert BytesPerRow to "number of groups of 8 pixels"
+    W_MMIO_L(DST_OFF_PITCH,
+             DST_OFFSET(getMemoryOffset(bi, ri->Memory) / 8) | DST_PITCH(ri->BytesPerRow >> (bppLog2 + 3)));
 
     UBYTE dstPixWidth = COLOR_DEPTH_8;
     if (format != RGBFB_CLUT && format != RGBFB_B8G8R8 && format != RGBFB_R8G8B8) {
@@ -1323,15 +1323,17 @@ static inline BOOL setSrcBuffer(struct BoardInfo *bi, const struct RenderInfo *r
     //     return TRUE;
     // }
     // cd->dstBuffer = *ri;
-    UBYTE bpp = getBPP(format);
 
     waitFifo(bi, 2);
 
     MMIOBASE();
 
+    UBYTE bppLog2 = getBPPLog2(format);
+
     // Offset is in unite of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'
     // So convert BytesPerRow for
-    W_MMIO_L(SRC_OFF_PITCH, SRC_OFFSET(getMemoryOffset(bi, ri->Memory) / 8) | SRC_PITCH((ri->BytesPerRow / bpp) / 8));
+    W_MMIO_L(SRC_OFF_PITCH,
+             SRC_OFFSET(getMemoryOffset(bi, ri->Memory) / 8) | SRC_PITCH((ri->BytesPerRow >> (bppLog2 + 3))));
 
     UBYTE srcPixWidth = COLOR_DEPTH_8;
     if (format != RGBFB_CLUT && format != RGBFB_B8G8R8 && format != RGBFB_R8G8B8) {
@@ -1426,8 +1428,12 @@ static inline ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 static void drawRect(struct BoardInfo *bi, WORD x, WORD y, WORD width, WORD height)
 {
     MMIOBASE();
-    W_MMIO_L(DST_Y_X, DST_Y(y) | DST_X(x));
-    W_MMIO_L(DST_HEIGHT_WIDTH, DST_HEIGHT(height) | DST_WIDTH(width));
+    // W_MMIO_L(DST_Y_X, DST_Y(y) | DST_X(x));
+    // W_MMIO_L(DST_HEIGHT_WIDTH, DST_HEIGHT(height) | DST_WIDTH(width));
+
+    // micro-optimization to save on some redundant rol/swap/rol sequences
+    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(DST_Y_X), makeDWORD(swapw(y), swapw(x)));
+    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(DST_HEIGHT_WIDTH), makeDWORD(swapw(height), swapw(width)));
 }
 
 static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
@@ -1945,17 +1951,16 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     BOOL patternChanged = FALSE;
     for (UWORD i = 0; i < patternHeight; ++i) {
         if (sysMemPattern[i] != cachedPattern[i]) {
-            patternChanged = TRUE;
-            break;
+            cachedPattern[i] = sysMemPattern[i];
+            patternChanged   = TRUE;
         }
     }
     if (patternChanged) {
         waitIdle(bi);
 
         for (UWORD i = 0; i < patternHeight; ++i) {
-            cachedPattern[i] = sysMemPattern[i];
             // The video pattern has an 8-byte pitch. 64pixels (bits) is the minimum pitch for monochrome src blit data.
-            videoMemPattern[i * 2] = sysMemPattern[i] << 16;
+            videoMemPattern[i * 2] = cachedPattern[i] << 16;
         }
     }
 
