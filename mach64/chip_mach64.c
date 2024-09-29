@@ -247,7 +247,8 @@ void WritePLL(struct BoardInfo *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllD
 {
     REGBASE();
 
-    DFUNC(8, "pllAddr: %d, pllDataMask: 0x%02X, pllData: 0x%02X\n", (ULONG)pllAddr, (ULONG)pllDataMask, (ULONG)pllData);
+    DFUNC(VERBOSE, "pllAddr: %d, pllDataMask: 0x%02X, pllData: 0x%02X\n", (ULONG)pllAddr, (ULONG)pllDataMask,
+          (ULONG)pllData);
 
     // FIXME: its possible older Mach chips want 8bit access here
     ULONG oldClockCntl = R_BLKIO_AND_L(CLOCK_CNTL, ~(PLL_ADDR_MASK | PLL_DATA_MASK | PLL_WR_ENABLE_MASK));
@@ -271,7 +272,7 @@ void WritePLL(struct BoardInfo *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllD
 UBYTE ReadPLL(struct BoardInfo *bi, UBYTE pllAddr)
 {
     REGBASE();
-    DFUNC(8, "ReadPLL: pllAddr: %d\n", (ULONG)pllAddr);
+    DFUNC(VERBOSE, "ReadPLL: pllAddr: %d\n", (ULONG)pllAddr);
 
     // FIXME: its possible older Mach chips want 8bit access here
     ULONG clockCntl = R_BLKIO_AND_L(CLOCK_CNTL, ~(PLL_ADDR_MASK | PLL_DATA_MASK | PLL_WR_ENABLE_MASK));
@@ -284,7 +285,7 @@ UBYTE ReadPLL(struct BoardInfo *bi, UBYTE pllAddr)
 
     UBYTE pllValue = (clockCntl >> 16) & 0xFF;
 
-    DFUNC(8, "pllValue: %d\n", (ULONG)pllValue);
+    DFUNC(VERBOSE, "pllValue: %d\n", (ULONG)pllValue);
 
     return pllValue;
 }
@@ -464,7 +465,7 @@ BOOL TestMemory(BoardInfo_t bi) {}
 
 static void InitPLLTable(BoardInfo_t *bi)
 {
-    DFUNC(5, "bi %p\n", bi);
+    DFUNC(VERBOSE, "", bi);
 
     LOCAL_SYSBASE();
 
@@ -478,7 +479,7 @@ static void InitPLLTable(BoardInfo_t *bi)
     for (; e < maxNumEntries; ++e) {
         ULONG frequency = computePLLValues(bi, minFreq, &pllValues[e]);
         if (!frequency) {
-            DFUNC(0, "Unable to compute PLL values for %ld0 KHz\n", minFreq);
+            DFUNC(ERROR, "Unable to compute PLL values for %ld0 KHz\n", minFreq);
             break;
         } else {
             DFUNC(VERBOSE, "Pixelclock %03ld %09ldHz: \n", e, frequency * 10000);
@@ -604,7 +605,7 @@ static void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWO
 
 static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count))
 {
-    DFUNC(5, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
+    DFUNC(VERBOSE, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
 
     SetColorArrayInternal(bi, startIndex, count, bi->CLUT);
 }
@@ -628,7 +629,7 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
     REGBASE();
 
-    DFUNC(5, "format %ld\n", (ULONG)format);
+    DFUNC(VERBOSE, "format %ld\n", (ULONG)format);
 
     W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_PIX_WIDTH_MASK, CRTC_PIX_WIDTH(g_bitWidths[format]));
     if (format != RGBFB_CLUT) {
@@ -811,10 +812,12 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
           "format %ld\n",
           memory, (ULONG)width, (ULONG)height, (LONG)xoffset, (LONG)yoffset, (ULONG)format);
 
+#ifndef NDEBUG
     if (width & 7) {
-        D(0, "Panning pitch not a multiple of 8\n");
+        DFUNC(ERROR, "Panning pitch not a multiple of 8\n");
         return;
     }
+#endif
 
     LONG panOffset;
     ULONG pitch;
@@ -883,7 +886,7 @@ static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
     // Clocking Mode Register (ClK_MODE) (SR1)
     REGBASE();
 
-    DFUNC(5, " state %ld\n", (ULONG)state);
+    DFUNC(VERBOSE, " state %ld\n", (ULONG)state);
 
     W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_DISPLAY_DIS_MASK, state ? 0 : CRTC_DISPLAY_DIS);
 }
@@ -933,7 +936,7 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(ULONG index),
                                __REGD7(RGBFTYPE format))
 {
-    DFUNC(5, "\n");
+    DFUNC(VERBOSE, "\n");
 
     const ChipData_t *cd = getChipData(bi);
     UWORD freq           = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[index]);
@@ -960,7 +963,7 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 {
     REGBASE();
 
-    DFUNC(0, "\n");
+    DFUNC(VREBOSE, "\n");
 
     struct ModeInfo *mi = bi->ModeInfo;
     ULONG pixelClock    = mi->PixelClock;
@@ -968,15 +971,15 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 #ifdef DBG
     ULONG minVClkKhz10 = 2 * getChipData(bi)->referenceFrequency * 128 / (getChipData(bi)->referenceDivider * 8);
 
-    D(10, "minimm VCLK %ldHz\n", minVClkKhz10 * 10000);
+    D(CHATTY, "minimm VCLK %ldHz\n", minVClkKhz10 * 10000);
     if (pixelClock < minVClkKhz10 * 10000) {
-        D(0, "PixelClock %ldHz is too low, minimum is %ldHz\n", pixelClock, minVClkKhz10 * 100000);
+        DFUNC(ERROR, "PixelClock %ldHz is too low, minimum is %ldHz\n", pixelClock, minVClkKhz10 * 100000);
         return;
     }
 
-    D(10, "SetClock: PixelClock %ldHz -> %ldHz \n", bi->ModeInfo->PixelClock, pixelClock);
+    D(CHATTY, "SetClock: PixelClock %ldHz -> %ldHz \n", bi->ModeInfo->PixelClock, pixelClock);
     if (mi->pll1.Numerator < 0x80 || mi->pll1.Numerator > 0xFF) {
-        D(0, "Invalid PLL1 Numerator %d\n", mi->pll1.Numerator);
+        DFUNC(ERROR, "Invalid PLL1 Numerator %d\n", mi->pll1.Numerator);
         return;
     }
 #endif
@@ -1055,7 +1058,7 @@ static void ASM SetReadPlane(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
 static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expected))
 {
     REGBASE();
-    DFUNC(5, "\n");
+    DFUNC(VERBOSE, "\n");
     return (R_BLKIO_B(CRTC_INT_CNTL, 0) & CRTC_VBLANK) != 0;
 }
 
@@ -1076,7 +1079,7 @@ static void WaitVerticalSync(__REGA0(struct BoardInfo *bi)) {}
 static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xpos), __REGD1(WORD ypos),
                                   __REGD7(RGBFTYPE fmt))
 {
-    DFUNC(5, "\n");
+    DFUNC(VERBOSE, "\n");
     REGBASE();
 
     bi->MouseX = xpos;
@@ -1107,7 +1110,7 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xp
         spriteY *= 2;
     }
 
-    D(5, "SpritePos X: %ld 0x%lx, Y: %ld 0x%lx\n", (LONG)spriteX, (ULONG)spriteX, (LONG)spriteY, (ULONG)spriteY);
+    D(CHATTY, "SpritePos X: %ld 0x%lx, Y: %ld 0x%lx\n", (LONG)spriteX, (ULONG)spriteX, (LONG)spriteY, (ULONG)spriteY);
 
     ULONG memOffset = (ULONG)bi->MouseImageBuffer - (ULONG)bi->MemoryBase;
     W_BLKIO_L(CUR_OFFSET, memOffset / 8);
@@ -1135,7 +1138,7 @@ ULONG spreadBits(ULONG word)
 
 static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fmt))
 {
-    DFUNC(5, "\n");
+    DFUNC(VERBOSE, "\n");
 
     const UWORD *image = bi->MouseImage + 2;
     ULONG *cursor      = (ULONG *)bi->MouseImageBuffer;
@@ -2022,7 +2025,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     MMIOBASE();
     LOCAL_SYSBASE();
 
-    DFUNC(0, "\n");
+    DFUNC(ALWAYS, "\n");
 
     bi->GraphicsControllerType = GCT_ATIRV100;
     bi->PaletteChipType        = PCT_ATT_20C492;
@@ -2114,7 +2117,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->MaxVerResolution[TRUEALPHA] = maxHeight;
 
     {
-        DFUNC(0, "Determine Chip Family\n");
+        DFUNC(INFO, "Determine Chip Family\n");
 
         ULONG revision;
         ULONG deviceId;
@@ -2134,7 +2137,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             break;
         default:
             cd->chipFamily = UNKNOWN;
-            DFUNC(0, "Unknown chip family, aborting\n");
+            DFUNC(ERROR, "Unknown chip family, aborting\n");
             return FALSE;
         }
 
@@ -2168,10 +2171,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     ULONG scratch5 = R_MMIO_L(SCRATCH_REG1);
     W_BLKIO_L(SCRATCH_REG1, saveScratchReg1);
     if (scratchA != 0xAAAAAAAA || scratch5 != 0x55555555) {
-        DFUNC(0, "scratch register response broken.\n");
+        DFUNC(ERROR, "scratch register response broken.\n");
         return FALSE;
     }
-    DFUNC(0, "scratch register response good.\n");
+    DFUNC(INFO, "scratch register response good.\n");
 
     findRomHeader(bi);
 
@@ -2452,7 +2455,7 @@ int main()
             bi->MemorySpaceSize = Memory0Size;
 
             {
-                DFUNC(0, "SetDisplay OFF\n");
+                DFUNC(ALWAYS, "SetDisplay OFF\n");
                 SetDisplay(bi, FALSE);
             }
             {
@@ -2480,16 +2483,16 @@ int main()
 
                 ULONG index = ResolvePixelClock(bi, &mi, mi.PixelClock, RGBFB_CLUT);
 
-                DFUNC(0, "SetClock\n");
+                DFUNC(ALWAYS, "SetClock\n");
 
                 SetClock(bi);
 
-                DFUNC(0, "SetGC\n");
+                DFUNC(ALWAYS, "SetGC\n");
 
                 SetGC(bi, &mi, TRUE);
             }
             {
-                DFUNC(0, "SetDAC\n");
+                DFUNC(ALWAYS, "SetDAC\n");
                 SetDAC(bi, RGBFB_CLUT);
             }
             {
@@ -2506,7 +2509,7 @@ int main()
                 SetPanning(bi, bi->MemoryBase, 640, 480, 0, 0, RGBFB_CLUT);
             }
             {
-                DFUNC(0, "SetDisplay ON\n");
+                DFUNC(ALWAYS, "SetDisplay ON\n");
                 SetDisplay(bi, TRUE);
             }
 
@@ -2554,7 +2557,7 @@ int main()
         }
     }  // while
 
-    D(0, "no Mach64 found.\n");
+    D(ERROR, "no Mach64 found.\n");
 
 exit:
     if (PrometheusBase)
