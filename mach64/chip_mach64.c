@@ -1970,7 +1970,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     if (cd->GEOp != BLITPATTERN) {
         cd->GEOp         = BLITPATTERN;
         cd->GEdrawMode   = 0xFF;
-        cd->patternCache = 0xFFFFFFFF;
+        cd->patternSetupCache = 0xFFFFFFFF;
 
         waitFifo(bi, 3);
 
@@ -1993,8 +1993,8 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     UWORD yOff = pattern->YOffset & (patternHeight - 1);
 
     ULONG pattCache = (yOff << 16) | (xOff << 8) | pattern->Size;
-    if (pattCache != cd->patternCache) {
-        cd->patternCache = pattCache;
+    if (pattCache != cd->patternSetupCache) {
+        cd->patternSetupCache = pattCache;
 
         MMIOBASE();
 
@@ -2008,6 +2008,109 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     }
 
     drawRect(bi, x, y, width, height);
+}
+
+void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGA2(struct Line *line),
+                  __REGD0(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE, "\n");
+
+    setDstBuffer(bi, ri, fmt);
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != LINE) {
+        cd->GEOp         = LINE;
+        cd->GEdrawMode   = 0xFF;
+        cd->patternSetupCache = 0xFFFFFFFF;
+
+        waitFifo(bi, 4);
+
+        MMIOBASE();
+
+        // Offset is in units of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'.
+        W_MMIO_L(SRC_OFF_PITCH, SRC_OFFSET(getMemoryOffset(bi, cd->patternVideoBuffer) / 8) | SRC_PITCH(8));
+        W_MMIO_MASK_L(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH_MASK, DP_SRC_PIX_WIDTH(COLOR_DEPTH_1));
+        W_MMIO_L(GUI_TRAJ_CNTL, SRC_LINE_X_DIR | SRC_PATT_EN | SRC_PATT_ROT_EN);
+        W_MMIO_L(SRC_HEIGHT2_WIDTH2, SRC_HEIGHT2(1) | SRC_WIDTH2(16));
+    }
+    UWORD *cachedPattern   = cd->patternCacheBuffer;
+    ULONG *videoMemPattern = cd->patternVideoBuffer;
+
+    // Try to avoid wait-for-idle by first checking if the pattern changed.
+    BOOL patternChanged = FALSE;
+    if (line->LinePtrn != cachedPattern[0]) {
+        cachedPattern[0] = line->LinePtrn;
+        patternChanged   = TRUE;
+        waitIdle(bi);
+        videoMemPattern[0] = line->LinePtrn << 16;
+    }
+
+    UBYTE xOff = line->PatternShift & 15;
+
+    ULONG pattCache = xOff;
+    if (pattCache != cd->patternSetupCache) {
+        cd->patternSetupCache = pattCache;
+
+        MMIOBASE();
+
+        waitFifo(bi, 5);
+
+        W_MMIO_L(SRC_Y_X, SRC_X(xOff) | SRC_Y(0));
+        W_MMIO_L(SRC_HEIGHT1_WIDTH1, SRC_HEIGHT1(1) | SRC_WIDTH1(16 - xOff));
+    }
+
+    setDrawMode(bi, line->FgPen, line->BgPen, line->DrawMode, fmt, MONO_SRC_BLIT_SRC);
+
+    UWORD direction = 0;
+
+    WORD absMAX = myabs(line->lDelta);
+    WORD absMIN = myabs(line->sDelta);
+
+    WORD errTerm = 2 * absMIN - absMAX;
+    if (line->dX > 0) {
+        direction |= DST_X_DIR;
+    }
+    // else {
+    //     errTerm -= 1;
+    // }
+    if (line->dY > 0)
+        direction |= DST_Y_DIR;
+
+    if (!line->Horizontal)
+        direction |= DST_Y_MAJOR;
+
+    setWriteMask(bi, mask, fmt, 6);
+
+    MMIOBASE();
+    W_MMIO_L(DST_CNTL, DST_LAST_PEL | direction);
+    W_MMIO_L(DST_BRES_INC, 2 * absMIN);
+    W_MMIO_L(DST_BRES_DEC, 2 * (absMIN - absMAX));
+    W_MMIO_L(DST_BRES_ERR, errTerm);
+    W_MMIO_L(DST_Y_X, DST_X(line->X) | DST_Y(line->Y));
+    W_MMIO_L(DST_BRES_LNTH, line->Length);
+
+    // BOOL isSolid = (line->LinePtrn == 0xFFFF);
+    // if (isSolid) {
+    //     W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
+    //     W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | direction);
+    // } else {
+    //     W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+    //     W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+    //                       CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED | direction);
+
+    //             // Line->PatternShift selects which bit of the pattern is to be used for the
+    //             // origin of the line and thus shifts the pattern to the indicated number of
+    //             // bits to the left. It is the pattern shift value at the start of the line
+    //             // segment to be drawn.
+    //     UWORD rol = line->PatternShift;
+    //     UWORD pattern = (line->LinePtrn << rol) | (line->LinePtrn >> (16u - rol));
+    //     ULONG patternL = makeDWORD(pattern, pattern);
+    //     WORD numDWords = (line->Length + 31) / 32;
+    //     for (WORD i = 0; i < numDWords; ++i) {
+    //         W_MMIO_L(PIX_TRANS, patternL);
+    //     }
+    // }
 }
 
 static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
@@ -2079,8 +2182,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->BlitTemplate           = BlitTemplate;
     bi->BlitPlanar2Chunky      = BlitPlanar2Chunky;
     bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
-    // bi->DrawLine = DrawLine;
-    bi->BlitPattern = BlitPattern;
+    bi->DrawLine               = DrawLine;
+    bi->BlitPattern            = BlitPattern;
 
     // Informed by the largest X/Y coordinates the blitter can talk to
     bi->MaxBMWidth  = 16384;  // 15bits
