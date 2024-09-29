@@ -55,27 +55,27 @@ static PLLTable_t g_pllTable;
 static MaxColorDepthTableEntry_t g_maxCDepthTable[50];
 static MaxColorDepthTableEntry_t g_maxCDepthSecondTable[50];
 
-void printFrequencyTable(FrequencyTable_t *ft)
+void printFrequencyTable(const FrequencyTable_t *ft)
 {
-    D(0, "Frequency Table ID: 0x%02lX\n", (ULONG)ft->frequency_table_id);
-    D(0, "Minimum PCLK Frequency: %lu KHz\n", (ULONG)swapw(ft->min_pclk_freq) * 10);
-    D(0, "Maximum PCLK Frequency: %lu KHz\n", (ULONG)swapw(ft->max_pclk_freq) * 10);
-    D(0, "Extended Coprocessor Mode: 0x%02lX\n", (ULONG)ft->extended_coprocessor_mode);
-    D(0, "Extended VGA Mode: 0x%02lX\n", (ULONG)ft->extended_vga_mode);
-    D(0, "Reference Clock Frequency: %lu KHz\n", (ULONG)swapw(ft->ref_clock_freq) * 10);
-    D(0, "Reference Clock Divider: %lu\n", (ULONG)swapw(ft->ref_clock_divider));
-    D(0, "Hardware Specific Information: 0x%04lX\n", (ULONG)swapw(ft->hardware_specific_info));
-    D(0, "MCLK Frequency (Power Down Mode): %lu KHz\n", (ULONG)swapw(ft->mclk_freq_power_down) * 10);
-    D(0, "MCLK Frequency (Normal DRAM Mode): %lu KHz\n", (ULONG)swapw(ft->mclk_freq_normal_dram) * 10);
-    D(0, "MCLK Frequency (Normal VRAM Mode): %lu KHz\n", (ULONG)swapw(ft->mclk_freq_normal_vram) * 10);
-    D(0, "SCLK Frequency: %lu KHz\n", (ULONG)swapw(ft->sclk_freq) * 10);
-    D(0, "MCLK Entry Number: 0x%02lX\n", ft->mclk_entry_num);
-    D(0, "SCLK Entry Number: 0x%02lX\n", ft->sclk_entry_num);
+    D(VERBOSE, "Frequency Table ID: 0x%02lX\n", (ULONG)ft->frequency_table_id);
+    D(VERBOSE, "Minimum PCLK Frequency: %lu KHz\n", (ULONG)swapw(ft->min_pclk_freq) * 10);
+    D(VERBOSE, "Maximum PCLK Frequency: %lu KHz\n", (ULONG)swapw(ft->max_pclk_freq) * 10);
+    D(VERBOSE, "Extended Coprocessor Mode: 0x%02lX\n", (ULONG)ft->extended_coprocessor_mode);
+    D(VERBOSE, "Extended VGA Mode: 0x%02lX\n", (ULONG)ft->extended_vga_mode);
+    D(VERBOSE, "Reference Clock Frequency: %lu KHz\n", (ULONG)swapw(ft->ref_clock_freq) * 10);
+    D(VERBOSE, "Reference Clock Divider: %lu\n", (ULONG)swapw(ft->ref_clock_divider));
+    D(VERBOSE, "Hardware Specific Information: 0x%04lX\n", (ULONG)swapw(ft->hardware_specific_info));
+    D(VERBOSE, "MCLK Frequency (Power Down Mode): %lu KHz\n", (ULONG)swapw(ft->mclk_freq_power_down) * 10);
+    D(VERBOSE, "MCLK Frequency (Normal DRAM Mode): %lu KHz\n", (ULONG)swapw(ft->mclk_freq_normal_dram) * 10);
+    D(VERBOSE, "MCLK Frequency (Normal VRAM Mode): %lu KHz\n", (ULONG)swapw(ft->mclk_freq_normal_vram) * 10);
+    D(VERBOSE, "SCLK Frequency: %lu KHz\n", (ULONG)swapw(ft->sclk_freq) * 10);
+    D(VERBOSE, "MCLK Entry Number: 0x%02lX\n", ft->mclk_entry_num);
+    D(VERBOSE, "SCLK Entry Number: 0x%02lX\n", ft->sclk_entry_num);
     if (ft->coprocessor_mode_mclk_freq != 0) {
         D(0, "Coprocessor Mode MCLK Frequency: %lu KHz\n", (ULONG)swapw(ft->coprocessor_mode_mclk_freq) * 10);
     }
-    D(0, "Reserved: 0x%04lX\n", (ULONG)swapw(ft->reserved));
-    D(0, "Terminator: 0x%04lX\n", (ULONG)swapw(ft->terminator));
+    D(VERBOSE, "Reserved: 0x%04lX\n", (ULONG)swapw(ft->reserved));
+    D(VERBOSE, "Terminator: 0x%04lX\n", (ULONG)swapw(ft->terminator));
 }
 
 UBYTE getDACType(BoardInfo_t *bi)
@@ -84,30 +84,30 @@ UBYTE getDACType(BoardInfo_t *bi)
     return (R_BLKIO_B(DAC_CNTL, 2) & 0x7);
 }
 
-void printPLLTable(PLLTable_t *pllTable)
+void printPLLTable(const PLLTable_t *pllTable)
 {
     for (int i = 0; i < 20; i++) {
-        D(0, "PLL[%d] = %lu\n", i, (ULONG)pllTable->pllValues[i]);
+        D(VERBOSE, "PLL[%ld] = %lu\n", i, (ULONG)pllTable->pllValues[i]);
     }
 }
 
-void printCdepthTable(MaxColorDepthTableEntry_t *table)
+void printCdepthTable(const MaxColorDepthTableEntry_t *table)
 {
     for (int i = 0; table[i].h_disp != 0; i++) {
-        D(0, "MaxColorDepthTableEntry[%ld]:\n", i);
-        D(0, "  h_disp: %lu\n", table[i].h_disp);
-        D(0, "  dacmask: %lu\n", table[i].dacmask);
-        D(0, "  ram_req: %lu\n", table[i].ram_req);
-        D(0, "  max_dot_clk: %lu\n", table[i].max_dot_clk);
-        D(0, "  color_depth: %lu\n", table[i].color_depth);
+        D(VERBOSE, "MaxColorDepthTableEntry[%ld]:\n", i);
+        D(VERBOSE, "  h_disp: %lu\n", table[i].h_disp);
+        D(VERBOSE, "  dacmask: %lu\n", table[i].dacmask);
+        D(VERBOSE, "  ram_req: %lu\n", table[i].ram_req);
+        D(VERBOSE, "  max_dot_clk: %lu\n", table[i].max_dot_clk);
+        D(VERBOSE, "  color_depth: %lu\n", table[i].color_depth);
     }
 }
 
-Mach64RomHeader_t *findRomHeader(struct BoardInfo *bi)
+const Mach64RomHeader_t *findRomHeader(struct BoardInfo *bi)
 {
 #define ROM_WORD(offset)              (swapw(*(UWORD *)(romBase + (offset))))
 #define ROM_BYTE(offset)              (*(romBase + (offset)))
-#define ROM_TABLE(name, type, offset) type *name = (type *)(romBase + (offset))
+#define ROM_TABLE(name, type, offset) const type *name = (type *)(romBase + (offset))
 
     LOCAL_PROMETHEUSBASE();
 
