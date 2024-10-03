@@ -5,44 +5,40 @@
 
 #include <exec/types.h>  // This header is required for UBYTE and UWORD
 
-
 typedef enum ChipFamily
 {
     UNKNOWN,
     MACH64GX,
-    MACH64VT  // no 8mb aperture only
+    MACH64VT,  // 8mb aperture only
+    MACH64GT,
+    MACH64GR    // Rage 3 XL
 } ChipFamily_t;
-
-typedef struct PLLValue
-{
-    UBYTE Plog2;  // post divider log2
-    UBYTE N;      // feedback divider
-} PLLValue_t;
 
 typedef struct ChipData
 {
-    RGBFTYPE MemFormat;  // programmed memory layout/format
-    BlitterOp_t GEOp;    // programmed graphics engine setup
+    UWORD MemFormat;  // programmed memory layout/format
+    UWORD GEOp;       // programmed graphics engine setup
     ULONG GEfgPen;
     ULONG GEbgPen;
-    // RGBFTYPE GEFormat;
+    UBYTE GEmask;  // programmed mask
+    UBYTE GEdrawMode;
 
     struct RenderInfo dstBuffer;
     // struct RenderInfo srcBuffer;
-    ULONG *patternVideoBuffer; // points to video memory
+    ULONG *patternVideoBuffer;  // points to video memory
     ULONG patternSetupCache;
-    UWORD *patternCacheBuffer; // points to system memory
+    UWORD *patternCacheBuffer;  // points to system memory
 
-    UBYTE GEmask;         // programmed mask
-    UBYTE GEdrawMode;
-
-    ChipFamily_t chipFamily;  // chip family
+    UWORD chipFamily;  // chip family
     UWORD referenceFrequency;
     UWORD referenceDivider;
     UWORD memClock;
     UWORD minPClock;
     UWORD maxPClock;
-    PLLValue_t *pllValues;
+    UWORD minMClock;
+    UWORD maxDRAMClock;
+    UWORD maxVRAMClock;
+    struct PLLValue *pllValues;
 } ChipData_t;
 
 STATIC_ASSERT(sizeof(ChipData_t) < SIZEOF_MEMBER(BoardInfo_t, ChipData), check_chipdata_size);
@@ -130,11 +126,6 @@ typedef struct FrequencyTable
     UWORD terminator;                  // 0xffh
 } FrequencyTable_t;
 
-typedef struct PLLTable
-{
-    USHORT pllValues[20];
-} PLLTable_t;
-
 #define COLOR_DEPTH_1  0
 #define COLOR_DEPTH_4  1
 #define COLOR_DEPTH_8  2
@@ -184,15 +175,15 @@ typedef struct MaxColorDepthTableEntry
 #define CUR_HORZ_VERT_POSN    0x1B
 #define CUR_HORZ_VERT_OFF     0x1C
 
-#define FIFO_STAT             0xC4
-#define GUI_STAT              0xCE
-#define HOST_CNTL             0x90
-#define HOST_DATA0            0x80  // 16 registers
+#define FIFO_STAT  0xC4
+#define GUI_STAT   0xCE
+#define HOST_CNTL  0x90
+#define HOST_DATA0 0x80  // 16 registers
 
-#define DST_OFF_PITCH    0x40
+#define DST_OFF_PITCH 0x40
 // #define DST_X            0x41
 // #define DST_Y            0x42
-#define DST_Y_X          0x43
+#define DST_Y_X 0x43
 // #define DST_WIDTH        0x44
 // #define DST_HEIGHT       0x45
 #define DST_HEIGHT_WIDTH 0x46
@@ -203,16 +194,16 @@ typedef struct MaxColorDepthTableEntry
 #define DST_BRES_DEC     0x4B
 #define DST_CNTL         0x4C
 
-#define SRC_OFF_PITCH      0x60
+#define SRC_OFF_PITCH 0x60
 // #define SRC_X              0x61
 // #define SRC_Y              0x62
-#define SRC_Y_X            0x63
+#define SRC_Y_X 0x63
 // #define SRC_WIDTH1         0x64
 // #define SRC_HEIGHT1        0x65
 #define SRC_HEIGHT1_WIDTH1 0x66
 // #define SRC_X_START        0x67
 // #define SRC_Y_START        0x68
- #define SRC_Y_X_START      0x69
+#define SRC_Y_X_START 0x69
 // #define SRC_WIDTH2         0x6A
 // #define SRC_HEIGHT2        0x6B
 #define SRC_HEIGHT2_WIDTH2 0x6C
@@ -246,14 +237,24 @@ typedef struct MaxColorDepthTableEntry
 #define GUI_TRAJ_CNTL     0xCC
 #define GUI_STAT          0xCE
 
+// new for GT
+#define EXT_MEM_CNTL 0x2B
+
+#define MEM_SDRAM_RESET_MASK BIT(1)
+#define MEM_SDRAM_RESET      BIT(1)
+#define MEM_MA_YCLK          BIT(4)
+#define MEM_MA_YCLK_MASK     BIT(4)
+#define MEM_CYC_TEST_MASK    (0x3 << 2)
+#define MEM_CYC_TEST(x)      ((x) << 2)
+#define MEM_ALL_PAGE_DIS_MASK BIT(30)
+#define MEM_ALL_PAGE_DIS      BIT(30)
+
 #define BUS_FIFO_ERR_INT_EN BIT(20)
 #define BUS_FIFO_ERR_INT    BIT(21)
 #define BUS_FIFO_ERR_AK     BIT(21)  // INT and ACK are the same bit, distiguished by R/W operation
 #define BUS_HOST_ERR_INT_EN BIT(22)
 #define BUS_HOST_ERR_INT    BIT(23)
 #define BUS_HOST_ERR_AK     BIT(23)  // INT and ACK are the same bit, distiguished by R/W operation
-
-
 
 static inline UBYTE REGARGS readATIRegisterB(volatile UBYTE *regbase, UWORD regIndex, UWORD byteIndex,
                                              const char *regName)
@@ -272,14 +273,14 @@ static inline ULONG REGARGS readATIRegisterL(volatile UBYTE *regbase, UWORD regI
     return value;
 }
 
-static inline ULONG REGARGS readATIRegisterAndMaskL(volatile UBYTE *regbase, UWORD regIndex, ULONG mask, const char *regName)
+static inline ULONG REGARGS readATIRegisterAndMaskL(volatile UBYTE *regbase, UWORD regIndex, ULONG mask,
+                                                    const char *regName)
 {
     ULONG value = swapl(readRegL(regbase, DWORD_OFFSET(regIndex)) & swapl(mask));
     D(VERBOSE, "R %s -> 0x%08lx\n", regName, (LONG)value);
 
     return value;
 }
-
 
 static inline void REGARGS writeATIRegisterMaskB(volatile UBYTE *regbase, UWORD regIndex, UWORD byteIndex, UBYTE mask,
                                                  UBYTE value, const char *regName)
@@ -310,9 +311,9 @@ static inline void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, UWORD 
     ULONG regValue = readRegLNoSwap(regbase, DWORD_OFFSET(regIndex));
     D(VERBOSE, "R %s -> 0x%08lx\n", regName, (LONG)swapl(regValue));
 
-    mask = swapl(mask);
-    value = swapl(value);
-    regValue       = (regValue & ~mask) | (mask & value);
+    mask     = swapl(mask);
+    value    = swapl(value);
+    regValue = (regValue & ~mask) | (mask & value);
 
     D(VERBOSE, "W %s <- 0x%08lx\n", regName, (LONG)swapl(regValue));
     writeRegLNoSwap(regbase, DWORD_OFFSET(regIndex), regValue);
@@ -322,7 +323,7 @@ static inline void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, UWORD 
 // be different, but in practise they aren't. Refactor the code.
 #define R_BLKIO_B(regIndex, byteIndex)        readATIRegisterB(RegBase, regIndex, byteIndex, #regIndex)
 #define R_BLKIO_L(regIndex)                   readATIRegisterL(RegBase, regIndex, #regIndex)
-#define R_BLKIO_AND_L(regIndex, mask)        readATIRegisterAndMaskL(RegBase, regIndex, mask, #regIndex)
+#define R_BLKIO_AND_L(regIndex, mask)         readATIRegisterAndMaskL(RegBase, regIndex, mask, #regIndex)
 #define W_BLKIO_B(regIndex, byteIndex, value) writeATIRegisterB(RegBase, regIndex, byteIndex, value, #regIndex)
 #define W_BLKIO_MASK_B(regIndex, byteIndex, mask, value) \
     writeATIRegisterMaskB(RegBase, regIndex, byteIndex, mask, value, #regIndex)
@@ -332,8 +333,9 @@ static inline void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, UWORD 
 #undef R_MMIO_L
 #undef W_MMIO_L
 #undef W_MMIO_MASK_L
-#define R_MMIO_L(regIndex)        readATIRegisterL(MMIOBase, regIndex, #regIndex)
-#define W_MMIO_L(regIndex, value) writeATIRegisterL(MMIOBase, regIndex, value, #regIndex)
+#define R_MMIO_L(regIndex)                   readATIRegisterL(MMIOBase, regIndex, #regIndex)
+#define W_MMIO_L(regIndex, value)            writeATIRegisterL(MMIOBase, regIndex, value, #regIndex)
 #define W_MMIO_MASK_L(regIndex, mask, value) writeATIRegisterMaskL(MMIOBase, regIndex, mask, value, #regIndex)
 
 #endif
+

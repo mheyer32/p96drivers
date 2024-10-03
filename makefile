@@ -17,21 +17,22 @@ BINDIR ?= _bin/
 BUILDDIR ?= _o/
 DEBUG ?= 0
 
-BUILDFLAGS = -noixemul -msmall-code -m68020-60 -mtune=68030 -g -ggdb -fomit-frame-pointer
-
 CFLAGS ?=
-CFLAGS +=  $(BUILDFLAGS) -I. -IPicasso96Develop/Include -IPicasso96Develop/PrivateInclude -IPrometheus/include
 LDFLAGS ?=
-LDFLAGS += $(BUILDFLAGS)
 LIBS = -lamiga
 
+BUILDFLAGS = -noixemul -mregparm=4 -msmall-code -m68020-60 -mtune=68030 -g -ggdb
+
 ifeq ($(DEBUG),1)
-	CFLAGS += -DDBG
-	LIBS += -ldebug
-    BUILDFLAGS += -O0
+    CFLAGS += -DDBG
+    LIBS += -ldebug
+    BUILDFLAGS += -Ofast
 else
-    BUILDFLAGS += -O3 -mregparm=4
+    BUILDFLAGS += -Ofast -fomit-frame-pointer
 endif
+
+CFLAGS +=  $(BUILDFLAGS) -I. -IPicasso96Develop/Include -IPicasso96Develop/PrivateInclude -IPrometheus/include
+LDFLAGS += $(BUILDFLAGS)
 
 ###############################################################################
 
@@ -134,6 +135,9 @@ $(eval $(call make_driver,S3Vision864.chip,$(BUILDDIR)s3vision864/, ${S3TRIO_SRC
 
 
 ATIMACH64_SRC = common.c \
+                mach64/mach64GT.c \
+                mach64/mach64VT.c \
+                mach64/mach64_common.c \
                 mach64/chip_mach64.c \
                 chip_library.c
 
@@ -141,6 +145,9 @@ ATIMach64.chip : CFLAGS+=-DBIGENDIAN_MMIO=0
 $(eval $(call make_driver,ATIMach64.chip,$(BUILDDIR)mach64/, ${ATIMACH64_SRC}))
 
 ATIMACH64_TESTEXE_SRC = common.c \
+                        mach64/mach64GT.c \
+                        mach64/mach64VT.c \
+                        mach64/mach64_common.c \
                         mach64/chip_mach64.c
 
 $(eval $(call make_exe,TestMach64,$(BUILDDIR)testmach64/, ${ATIMACH64_TESTEXE_SRC}))
