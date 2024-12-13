@@ -15,3 +15,5 @@ ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/S3Vision864.chip
 ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/ATIMach64.chip
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestMach64
 
+${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestPiccolo
+

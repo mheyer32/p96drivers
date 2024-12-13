@@ -116,7 +116,7 @@ endef
 
 # target 'all' (default target)
 
-all : S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip ATIMach64.chip TestMach64
+all : S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip ATIMach64.chip TestMach64 TestPiccolo
 
 S3TRIO_SRC = common.c \
              s3trio64/chip_s3trio64.c \
@@ -152,6 +152,10 @@ ATIMACH64_TESTEXE_SRC = common.c \
 
 $(eval $(call make_exe,TestMach64,$(BUILDDIR)testmach64/, ${ATIMACH64_TESTEXE_SRC}))
 
+PICCOLO_TESTEXE_SRC = common.c \
+                      cirrus/card_piccolo.c
+
+$(eval $(call make_exe,TestPiccolo,$(BUILDDIR)testPiccolo/, ${PICCOLO_TESTEXE_SRC}))
 
 # target 'clean'
 
