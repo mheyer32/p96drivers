@@ -142,31 +142,46 @@ const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 chip driver v
 const UWORD LibVersion = 1;
 const UWORD LibRevision = 0;
 
-
-static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
+// Wait For just the blitter to finish. No wait for FIFO queue empty.
+static void WaitForBlitter(__REGA0(struct BoardInfo *bi))
 {
     D(20, "Waiting for blitter...");
     // FIXME: ideally you'd want this interrupt driven. I.e. sleep until the HW
     // interrupt indicates its done. Otherwise, whats the point of having the
     // blitter run asynchronous to the CPU?
-    // FIXME AS a debug measure, Here we're waiting for the GE to finish AND all
-    // FIFO slots to clear
-    //  while ((R_IO_W(GP_STAT) & ((1<<9)|(1<<10))) != 1<<10)) {
-    //  };
-
 #if BUILD_VISION864
     REGBASE();
-    while (R_IO_W(GP_STAT) & (1 << 9)) {
+    while (R_IO_W(GP_STAT) & BIT(9)) {
     };
 #else
     MMIOBASE();
-    while (R_MMIO_W(GP_STAT) & (1 << 9)) {
+    while (R_MMIO_W(GP_STAT) & BIT(9)) {
     };
 #endif
-
     D(20, "done\n");
 }
 
+// Wait for blitter to finish AND FIFO queue empty.
+static void WaitForIdle(__REGA0(struct BoardInfo *bi))
+{
+    D(20, "Waiting for idle...");
+    // Here we're waiting for the GE to finish AND all FIFO slots to clear
+#if BUILD_VISION864
+    REGBASE();
+    while ((R_IO_W(GP_STAT) & (BIT(9) | BIT(10))) != BIT(10)) {
+    };
+#else
+    MMIOBASE();
+    while ((R_MMIO_W(GP_STAT) & (BIT(9) | BIT(10))) != BIT(10)) {
+    };
+#endif
+    D(20, "done\n");
+}
+
+static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
+{
+    WaitForIdle(bi);
+}
 static const struct svga_pll s3trio64_pll = {3, 129, 3, 33, 0, 3, 35000, 240000, 14318};
 static const struct svga_pll s3sdac_pll = {3, 129, 3, 33, 0, 3, 60000, 270000, 14318};
 
