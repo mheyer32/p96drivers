@@ -1390,6 +1390,7 @@ static inline void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
         return;
     }
 
+    DFUNC(20, "Waiting for %ld slots...", (ULONG)numSlots);
     //  assert(numSlots <= 13);
 
     // The FIFO bits are split into two groups, 7-0 and 15-11
@@ -1399,6 +1400,8 @@ static inline void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
     BYTE testBit = 7 - (numSlots - 1);
     testBit &= 0xF;  // handle wrap-around
 
+    D(20, " testbit: %ld... ", (ULONG)testBit);
+
 #if BUILD_VISION864
     // On Vision864 the MMIO registers are write-only, thus reading the status through IO
     REGBASE();
@@ -1406,9 +1409,15 @@ static inline void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
     };
 #else
     MMIOBASE();
-    while (R_MMIO_W(GP_STAT) & (1 << testBit)) {
+    while (1) {
+        UWORD gpStat= R_MMIO_W(GP_STAT);
+        D(20, " gpstat: %lx,", (ULONG)gpStat);
+        if (!(gpStat & (1 << testBit)))
+            break;
     };
 #endif
+
+    D(20, "done\n");
 }
 
 #define MByte(x) ((x) * (1024 * 1024))
