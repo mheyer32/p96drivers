@@ -1107,14 +1107,14 @@ static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fo
     __asm __volatile("\t movem.l d0-d1/a0-a1,-(sp)\n"
                      : /* no result */
                      :
-                     : "sp");
+                     :);
 
     SetMemoryModeInternal(bi, format);
 
     __asm __volatile("\t movem.l (sp)+,d0-d1/a0-a1\n"
                      : /* no result */
                      :
-                     : "d0", "d1", "a0", "a1", "sp");
+                     : "d0", "d1", "a0", "a1");
 #endif
 }
 
@@ -1123,14 +1123,14 @@ static void ASM SetWriteMask(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
     __asm __volatile("\t movem.l d0-d1/a0-a1,-(sp)\n"
                      : /* no result */
                      :
-                     : "sp");
+                     :);
 
     //  SetWriteMaskInternal(bi, format);
 
     __asm __volatile("\t movem.l (sp)+,d0-d1/a0-a1\n"
                      : /* no result */
                      :
-                     : "d0", "d1", "a0", "a1", "sp");
+                     : "d0", "d1", "a0", "a1");
 }
 
 static void ASM SetClearMask(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask)) {}
