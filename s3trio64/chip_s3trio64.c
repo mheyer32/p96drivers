@@ -25,50 +25,50 @@ int debugLevel = 10;
 #define HAS_PACKED_MMIO 0
 #endif
 
-#define SUBSYS_STAT 0x42E8  // Read
-#define SUBSYS_CNTL 0x42E8  // Write
+#define SUBSYS_STAT  0x42E8  // Read
+#define SUBSYS_CNTL  0x42E8  // Write
 #define ADVFUNC_CNTL 0x4AE8
 
-#define CUR_Y 0x82E8
-#define CUR_Y2 0x82EA
-#define CUR_X 0x86E8
-#define CUR_X2 0x86EA
-#define DESTY_AXSTP 0x8AE8
-#define Y2_AXSTP2 0x8AEA
-#define DESTX_DIASTP 0x8EE8
-#define X2 0x8EEA
-#define ERR_TERM 0x92E8
-#define ERR_TERM2 0x92EA
-#define MAJ_AXIS_PCNT 0x96E8
+#define CUR_Y          0x82E8
+#define CUR_Y2         0x82EA
+#define CUR_X          0x86E8
+#define CUR_X2         0x86EA
+#define DESTY_AXSTP    0x8AE8
+#define Y2_AXSTP2      0x8AEA
+#define DESTX_DIASTP   0x8EE8
+#define X2             0x8EEA
+#define ERR_TERM       0x92E8
+#define ERR_TERM2      0x92EA
+#define MAJ_AXIS_PCNT  0x96E8
 #define MAJ_AXIS_PCNT2 0x96EA
-#define GP_STAT 0x9AE8  // Read-only
+#define GP_STAT        0x9AE8  // Read-only
 
 #define CMD 0x9AE8  // Write-only
 
-#define CMD_ALWAYS 0x0001
-#define CMD_ACROSS_PLANE 0x0002
-#define CMD_NO_LASTPIXEL 0x0004
-#define CMD_RADIAL_DRAW_DIR 0x0008
-#define CMD_DRAW_PIXELS 0x0010
-#define CMD_DRAW_DIR_MASK 0x00e0
-#define CMD_BYTE_SWAP 0x1000
-#define CMD_WAIT_CPU 0x0100
-#define CMD_BUS_SIZE_8BIT (0b00 << 9)
-#define CMD_BUS_SIZE_16BIT (0b01 << 9)
+#define CMD_ALWAYS                            0x0001
+#define CMD_ACROSS_PLANE                      0x0002
+#define CMD_NO_LASTPIXEL                      0x0004
+#define CMD_RADIAL_DRAW_DIR                   0x0008
+#define CMD_DRAW_PIXELS                       0x0010
+#define CMD_DRAW_DIR_MASK                     0x00e0
+#define CMD_BYTE_SWAP                         0x1000
+#define CMD_WAIT_CPU                          0x0100
+#define CMD_BUS_SIZE_8BIT                     (0b00 << 9)
+#define CMD_BUS_SIZE_16BIT                    (0b01 << 9)
 #define CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED (0b10 << 9)
-#define CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED (0b11 << 9)
+#define CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED  (0b11 << 9)
 
-#define CMD_COMMAND_TYPE_MASK 0xe000
+#define CMD_COMMAND_TYPE_MASK  0xe000
 #define CMD_COMMAND_TYPE_SHIFT 13
 
-#define CMD_TYPE_NOP (0b000 << CMD_COMMAND_TYPE_SHIFT)
-#define CMD_TYPE_LINE (0b001 << CMD_COMMAND_TYPE_SHIFT)
+#define CMD_TYPE_NOP       (0b000 << CMD_COMMAND_TYPE_SHIFT)
+#define CMD_TYPE_LINE      (0b001 << CMD_COMMAND_TYPE_SHIFT)
 #define CMD_TYPE_RECT_FILL (0b010 << CMD_COMMAND_TYPE_SHIFT)
-#define CMD_TYPE_BLIT (0b110 << CMD_COMMAND_TYPE_SHIFT)
-#define CMD_TYPE_PAT_BLIT (0b111 << CMD_COMMAND_TYPE_SHIFT)
+#define CMD_TYPE_BLIT      (0b110 << CMD_COMMAND_TYPE_SHIFT)
+#define CMD_TYPE_PAT_BLIT  (0b111 << CMD_COMMAND_TYPE_SHIFT)
 
-#define CMD2 0x9AEA  // Write-only
-#define CMD2_TRAPEZOID_DIR_MASK 0x00e0
+#define CMD2                     0x9AEA  // Write-only
+#define CMD2_TRAPEZOID_DIR_MASK  0x00e0
 #define CMD2_TRAPEZOID_DIR_SHIFT 5
 
 #define SHORT_STROKE 0x9EE8
@@ -77,51 +77,51 @@ int debugLevel = 10;
 // MMIO)
 #define BKGD_COLOR 0xA2E8
 #define FRGD_COLOR 0xA6E8
-#define WRT_MASK 0xAAE8
-#define RD_MASK 0xAEE8
-#define COLOR_CMP 0xB2E8
+#define WRT_MASK   0xAAE8
+#define RD_MASK    0xAEE8
+#define COLOR_CMP  0xB2E8
 
 #define BKGD_MIX 0xB6E8
 #define FRGD_MIX 0xBAE8
 
 #define CLR_SRC_BKGD_COLOR (0b00 << 5)
 #define CLR_SRC_FRGD_COLOR (0b01 << 5)
-#define CLR_SRC_CPU (0b10 << 5)
-#define CLR_SRC_MEMORY (0b11 << 5)
+#define CLR_SRC_CPU        (0b10 << 5)
+#define CLR_SRC_MEMORY     (0b11 << 5)
 
 #define RD_REG_DT 0xBEE8
 // The following are accessible via RD_REG_DT, the number indicates the index
 #define MIN_AXIS_PCNT 0x0
-#define SCISSORS_T 0x1
-#define SCISSORS_L 0x2
-#define SCISSORS_B 0x3
-#define SCISSORS_R 0x4
+#define SCISSORS_T    0x1
+#define SCISSORS_L    0x2
+#define SCISSORS_B    0x3
+#define SCISSORS_R    0x4
 
-#define PIX_CNTL 0xA
-#define MASK_BIT_SRC_ONE (0b00 << 6)
-#define MASK_BIT_SRC_CPU (0b10 << 6)
+#define PIX_CNTL            0xA
+#define MASK_BIT_SRC_ONE    (0b00 << 6)
+#define MASK_BIT_SRC_CPU    (0b10 << 6)
 #define MASK_BIT_SRC_BITMAP (0b11 << 6)
 
 #define MULT_MISC2 0xD
-#define MULT_MISC 0xE
-#define READ_SEL 0xF
+#define MULT_MISC  0xE
+#define READ_SEL   0xF
 
-#define PIX_TRANS 0xE2E8
+#define PIX_TRANS     0xE2E8
 #define PIX_TRANS_EXT 0xE2EA
-#define PAT_Y 0xEAE8
-#define PAT_X 0xEAEA
+#define PAT_Y         0xEAE8
+#define PAT_X         0xEAEA
 
 #if HAS_PACKED_MMIO
 // Packed MMIO 32bit registers
-#define ALT_CURXY 0x8100
+#define ALT_CURXY  0x8100
 #define ALT_CURXY2 0x8104
-#define ALT_STEP 0x8108
-#define ALT_STEP2 0x810C
-#define ALT_ERR 0x8110
-#define ALT_CMD 0x8118
-#define ALT_MIX 0x8134
-#define ALT_PCNT 0x8148
-#define ALT_PAT 0x8168
+#define ALT_STEP   0x8108
+#define ALT_STEP2  0x810C
+#define ALT_ERR    0x8110
+#define ALT_CMD    0x8118
+#define ALT_MIX    0x8134
+#define ALT_PCNT   0x8148
+#define ALT_PAT    0x8168
 #endif
 
 /******************************************************************************/
@@ -139,7 +139,7 @@ const char LibName[] = "S3Trio3264.chip";
 #endif
 const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 chip driver version 1.0";
 
-const UWORD LibVersion = 1;
+const UWORD LibVersion  = 1;
 const UWORD LibRevision = 0;
 
 // Wait For just the blitter to finish. No wait for FIFO queue empty.
@@ -182,8 +182,9 @@ static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
     WaitForIdle(bi);
 }
+
 static const struct svga_pll s3trio64_pll = {3, 129, 3, 33, 0, 3, 35000, 240000, 14318};
-static const struct svga_pll s3sdac_pll = {3, 129, 3, 33, 0, 3, 60000, 270000, 14318};
+static const struct svga_pll s3sdac_pll   = {3, 129, 3, 33, 0, 3, 60000, 270000, 14318};
 
 ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 {
@@ -450,7 +451,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
           (ULONG)mi->VerSyncSize);
 
     bi->ModeInfo = mi;
-    bi->Border = border;
+    bi->Border   = border;
 
     WaitBlitter(bi);
 
@@ -462,9 +463,9 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     W_SR_MASK(0x01, 0x04, 0x00);
 #endif
 
-    hTotal = mi->HorTotal;
-    ScreenWidth = mi->Width;
-    modeFlags = mi->Flags;
+    hTotal       = mi->HorTotal;
+    ScreenWidth  = mi->Width;
+    modeFlags    = mi->Flags;
     isInterlaced = (modeFlags & GMF_INTERLACE) != 0;
 
     depth = mi->Depth;
@@ -487,7 +488,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         if (modeFlags & GMF_DOUBLECLOCK) {
             DFUNC(0, "Double-Clock Mode\n");
 #if BUILD_VISION864
-            hTotal = hTotal / 2;
+            hTotal      = hTotal / 2;
             ScreenWidth = ScreenWidth / 2;
 //      W_SR_MASK(0x01, 0x04, 0x04);
 #else
@@ -524,7 +525,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // Double all horizontal parameters.
         W_CR_MASK(0x43, 0x80, 0x80);
         // And double again. We need x4 "dot clocks"
-        hTotal = hTotal * 2;
+        hTotal      = hTotal * 2;
         ScreenWidth = ScreenWidth * 2;
 #else
         // Reset doubling all horizontal parameters.
@@ -535,8 +536,8 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 
 #define ADJUST_HBORDER(x) AdjustBorder(x, border, 8)
 #define ADJUST_VBORDER(y) AdjustBorder(y, border, 1);
-#define TO_CLKS(x) ((x) >> 3)
-#define TO_SCANLINES(y) ToScanLines((y), modeFlags)
+#define TO_CLKS(x)        ((x) >> 3)
+#define TO_SCANLINES(y)   ToScanLines((y), modeFlags)
 
     {
         // Horizontal Total (CRO)
@@ -805,11 +806,11 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
 
     bi->XOffset = xoffset;
     bi->YOffset = yoffset;
-    memOffset = (ULONG)memory - (ULONG)bi->MemoryBase;
+    memOffset   = (ULONG)memory - (ULONG)bi->MemoryBase;
 
     switch (format) {
     case RGBFB_NONE:
-        pitch = width >> 3;  // ?? can planar modes even be accessed?
+        pitch     = width >> 3;  // ?? can planar modes even be accessed?
         panOffset = (ULONG)yoffset * (width >> 3) + (xoffset >> 3);
         break;
     case RGBFB_R8G8B8:
@@ -818,7 +819,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     case RGBFB_A8B8G8R8:
     case RGBFB_R8G8B8A8:
     case RGBFB_B8G8R8A8:
-        pitch = width * 4;
+        pitch     = width * 4;
         panOffset = (yoffset * width + xoffset) * 4;
         break;
     case RGBFB_R5G6B5PC:
@@ -832,12 +833,12 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     case RGBFB_YUV422PC:
     case RGBFB_YUV422PA:
     case RGBFB_YUV422PAPC:
-        pitch = width * 2;
+        pitch     = width * 2;
         panOffset = (yoffset * width + xoffset) * 2;
         break;
     default:
         // RGBFB_CLUT:
-        pitch = width;
+        pitch     = width;
         panOffset = yoffset * width + xoffset;
         break;
     }
@@ -1020,7 +1021,7 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 
     D(5, "Resulting pixelclock Hz: %ld\n\n", mi->PixelClock);
 
-    mi->pll1.Numerator = (n - 2) | (r << 5);
+    mi->pll1.Numerator   = (n - 2) | (r << 5);
     mi->pll2.Denominator = m - 2;
 
     return currentKhz / 1000;  // uses Mhz as "index"
@@ -1252,8 +1253,8 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
     //  But that doesn't work. Instead the Trio32/64 shape programming (AND/XOR images are word-interleaved)
     //  works.
     const UWORD *image = bi->MouseImage + 2;
-    UWORD *cursorAND = (UWORD *)bi->MouseImageBuffer;
-    UWORD *cursorXOR = (UWORD *)(bi->MouseImageBuffer + 512);
+    UWORD *cursorAND   = (UWORD *)bi->MouseImageBuffer;
+    UWORD *cursorXOR   = (UWORD *)(bi->MouseImageBuffer + 512);
     for (UWORD y = 0; y < bi->MouseHeight; ++y) {
         // first 16 bit
         UWORD plane0 = *image++;
@@ -1261,8 +1262,8 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
 
         UWORD andMask = ~plane0;  // AND mask
         UWORD xorMask = plane1;   // XOR mask
-        *cursorAND++ = andMask;
-        *cursorXOR++ = xorMask;
+        *cursorAND++  = andMask;
+        *cursorXOR++  = xorMask;
         // padding, should result in  screen color
         for (UWORD p = 0; p < 3; ++p) {
             *cursorAND++ = 0xFFFF;
@@ -1278,7 +1279,7 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
     }
 #else
     const UWORD *image = bi->MouseImage + 2;
-    UWORD *cursor = (UWORD *)bi->MouseImageBuffer;
+    UWORD *cursor      = (UWORD *)bi->MouseImageBuffer;
     for (UWORD y = 0; y < bi->MouseHeight; ++y) {
         // first 16 bit
         UWORD plane0 = *image++;
@@ -1286,8 +1287,8 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
 
         UWORD andMask = ~plane0;  // AND mask
         UWORD xorMask = plane1;   // XOR mask
-        *cursor++ = andMask;
-        *cursor++ = xorMask;
+        *cursor++     = andMask;
+        *cursor++     = xorMask;
         // padding, should result in  screen color
         for (UWORD p = 0; p < 3; ++p) {
             *cursor++ = 0xFFFF;
@@ -1425,7 +1426,7 @@ static inline void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
 #else
     MMIOBASE();
     while (1) {
-        UWORD gpStat= R_MMIO_W(GP_STAT);
+        UWORD gpStat = R_MMIO_W(GP_STAT);
         D(20, " gpstat: %lx,", (ULONG)gpStat);
         if (!(gpStat & (1 << testBit)))
             break;
@@ -1442,8 +1443,8 @@ static inline void REGARGS getGESegmentAndOffset(ULONG memOffset, WORD bytesPerR
     *segment = (memOffset >> 20) & 7;
 
     ULONG srcOffset = memOffset & 0xFFFFF;
-    *yoffset = srcOffset / bytesPerRow;
-    *xoffset = (srcOffset % bytesPerRow) / bpp;
+    *yoffset        = srcOffset / bytesPerRow;
+    *xoffset        = (srcOffset % bytesPerRow) / bpp;
 
 #ifdef DBG
     if (*segment > 0) {
@@ -1461,8 +1462,8 @@ static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
         return TRUE;
     }
 
-    UWORD width = bytesPerRow / bpp;
-    UBYTE CR31_1 = 0;
+    UWORD width     = bytesPerRow / bpp;
+    UBYTE CR31_1    = 0;
     UBYTE CR50_76_0 = 0;
     // Make the bytes per row compatible with the Graphics Engine's presets
     if (width == 640) {
@@ -1478,7 +1479,7 @@ static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
     } else if (width == 1600) {
         CR50_76_0 = 0b10000001;
     } else if (width == 2048) {
-        CR31_1 = (1 << 1);
+        CR31_1    = (1 << 1);
         CR50_76_0 = 0b00000000;
     } else {
         DFUNC(0, "Width unsupported by Graphics Engine, choosing unaccelerated  path\n");
@@ -1494,7 +1495,7 @@ static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
     W_BEE8(MULT_MISC, (1 << 9));
 
     getChipData(bi)->GEbytesPerRow = bytesPerRow;
-    getChipData(bi)->GEbpp = bpp;
+    getChipData(bi)->GEbpp         = bpp;
 
     return TRUE;
 }
@@ -1546,9 +1547,10 @@ static inline void REGARGS DrawModeToMixMode(UBYTE drawMode, UWORD *frgdMix, UWO
     f |= CLR_SRC_FRGD_COLOR;
     g |= CLR_SRC_BKGD_COLOR;
     if (drawMode & INVERSVID) {
+        // Swap the foreground and background
         UWORD t = f;
-        f = g;
-        g = t;
+        f       = g;
+        g       = t;
     }
     *frgdMix = f;
     *bkgdMix = g;
@@ -1570,10 +1572,10 @@ static inline void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG 
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEfgPen != FgPen || cd->GEbgPen != BgPen || cd->GEdrawMode != DrawMode || cd->GEFormat != format) {
-        cd->GEfgPen = FgPen;
-        cd->GEbgPen = BgPen;
+        cd->GEfgPen    = FgPen;
+        cd->GEbgPen    = BgPen;
         cd->GEdrawMode = DrawMode;
-        cd->GEFormat = format;
+        cd->GEFormat   = format;
 
         UWORD frgdMix, bkgdMix;
         DrawModeToMixMode(DrawMode, &frgdMix, &bkgdMix);
@@ -1641,13 +1643,13 @@ static inline void REGARGS setBlitDestPos(struct BoardInfo *bi, UWORD dstX, UWOR
 #endif
 }
 
-#define TOP_LEFT (0b101 << 5)
-#define TOP_RIGHT (0b100 << 5)
-#define BOTTOM_LEFT (0b001 << 5)
+#define TOP_LEFT     (0b101 << 5)
+#define TOP_RIGHT    (0b100 << 5)
+#define BOTTOM_LEFT  (0b001 << 5)
 #define BOTTOM_RIGHT (0b000 << 5)
-#define POSITIVE_X (0b001 << 5)
-#define POSITIVE_Y (0b100 << 5)
-#define Y_MAJOR (0b010 << 5)
+#define POSITIVE_X   (0b001 << 5)
+#define POSITIVE_Y   (0b100 << 5)
+#define Y_MAJOR      (0b010 << 5)
 
 static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
                          __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(ULONG pen),
@@ -1695,9 +1697,9 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     SetGEWriteMask(bi, mask, fmt, 0);
 
     if (cd->GEfgPen != pen || cd->GEFormat != fmt) {
-        cd->GEfgPen = pen;
+        cd->GEfgPen  = pen;
         cd->GEFormat = fmt;
-        pen = PenToColor(pen, fmt);
+        pen          = PenToColor(pen, fmt);
 
         WaitFifo(bi, 8);
         REGBASE();
@@ -1844,7 +1846,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 }
 
 const static UWORD minTermToMix[16] = {
-                                  // MinTerm
+    // MinTerm
     MIX_ZERO,                     // 0000
     MIX_NOT_CURRENT_AND_NOT_NEW,  // 0001  (!dst ^ !src)
     MIX_CURRENT_AND_NOT_NEW,      // 0010  (dst ^ !src)
@@ -1878,7 +1880,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
     MMIOBASE();
 
     UWORD bytesPerRow = dri->BytesPerRow > sri->BytesPerRow ? dri->BytesPerRow : sri->BytesPerRow;
-    UBYTE bpp = getBPP(format);
+    UBYTE bpp         = getBPP(format);
     if (!bpp || !setCR50(bi, bytesPerRow, bpp)) {
         DFUNC(1, "fallback to BlitRectNoMaskCompleteDefault\n");
         bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, format);
@@ -1887,12 +1889,11 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
 
     ChipData_t *cd = getChipData(bi);
     if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
-        cd->GEOp = BLITRECTNOMASKCOMPLETE;
-        cd->GEmask = 0xFF;
+        cd->GEOp       = BLITRECTNOMASKCOMPLETE;
+        cd->GEmask     = 0xFF;
         cd->GEdrawMode = 0xFF;  // invalidate minterm cache
 
         WaitFifo(bi, 3);
-
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
 
         REGBASE();
@@ -2079,8 +2080,8 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     const UBYTE *bitmap = (const UBYTE *)template->Memory;
     bitmap += (template->XOffset / 32) * 4;
     UWORD dwordsPerLine = (width + 31) / 32;
-    UBYTE rol = template->XOffset % 32;
-    WORD bitmapPitch = template->BytesPerRow;
+    UBYTE rol           = template->XOffset % 32;
+    WORD bitmapPitch    = template->BytesPerRow;
     if (!rol) {
         for (UWORD y = 0; y < height; ++y) {
             for (UWORD x = 0; x < dwordsPerLine; ++x) {
@@ -2091,7 +2092,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     } else {
         for (UWORD y = 0; y < height; ++y) {
             for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                ULONG left = ((const ULONG *)bitmap)[x] << rol;
+                ULONG left  = ((const ULONG *)bitmap)[x] << rol;
                 ULONG right = ((const ULONG *)bitmap)[x + 1] >> (32 - rol);
 
                 W_MMIO_L(PIX_TRANS, (left | right));
@@ -2158,14 +2159,14 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                       CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
-    WORD dwordsPerLine = (width + 31) / 32;
-    UWORD *bitmap = (UWORD *)pattern->Memory;
-    UBYTE rol = pattern->XOffset % 16;
+    WORD dwordsPerLine      = (width + 31) / 32;
+    UWORD *bitmap           = (UWORD *)pattern->Memory;
+    UBYTE rol               = pattern->XOffset % 16;
     UWORD patternHeightMask = (1 << pattern->Size) - 1;
 
     if (!rol) {
         for (WORD y = 0; y < height; ++y) {
-            UWORD bits = bitmap[(y + pattern->YOffset) & patternHeightMask];
+            UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
             ULONG bitsL = makeDWORD(bits, bits);
             for (WORD x = 0; x < dwordsPerLine; ++x) {
                 W_MMIO_L(PIX_TRANS, bitsL);
@@ -2173,8 +2174,8 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         }
     } else {
         for (WORD y = 0; y < height; ++y) {
-            UWORD bits = bitmap[(y + pattern->YOffset) & patternHeightMask];
-            bits = (bits << rol) | (bits >> (16 - rol));
+            UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
+            bits        = (bits << rol) | (bits >> (16 - rol));
             ULONG bitsL = makeDWORD(bits, bits);
             for (WORD x = 0; x < dwordsPerLine; ++x) {
                 W_MMIO_L(PIX_TRANS, bitsL);
@@ -2221,7 +2222,7 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
         } else {
             for (UWORD y = 0; y < height; ++y) {
                 for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                    ULONG left = ((ULONG *)bitmap)[x] << rol;
+                    ULONG left  = ((ULONG *)bitmap)[x] << rol;
                     ULONG right = ((ULONG *)bitmap)[x + 1] >> (32 - rol);
                     W_MMIO_L(PIX_TRANS, (left | right));
                 }
@@ -2245,10 +2246,10 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
 
     MMIOBASE();
 
-    BOOL emulate320 = (ri->BytesPerRow == 320);
+    BOOL emulate320  = (ri->BytesPerRow == 320);
     WORD bytesPerRow = emulate320 ? 640 : ri->BytesPerRow;
     // how many dwords per line in the source plane
-    UWORD numPlanarBytes = width / 8 * height * bm->Depth;
+    UWORD numPlanarBytes              = width / 8 * height * bm->Depth;
     UWORD projectedRegisterWriteBytes = (9 + 8 * 8) * 2;
 
     if ((projectedRegisterWriteBytes > numPlanarBytes) || !setCR50(bi, bytesPerRow, 1)) {
@@ -2281,10 +2282,10 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     UWORD mixMode = minTermToMix[minTerm];
 
     if (cd->GEfgPen != 0xFFFFFFFF || cd->GEdrawMode != minTerm || cd->GEFormat != RGBFB_CLUT) {
-        cd->GEfgPen = 0xFFFFFFFF;
-        cd->GEbgPen = 0x00000000;
+        cd->GEfgPen    = 0xFFFFFFFF;
+        cd->GEbgPen    = 0x00000000;
         cd->GEdrawMode = minTerm;
-        cd->GEFormat = RGBFB_CLUT;
+        cd->GEFormat   = RGBFB_CLUT;
 
         WaitFifo(bi, 10);
         setMix(bi, (CLR_SRC_FRGD_COLOR | mixMode), (CLR_SRC_BKGD_COLOR | mixMode));
@@ -2293,10 +2294,10 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     // This could/should get chached as well
     W_BEE8(MULT_MISC2, seg << 4);
 
-    WORD bmPitch = bm->BytesPerRow;
+    WORD bmPitch        = bm->BytesPerRow;
     ULONG bmStartOffset = (srcY * bmPitch) + (srcX / 32) * 4;
     UWORD dwordsPerLine = (width + 31) / 32;
-    UBYTE rol = srcX % 32;
+    UBYTE rol           = srcX % 32;
 
     for (short p = 0; p < 8; ++p) {
         UBYTE writeMask = 1 << p;
@@ -2405,6 +2406,7 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
         W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | direction);
     } else {
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+
         W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                           CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED | direction);
 
@@ -2412,8 +2414,8 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
         // origin of the line and thus shifts the pattern to the indicated number of
         // bits to the left. It is the pattern shift value at the start of the line
         // segment to be drawn.
-        UWORD rol = line->PatternShift;
-        UWORD pattern = (line->LinePtrn << rol) | (line->LinePtrn >> (16u - rol));
+        UWORD rol      = line->PatternShift;
+        UWORD pattern  = (line->LinePtrn << rol) | (line->LinePtrn >> (16u - rol));
         ULONG patternL = makeDWORD(pattern, pattern);
         WORD numDWords = (line->Length + 31) / 32;
         for (WORD i = 0; i < numDWords; ++i) {
@@ -2436,7 +2438,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     //  }
 
     bi->GraphicsControllerType = GCT_S3Trio64;
-    bi->PaletteChipType = PCT_S3Trio64;
+    bi->PaletteChipType        = PCT_S3Trio64;
     bi->Flags = bi->Flags | BIF_NOMEMORYMODEMIX | BIF_BORDERBLANK | BIF_BLITTER | BIF_GRANTDIRECTACCESS |
                 BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
     // Trio64 supports BGR_8_8_8_X 24bit, R5G5B5 and R5G6B5 modes.
@@ -2448,25 +2450,25 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // sprite
     bi->SoftSpriteFlags = RGBFF_B8G8R8 | RGBFF_R8G8B8;
 
-    bi->SetGC = SetGC;
-    bi->SetPanning = SetPanning;
+    bi->SetGC                = SetGC;
+    bi->SetPanning           = SetPanning;
     bi->CalculateBytesPerRow = CalculateBytesPerRow;
-    bi->CalculateMemory = CalculateMemory;
+    bi->CalculateMemory      = CalculateMemory;
     bi->GetCompatibleFormats = GetCompatibleFormats;
-    bi->SetDAC = SetDAC;
-    bi->SetColorArray = SetColorArray;
-    bi->SetDisplay = SetDisplay;
-    bi->SetMemoryMode = SetMemoryMode;
-    bi->SetWriteMask = SetWriteMask;
-    bi->SetReadPlane = SetReadPlane;
-    bi->SetClearMask = SetClearMask;
-    bi->ResolvePixelClock = ResolvePixelClock;
-    bi->GetPixelClock = GetPixelClock;
-    bi->SetClock = SetClock;
+    bi->SetDAC               = SetDAC;
+    bi->SetColorArray        = SetColorArray;
+    bi->SetDisplay           = SetDisplay;
+    bi->SetMemoryMode        = SetMemoryMode;
+    bi->SetWriteMask         = SetWriteMask;
+    bi->SetReadPlane         = SetReadPlane;
+    bi->SetClearMask         = SetClearMask;
+    bi->ResolvePixelClock    = ResolvePixelClock;
+    bi->GetPixelClock        = GetPixelClock;
+    bi->SetClock             = SetClock;
 
     // VSYNC
     bi->WaitVerticalSync = WaitVerticalSync;
-    bi->GetVSyncState = GetVSyncState;
+    bi->GetVSyncState    = GetVSyncState;
 
     // DPMS
     bi->SetDPMSLevel = SetDPMSLevel;
@@ -2475,21 +2477,21 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->SetSplitPosition = SetSplitPosition;
 
     // Mouse Sprite
-    bi->SetSprite = SetSprite;
+    bi->SetSprite         = SetSprite;
     bi->SetSpritePosition = SetSpritePosition;
-    bi->SetSpriteImage = SetSpriteImage;
-    bi->SetSpriteColor = SetSpriteColor;
+    bi->SetSpriteImage    = SetSpriteImage;
+    bi->SetSpriteColor    = SetSpriteColor;
 
     // Blitter acceleration
-    bi->WaitBlitter = WaitBlitter;
-    bi->BlitRect = BlitRect;
-    bi->InvertRect = InvertRect;
-    bi->FillRect = FillRect;
-    bi->BlitTemplate = BlitTemplate;
-    bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
+    bi->WaitBlitter            = WaitBlitter;
+    bi->BlitRect               = BlitRect;
+    bi->InvertRect             = InvertRect;
+    bi->FillRect               = FillRect;
+    bi->BlitTemplate           = BlitTemplate;
+    bi->BlitPlanar2Chunky      = BlitPlanar2Chunky;
     bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
-    bi->DrawLine = DrawLine;
-    bi->BlitPattern = BlitPattern;
+    bi->DrawLine               = DrawLine;
+    bi->BlitPattern            = BlitPattern;
 
     DFUNC(15,
           "WaitBlitter 0x%08lx\nBlitRect 0x%08lx\nInvertRect 0x%08lx\nFillRect "
@@ -2501,31 +2503,31 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     bi->PixelClockCount[PLANAR] = 0;
 #if BUILD_VISION864
-    bi->PixelClockCount[CHUNKY] = 135;
-    bi->PixelClockCount[HICOLOR] = 80;
+    bi->PixelClockCount[CHUNKY]    = 135;
+    bi->PixelClockCount[HICOLOR]   = 80;
     bi->PixelClockCount[TRUECOLOR] = 50;
     bi->PixelClockCount[TRUEALPHA] = 50;
 #else
-    bi->PixelClockCount[CHUNKY] = 135;  // > 67Mhz can be achieved via Double Clock mode
-    bi->PixelClockCount[HICOLOR] = 80;
+    bi->PixelClockCount[CHUNKY]    = 135;  // > 67Mhz can be achieved via Double Clock mode
+    bi->PixelClockCount[HICOLOR]   = 80;
     bi->PixelClockCount[TRUECOLOR] = 50;
     bi->PixelClockCount[TRUEALPHA] = 50;
 #endif
 
     // Informed by the largest X/Y coordinates the blitter can talk to
-    bi->MaxBMWidth = 2048;
+    bi->MaxBMWidth  = 2048;
     bi->MaxBMHeight = 2048;
 
-    bi->BitsPerCannon = 6;
-    bi->MaxHorValue[PLANAR] = 4088;  // 511 * 8dclks
-    bi->MaxHorValue[CHUNKY] = 4088;
-    bi->MaxHorValue[HICOLOR] = 8176;     // 511 * 8 * 2
+    bi->BitsPerCannon          = 6;
+    bi->MaxHorValue[PLANAR]    = 4088;  // 511 * 8dclks
+    bi->MaxHorValue[CHUNKY]    = 4088;
+    bi->MaxHorValue[HICOLOR]   = 8176;   // 511 * 8 * 2
     bi->MaxHorValue[TRUECOLOR] = 16352;  // 511 * 8 * 4
     bi->MaxHorValue[TRUEALPHA] = 16352;
 
-    bi->MaxVerValue[PLANAR] = 2047;
-    bi->MaxVerValue[CHUNKY] = 2047;
-    bi->MaxVerValue[HICOLOR] = 2047;
+    bi->MaxVerValue[PLANAR]    = 2047;
+    bi->MaxVerValue[CHUNKY]    = 2047;
+    bi->MaxVerValue[HICOLOR]   = 2047;
     bi->MaxVerValue[TRUECOLOR] = 2047;
     bi->MaxVerValue[TRUEALPHA] = 2047;
 
@@ -2616,7 +2618,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     UBYTE chipRevision = R_CR(0x2F);
     if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
-        BOOL LPBMode = (R_CR(0x6F) & 0x01) == 0;
+        BOOL LPBMode            = (R_CR(0x6F) & 0x01) == 0;
         CONST_STRPTR modeString = (LPBMode ? "Local Peripheral Bus (LPB)" : "Compatibility");
         D(0, "Chip is Trio64+/V2 (Rev %ld) in %s mode\n", (ULONG)chipRevision & 0x0f, modeString);
 
@@ -2707,7 +2709,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
 #endif
 
-    clock = SetMemoryClock(bi, clock);
+    clock           = SetMemoryClock(bi, clock);
     bi->MemoryClock = clock;
 
     W_CR(0x0, 0x5f);
@@ -2830,14 +2832,14 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // W_REG_MASK(ADVFUNC_CNTL, 0x30, 0x30);
 
 #if DBG
-    {
-      LOCAL_PROMETHEUSBASE();
-      // LAW start address
-      ULONG physAddress = (ULONG)Prm_GetPhysicalAddress(bi->MemoryBase);
-      if (physAddress & 0x3FFFFF) {
-          D(0, "WARNING: card's base address is not 4MB aligned!\n");
-      }
-    }
+        {
+            LOCAL_PROMETHEUSBASE();
+            // LAW start address
+            ULONG physAddress = (ULONG)Prm_GetPhysicalAddress(bi->MemoryBase);
+            if (physAddress & 0x3FFFFF) {
+                D(0, "WARNING: card's base address is not 4MB aligned!\n");
+            }
+        }
 #endif
         // Setup the Linear Address Window (LAW)  position
         // Beware: while bi->MemoryBase is a 'virtual' address, the register wants a physical address
@@ -2923,9 +2925,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #endif
 
     // Determine memory size of the card (typically 1-2MB, but can be up to 4MB)
-    bi->MemorySize = 0x400000;
+    bi->MemorySize              = 0x400000;
     volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
-    framebuffer[0] = 0;
+    framebuffer[0]              = 0;
     while (bi->MemorySize) {
         D(1, "Probing memory size %ld\n", bi->MemorySize);
 
@@ -2952,16 +2954,16 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // Probe the last and the first longword for the current segment,
         // as well as offset 0 to check for wrap arounds
         volatile ULONG *highOffset = framebuffer + (bi->MemorySize >> 2) - 1;
-        volatile ULONG *lowOffset = framebuffer + (bi->MemorySize >> 3);
+        volatile ULONG *lowOffset  = framebuffer + (bi->MemorySize >> 3);
         // Probe  memory
         *framebuffer = 0;
-        *highOffset = (ULONG)highOffset;
-        *lowOffset = (ULONG)lowOffset;
+        *highOffset  = (ULONG)highOffset;
+        *lowOffset   = (ULONG)lowOffset;
 
         CacheClearU();
 
         ULONG readbackHigh = *highOffset;
-        ULONG readbackLow = *lowOffset;
+        ULONG readbackLow  = *lowOffset;
         ULONG readbackZero = *framebuffer;
 
         D(10, "Probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= 0x%lx\n", highOffset, readbackHigh, lowOffset,
@@ -2972,7 +2974,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         }
         // reduce available memory size
         bi->MemorySize >>= 1;
-        if (bi->MemorySize < 1024*1024){
+        if (bi->MemorySize < 1024 * 1024) {
             D(0, "Memory detection failed, aborting\n");
             return FALSE;
         }
@@ -2988,9 +2990,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     // take sprite image data off the top of the memory
     // sprites can be placed at segment boundaries of 1kb
-    bi->MemorySize = (bi->MemorySize - maxSpriteBuffersSize) & ~(1024 - 1);
+    bi->MemorySize       = (bi->MemorySize - maxSpriteBuffersSize) & ~(1024 - 1);
     bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
-    bi->MouseSaveBuffer = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
+    bi->MouseSaveBuffer  = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
 
     // Start Address in terms of 1024byte segments
     W_CR(0x4c, 0);  // init to 0
