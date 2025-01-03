@@ -2805,19 +2805,20 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // Test, also enable MMIO and Linear addressing via the other register
         // W_REG_MASK(ADVFUNC_CNTL, 0x30, 0x30);
 
-#if 0
+#if DBG
     {
       LOCAL_PROMETHEUSBASE();
       // LAW start address
-      ULONG physAddress = Prm_GetPhysicalAddress(bi->MemoryBase);
+      ULONG physAddress = (ULONG)Prm_GetPhysicalAddress(bi->MemoryBase);
       if (physAddress & 0x3FFFFF) {
           D(0, "WARNING: card's base address is not 4MB aligned!\n");
       }
     }
 #endif
+        // Setup the Linear Address Window (LAW)  position
         // Beware: while bi->MemoryBase is a 'virtual' address, the register wants a physical address
         // We basically achieve this translation by chopping off the topmost bits.
-        W_CR_MASK(0x5a, 0xE0, (ULONG)bi->MemoryBase >> 16);
+        W_CR_MASK(0x5a, 0x40, (ULONG)bi->MemoryBase >> 16);
         D(0, "CR59: 0x%lx CR5A: 0x%lx\n", (ULONG)R_CR(0x59), (ULONG)R_CR(0x5a));
         // Upper address bits may  not be touched as they would result in shifting
         // the PCI window
@@ -2947,6 +2948,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         }
         // reduce available memory size
         bi->MemorySize >>= 1;
+        if (bi->MemorySize < 1024*1024){
+            D(0, "Memory detection failed, aborting\n");
+            return FALSE;
+        }
     }
 
     D(1, "MemorySize: %ldmb\n", bi->MemorySize / (1024 * 1024));
