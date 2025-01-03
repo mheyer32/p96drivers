@@ -2071,6 +2071,9 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
 
     setBlitSrcPosAndSize(bi, x, y, width, height);
 
+    // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
+    WaitForBlitter(bi);
+
     W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                       CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
@@ -2143,6 +2146,9 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         // Invalidate the pen and drawmode caches
         cd->GEdrawMode = 0xFF;
 
+        // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
+        WaitForBlitter(bi);
+
         WaitFifo(bi, 1);
 
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
@@ -2209,6 +2215,10 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
         // transferring in chunks of 16bit seems wasteful
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
         setMix(bi, (CLR_SRC_FRGD_COLOR | mixMode), (CLR_SRC_BKGD_COLOR | mixMode));
+
+        // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
+        WaitForBlitter(bi);
+
         W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                           CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
@@ -2356,7 +2366,10 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEOp != LINE) {
-        cd->GEOp = LINE;
+        // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
+        WaitForBlitter(bi);
+
+        cd->GEOp       = LINE;
         cd->GEdrawMode = 0xFF;
     }
 
