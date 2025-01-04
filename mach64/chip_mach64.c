@@ -2314,19 +2314,6 @@ void intHandler(int dummy)
     abort();
 }
 
-APTR findLegacyIOBase()
-{
-    struct ConfigDev *cd;
-
-    APTR legacyIOBase = NULL;
-    if (cd = FindConfigDev(NULL, VENDOR_MATAY, DEVICE_PROMETHEUS))
-        legacyIOBase = cd->cd_BoardAddr;
-    else if (cd = FindConfigDev(NULL, VENDOR_E3B, DEVICE_FIRESTORM))
-        legacyIOBase = (APTR)((ULONG)cd->cd_BoardAddr + 0x1fe00000);
-
-    return legacyIOBase;
-}
-
 int main()
 {
     signal(SIGINT, intHandler);
@@ -2339,12 +2326,6 @@ int main()
 
     if (!(PrometheusBase = OpenLibrary(PROMETHEUSNAME, 0))) {
         D(0, "Unable to open prometheus.library\n");
-        goto exit;
-    }
-
-    APTR legacyIOBase = NULL;
-    if (!(legacyIOBase = findLegacyIOBase())) {
-        D(0, "Unable to find legacy IO base\n");
         goto exit;
     }
 
@@ -2371,8 +2352,7 @@ int main()
 
             Prm_WriteConfigWord((PCIBoard *)board, 0x03, 0x04);
 
-            D(INFO, "cb_LegacyIOBase 0x%x , MemoryBase 0x%x, MemorySize %u, IOBase 0x%x\n", legacyIOBase, Memory0,
-              Memory0Size, Memory1);
+            D(INFO, "MemoryBase 0x%x, MemorySize %u, IOBase 0x%x\n", Memory0, Memory0Size, Memory1);
 
             APTR physicalAddress = Prm_GetPhysicalAddress(Memory0);
             D(INFO, "physicalAdress 0x%08lx\n", physicalAddress);
