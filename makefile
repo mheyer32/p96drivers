@@ -31,7 +31,7 @@ else
     BUILDFLAGS += -Ofast -fomit-frame-pointer
 endif
 
-CFLAGS +=  $(BUILDFLAGS) -I. -IPicasso96Develop/Include -IPicasso96Develop/PrivateInclude -IPrometheus/include
+CFLAGS +=  $(BUILDFLAGS) -I. -IPicasso96Develop/Include -IPicasso96Develop/PrivateInclude -IPrometheus/include -Iopenpci
 LDFLAGS += $(BUILDFLAGS)
 
 ###############################################################################
@@ -113,10 +113,15 @@ ${1} : $$(${1}_OBJS)
 endef
 
 ###############################################################################
-
 # target 'all' (default target)
 
 all : S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip ATIMach64.chip TestMach64
+
+openpci.h : openpci/openpci.fd openpci/clib/openpci_protos.h
+	@$(MKDIR) -p openpci/inline
+	fd2sfd openpci/openpci.fd openpci/clib/openpci_protos.h openpci/openpci.sfd
+	sfdc --output=openpci/inline/openpci.h --target=m68k-amigaos --mode=macros openpci/openpci.sfd
+	sfdc --output=openpci/proto/openpci.h --target=m68k-amigaos --mode=proto openpci/openpci.sfd
 
 S3TRIO_SRC = common.c \
              s3trio64/chip_s3trio64.c \
