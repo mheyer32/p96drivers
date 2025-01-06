@@ -2102,6 +2102,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->MaxHorResolution[TRUEALPHA] = maxWidth;
     bi->MaxVerResolution[TRUEALPHA] = maxHeight;
 
+    setCacheMode(bi, bi->MemoryBase + 0x800000 - 2048, 2048, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
+
     ChipData_t *cd = getChipData(bi);
     {
         DFUNC(INFO, "Determine Chip Family\n");

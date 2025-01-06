@@ -108,15 +108,16 @@ void delayMilliSeconds(ULONG ms)
 }
 
 // Taken from MMULib example code
-int setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULONG mask)
+BOOL setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULONG mask)
 {
     LOCAL_SYSBASE();
 
     struct MMUContext *ctx, *sctx; /* default context, supervisorcontext */
     struct MinList *ctxl, *sctxl;
-    int err;
-
     struct Library *MMUBase = NULL;
+
+    int err = ERROR_OBJECT_NOT_FOUND;
+
     if (MMUBase = OpenLibrary("mmu.library", 0)) {
         ctx  = DefaultContext();  /* get the default context */
         sctx = SuperContext(ctx); /* get the supervisor context for this one */
@@ -127,10 +128,15 @@ int setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULONG
 
         err = ERROR_NO_FREE_STORE;
 
+        ULONG pageSize = GetPageSize(ctx);
+        ULONG start = (ULONG)from & ~(pageSize - 1);
+        size += from - start;
+        size = (size + pageSize - 1) & ~(pageSize - 1);
+
         if (ctxl = GetMapping(ctx)) {
             if (sctxl = GetMapping(sctx)) {
-                if (SetProperties(ctx, flags, mask, (ULONG)from, size, TAG_DONE)) {
-                    if (SetProperties(sctx, flags, mask, (ULONG)from, size, TAG_DONE)) {
+                if (SetProperties(ctx, flags, mask, start, size, TAG_DONE)) {
+                    if (SetProperties(sctx, flags, mask, start, size, TAG_DONE)) {
                         if (RebuildTree(ctx)) {
                             if (RebuildTree(sctx)) {
                                 err = 0;
@@ -155,6 +161,10 @@ int setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULONG
 
         CloseLibrary(MMUBase);
     }
-    return err;
+    if (err)
+    {
+        DFUNC(ERROR, "failed with %ld\n", err);
+    }
+    return err == 0;
 }
 
