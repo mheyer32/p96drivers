@@ -3,6 +3,7 @@
 
 #include <SDI_compiler.h>
 #include <proto/exec.h>
+#include <mmu/context.h>
 
 #include <boardinfo.h>
 // FIXME: copy header into common location
@@ -151,6 +152,11 @@ int svga_compute_pll(const struct svga_pll *pll, ULONG f_wanted_khz, USHORT *m, 
 
 void delayMicroSeconds(ULONG us);
 void delayMilliSeconds(ULONG ms);
+
+// cam be used as mask
+#define CACHEFLAGS (MAPP_IO | MAPP_CACHEINHIBIT | MAPP_NONSERIALIZED | MAPP_IMPRECISE | MAPP_COPYBACK)
+
+int setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULONG mask);
 
 /******************************************************************************/
 static inline ULONG abs_diff(ULONG a, ULONG b)

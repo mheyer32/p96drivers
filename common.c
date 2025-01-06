@@ -1,6 +1,7 @@
 #include "common.h"
-#include <hardware/cia.h>
 #include <clib/debug_protos.h>
+#include <hardware/cia.h>
+#include <proto/mmu.h>
 
 #ifdef DBG
 
@@ -105,3 +106,55 @@ void delayMilliSeconds(ULONG ms)
 {
     delayMicroSeconds(ms * 1000);
 }
+
+// Taken from MMULib example code
+int setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULONG mask)
+{
+    LOCAL_SYSBASE();
+
+    struct MMUContext *ctx, *sctx; /* default context, supervisorcontext */
+    struct MinList *ctxl, *sctxl;
+    int err;
+
+    struct Library *MMUBase = NULL;
+    if (MMUBase = OpenLibrary("mmu.library", 0)) {
+        ctx  = DefaultContext();  /* get the default context */
+        sctx = SuperContext(ctx); /* get the supervisor context for this one */
+
+        LockContextList();
+        LockMMUContext(ctx);
+        LockMMUContext(sctx);
+
+        err = ERROR_NO_FREE_STORE;
+
+        if (ctxl = GetMapping(ctx)) {
+            if (sctxl = GetMapping(sctx)) {
+                if (SetProperties(ctx, flags, mask, (ULONG)from, size, TAG_DONE)) {
+                    if (SetProperties(sctx, flags, mask, (ULONG)from, size, TAG_DONE)) {
+                        if (RebuildTree(ctx)) {
+                            if (RebuildTree(sctx)) {
+                                err = 0;
+                            }
+                        }
+                    }
+                }
+
+                if (err) {
+                    SetPropertyList(ctx, ctxl);
+                    SetPropertyList(sctx, sctxl);
+                }
+
+                ReleaseMapping(sctx, sctxl);
+            }
+            ReleaseMapping(ctx, ctxl);
+        }
+
+        UnlockMMUContext(sctx);
+        UnlockMMUContext(ctx);
+        UnlockContextList();
+
+        CloseLibrary(MMUBase);
+    }
+    return err;
+}
+
