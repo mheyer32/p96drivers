@@ -2284,10 +2284,13 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #ifdef TESTEXE
 
 #include <boardinfo.h>
+#include <libraries/openpci.h>
 #include <libraries/prometheus.h>
 #include <proto/expansion.h>
+#include <proto/openpci.h>
 #include <proto/prometheus.h>
 #include <proto/utility.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2298,6 +2301,18 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #define DEVICE_PROMETHEUS 1
 
 struct Library *PrometheusBase = NULL;
+struct Library *OpenPciBase    = NULL;
+
+void intHandler(int dummy)
+{
+    if (PrometheusBase) {
+        CloseLibrary(PrometheusBase);
+    }
+    if (OpenPciBase) {
+        CloseLibrary(OpenPciBase);
+    }
+    abort();
+}
 
 APTR findLegacyIOBase()
 {
@@ -2314,7 +2329,13 @@ APTR findLegacyIOBase()
 
 int main()
 {
+    signal(SIGINT, intHandler);
+
     int rval = EXIT_FAILURE;
+
+    if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
+        D(0, "Unable to open openpci.library\n");
+    }
 
     if (!(PrometheusBase = OpenLibrary(PROMETHEUSNAME, 0))) {
         D(0, "Unable to open prometheus.library\n");
@@ -2493,8 +2514,12 @@ int main()
     D(ERROR, "no Mach64 found.\n");
 
 exit:
-    if (PrometheusBase)
+    if (PrometheusBase) {
         CloseLibrary(PrometheusBase);
+    }
+    if (OpenPciBase) {
+        CloseLibrary(OpenPciBase);
+    }
 
     return rval;
 }
