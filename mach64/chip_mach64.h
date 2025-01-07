@@ -319,6 +319,13 @@ static inline void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, UWORD 
     writeRegLNoSwap(regbase, DWORD_OFFSET(regIndex), regValue);
 }
 
+static inline void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, UWORD regIndex, ULONG value,
+                                                   const char *regName)
+{
+    D(VERBOSE, "W %s <- 0x%08lx\n", regName, (LONG)swapl(value));
+    writeRegLNoSwap(regbase, DWORD_OFFSET(regIndex), value);
+}
+
 // FIXME reusing the same function for IO and MMIO shouldn't work because MMIOREGISTER_OFFSET and REGISTER_OFFSET might
 // be different, but in practise they aren't. Refactor the code.
 #define R_BLKIO_B(regIndex, byteIndex)        readATIRegisterB(RegBase, regIndex, byteIndex, #regIndex)
@@ -335,6 +342,7 @@ static inline void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, UWORD 
 #undef W_MMIO_MASK_L
 #define R_MMIO_L(regIndex)                   readATIRegisterL(MMIOBase, regIndex, #regIndex)
 #define W_MMIO_L(regIndex, value)            writeATIRegisterL(MMIOBase, regIndex, value, #regIndex)
+#define W_MMIO_NOSWAP_L(regIndex, value)     writeATIRegisterNoSwapL(MMIOBase, regIndex, value, #regIndex)
 #define W_MMIO_MASK_L(regIndex, mask, value) writeATIRegisterMaskL(MMIOBase, regIndex, mask, value, #regIndex)
 
 #endif

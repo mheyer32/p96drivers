@@ -1303,8 +1303,8 @@ static void drawRect(struct BoardInfo *bi, WORD x, WORD y, WORD width, WORD heig
     // W_MMIO_L(DST_HEIGHT_WIDTH, DST_HEIGHT(height) | DST_WIDTH(width));
 
     // micro-optimization to save on some redundant rol/swap/rol sequences
-    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(DST_Y_X), makeDWORD(swapw(y), swapw(x)));
-    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(DST_HEIGHT_WIDTH), makeDWORD(swapw(height), swapw(width)));
+    W_MMIO_NOSWAP_L(DST_Y_X, makeDWORD(swapw(y), swapw(x)));
+    W_MMIO_NOSWAP_L(DST_HEIGHT_WIDTH, makeDWORD(swapw(height), swapw(width)));
 }
 
 static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
