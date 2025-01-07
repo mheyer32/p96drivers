@@ -2208,7 +2208,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     //     return FALSE;
     // }
 
-    bi->MemorySize -= 2048;  // Upper 2kb are reserved for MMIO register blocks 0 and 1
+    if (bi->MemorySize == 8*1024*1024)
+    {
+        bi->MemorySize -= 2048;  // Upper 2kb are reserved for MMIO register blocks 0 and 1
+    }
 
     MEM_CNTL_Register memCntl;
     *(ULONG *)&memCntl = R_BLKIO_L(MEM_CNTL);
