@@ -273,6 +273,12 @@ static inline ULONG REGARGS readATIRegisterL(volatile UBYTE *regbase, UWORD regI
     return value;
 }
 
+static inline ULONG REGARGS readATIMMIOL(volatile UBYTE *regbase, UWORD regIndex, const char *regName)
+{
+    flushWrites();
+    return readATIRegisterL(regbase, regIndex, regName);
+}
+
 static inline ULONG REGARGS readATIRegisterAndMaskL(volatile UBYTE *regbase, UWORD regIndex, ULONG mask,
                                                     const char *regName)
 {
@@ -340,7 +346,7 @@ static inline void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, UWOR
 #undef R_MMIO_L
 #undef W_MMIO_L
 #undef W_MMIO_MASK_L
-#define R_MMIO_L(regIndex)                   readATIRegisterL(MMIOBase, regIndex, #regIndex)
+#define R_MMIO_L(regIndex)                   readATIMMIOL(MMIOBase, regIndex, #regIndex)
 #define W_MMIO_L(regIndex, value)            writeATIRegisterL(MMIOBase, regIndex, value, #regIndex)
 #define W_MMIO_NOSWAP_L(regIndex, value)     writeATIRegisterNoSwapL(MMIOBase, regIndex, value, #regIndex)
 #define W_MMIO_MASK_L(regIndex, mask, value) writeATIRegisterMaskL(MMIOBase, regIndex, mask, value, #regIndex)

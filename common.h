@@ -193,6 +193,11 @@ static INLINE REGARGS volatile UBYTE *getMMIOBase(const struct BoardInfo *bi)
     return bi->MemoryIOBase;
 }
 
+static inline void flushWrites()
+{
+    asm volatile("nop");
+}
+
 static inline UBYTE REGARGS readReg(volatile UBYTE *regbase, UWORD reg)
 {
     return regbase[reg - REGISTER_OFFSET];
@@ -248,16 +253,18 @@ static inline ULONG REGARGS readRegL(volatile UBYTE *regbase, UWORD reg)
 
 static inline UWORD REGARGS readMMIO_W(volatile UBYTE *mmiobase, UWORD regOffset)
 {
+    flushWrites();
+    UWORD value = SWAPW(*(volatile UWORD *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)));
     // This construct makes sure, the compiler doesn't take shortcuts
     // performing a byte access (for instance via btst) when the hardware really
     // requires register access as words
-    UWORD value = SWAPW(*(volatile UWORD *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)));
     asm volatile("" ::"r"(value));
     return value;
 }
 
 static inline ULONG REGARGS readMMIO_L(volatile UBYTE *mmiobase, UWORD regOffset)
 {
+    flushWrites();
     // This construct makes sure, the compiler doesn't take shortcuts
     // performing a byte access (for instance via btst) when the hardware really
     // requires register access as words
