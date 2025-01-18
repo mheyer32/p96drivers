@@ -28,41 +28,41 @@ extern void myPrintF(const char *fmt, ...);
 
 #define D(level, ...)            \
     if (debugLevel >= (level)) { \
-        myPrintF(__VA_ARGS__);    \
+        myPrintF(__VA_ARGS__);   \
     }
 // Helper macro to allow call DFUNC with just one argument (and __VA_ARGS__
 // being empty)
 #define VA_ARGS(...) , ##__VA_ARGS__
-#define DFUNC(level, fmt, ...)                              \
-    if (debugLevel >= (level)) {                            \
+#define DFUNC(level, fmt, ...)                                             \
+    if (debugLevel >= (level)) {                                           \
         myPrintF("%s:%ld: " fmt, __func__, __LINE__ VA_ARGS(__VA_ARGS__)); \
     }
 #endif
 
 // The offsets allow for using signed 16bit indexed addressing be used
-#define REGISTER_OFFSET 0x8000
+#define REGISTER_OFFSET     0x8000
 #define MMIOREGISTER_OFFSET 0x8000
 
-#define SEQX 0x3C4  // Access SRxx registers
+#define SEQX     0x3C4  // Access SRxx registers
 #define SEQ_DATA 0x3C5
 
-#define CRTC_IDX 0x3D4  // Access CRxx registers
+#define CRTC_IDX  0x3D4  // Access CRxx registers
 #define CRTC_DATA 0x3D5
 
-#define GRC_ADR 0x3CE
+#define GRC_ADR  0x3CE
 #define GRC_DATA 0x3CF
 
-#define ATR_AD 0x3C0
+#define ATR_AD     0x3C0
 #define ATR_DATA_W 0x3C0
 #define ATR_DATA_R 0x3C1
 
 #define DAC_WR_AD 0x3C8
-#define DAC_DATA 0x3C9
+#define DAC_DATA  0x3C9
 
-#define CardPrometheusBase CardData[0]
+#define CardPrometheusBase   CardData[0]
 #define CardPrometheusDevice CardData[1]
 
-#define LOCAL_SYSBASE() struct ExecBase *SysBase = bi->ExecBase
+#define LOCAL_SYSBASE()        struct ExecBase *SysBase = bi->ExecBase
 #define LOCAL_PROMETHEUSBASE() struct Library *PrometheusBase = (struct Library *)(bi->CardPrometheusBase)
 // #define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
 
@@ -93,8 +93,8 @@ static inline UWORD swapw(UWORD value)
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
-#define STATIC_ASSERT(COND,MSG) typedef char static_assertion_##MSG[(COND)?1:-1]
-#define SIZEOF_MEMBER(type, member) (sizeof( ((type *)0)->member ))
+#define STATIC_ASSERT(COND, MSG)    typedef char static_assertion_##MSG[(COND) ? 1 : -1]
+#define SIZEOF_MEMBER(type, member) (sizeof(((type *)0)->member))
 
 typedef enum BlitterOp
 {
@@ -113,9 +113,9 @@ typedef enum BlitterOp
 // Remember: all in Little Endian!
 typedef struct OptionRomHeader
 {
-    UWORD signature;       // 0x0000: Signature (should be 0xAA55)
-    UBYTE reserved[22];    // 0x0002: Reserved (usually 0, may contain PCI data structure pointer)
-    UWORD pcir_offset;  // 0x0018: Pointer to PCI Data Structure (offset within the ROM)
+    UWORD signature;     // 0x0000: Signature (should be 0xAA55)
+    UBYTE reserved[22];  // 0x0002: Reserved (usually 0, may contain PCI data structure pointer)
+    UWORD pcir_offset;   // 0x0018: Pointer to PCI Data Structure (offset within the ROM)
 } OptionRomHeader_t;
 
 typedef struct PCI_DataStructure
@@ -140,8 +140,8 @@ struct svga_pll
     USHORT m_max;
     USHORT n_min;
     USHORT n_max;
-    USHORT r_min; // post divider log2
-    USHORT r_max; // post divider log2
+    USHORT r_min;  // post divider log2
+    USHORT r_max;  // post divider log2
     ULONG f_vco_min;
     ULONG f_vco_max;
     ULONG f_base;
@@ -406,34 +406,34 @@ static inline void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
     writeRegister(regbase, 0x3C2, misc);
 }
 
-#define REGBASE() volatile UBYTE *RegBase = getLegacyBase(bi)
+#define REGBASE()  volatile UBYTE *RegBase = getLegacyBase(bi)
 #define MMIOBASE() volatile UBYTE *MMIOBase = getMMIOBase(bi)
 
-#define R_CR(reg) readCRx(RegBase, reg)
-#define W_CR(reg, value) writeCRx(RegBase, reg, value)
+#define R_CR(reg)                   readCRx(RegBase, reg)
+#define W_CR(reg, value)            writeCRx(RegBase, reg, value)
 #define W_CR_MASK(reg, mask, value) writeCRxMask(RegBase, reg, mask, value)
 
-#define R_SR(reg) readSRx(RegBase, reg)
-#define W_SR(reg, value) writeSRx(RegBase, reg, value)
+#define R_SR(reg)                   readSRx(RegBase, reg)
+#define W_SR(reg, value)            writeSRx(RegBase, reg, value)
 #define W_SR_MASK(reg, mask, value) writeSRxMask(RegBase, reg, mask, value)
 
-#define R_GR(reg) readGRx(RegBase, reg)
+#define R_GR(reg)        readGRx(RegBase, reg)
 #define W_GR(reg, value) writeGRx(RegBase, reg, value)
 
-#define R_AR(reg) readARx(RegBase, reg)
+#define R_AR(reg)        readARx(RegBase, reg)
 #define W_AR(reg, value) writeARx(RegBase, reg, value)
 
-#define R_REG(reg) readRegister(RegBase, reg)
-#define W_REG(reg, value) writeRegister(RegBase, reg, value)
+#define R_REG(reg)                   readRegister(RegBase, reg)
+#define W_REG(reg, value)            writeRegister(RegBase, reg, value)
 #define W_REG_MASK(reg, mask, value) writeRegisterMask(RegBase, reg, mask, value)
 
-#define R_IO_W(reg) readRegW(RegBase, reg)
-#define R_IO_L(reg) readRegL(RegBase, reg)
+#define R_IO_W(reg)        readRegW(RegBase, reg)
+#define R_IO_L(reg)        readRegL(RegBase, reg)
 #define W_IO_W(reg, value) writeRegW(RegBase, reg, value)
 #define W_IO_L(reg, value) writeRegL(RegBase, reg, value)
 
-#define R_MMIO_W(reg) readMMIO_W(MMIOBase, reg)
-#define R_MMIO_L(reg) readMMIO_L(MMIOBase, reg)
+#define R_MMIO_W(reg)        readMMIO_W(MMIOBase, reg)
+#define R_MMIO_L(reg)        readMMIO_L(MMIOBase, reg)
 #define W_MMIO_W(reg, value) writeMMIO_W(MMIOBase, reg, value)
 #define W_MMIO_L(reg, value) writeMMIO_L(MMIOBase, reg, value)
 
@@ -442,7 +442,7 @@ static inline void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
 #define _W_CR_OF(value, reg, bitPos, numBits)                    \
     if (numBits < 8) {                                           \
         UWORD mask_W_CR_OF = ((1 << (numBits)) - 1) << (bitPos); \
-        UWORD val_W_CR_OF = ((value) << (bitPos));               \
+        UWORD val_W_CR_OF  = ((value) << (bitPos));              \
         W_CR_MASK(reg, mask_W_CR_OF, val_W_CR_OF);               \
     } else {                                                     \
         W_CR(reg, value);                                        \
@@ -555,26 +555,24 @@ static inline UBYTE getBPPLog2(RGBFTYPE format)
     return 0;
 }
 
-
 BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
-
 // Apparently the mix modes can be shared between S3 cards and ATI Mach64
-#define MIX_NOT_CURRENT 0b0000
-#define MIX_ZERO 0b0001
-#define MIX_ONE 0b0010
-#define MIX_CURRENT 0b0011
-#define MIX_NOT_NEW 0b0100
-#define MIX_CURRENT_XOR_NEW 0b0101
-#define MIX_NOT_CURRENT_XOR_NEW 0b0110
-#define MIX_NEW 0b0111
-#define MIX_NOT_CURRENT_OR_NOT_NEW 0b1000
-#define MIX_CURRENT_OR_NOT_NEW 0b1001
-#define MIX_NOT_CURRENT_OR_NEW 0b1010
-#define MIX_CURRENT_OR_NEW 0b1011
-#define MIX_CURRENT_AND_NEW 0b1100
-#define MIX_NOT_CURRENT_AND_NEW 0b1101
-#define MIX_CURRENT_AND_NOT_NEW 0b1110
+#define MIX_NOT_CURRENT             0b0000
+#define MIX_ZERO                    0b0001
+#define MIX_ONE                     0b0010
+#define MIX_CURRENT                 0b0011
+#define MIX_NOT_NEW                 0b0100
+#define MIX_CURRENT_XOR_NEW         0b0101
+#define MIX_NOT_CURRENT_XOR_NEW     0b0110
+#define MIX_NEW                     0b0111
+#define MIX_NOT_CURRENT_OR_NOT_NEW  0b1000
+#define MIX_CURRENT_OR_NOT_NEW      0b1001
+#define MIX_NOT_CURRENT_OR_NEW      0b1010
+#define MIX_CURRENT_OR_NEW          0b1011
+#define MIX_CURRENT_AND_NEW         0b1100
+#define MIX_NOT_CURRENT_AND_NEW     0b1101
+#define MIX_CURRENT_AND_NOT_NEW     0b1110
 #define MIX_NOT_CURRENT_AND_NOT_NEW 0b1111
 
 #endif  // COMMON_H

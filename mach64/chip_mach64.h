@@ -11,7 +11,7 @@ typedef enum ChipFamily
     MACH64GX,
     MACH64VT,  // 8mb aperture only
     MACH64GT,
-    MACH64GR    // Rage 3 XL
+    MACH64GR  // Rage 3 XL
 } ChipFamily_t;
 
 typedef struct ChipData
@@ -84,26 +84,6 @@ typedef struct Mach64RomHeader
     UBYTE signatures[16];           // 74 - 89: $??? Signatures indicating pointers to hardware information table
 } Mach64RomHeader_t;
 
-typedef struct
-{
-    ULONG reserved2 : 3;         // Bits 29-31: Reserved
-    ULONG mem_oe_select : 2;     // Bits 27-28: OEb(0) Pin Function Select
-    ULONG mem_pix_width : 3;     // Bits 24-26: Memory Pixel Width
-    ULONG reserved : 1;          // Bit 23: Reserved
-    ULONG cde_pullback : 1;      // Bit 22: CDE Pullback
-    ULONG low_latency_mode : 1;  // Bit 21: Low Latency Mode
-    ULONG mem_tile_select : 2;   // Bits 19-20: Memory Tile Select
-    ULONG mem_sdram_reset : 1;   // Bit 18: SDRAM Reset
-    ULONG dll_gain_cntl : 2;     // Bits 16-17: DLL Gain Control
-    ULONG mem_actv_pre : 2;      // Bits 14-15: SDRAM Active to Precharge Minimum Latency
-    ULONG dll_reset : 1;         // Bit 13: DLL Reset
-    ULONG mem_refresh_rate : 2;  // Bits 11-12: Memory refresh rate
-    ULONG mem_cyc_lnth : 2;      // Bits 9-10: DRAM non-page memory cycle length
-    ULONG mem_cyc_lnth_aux : 2;  // Bits 7-8: SDRAM Actv to Cmd cycle length
-    ULONG mem_refresh : 4;       // Bits 3-6: Refresh Cycle Length
-    ULONG mem_size : 3;          // Bits 0-2: Memory size
-} MEM_CNTL_Register;
-
 typedef struct FrequencyTable
 {
     UBYTE frequency_table_id;  // Frequency table identification
@@ -146,17 +126,18 @@ typedef struct MaxColorDepthTableEntry
 
 #define DWORD_OFFSET(x) ((x) * 4)
 
-#define SCRATCH_REG0   (0x20)
-#define SCRATCH_REG1   (0x21)
-#define BUS_CNTL       (0x28)
-#define MEM_CNTL       (0x2C)
-#define GEN_TEST_CNTL  (0x34)
-#define CONFIG_CNTL    (0x37)
-#define CONFIG_CHIP_ID (0x38)
-#define CONFIG_STAT0   (0x39)
-#define CLOCK_CNTL     (0x24)
-#define DAC_REGS       (0x30)
-#define DAC_CNTL       (0x31)
+#define SCRATCH_REG0    (0x20)
+#define SCRATCH_REG1    (0x21)
+#define BUS_CNTL        (0x28)
+#define MEM_CNTL        (0x2C)
+#define GEN_TEST_CNTL   (0x34)
+#define CONFIG_CNTL     (0x37)
+#define CONFIG_CHIP_ID  (0x38)
+#define CONFIG_STAT0    (0x39)
+#define CLOCK_CNTL      (0x24)
+#define DAC_REGS        (0x30)
+#define DAC_CNTL        (0x31)
+#define MEM_ADDR_CONFIG (0x0D)
 
 #define CRTC_H_TOTAL_DISP     0x00
 #define CRTC_H_SYNC_STRT_WID  0x01
@@ -237,18 +218,8 @@ typedef struct MaxColorDepthTableEntry
 #define GUI_TRAJ_CNTL     0xCC
 #define GUI_STAT          0xCE
 
-// new for GT
-#define EXT_MEM_CNTL 0x2B
-
-#define MEM_SDRAM_RESET_MASK BIT(1)
-#define MEM_SDRAM_RESET      BIT(1)
-#define MEM_MA_YCLK          BIT(4)
-#define MEM_MA_YCLK_MASK     BIT(4)
-#define MEM_CYC_TEST_MASK    (0x3 << 2)
-#define MEM_CYC_TEST(x)      ((x) << 2)
-#define MEM_ALL_PAGE_DIS_MASK BIT(30)
-#define MEM_ALL_PAGE_DIS      BIT(30)
-
+#define BUS_ROM_DIS         BIT(12)
+#define BUS_ROM_DIS_MASK    BIT(12)
 #define BUS_FIFO_ERR_INT_EN BIT(20)
 #define BUS_FIFO_ERR_INT    BIT(21)
 #define BUS_FIFO_ERR_AK     BIT(21)  // INT and ACK are the same bit, distiguished by R/W operation
@@ -352,4 +323,3 @@ static inline void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, UWOR
 #define W_MMIO_MASK_L(regIndex, mask, value) writeATIRegisterMaskL(MMIOBase, regIndex, mask, value, #regIndex)
 
 #endif
-

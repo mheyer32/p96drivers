@@ -24,7 +24,7 @@ const UWORD LibRevision = 0;
 
 /*******************************************************************************/
 
-int debugLevel = CHATTY;
+int debugLevel = VERBOSE;
 
 static const UBYTE g_bitWidths[] = {
     COLOR_DEPTH_4,   // RGBFB_NONE 4bit
@@ -244,27 +244,6 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
     return mach64RomHeader;
 }
 
-static void print_MEM_CNTL_Register(const MEM_CNTL_Register *reg)
-{
-    D(0, "MEM_CNTL_Register:\n");
-    D(0, "  mem_size         : 0x%lx\n", reg->mem_size);
-    D(0, "  mem_refresh      : 0x%lx\n", reg->mem_refresh);
-    D(0, "  mem_cyc_lnth_aux : 0x%lx\n", reg->mem_cyc_lnth_aux);
-    D(0, "  mem_cyc_lnth     : 0x%lx\n", reg->mem_cyc_lnth);
-    D(0, "  mem_refresh_rate : 0x%lx\n", reg->mem_refresh_rate);
-    D(0, "  dll_reset        : 0x%lx\n", reg->dll_reset);
-    D(0, "  mem_actv_pre     : 0x%lx\n", reg->mem_actv_pre);
-    D(0, "  dll_gain_cntl    : 0x%lx\n", reg->dll_gain_cntl);
-    D(0, "  mem_sdram_reset  : 0x%lx\n", reg->mem_sdram_reset);
-    D(0, "  mem_tile_select  : 0x%lx\n", reg->mem_tile_select);
-    D(0, "  low_latency_mode : 0x%lx\n", reg->low_latency_mode);
-    D(0, "  cde_pullback     : 0x%lx\n", reg->cde_pullback);
-    D(0, "  reserved         : 0x%lx\n", reg->reserved);
-    D(0, "  mem_pix_width    : 0x%lx\n", reg->mem_pix_width);
-    D(0, "  mem_oe_select    : 0x%lx\n", reg->mem_oe_select);
-    D(0, "  reserved2        : 0x%lx\n", reg->reserved2);
-}
-
 // Frequency Synthesis Description
 // To generate a specific output frequency, the reference (M), feedback (N), and post
 // dividers (P) must be loaded with the appropriate divide-down ratios. The internal PLLs for
@@ -389,7 +368,7 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
             DFUNC(ERROR, "Unable to compute PLL values for %ld0 KHz\n", minFreq);
             break;
         } else {
-            DFUNC(VERBOSE, "Pixelclock %03ld %09ldHz: \n", e, frequency * 10000);
+            DFUNC(CHATTY, "Pixelclock %03ld %09ldHz: \n", e, frequency * 10000);
         }
         minFreq += 100;
     }
@@ -406,7 +385,7 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
     // FIXME: Account for OVERCLOCK
     for (UWORD i = 0; i < e; ++i) {
         ULONG frequency = computeFrequencyKhz10FromPllValue(bi, &pllValues[i], multipliers);
-        D(VERBOSE, "Pixelclock %03ld %09ldHz: \n", i, frequency * 10000);
+        D(CHATTY, "Pixelclock %03ld %09ldHz: \n", i, frequency * 10000);
         if (frequency <= 13500) {  // FIXME: limits are chip dependent
             bi->PixelClockCount[CHUNKY]++;
         }
@@ -467,20 +446,22 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
     SetColorArrayInternal(bi, startIndex, count, bi->CLUT);
 }
 
-#define CRTC_DBL_SCAN_EN      BIT(0)
-#define CRTC_INTERLACE_EN     BIT(1)
-#define CRTC_HSYNC_DIS        BIT(2)
-#define CRTC_VSYNC_DIS        BIT(3)
-#define CRTC_DISPLAY_DIS      BIT(6)
-#define CRTC_DISPLAY_DIS_MASK BIT(6)
-#define CRTC_PIX_WIDTH(x)     ((x) << 8)
-#define CRTC_PIX_WIDTH_MASK   (0x7 << 8)
-#define CRTC_FIFO_LWM(x)      ((x) << 16)
-#define CRTC_FIFO_LWM_MASK    (0xF << 16)
-#define CRTC_EXT_DISP_EN      BIT(24)
-#define CRTC_EXT_DISP_EN_MASK BIT(24)
-#define CRTC_ENABLE           BIT(25)
-#define CRTC_ENABLE_MASK      BIT(25)
+#define CRTC_DBL_SCAN_EN        BIT(0)
+#define CRTC_INTERLACE_EN       BIT(1)
+#define CRTC_HSYNC_DIS          BIT(2)
+#define CRTC_VSYNC_DIS          BIT(3)
+#define CRTC_DISPLAY_DIS        BIT(6)
+#define CRTC_DISPLAY_DIS_MASK   BIT(6)
+#define CRTC_PIX_WIDTH(x)       ((x) << 8)
+#define CRTC_PIX_WIDTH_MASK     (0x7 << 8)
+#define CRTC_FIFO_OVERFILL(x)   ((x) << 14)
+#define CRTC_FIFO_OVERFILL_MASK (0x3 << 14)
+#define CRTC_FIFO_LWM(x)        ((x) << 16)
+#define CRTC_FIFO_LWM_MASK      (0xF << 16)
+#define CRTC_EXT_DISP_EN        BIT(24)
+#define CRTC_EXT_DISP_EN_MASK   BIT(24)
+#define CRTC_ENABLE             BIT(25)
+#define CRTC_ENABLE_MASK        BIT(25)
 
 static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
@@ -655,6 +636,22 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         crtcGenCntl |= CRTC_DBL_SCAN_EN;
     }
     W_BLKIO_L(CRTC_GEN_CNTL, crtcGenCntl);
+
+    ULONG dpChainMask = 0x8080;
+
+    // FIXME: replace with fixed table?
+    switch (mi->Depth) {
+    case 15:
+        dpChainMask = 0x4210;
+        break;
+    case 16:
+        dpChainMask = 0x8410;
+        break;
+    default:
+        // fallthrough
+        break;
+    }
+    W_BLKIO_L(DP_CHAIN_MSK, dpChainMask);
 }
 
 static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width),
@@ -662,7 +659,6 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
                            __REGD7(RGBFTYPE format))
 {
     REGBASE();
-    LOCAL_SYSBASE();
 
     DFUNC(INFO,
           "mem 0x%lx, width %ld, height %ld, xoffset %ld, yoffset %ld, "
@@ -845,8 +841,8 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 
     // Select PLLVCLK as VCLK source
     WRITE_PLL_MASK(PLL_VCLK_CNTL, (PLL_PRESET_MASK | VCLK_SRC_SEL_MASK), VCLK_SRC_SEL(0b00) | PLL_PRESET);
-    //FIXME: GT has no PLL_FCP_CNTL. There its DLL_CNTL
-//    WRITE_PLL_MASK(PLL_FCP_CNTL, DCLK_BY2_EN_MASK, 0);
+    // FIXME: GT has no PLL_FCP_CNTL. There its DLL_CNTL
+    //    WRITE_PLL_MASK(PLL_FCP_CNTL, DCLK_BY2_EN_MASK, 0);
     WRITE_PLL(PLL_VCLK0_FB_DIV, mi->pll1.Numerator);
     BYTE postDivCode = g_VCLKPllMultiplierCode[mi->pll2.Denominator];
     WRITE_PLL_MASK(PLL_VCLK_POST_DIV, VCLK0_POST_MASK, VCLK0_POST(postDivCode));
@@ -865,26 +861,52 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
     W_BLKIO_MASK_L(CLOCK_CNTL, CLOCK_SEL_MASK, CLOCK_SEL(0));
 }
 
-#define MEM_PIX_WIDTH(x)   ((x) << 24)
-#define MEM_PIX_WIDTH_MASK (0x7 << 24)
-
+// FIXME: split out into family-specific functions
 static inline void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
     REGBASE();
     DFUNC(VERBOSE, "format %ld\n", (ULONG)format);
 
-    // These are the formats we place in the big endian aperture.
-    // And only for those we have to do anything.
-    switch (format) {
-    case RGBFB_A8B8G8R8:
-    case RGBFB_R5G6B5:
-    case RGBFB_R5G5B5:
+    if (getChipData(bi)->chipFamily < MACH64GT) {
+#define MEM_PIX_WIDTH(x)   ((x) << 24)
+#define MEM_PIX_WIDTH_MASK (0x7 << 24)
+        // These are the formats we place in the big endian aperture.
+        // And only for those we have to do anything.
+        switch (format) {
+        case RGBFB_A8B8G8R8:
+        case RGBFB_R5G6B5:
+        case RGBFB_R5G5B5:
+            if (getChipData(bi)->MemFormat == format) {
+                return;
+            }
+            getChipData(bi)->MemFormat = format;
+            W_BLKIO_MASK_L(MEM_CNTL, MEM_PIX_WIDTH_MASK, MEM_PIX_WIDTH(g_bitWidths[format]));
+            break;
+        }
+    } else {
+#define UPPER_APER_ENDIAN(x)   ((x) << 26)
+#define UPPER_APER_ENDIAN_MASK (0x3 << 26)
+        ULONG byteSwap = 0x0;
+        // These are the formats we place in the big endian aperture.
+        // And only for those we have to do anything.
+        switch (format) {
+        case RGBFB_A8B8G8R8:
+            byteSwap = UPPER_APER_ENDIAN(0b10);
+            break;
+        case RGBFB_R5G6B5:
+        case RGBFB_R5G5B5:
+            byteSwap = UPPER_APER_ENDIAN(0b01);
+            break;
+        default:
+           ; // fallthrough
+        }
+
         if (getChipData(bi)->MemFormat == format) {
             return;
         }
         getChipData(bi)->MemFormat = format;
-        W_BLKIO_MASK_L(MEM_CNTL, MEM_PIX_WIDTH_MASK, MEM_PIX_WIDTH(g_bitWidths[format]));
-        break;
+
+        W_BLKIO_MASK_L(MEM_CNTL, UPPER_APER_ENDIAN_MASK, byteSwap);
     }
 }
 
@@ -1071,24 +1093,23 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
     return TRUE;
 }
 
-static inline void waitFifo(const BoardInfo_t *bi, UBYTE entries)
-{
-    MMIOBASE();
-
-    if (!entries)
-        return;
-
-    while ((R_MMIO_L(FIFO_STAT) & 0xffff) > ((ULONG)(0x8000 >> entries)))
-        ;
-}
-
 static inline void waitIdle(const BoardInfo_t *bi)
 {
     MMIOBASE();
 
     waitFifo(bi, 16);
-    while (R_MMIO_L(GUI_STAT) & 1)
-        ;
+
+    ULONG cnt = 0;
+
+    while (R_MMIO_L(GUI_STAT) & 1) {
+        if (cnt++ > 100) {
+            ULONG busCntl = R_MMIO_L(BUS_CNTL);
+            if (busCntl & (BUS_FIFO_ERR_INT | BUS_HOST_ERR_INT)) {
+                ResetEngine(bi);
+            }
+            break;
+        }
+    }
 }
 
 static inline void REGARGS setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fmt, BYTE waitFifoSlots)
@@ -1172,8 +1193,8 @@ static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *r
         dstPixWidth = g_bitWidths[format];
     }
 
-    // FIXME: reading from the register is not FIFO'd. In theory to use W_MMIO_MASK_L we would need to wait for engine
-    // idle to be sure
+    // FIXME: reading from the register is not FIFO'd. In theory to use W_MMIO_MASK_L we would need to wait for
+    // engine idle to be sure
     //  that the previous write has completed. For now we just wait for 2 slots and write the register directly.
     W_MMIO_MASK_L(DP_PIX_WIDTH, DP_DST_PIX_WIDTH_MASK | DP_HOST_PIX_WIDTH_MASK,
                   DP_DST_PIX_WIDTH(dstPixWidth) | DP_HOST_PIX_WIDTH(COLOR_DEPTH_1));
@@ -1304,6 +1325,9 @@ static void drawRect(struct BoardInfo *bi, WORD x, WORD y, WORD width, WORD heig
 
     // micro-optimization to save on some redundant rol/swap/rol sequences
     W_MMIO_NOSWAP_L(DST_Y_X, makeDWORD(swapw(y), swapw(x)));
+
+    flushWrites();
+
     W_MMIO_NOSWAP_L(DST_HEIGHT_WIDTH, makeDWORD(swapw(height), swapw(width)));
 }
 
@@ -1838,7 +1862,8 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         waitIdle(bi);
 
         for (UWORD i = 0; i < patternHeight; ++i) {
-            // The video pattern has an 8-byte pitch. 64pixels (bits) is the minimum pitch for monochrome src blit data.
+            // The video pattern has an 8-byte pitch. 64pixels (bits) is the minimum pitch for monochrome src blit
+            // data.
             videoMemPattern[i * 2] = cachedPattern[i] << 16;
         }
     }
@@ -2156,17 +2181,18 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         DFUNC(ERROR, "scratch register response broken.\n");
         return FALSE;
     }
-    DFUNC(INFO, "scratch register response good.\n");
+    D(INFO, "scratch register response good.\n");
+
+    W_BLKIO_MASK_L(BUS_CNTL, BUS_ROM_DIS_MASK, 0);
 
     if (!parseRomHeader(bi)) {
         DFUNC(ERROR, "Failed to parse ROM header\n");
         return FALSE;
     }
 
-    W_BLKIO_L(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
+    // R_BLKIO_L(BUS_CNTL);
+    // W_BLKIO_MASK_L(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
 
-    W_BLKIO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK, CFG_VGA_DIS);
-    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_VGA_EN_MASK, 0);
     ULONG configCntl = R_BLKIO_L(CONFIG_CNTL);
 
     switch (cd->chipFamily) {
@@ -2186,6 +2212,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         D(ERROR, "Unsupported chip family\n");
         return FALSE;
     }
+
+    W_BLKIO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK, CFG_VGA_DIS);
+    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_VGA_EN_MASK, 0);
+
+    R_MMIO_L(GEN_TEST_CNTL);
+    R_BLKIO_L(BUS_CNTL);
 
     // ULONG clock = bi->MemoryClock;
     // if (!clock) {
@@ -2208,29 +2240,27 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     //     return FALSE;
     // }
 
-    if (bi->MemorySize == 8*1024*1024)
-    {
+    if (bi->MemorySize == 8 * 1024 * 1024) {
         bi->MemorySize -= 2048;  // Upper 2kb are reserved for MMIO register blocks 0 and 1
     }
-
-    MEM_CNTL_Register memCntl;
-    *(ULONG *)&memCntl = R_BLKIO_L(MEM_CNTL);
-    print_MEM_CNTL_Register(&memCntl);
 
     // Init DAC
     W_BLKIO_MASK_L(DAC_CNTL, DAC_8BIT_EN_MASK | DAC_BLANKING_MASK, DAC_8BIT_EN | DAC_BLANKING);
     W_BLKIO_B(DAC_REGS, DAC_MASK, 0xFF);
 
-    // Init CRTC
-    W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_FIFO_LWM_MASK,
-                   CRTC_ENABLE | CRTC_EXT_DISP_EN | CRTC_FIFO_LWM(0xF));
+    // Init CRTC, Display FIFO Low Water Mark
+    W_BLKIO_MASK_L(CRTC_GEN_CNTL,
+                   CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_FIFO_LWM_MASK | CRTC_FIFO_OVERFILL_MASK,
+                   CRTC_ENABLE | CRTC_EXT_DISP_EN | CRTC_FIFO_LWM(0xF) | CRTC_FIFO_OVERFILL(3));
+
+    R_BLKIO_L(BUS_CNTL);
 
     // Init Engine
-    // Reset engine. FIXME: older models use the same bit, but in a different way(?)
-    ULONG genTestCntl = R_MMIO_L(GEN_TEST_CNTL) & ~GEN_GUI_RESETB_MASK;
-    W_MMIO_L(GEN_TEST_CNTL, genTestCntl | GEN_GUI_RESETB);
-    W_MMIO_L(GEN_TEST_CNTL, genTestCntl);
-    W_MMIO_L(GEN_TEST_CNTL, genTestCntl | GEN_GUI_RESETB);
+    ResetEngine(bi);
+
+    R_BLKIO_L(BUS_CNTL);
+
+    waitIdle(bi);
 
     waitFifo(bi, 16);
     W_MMIO_L(CONTEXT_MSK, 0xFFFFFFFF);
@@ -2244,6 +2274,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_MMIO_L(SRC_HEIGHT1_WIDTH1, 1);
     W_MMIO_L(SRC_Y_X_START, 0);
     W_MMIO_L(SRC_HEIGHT2_WIDTH2, 1);
+
+    R_BLKIO_L(BUS_CNTL);
     // set source pixel retrieving attributes
     // W_MMIO_L(SRC_CNTL, SRC_LINE_X_LEFT_TO_RIGHT);
 
@@ -2262,6 +2294,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_MMIO_L(SRC_Y_X_START, 0);
 
     D(INFO, "Monitor is %s present\n", ((R_BLKIO_B(DAC_CNTL, 0) & 0x80) ? "NOT" : ""));
+
+    READ_PLL(PLL_XCLK_CNTL);
 
     // Two sprite images, each 64x64*2 bits
     // BEWARE: softsprite data would use 4 byte per pixel

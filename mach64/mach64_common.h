@@ -2,6 +2,7 @@
 #define MACH64_COMMON_H
 
 #include "common.h"
+#include "chip_mach64.h"
 
 struct BoardInfo;
 
@@ -59,6 +60,9 @@ struct BoardInfo;
 #define MFB_TIMES_4_2b      BIT(2)
 #define MFB_TIMES_4_2b_MASK BIT(2)
 
+#define XCLK_SRC_SEL(x)   (x)
+#define XCLK_SRC_SEL_MASK (7)
+
 typedef struct PLL
 {
     const BYTE *multipliers;
@@ -99,9 +103,10 @@ enum PLL_REGS
     PLL_VCLK2_FB_DIV  = 9,
     PLL_VCLK3_FB_DIV  = 10,
     PLL_XCLK_CNTL     = 11,  // VT
-    PLL_FCP_CNTL      = 12,  // VT
     PLL_EXT_CNTL      = 11,  // GT
-    PLL_DLL1_CNTL     = 12,  // GT
+    PLL_FCP_CNTL      = 12,  // VT
+    PLL_DLL_CNTL      = 12,     // GT
+    PLL_DLL1_CNTL     = 12,
     PLL_VFC_CNTL      = 13,  // VT
     PLL_TEST_CNTL     = 14,
     PLL_TEST_COUNT    = 15,
@@ -131,6 +136,8 @@ enum PLL_REGS
 #define CLOCK_SEL_MASK     (0x7)
 #define CLOCK_SEL(x)       ((x) & CLOCK_SEL_MASK)
 
+extern void ResetEngine(const BoardInfo_t *bi);
+
 extern void WritePLL(struct BoardInfo *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllData);
 extern UBYTE ReadPLL(struct BoardInfo *bi, UBYTE pllAddr);
 
@@ -145,6 +152,18 @@ extern ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYT
                               PLLValue_t *pllValues);
 extern ULONG computeFrequencyKhz10(UWORD RefFreq, UWORD FBDiv, UWORD RefDiv, UBYTE PostDiv);
 extern ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues, const UBYTE *multipliers);
+
+static inline void waitFifo(const BoardInfo_t *bi, UBYTE entries)
+{
+    MMIOBASE();
+
+    if (!entries)
+        return;
+
+    ULONG busCntl = R_MMIO_L(BUS_CNTL);
+    while ((R_MMIO_L(FIFO_STAT) & 0xffff) > ((ULONG)(0x8000 >> entries)))
+        ;
+}
 
 #define WRITE_PLL(pllAddr, data)            WritePLL(bi, (pllAddr), 0xFF, (data))
 #define WRITE_PLL_MASK(pllAddr, mask, data) WritePLL(bi, (pllAddr), (mask), (data))

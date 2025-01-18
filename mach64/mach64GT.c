@@ -66,7 +66,8 @@ ULONG computeFrequencyKhz10(UWORD RefFreq, UWORD FBDiv, UWORD RefDiv, UBYTE Post
 ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues, const UBYTE *multipliers)
 {
     const ChipData_t *cd = getConstChipData(bi);
-    return computeFrequencyKhz10(cd->referenceFrequency, pllValues->N, cd->referenceDivider, multipliers[pllValues->Pidx]);
+    return computeFrequencyKhz10(cd->referenceFrequency, pllValues->N, cd->referenceDivider,
+                                 multipliers[pllValues->Pidx]);
 }
 
 static BOOL inline isGoodVCOFrequency(ULONG freqKhz10)
@@ -77,7 +78,7 @@ static BOOL inline isGoodVCOFrequency(ULONG freqKhz10)
 ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *multipliers, BYTE numMultipliers,
                        PLLValue_t *pllValues)
 {
-    DFUNC(VERBOSE, "targetFrequency: %ld0 KHz\n", freqKhz10);
+    DFUNC(CHATTY, "targetFrequency: %ld0 KHz\n", freqKhz10);
 
     UBYTE postDivIdx = 0xff;
     if (freqKhz10 < 1475) {
@@ -111,7 +112,7 @@ ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *mult
 
     UWORD Ntimes2 = (freqKhz10 * M * multipliers[postDivIdx] + R - 1) / R;
 
-    pllValues->N     = Ntimes2 / 2;
+    pllValues->N    = Ntimes2 / 2;
     pllValues->Pidx = postDivIdx;
 
     ULONG outputFreq = computeFrequencyKhz10(R, pllValues->N, M, multipliers[pllValues->Pidx]);
@@ -134,8 +135,8 @@ static void setGUIEngineClockToSecondaryPLL(BoardInfo_t *bi, UWORD freqKhz10)
     if (freqKhz10 < 0x1475) {
         freqKhz10 = 0x1475;
     }
-    if (freqKhz10 > 23500) {
-        freqKhz10 = 23500;
+    if (freqKhz10 > 8300) {
+        freqKhz10 = 8300;
     }
     PLLValue_t pllValues;
     if (!computeSPllValues(bi, freqKhz10, &pllValues)) {
@@ -143,12 +144,12 @@ static void setGUIEngineClockToSecondaryPLL(BoardInfo_t *bi, UWORD freqKhz10)
         return;
     }
 
-    UBYTE spllCntl    = 0x50;
+    static const UBYTE selectCPUSrc = 0x50;
 
     // SCLK to CPUCLK
-    WRITE_PLL(PLL_SPLL_CNTL2, spllCntl);
+    WRITE_PLL(PLL_SPLL_CNTL2, selectCPUSrc);
     // Reset + Sleep secondary PLL
-    WRITE_PLL(PLL_SPLL_CNTL2, spllCntl | 3);
+    WRITE_PLL(PLL_SPLL_CNTL2, selectCPUSrc | 3);
 
     // Secondary PLL serves as another clock source for the GUI Engine, in addition to
     // MPLL. Using this PLL allows the GUI clock to run at any frequency (within the
@@ -159,7 +160,7 @@ static void setGUIEngineClockToSecondaryPLL(BoardInfo_t *bi, UWORD freqKhz10)
 
     WRITE_PLL(PLL_SCLK_FB_DIV, pllValues.N);
     delayMilliSeconds(5);
-    // Take PLL out of sleep and Reset, write post divider
+    // Take PLL out of sleep and Reset, write post divider, select SPLL as clock source
     WRITE_PLL(PLL_SPLL_CNTL2, postDivCode);
 }
 
@@ -186,35 +187,35 @@ void initSDRAM_PLL(BoardInfo_t *bi)
 
     REGBASE();
 
-    // DLL_PWDN, power UP DLL
+    // DLL_PWDN = 0 , power UP DLL
     WRITE_PLL_MASK(PLL_GEN_CNTL, 0x80, 0);
+    // FIXME: 0x06 is not really legal for a GT?!
     // DLL_REF_SRC = !YCLK; DLL_FB_CLK set to XCLK; ; DLL_RESET = 0; HCLK output enabled
     // DLL resets on rising edge of this signal if DLL_REF_CLK is running
-    WRITE_PLL(PLL_DLL1_CNTL, 0xa6);
+    WRITE_PLL(PLL_DLL_CNTL, 0xa6);
     // DLL_RESET = 1
-    WRITE_PLL(PLL_DLL1_CNTL, 0xe6);
+    WRITE_PLL(PLL_DLL_CNTL, 0xe6);
 
     delayMilliSeconds(5);
 
-    WRITE_PLL(PLL_DLL1_CNTL, 0xa6);
+    WRITE_PLL(PLL_DLL_CNTL, 0xa6);
 
     // Take Memory Controller out of Reset
     W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_SOFT_RESET_MASK, 0);
 
     ULONG ext_mem_cntl = R_BLKIO_L(EXT_MEM_CNTL) & 0xfffffff1;
-    // Start reset
-    W_BLKIO_L(EXT_MEM_CNTL, ext_mem_cntl | MEM_SDRAM_RESET);
-    // End reset, MEM_SDRAM_RESET = 0
-    ext_mem_cntl |= MEM_MA_YCLK;
+    // Start reset, test cycle 0
     W_BLKIO_L(EXT_MEM_CNTL, ext_mem_cntl);
-    // Start reset and test cycle
+    // Start reset, initiate test cycle
     W_BLKIO_L(EXT_MEM_CNTL, ext_mem_cntl | MEM_CYC_TEST(0b10) | MEM_SDRAM_RESET);
+    // Test mode sequence run
     W_BLKIO_L(EXT_MEM_CNTL, ext_mem_cntl | MEM_CYC_TEST(0b11) | MEM_SDRAM_RESET);
     delayMilliSeconds(5);
     // Take out of reset and test cycle
     W_BLKIO_L(EXT_MEM_CNTL, ext_mem_cntl);
 
-    // FIMXE: don't we need to set PLL_EXT_CNTL to DLL_CLK?
+    // 111 : XCLK = DLL_CLK; doesn't work :-(
+    // WRITE_PLL_MASK(PLL_EXT_CNTL, XCLK_SRC_SEL_MASK, XCLK_SRC_SEL(0b111));
 
     DFUNC(VERBOSE, "4\n");
 }
@@ -226,8 +227,9 @@ void setMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
     if (freqKhz10 < 0x1475) {
         freqKhz10 = 0x1475;
     }
-    if (freqKhz10 > 23500) {
-        freqKhz10 = 23500;
+    // SGRAM is rated up to 100Mhz, Core engine up to 83Mhz
+    if (freqKhz10 > 10000) {
+        freqKhz10 = 10000;
     }
     PLLValue_t pllValues;
     if (!computePLLValues(bi, freqKhz10, g_MCLKPllMultiplier, ARRAY_SIZE(g_MCLKPllMultiplier), &pllValues)) {
@@ -240,18 +242,10 @@ void setMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
     if (current == pllValues.N) {
         return;
     }
-
-    if (pllValues.Pidx > 0b100) {
-        DFUNC(ERROR, "Plog2 is too large\n");
-    }
+    ResetEngine(bi);
 
     REGBASE();
 
-    W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_GUI_RESETB_MASK | GEN_SOFT_RESET_MASK, 0);
-
-    // Reset GUI Engine on high to low transition
-    W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_GUI_RESETB_MASK, GEN_GUI_RESETB);
-    W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_GUI_RESETB_MASK, 0);
     // Reset Memory Controller
     W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_SOFT_RESET_MASK, GEN_SOFT_RESET);
 
@@ -297,15 +291,20 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
 
     static const ULONG memorySizes[] = {0x800000, 0x600000, 0x400000, 0x200000, 0x100000};
     static const ULONG memoryCodes[] = {11, 9, 7, 3, 1};
+    static const ULONG addrCfg[]     = {(0b10 << 8) | 2, (0b10 << 8) | 2, (0b01 << 8) | 1, (0b01 << 8) | 1,
+                                        (0b00 << 8 | 0)};
 
     volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
     framebuffer[0]              = 0;
 
     for (int i = 0; i < ARRAY_SIZE(memorySizes); i++) {
         bi->MemorySize = memorySizes[i];
-        D(VERBOSE, "Probing memory size %ld\n", bi->MemorySize);
+        D(VERBOSE, "\nProbing memory size %ld\n", bi->MemorySize);
 
+        W_BLKIO_L(MEM_ADDR_CONFIG, addrCfg[i]);
         W_BLKIO_MASK_L(MEM_CNTL, 0xF, memoryCodes[i]);
+
+        flushWrites();
 
         CacheClearU();
 
@@ -328,10 +327,101 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
           lowOffset, readbackLow, readbackZero);
 
         if (readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset && readbackZero == 0) {
+            D(VERBOSE, "Memory size sucessfully probed.\n\n");
             return TRUE;
         }
     }
+    D(VERBOSE, "Memory size probe failed.\n\n");
     return FALSE;
+}
+
+typedef struct
+{
+    ULONG reserved2 : 2;
+    ULONG mem_page_size : 2;
+    ULONG uppwer_aper_endian : 2;
+    ULONG lower_aper_endian : 2;
+    ULONG reserved : 1;
+    ULONG mem_refresh_rate : 3;
+    ULONG mem_refresh_dis : 1;
+    ULONG mem_tras : 3;
+    ULONG mem_oe_pullback : 1;
+    ULONG mem_cas_phase : 1;
+    ULONG mem_tr2w : 1;
+    ULONG mem_tcrd : 1;
+    ULONG mem_trcd : 2;
+    ULONG mem_trp : 2;
+    ULONG mem_latch : 2;
+    ULONG mem_latency : 2;
+    ULONG mem_size : 4;
+} MEM_CNTL_t;
+
+void print_MEM_CNTL(const MEM_CNTL_t mem_cntl)
+{
+    D(ALWAYS, "MEM_CNTL---------------------\n");
+    D(ALWAYS, "MEM_SIZE: %u\n", mem_cntl.mem_size);
+    D(ALWAYS, "MEM_LATENCY: %u\n", mem_cntl.mem_latency);
+    D(ALWAYS, "MEM_LATCH: %u\n", mem_cntl.mem_latch);
+    D(ALWAYS, "MEM_TRP: %u\n", mem_cntl.mem_trp);
+    D(ALWAYS, "MEM_TRCD: %u\n", mem_cntl.mem_trcd);
+    D(ALWAYS, "MEM_TCRD: %u\n", mem_cntl.mem_tcrd);
+    D(ALWAYS, "MEM_TR2W: %u\n", mem_cntl.mem_tr2w);
+    D(ALWAYS, "MEM_CAS_PHASE: %u\n", mem_cntl.mem_cas_phase);
+    D(ALWAYS, "MEM_OE_PULLBACK: %u\n", mem_cntl.mem_oe_pullback);
+    D(ALWAYS, "MEM_TRAS: %u\n", mem_cntl.mem_tras);
+    D(ALWAYS, "MEM_REFRESH_DIS: %u\n", mem_cntl.mem_refresh_dis);
+    D(ALWAYS, "MEM_REFRESH_RATE: %u\n", mem_cntl.mem_refresh_rate);
+    // D(ALWAYS, "reserved: %u\n", mem_cntl.reserved);
+    D(ALWAYS, "LOWER_APER_ENDIAN: %u\n", mem_cntl.lower_aper_endian);
+    D(ALWAYS, "UPPER_APER_ENDIAN: %u\n", mem_cntl.uppwer_aper_endian);
+    D(ALWAYS, "MEM_PAGE_SIZE: %u\n", mem_cntl.mem_page_size);
+    D(ALWAYS, "------------------------------\n");
+}
+
+typedef struct
+{
+    ULONG mem_group_fault_en : 1;  // Bit 31: Page fault control
+    ULONG mem_all_page_dis : 1;    // Bit 30: All page memory cycles
+    ULONG sdram_mem_cfg : 1;       // Bit 29: RAS, CAS, and CS config
+    ULONG reserved2 : 1;           // Bit 28
+    ULONG mem_gcmrs : 4;           // Bits 24-27: Graphics Controller Mode
+    ULONG reserved : 2;            // Bits 22-23
+    ULONG mem_ma_delay : 1;        // Bit 21: Delay MA pins
+    ULONG mem_ma_drive : 1;        // Bit 20: Drive strength MA pins
+    ULONG mem_mdo_delay : 1;       // Bit 19: Delay odd MD pins
+    ULONG mem_mde_delay : 1;       // Bit 18: Delay even MD pins
+    ULONG mem_mdb_drive : 1;       // Bit 17: Drive strength MD pins
+    ULONG mem_mda_drive : 1;       // Bit 16: Drive strength MD pins
+    ULONG mem_tile_boundary : 4;   // Bits 12-15: Memory tile boundary
+    ULONG mem_cas_latency : 2;     // Bits 10-11: SGRAM CAS latency
+    ULONG mem_clk_select : 2;      // Bits 8-9: HCLK pin Clock selection
+    ULONG mem_tile_select : 4;     // Bits 4-7: SDRAM Memory tile boundary
+    ULONG mem_cyc_test : 2;        // Bits 2-3: Memory cycle test
+    ULONG mem_sdram_reset : 1;     // Bit 1: Reset SDRAM
+    ULONG mem_cs : 1;              // Bit 0: SDRAM Command behavior
+} EXT_MEM_CNTL_t;
+
+void print_EXT_MEM_CNTL(EXT_MEM_CNTL_t ext_mem_cntl)
+{
+    D(ALWAYS, "EXT_MEM_CNTL-------------------\n");
+    D(ALWAYS, "MEM_CS: %lx\n", ext_mem_cntl.mem_cs);
+    D(ALWAYS, "MEM_SDRAM_RESET: %lx\n", ext_mem_cntl.mem_sdram_reset);
+    D(ALWAYS, "MEM_CYC_TEST: %lx\n", ext_mem_cntl.mem_cyc_test);
+    D(ALWAYS, "MEM_TILE_SELECT: %lx\n", ext_mem_cntl.mem_tile_select);
+    D(ALWAYS, "MEM_CLK_SELECT: %lx\n", ext_mem_cntl.mem_clk_select);
+    D(ALWAYS, "MEM_CAS_LATENCY: %lx\n", ext_mem_cntl.mem_cas_latency);
+    D(ALWAYS, "MEM_TILE_BOUNDARY: %lx\n", ext_mem_cntl.mem_tile_boundary);
+    D(ALWAYS, "MEM_MDA_DRIVE: %lx\n", ext_mem_cntl.mem_mda_drive);
+    D(ALWAYS, "MEM_MDB_DRIVE: %lx\n", ext_mem_cntl.mem_mdb_drive);
+    D(ALWAYS, "MEM_MDE_DELAY: %lx\n", ext_mem_cntl.mem_mde_delay);
+    D(ALWAYS, "MEM_MDO_DELAY: %lx\n", ext_mem_cntl.mem_mdo_delay);
+    D(ALWAYS, "MEM_MA_DRIVE: %lx\n", ext_mem_cntl.mem_ma_drive);
+    D(ALWAYS, "MEM_MA_DELAY: %lx\n", ext_mem_cntl.mem_ma_delay);
+    D(ALWAYS, "MEM_GCMRS: %lx\n", ext_mem_cntl.mem_gcmrs);
+    D(ALWAYS, "SDRAM_MEM_CFG: %lx\n", ext_mem_cntl.sdram_mem_cfg);
+    D(ALWAYS, "MEM_ALL_PAGE_DIS: %lx\n", ext_mem_cntl.mem_all_page_dis);
+    D(ALWAYS, "MEM_GROUP_FAULT_EN: %lx\n", ext_mem_cntl.mem_group_fault_en);
+    D(ALWAYS, "------------------------------\n");
 }
 
 BOOL InitMach64GT(struct BoardInfo *bi)
@@ -340,12 +430,14 @@ BOOL InitMach64GT(struct BoardInfo *bi)
 
     REGBASE();
 
+    ULONG cfgStat0 = R_BLKIO_L(CONFIG_STAT0);
+
     WriteDefaultRegList(bi, defaultRegs_GT, ARRAY_SIZE(defaultRegs_GT));
 
     // Set to SGRAM
-    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_MEM_TYPE_MASK | CFG_VGA_EN_MASK | CFG_CLOCK_EN_MASK,
-                   CFG_MEM_TYPE(CFG_MEM_TYPE_SGRAM) | CFG_CLOCK_EN);
+    W_BLKIO_L(CONFIG_STAT0, (cfgStat0 & ~CFG_MEM_TYPE_MASK) | CFG_MEM_TYPE(CFG_MEM_TYPE_SGRAM) | CFG_CLOCK_EN);
 
+    W_BLKIO_MASK_L(EXT_MEM_CNTL, MEM_TILE_SELECT_MASK, MEM_TILE_SELECT(0));
     W_BLKIO_MASK_L(EXT_MEM_CNTL, MEM_ALL_PAGE_DIS_MASK, MEM_ALL_PAGE_DIS);
 
     initPLL(bi);
@@ -356,6 +448,11 @@ BOOL InitMach64GT(struct BoardInfo *bi)
     }
 
     InitVClockPLLTable(bi, g_VCLKPllMultiplier, ARRAY_SIZE(g_VCLKPllMultiplier));
+
+    ULONG mem_cntl = R_BLKIO_L(MEM_CNTL);
+    print_MEM_CNTL(*(MEM_CNTL_t *)&mem_cntl);
+    ULONG ext_mem_cntl = R_BLKIO_L(EXT_MEM_CNTL);
+    print_EXT_MEM_CNTL(*(EXT_MEM_CNTL_t *)&ext_mem_cntl);
 
     return TRUE;
 }

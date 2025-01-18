@@ -5,8 +5,6 @@
 UBYTE ReadPLL(BoardInfo_t *bi, UBYTE pllAddr)
 {
     REGBASE();
-    DFUNC(VERBOSE, "ReadPLL: pllAddr: %d\n", (ULONG)pllAddr);
-
     // FIXME: its possible older Mach chips want 8bit access here
     ULONG clockCntl = R_BLKIO_AND_L(CLOCK_CNTL, ~(PLL_ADDR_MASK | PLL_DATA_MASK | PLL_WR_ENABLE_MASK));
 
@@ -18,7 +16,7 @@ UBYTE ReadPLL(BoardInfo_t *bi, UBYTE pllAddr)
 
     UBYTE pllValue = (clockCntl >> 16) & 0xFF;
 
-    DFUNC(VERBOSE, "pllValue: %d\n", (ULONG)pllValue);
+    DFUNC(VERBOSE, "pllAddr: %ld, pllValue: 0x%02lX\n", (ULONG)pllAddr, (ULONG)pllValue);
 
     return pllValue;
 }
@@ -27,7 +25,7 @@ void WritePLL(BoardInfo_t *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllData)
 {
     REGBASE();
 
-    DFUNC(VERBOSE, "pllAddr: %d, pllDataMask: 0x%02X, pllData: 0x%02X\n", (ULONG)pllAddr, (ULONG)pllDataMask,
+    DFUNC(VERBOSE, "pllAddr: %ld, pllDataMask: 0x%02lX, pllData: 0x%02lX\n", (ULONG)pllAddr, (ULONG)pllDataMask,
           (ULONG)pllData);
 
     // FIXME: its possible older Mach chips want 8bit access here
@@ -57,8 +55,24 @@ void WriteDefaultRegList(const BoardInfo_t *bi, const UWORD *defaultRegs, int nu
     REGBASE();
 
     for (int r = 0; r < numRegs; r += 2) {
+        // if (!( r % 32)) // not necessary as all regs in default list are < 0x40 DWORD OFFSET
+        //     waitFifo(bi, 16);
         D(10, "[%lX_%ldh] = 0x%04lx\n", (ULONG)defaultRegs[r] / 4, (ULONG)defaultRegs[r] % 4,
           (ULONG)defaultRegs[r + 1]);
         W_IO_W(defaultRegs[r], defaultRegs[r + 1]);
     }
+}
+
+void ResetEngine(const BoardInfo_t *bi)
+{
+    DFUNC(VERBOSE, "\n");
+    REGBASE();
+
+    W_BLKIO_MASK_L(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
+
+    // Reset engine. FIXME: older models use the same bit, but in a different way(?)
+    ULONG genTestCntl = R_BLKIO_L(GEN_TEST_CNTL) & ~GEN_GUI_RESETB_MASK;
+    W_BLKIO_L(GEN_TEST_CNTL, genTestCntl | GEN_GUI_RESETB);
+    W_BLKIO_L(GEN_TEST_CNTL, genTestCntl);
+    W_BLKIO_L(GEN_TEST_CNTL, genTestCntl | GEN_GUI_RESETB);
 }

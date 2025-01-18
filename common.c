@@ -23,8 +23,6 @@ void myPrintF(const char *fmt, ...)
 }
 #endif
 
-
-
 // Compute PLL parameters accordng to
 // f_wanted_kHz = f_base * m / n * 1/(2^r)
 
@@ -36,7 +34,7 @@ int svga_compute_pll(const struct svga_pll *pll, ULONG f_wanted_khz, USHORT *m, 
 
     DFUNC(8, "ideal frequency: %ld kHz\n", (unsigned int)f_wanted_khz);
 
-    ar = pll->r_max;
+    ar    = pll->r_max;
     f_vco = f_wanted_khz << ar;
 
     /* overflow check */
@@ -60,21 +58,21 @@ int svga_compute_pll(const struct svga_pll *pll, ULONG f_wanted_khz, USHORT *m, 
     }
 
     delta_best = 0xFFFFFFFF;
-    *m = 0;
-    *n = 0;
-    *r = ar;
+    *m         = 0;
+    *n         = 0;
+    *r         = ar;
 
     am = pll->m_min;
     an = pll->n_min;
 
     while ((am <= pll->m_max) && (an <= pll->n_max)) {
-        f_current = (pll->f_base * am) / an;
+        f_current     = (pll->f_base * am) / an;
         delta_current = abs_diff(f_current, f_vco);
 
         if (delta_current < delta_best) {
             delta_best = delta_current;
-            *m = am;
-            *n = an;
+            *m         = am;
+            *n         = an;
         }
 
         if (f_current <= f_vco) {
@@ -94,6 +92,7 @@ int svga_compute_pll(const struct svga_pll *pll, ULONG f_wanted_khz, USHORT *m, 
 
 void delayMicroSeconds(ULONG us)
 {
+    flushWrites();
     int count = ((us << 4) + 15) / (UWORD)22;
     // CIA access has deterministic speed, use it for a short delay
     extern volatile FAR struct CIA ciaa;
