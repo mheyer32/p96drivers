@@ -446,23 +446,6 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
     SetColorArrayInternal(bi, startIndex, count, bi->CLUT);
 }
 
-#define CRTC_DBL_SCAN_EN        BIT(0)
-#define CRTC_INTERLACE_EN       BIT(1)
-#define CRTC_HSYNC_DIS          BIT(2)
-#define CRTC_VSYNC_DIS          BIT(3)
-#define CRTC_DISPLAY_DIS        BIT(6)
-#define CRTC_DISPLAY_DIS_MASK   BIT(6)
-#define CRTC_PIX_WIDTH(x)       ((x) << 8)
-#define CRTC_PIX_WIDTH_MASK     (0x7 << 8)
-#define CRTC_FIFO_OVERFILL(x)   ((x) << 14)
-#define CRTC_FIFO_OVERFILL_MASK (0x3 << 14)
-#define CRTC_FIFO_LWM(x)        ((x) << 16)
-#define CRTC_FIFO_LWM_MASK      (0xF << 16)
-#define CRTC_EXT_DISP_EN        BIT(24)
-#define CRTC_EXT_DISP_EN_MASK   BIT(24)
-#define CRTC_ENABLE             BIT(25)
-#define CRTC_ENABLE_MASK        BIT(25)
-
 static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
     REGBASE();
@@ -701,7 +684,7 @@ static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem)
     case RGBFB_R5G6B5:
     case RGBFB_R5G5B5:
         mem += 0x800000;
-        D(CHATTY, "redirecting to  %ld\n", mem);
+        D(CHATTY, "redirecting to big endian window 0x%lx\n", mem);
         // Redirect to Big Endian Linear Address Window.
         return mem;
         break;
@@ -848,8 +831,10 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
     WRITE_PLL_MASK(PLL_VCLK_POST_DIV, VCLK0_POST_MASK, VCLK0_POST(postDivCode));
 
     if (getChipData(bi)->chipFamily >= MACH64GT) {
-        WRITE_PLL_MASK(PLL_EXT_CNTL, ALT_VCLK0_POST,
-                       (g_VCLKPllMultiplierCode[mi->pll2.Denominator] & 0x4) ? ALT_VCLK0_POST : 0);
+        WRITE_PLL_MASK(PLL_EXT_CNTL, ALT_VCLK0_POST_MASK,
+                       (postDivCode & 0x4) ? ALT_VCLK0_POST : 0);
+
+       AdjustDSP(bi,mi->pll1.Numerator,g_VCLKPllMultiplier[mi->pll2.Denominator]);
     }
 
     WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, 0);
@@ -859,6 +844,7 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 
     // Select VLK0 as VCLK source
     W_BLKIO_MASK_L(CLOCK_CNTL, CLOCK_SEL_MASK, CLOCK_SEL(0));
+
 }
 
 // FIXME: split out into family-specific functions
@@ -1103,7 +1089,8 @@ static inline void waitIdle(const BoardInfo_t *bi)
 
     while (R_MMIO_L(GUI_STAT) & 1) {
         if (cnt++ > 100) {
-            ULONG busCntl = R_MMIO_L(BUS_CNTL);
+            REGBASE();
+            ULONG busCntl = R_BLKIO_L(BUS_CNTL);
             if (busCntl & (BUS_FIFO_ERR_INT | BUS_HOST_ERR_INT)) {
                 ResetEngine(bi);
             }
@@ -1185,6 +1172,8 @@ static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *r
 
     // Offset is in units of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'
     // So convert BytesPerRow to "number of groups of 8 pixels"
+    // FIXME: For SGRAM configuration, DST_OFFSET must be aligned on a 64 byte boundary!!!
+    // For SGRAM configuration, DST_PITCH must be a multiple of 64 bytes.
     W_MMIO_L(DST_OFF_PITCH,
              DST_OFFSET(getMemoryOffset(bi, ri->Memory) / 8) | DST_PITCH(ri->BytesPerRow >> (bppLog2 + 3)));
 
@@ -2183,9 +2172,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
     D(INFO, "scratch register response good.\n");
 
-    W_BLKIO_MASK_L(BUS_CNTL, BUS_ROM_DIS_MASK, 0);
+    W_SR(0x1, 0x02);
 
-    if (!parseRomHeader(bi)) {
+    W_BLKIO_MASK_L(CONFIG_CNTL, CFG_MEM_VGA_AP_EN_MASK | CFG_VGA_DIS_MASK, CFG_VGA_DIS);
+
+       if (!parseRomHeader(bi)) {
         DFUNC(ERROR, "Failed to parse ROM header\n");
         return FALSE;
     }
@@ -2249,9 +2240,15 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_BLKIO_B(DAC_REGS, DAC_MASK, 0xFF);
 
     // Init CRTC, Display FIFO Low Water Mark
+    // CRTC_DISP_REQ_ENB = 0 _enables_ display requests?!?!
     W_BLKIO_MASK_L(CRTC_GEN_CNTL,
-                   CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_FIFO_LWM_MASK | CRTC_FIFO_OVERFILL_MASK,
-                   CRTC_ENABLE | CRTC_EXT_DISP_EN | CRTC_FIFO_LWM(0xF) | CRTC_FIFO_OVERFILL(3));
+                   CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_DISP_REQ_ENB_MASK | VGA_XCRT_CNT_EN_MASK |
+                       CRTC_LOCK_REGS_MASK,
+                   CRTC_ENABLE | CRTC_EXT_DISP_EN );
+    if (cd->chipFamily <= MACH64VT) {
+        W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK | CRTC_FIFO_OVERFILL_MASK,
+                       CRTC_FIFO_LWM(0xF) | CRTC_FIFO_OVERFILL(3));
+    }
 
     R_BLKIO_L(BUS_CNTL);
 
@@ -2375,12 +2372,12 @@ int main()
     D(0, "Looking for Mach64 card\n");
 
     while ((board = (APTR)Prm_FindBoardTags(board, PRM_Vendor, PCI_VENDOR, TAG_END)) != NULL) {
-        ULONG Device, Revision, Memory0Size;
-        APTR Memory0, Memory1;
+        ULONG Device, Revision, Memory0Size, Memory2Size;
+        APTR Memory0, Memory1, Memory2;
 
         Prm_GetBoardAttrsTags(board, PRM_Device, (ULONG)&Device, PRM_Revision, (ULONG)&Revision, PRM_MemoryAddr0,
                               (ULONG)&Memory0, PRM_MemorySize0, (ULONG)&Memory0Size, PRM_MemoryAddr1, (ULONG)&Memory1,
-                              TAG_END);
+                              PRM_MemoryAddr2, (ULONG)&Memory2, PRM_MemorySize2, (ULONG)&Memory2Size, TAG_END);
 
         D(0, "device %x revision %x\n", Device, Revision);
 
@@ -2410,8 +2407,14 @@ int main()
 
             // Block IO is in BAR1
             bi->RegisterBase = Memory1 + REGISTER_OFFSET;
-            // MMIO registers are in top 1kb of the first 8mb memory window
-            bi->MemoryIOBase = Memory0 + 0x800000 - 1024 + MMIOREGISTER_OFFSET;
+            if (Memory2) {
+                // Use Auxiliary Aperture for MMIO if available
+                bi->MemoryIOBase = Memory2 + 1024 + MMIOREGISTER_OFFSET;
+                setCacheMode(bi, Memory2, Memory2Size, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
+            } else {
+                // MMIO registers are in top 1kb of the first 8mb memory window
+                bi->MemoryIOBase = Memory0 + 0x800000 - 1024 + MMIOREGISTER_OFFSET;
+            }
             // Framebuffer is at address 0x0
             bi->MemoryBase = Memory0;
 

@@ -63,6 +63,45 @@ struct BoardInfo;
 #define XCLK_SRC_SEL(x)   (x)
 #define XCLK_SRC_SEL_MASK (7)
 
+#define CRTC_GEN_CNTL 0x07
+
+#define CRTC_DBL_SCAN_EN        BIT(0)
+#define CRTC_INTERLACE_EN       BIT(1)
+#define CRTC_HSYNC_DIS          BIT(2)
+#define CRTC_VSYNC_DIS          BIT(3)
+#define CRTC_DISPLAY_DIS        BIT(6)
+#define CRTC_DISPLAY_DIS_MASK   BIT(6)
+#define CRTC_PIX_WIDTH(x)       ((x) << 8)
+#define CRTC_PIX_WIDTH_MASK     (0x7 << 8)
+
+// These are CT/CT registers
+#define CRTC_FIFO_OVERFILL(x)   ((x) << 14)
+#define CRTC_FIFO_OVERFILL_MASK (0x3 << 14)
+#define CRTC_FIFO_LWM(x)        ((x) << 16)
+#define CRTC_FIFO_LWM_MASK      (0xF << 16)
+#define CRTC_DISPREQ_ONLY       BIT(21)
+#define CRTC_DISPREQ_ONLY_MASK  BIT(21)
+
+#define CRTC_LOCK_REGS          BIT(22)
+#define CRTC_LOCK_REGS_MASK     BIT(22)
+#define CRTC_EXT_DISP_EN        BIT(24)
+#define CRTC_EXT_DISP_EN_MASK   BIT(24)
+#define CRTC_ENABLE             BIT(25)
+#define CRTC_ENABLE_MASK        BIT(25)
+#define CRTC_DISP_REQ_ENB       BIT(26)
+#define CRTC_DISP_REQ_ENB_MASK  BIT(26)
+#define VGA_XCRT_CNT_EN         BIT(30)
+#define VGA_XCRT_CNT_EN_MASK    BIT(30)
+
+#define BUS_ROM_DIS         BIT(12)
+#define BUS_ROM_DIS_MASK    BIT(12)
+#define BUS_FIFO_ERR_INT_EN BIT(20)
+#define BUS_FIFO_ERR_INT    BIT(21)
+#define BUS_FIFO_ERR_AK     BIT(21)  // INT and ACK are the same bit, distiguished by R/W operation
+#define BUS_HOST_ERR_INT_EN BIT(22)
+#define BUS_HOST_ERR_INT    BIT(23)
+#define BUS_HOST_ERR_AK     BIT(23)  // INT and ACK are the same bit, distiguished by R/W operation
+
 typedef struct PLL
 {
     const BYTE *multipliers;
@@ -148,7 +187,7 @@ extern ULONG ComputePLLValues(const BoardInfo_t *bi, ULONG targetFrequency, PLLV
 extern ULONG ComputeFrequencyKhz10(UWORD R, UWORD N, UWORD M, UBYTE Plog2);
 extern ULONG ComputeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues);
 
-extern ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *multipliers, BYTE numMultipliers,
+extern ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *multipliers, WORD numMultipliers,
                               PLLValue_t *pllValues);
 extern ULONG computeFrequencyKhz10(UWORD RefFreq, UWORD FBDiv, UWORD RefDiv, UBYTE PostDiv);
 extern ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues, const UBYTE *multipliers);
@@ -160,10 +199,23 @@ static inline void waitFifo(const BoardInfo_t *bi, UBYTE entries)
     if (!entries)
         return;
 
-    ULONG busCntl = R_MMIO_L(BUS_CNTL);
+    flushWrites();
+    // ULONG busCntl = R_MMIO_L(BUS_CNTL);
     while ((R_MMIO_L(FIFO_STAT) & 0xffff) > ((ULONG)(0x8000 >> entries)))
         ;
 }
+
+static inline UBYTE getAsicVersion(const BoardInfo_t *bi)
+{
+    REGBASE();
+    return (R_BLKIO_B(CONFIG_CHIP_ID, 3) & 0x7);
+}
+
+static inline BOOL isAsiclessThanV4(const BoardInfo_t *bi)
+{
+    return getAsicVersion(bi) < 4;
+}
+
 
 #define WRITE_PLL(pllAddr, data)            WritePLL(bi, (pllAddr), 0xFF, (data))
 #define WRITE_PLL_MASK(pllAddr, mask, data) WritePLL(bi, (pllAddr), (mask), (data))

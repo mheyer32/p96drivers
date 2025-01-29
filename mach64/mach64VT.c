@@ -2,6 +2,13 @@
 #include "mach64_common.h"
 #include "chip_mach64.h"
 
+#define CRTC_FIFO_OVERFILL(x)   ((x) << 14)
+#define CRTC_FIFO_OVERFILL_MASK (0x3 << 14)
+#define CRTC_FIFO_LWM(x)        ((x) << 16)
+#define CRTC_FIFO_LWM_MASK      (0xF << 16)
+#define CRTC_DISPREQ_ONLY       BIT(21)
+#define CRTC_DISPREQ_ONLY_MASK  BIT(21)
+
 ULONG ComputeFrequencyKhz10(UWORD R, UWORD N, UWORD M, UBYTE Plog2)
 {
     return ((ULONG)2 * R * N) / (M << Plog2);
@@ -148,6 +155,8 @@ BOOL InitMach64VT(struct BoardInfo *bi)
                    CFG_MEM_TYPE(CFG_MEM_TYPE_PSEUDO_EDO) | CFG_DUAL_CAS_EN | CFG_CLOCK_EN);
 
     // W_BLKIO_MASK_B(CONFIG_STAT0, 0, ~0xf8, 0x3b);
+
+     W_BLKIO_MASK_L(BUS_CNTL, BUS_ROM_DIS_MASK, 0);
 
     MEM_CNTL_Register memCntl;
     *(ULONG *)&memCntl = R_BLKIO_L(MEM_CNTL);

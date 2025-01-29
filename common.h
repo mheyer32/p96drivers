@@ -3,6 +3,7 @@
 
 #include <SDI_compiler.h>
 #include <proto/exec.h>
+#include <exec/types.h>
 #include <mmu/context.h>
 
 #include <boardinfo.h>
@@ -95,6 +96,9 @@ static inline UWORD swapw(UWORD value)
 
 #define STATIC_ASSERT(COND, MSG)    typedef char static_assertion_##MSG[(COND) ? 1 : -1]
 #define SIZEOF_MEMBER(type, member) (sizeof(((type *)0)->member))
+
+#define MAX(x, y) ((x) < (y) ? (y) : (x))
+#define MIN(x, y) ((x) < (y) ? (x) : (y))
 
 typedef enum BlitterOp
 {

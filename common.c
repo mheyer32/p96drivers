@@ -129,7 +129,7 @@ BOOL setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULON
 
         ULONG pageSize = GetPageSize(ctx);
         ULONG start = (ULONG)from & ~(pageSize - 1);
-        size += from - start;
+        size += (ULONG)from - start;
         size = (size + pageSize - 1) & ~(pageSize - 1);
 
         if (ctxl = GetMapping(ctx)) {

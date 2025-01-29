@@ -1,6 +1,7 @@
 #include "mach64GT.h"
 #include "chip_mach64.h"
 #include "mach64_common.h"
+#include "common.h"
 
 static const UWORD defaultRegs_GT[] = {0x00a2, 0x7b33,  //
                                        0x00a0, 0x0000,  //
@@ -75,7 +76,7 @@ static BOOL inline isGoodVCOFrequency(ULONG freqKhz10)
     return freqKhz10 >= 11800 && freqKhz10 <= 23500;
 }
 
-ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *multipliers, BYTE numMultipliers,
+ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *multipliers, WORD numMultipliers,
                        PLLValue_t *pllValues)
 {
     DFUNC(CHATTY, "targetFrequency: %ld0 KHz\n", freqKhz10);
@@ -83,7 +84,7 @@ ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *mult
     UBYTE postDivIdx = 0xff;
     if (freqKhz10 < 1475) {
         freqKhz10  = 1475;
-        postDivIdx = 7;
+        postDivIdx = numMultipliers - 1;
     }
 
     if (freqKhz10 > 23500) {
@@ -132,8 +133,8 @@ static void setGUIEngineClockToSecondaryPLL(BoardInfo_t *bi, UWORD freqKhz10)
 {
     DFUNC(VERBOSE, "Setting GUI Engine Clock to %ld0 KHz\n", freqKhz10);
 
-    if (freqKhz10 < 0x1475) {
-        freqKhz10 = 0x1475;
+    if (freqKhz10 < 1475) {
+        freqKhz10 = 1475;
     }
     if (freqKhz10 > 8300) {
         freqKhz10 = 8300;
@@ -149,7 +150,7 @@ static void setGUIEngineClockToSecondaryPLL(BoardInfo_t *bi, UWORD freqKhz10)
     // SCLK to CPUCLK
     WRITE_PLL(PLL_SPLL_CNTL2, selectCPUSrc);
     // Reset + Sleep secondary PLL
-    WRITE_PLL(PLL_SPLL_CNTL2, selectCPUSrc | 3);
+    WRITE_PLL(PLL_SPLL_CNTL2, selectCPUSrc | 0x3);
 
     // Secondary PLL serves as another clock source for the GUI Engine, in addition to
     // MPLL. Using this PLL allows the GUI clock to run at any frequency (within the
@@ -166,8 +167,10 @@ static void setGUIEngineClockToSecondaryPLL(BoardInfo_t *bi, UWORD freqKhz10)
 
 void initSDRAM_PLL(BoardInfo_t *bi)
 {
-    // EXT_MEM_CNTL
+    // When using SDRAM/SGRAM, the DLL phase locks the external version of the
+    // memory clock to the internal XCLK
 
+    // EXT_MEM_CNTL
     // Changes in settings to this register will not take affect until MEM_SDRAM_RESET
     // is pulsed (from 0 –>1).
     // The sequence should be as follows:
@@ -193,16 +196,21 @@ void initSDRAM_PLL(BoardInfo_t *bi)
     // DLL_REF_SRC = !YCLK; DLL_FB_CLK set to XCLK; ; DLL_RESET = 0; HCLK output enabled
     // DLL resets on rising edge of this signal if DLL_REF_CLK is running
     WRITE_PLL(PLL_DLL_CNTL, 0xa6);
-    // DLL_RESET = 1
+
+    // DLL_RESET = 1, 10 : DLL_REF_CLK = XCLK
     WRITE_PLL(PLL_DLL_CNTL, 0xe6);
 
     delayMilliSeconds(5);
 
+    // DLL_RESET = 0, 10 : DLL_REF_CLK = XCLK
     WRITE_PLL(PLL_DLL_CNTL, 0xa6);
+
+    delayMilliSeconds(5);
 
     // Take Memory Controller out of Reset
     W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_SOFT_RESET_MASK, 0);
 
+    // EXT_MEM_CNTL: MEM_CLK_SELECT is set to 0b00 = SDRAM clock from DLL
     ULONG ext_mem_cntl = R_BLKIO_L(EXT_MEM_CNTL) & 0xfffffff1;
     // Start reset, test cycle 0
     W_BLKIO_L(EXT_MEM_CNTL, ext_mem_cntl);
@@ -214,9 +222,6 @@ void initSDRAM_PLL(BoardInfo_t *bi)
     // Take out of reset and test cycle
     W_BLKIO_L(EXT_MEM_CNTL, ext_mem_cntl);
 
-    // 111 : XCLK = DLL_CLK; doesn't work :-(
-    // WRITE_PLL_MASK(PLL_EXT_CNTL, XCLK_SRC_SEL_MASK, XCLK_SRC_SEL(0b111));
-
     DFUNC(VERBOSE, "4\n");
 }
 
@@ -224,8 +229,8 @@ void setMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
 {
     DFUNC(VERBOSE, "Setting Memory Clock to %ld0 KHz\n", (ULONG)freqKhz10);
 
-    if (freqKhz10 < 0x1475) {
-        freqKhz10 = 0x1475;
+    if (freqKhz10 < 1475) {
+        freqKhz10 = 1475;
     }
     // SGRAM is rated up to 100Mhz, Core engine up to 83Mhz
     if (freqKhz10 > 10000) {
@@ -237,11 +242,11 @@ void setMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
         return;
     }
 
-    BYTE current = READ_PLL(PLL_MCLK_FB_DIV);
-    /* Same frequency already set? */
-    if (current == pllValues.N) {
-        return;
-    }
+    // BYTE current = READ_PLL(PLL_MCLK_FB_DIV);
+    // /* Same frequency already set? */
+    // if (current == pllValues.N) {
+    //     return;
+    // }
     ResetEngine(bi);
 
     REGBASE();
@@ -250,7 +255,14 @@ void setMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
     W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_SOFT_RESET_MASK, GEN_SOFT_RESET);
 
     WRITE_PLL(PLL_MCLK_FB_DIV, pllValues.N);
+    // MCLK = PLLMCLK / x
     WRITE_PLL_MASK(PLL_GEN_CNTL, MCLK_SRC_SEL_MASK, MCLK_SRC_SEL(g_MCLKMultiplierCode[pllValues.Pidx]));
+    // XCLK = PLLMCLK / x
+    WRITE_PLL_MASK(PLL_EXT_CNTL, XCLK_SRC_SEL_MASK, XCLK_SRC_SEL(g_MCLKMultiplierCode[pllValues.Pidx]));
+
+    ChipData_t *cd  = getChipData(bi);
+    cd->mclkFBDiv   = pllValues.N;
+    cd->mclkPostDiv = g_MCLKPllMultiplier[pllValues.Pidx];
 
     delayMilliSeconds(16);
 
@@ -258,7 +270,7 @@ void setMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
     return;
 }
 
-void initPLL(struct BoardInfo *bi)
+void initClocks(struct BoardInfo *bi)
 {
     DFUNC(VERBOSE, "\n");
 
@@ -269,17 +281,25 @@ void initPLL(struct BoardInfo *bi)
     WRITE_PLL(PLL_VCLK_CNTL, 0x00);
     WRITE_PLL(PLL_VFC_CNTL, 0x1B);
     WRITE_PLL(PLL_REF_DIV, 0x1F);
-    WRITE_PLL(PLL_EXT_CNTL, 0x01);
-    WRITE_PLL(PLL_SPLL_CNTL2, 0x10);
-    setGUIEngineClockToSecondaryPLL(bi, 7500);
 
+    WRITE_PLL(PLL_EXT_CNTL, 0x01);
+    //WRITE_PLL(PLL_EXT_CNTL, 0x00); // XCLK_SRC_SEL = 0b000 : XCLK set to MPLL Primary output
+
+    WRITE_PLL(PLL_SPLL_CNTL2, 0x10);
+
+    setGUIEngineClockToSecondaryPLL(bi, 5000);
+
+    // MCLK_SRC_SEL = 0b101 MCLK set to CPUCLK
     WRITE_PLL(PLL_GEN_CNTL, 0x54);
 
-    setMemoryClock(bi, 10000);
+    setMemoryClock(bi, 5000);
 
-    // This would switch MCLK back to CPU Clock? Maybe thats ok when GUI runs on SCLK as setup above
+    // OSC_EN; MCLK_SRC_SEL = 0b110 : MCLK set to SCLK HCLK (direct, no DLL)
     WRITE_PLL(PLL_GEN_CNTL, 0x64);
-    WRITE_PLL_MASK(PLL_VCLK_CNTL, 0x7, 0x3);
+
+    // VCLK_SRC_SEL = 0b11 : VCLK_SRC set to PLLVCLK (VPLL primary output
+    // PLL_PRESET = 0
+    WRITE_PLL_MASK(PLL_VCLK_CNTL, 0x07, 0x03);
 }
 
 static BOOL probeMemorySize(BoardInfo_t *bi)
@@ -291,8 +311,6 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
 
     static const ULONG memorySizes[] = {0x800000, 0x600000, 0x400000, 0x200000, 0x100000};
     static const ULONG memoryCodes[] = {11, 9, 7, 3, 1};
-    static const ULONG addrCfg[]     = {(0b10 << 8) | 2, (0b10 << 8) | 2, (0b01 << 8) | 1, (0b01 << 8) | 1,
-                                        (0b00 << 8 | 0)};
 
     volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
     framebuffer[0]              = 0;
@@ -301,34 +319,36 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
         bi->MemorySize = memorySizes[i];
         D(VERBOSE, "\nProbing memory size %ld\n", bi->MemorySize);
 
-        W_BLKIO_L(MEM_ADDR_CONFIG, addrCfg[i]);
         W_BLKIO_MASK_L(MEM_CNTL, 0xF, memoryCodes[i]);
 
-        flushWrites();
+        for (int j = 2; j >= 0; --j) {
+            W_BLKIO_L(MEM_ADDR_CONFIG, j << 8 | j);
+            flushWrites();
 
-        CacheClearU();
+            CacheClearU();
 
-        // Probe the last and the first longword for the current segment,
-        // as well as offset 0 to check for wrap arounds
-        volatile ULONG *highOffset = framebuffer + (bi->MemorySize >> 2) - 512 - 1;
-        volatile ULONG *lowOffset  = framebuffer + (bi->MemorySize >> 3);
-        // Probe  memory
-        *framebuffer = 0;
-        *highOffset  = (ULONG)highOffset;
-        *lowOffset   = (ULONG)lowOffset;
+            // Probe the last and the first longword for the current segment,
+            // as well as offset 0 to check for wrap arounds
+            volatile ULONG *highOffset = framebuffer + (bi->MemorySize >> 2) - 512 - 1;
+            volatile ULONG *lowOffset  = framebuffer + (bi->MemorySize >> 3);
+            // Probe  memory
+            *framebuffer = 0;
+            *highOffset  = (ULONG)highOffset;
+            *lowOffset   = (ULONG)lowOffset;
 
-        CacheClearU();
+            CacheClearU();
 
-        ULONG readbackHigh = *highOffset;
-        ULONG readbackLow  = *lowOffset;
-        ULONG readbackZero = *framebuffer;
+            ULONG readbackHigh = *highOffset;
+            ULONG readbackLow  = *lowOffset;
+            ULONG readbackZero = *framebuffer;
 
-        D(VERBOSE, "Probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= 0x%lx\n", highOffset, readbackHigh,
-          lowOffset, readbackLow, readbackZero);
+            D(VERBOSE, "Probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= 0x%lx\n", highOffset, readbackHigh,
+              lowOffset, readbackLow, readbackZero);
 
-        if (readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset && readbackZero == 0) {
-            D(VERBOSE, "Memory size sucessfully probed.\n\n");
-            return TRUE;
+            if (readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset && readbackZero == 0) {
+                D(VERBOSE, "Memory size sucessfully probed.\n\n");
+                return TRUE;
+            }
         }
     }
     D(VERBOSE, "Memory size probe failed.\n\n");
@@ -356,7 +376,7 @@ typedef struct
     ULONG mem_size : 4;
 } MEM_CNTL_t;
 
-void print_MEM_CNTL(const MEM_CNTL_t mem_cntl)
+void print_MEM_CNTL(MEM_CNTL_t mem_cntl)
 {
     D(ALWAYS, "MEM_CNTL---------------------\n");
     D(ALWAYS, "MEM_SIZE: %u\n", mem_cntl.mem_size);
@@ -424,13 +444,30 @@ void print_EXT_MEM_CNTL(EXT_MEM_CNTL_t ext_mem_cntl)
     D(ALWAYS, "------------------------------\n");
 }
 
+static void resetCRTC(BoardInfo_t *bi)
+{
+    REGBASE();
+
+    // Reset CRTC
+    W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_ENABLE_MASK, 0);
+    W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_ENABLE_MASK, CRTC_ENABLE);
+}
+
 BOOL InitMach64GT(struct BoardInfo *bi)
 {
-    DFUNC(VERBOSE, "\n");
+    DFUNC(VERBOSE, "ASIC Version: %ld\n", (ULONG)getAsicVersion(bi));
 
     REGBASE();
 
     ULONG cfgStat0 = R_BLKIO_L(CONFIG_STAT0);
+    ULONG cfgStat2 = R_BLKIO_L(CONFIG_STAT2);
+
+    D(VERBOSE, "CONFIG_STAT2: PCI5VEN %ld\n", !!(cfgStat2 & PCI5VEN_MASK));
+
+    W_BLKIO_MASK_L(
+        BUS_CNTL,
+        BUS_DBL_RESYNC_MASK | BUS_MSTR_RESET_MASK | BUS_FLUSH_BUF_MASK | BUS_MASTER_DIS_MASK | BUS_APER_REG_DIS_MASK,
+        BUS_DBL_RESYNC | BUS_MSTR_RESET | BUS_FLUSH_BUF | BUS_MASTER_DIS | BUS_APER_REG_DIS);
 
     WriteDefaultRegList(bi, defaultRegs_GT, ARRAY_SIZE(defaultRegs_GT));
 
@@ -439,20 +476,141 @@ BOOL InitMach64GT(struct BoardInfo *bi)
 
     W_BLKIO_MASK_L(EXT_MEM_CNTL, MEM_TILE_SELECT_MASK, MEM_TILE_SELECT(0));
     W_BLKIO_MASK_L(EXT_MEM_CNTL, MEM_ALL_PAGE_DIS_MASK, MEM_ALL_PAGE_DIS);
+    W_BLKIO_L(HW_DEBUG, AUTO_FF_DIS);
 
-    initPLL(bi);
-    initSDRAM_PLL(bi);
-    setMemoryClock(bi, 10000);  // 100Mhz
+    initClocks(bi);
+
     if (!probeMemorySize(bi)) {
         return FALSE;
     }
 
+    resetCRTC(bi);
+
     InitVClockPLLTable(bi, g_VCLKPllMultiplier, ARRAY_SIZE(g_VCLKPllMultiplier));
 
-    ULONG mem_cntl = R_BLKIO_L(MEM_CNTL);
-    print_MEM_CNTL(*(MEM_CNTL_t *)&mem_cntl);
-    ULONG ext_mem_cntl = R_BLKIO_L(EXT_MEM_CNTL);
-    print_EXT_MEM_CNTL(*(EXT_MEM_CNTL_t *)&ext_mem_cntl);
+    ULONG x             = R_BLKIO_L(MEM_CNTL);
+    MEM_CNTL_t mem_cntl = *(MEM_CNTL_t *)&x;
+    print_MEM_CNTL(mem_cntl);
+    x                           = R_BLKIO_L(EXT_MEM_CNTL);
+    EXT_MEM_CNTL_t ext_mem_cntl = *(EXT_MEM_CNTL_t *)&x;
+    print_EXT_MEM_CNTL(ext_mem_cntl);
+
+    // GUI clock activity controlled
+    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_CLOCK_EN_MASK, 0);
 
     return TRUE;
+}
+
+static inline ULONG ceilDiv(ULONG x, ULONG y)
+{
+    return (x + y - 1) / y;
+}
+
+static inline int numBits(ULONG x)
+{
+    int bits = 0;
+    while (x) {
+        ++bits;
+        x >>= 1;
+    }
+    return bits;
+}
+
+void AdjustDSP(struct BoardInfo *bi, UBYTE vFBDiv, UBYTE vPostDiv)
+{
+    DFUNC(VERBOSE, "fbDiv: %ld, postDiv: %ld, bpp: %ld\n", (ULONG)vFBDiv, (ULONG)vPostDiv, (ULONG)bi->ModeInfo->Depth);
+
+    REGBASE();
+    const ChipData_t *cd = getConstChipData(bi);
+
+    // Bits per pixel
+    ULONG bpp = bi->ModeInfo->Depth;
+
+    // Width of display FIFO entry
+    const ULONG w = 64;  // for extended , using internal DAC
+
+    // depth of display FIFO
+    const ULONG d = 32;  // using internal DAC
+
+    // expansion Ratio
+    const ULONG ex = 1;  // I guess  this is for some more where the pixels get scaled up during scanout
+
+    // Find x: number of XCLKs per QWORD;
+    // FreqX = 2 * R * Nx / (M * Px)
+    // Reference Freq. R and M are shared between XCLK and VCLCK, thus
+    // Ratio x = XCLK / VCLK = (Nx/Px) / (Nv/Pv) = Nx * Pv / Px * Nv
+    ULONG mFBDiv       = cd->mclkFBDiv;
+    ULONG mPostDiv     = cd->mclkPostDiv;
+    ULONG xNumerator   = mFBDiv * vPostDiv * w;
+    ULONG xDenominator = vFBDiv * mPostDiv * bpp;
+
+    float y = (float)xNumerator / (float)xDenominator;
+    D(VERBOSE, "MCLK %ld0Khz, VCLK %ld0Khz, ratio: %f\n",
+      computeFrequencyKhz10(cd->referenceFrequency, mFBDiv, cd->referenceDivider, mPostDiv),
+      computeFrequencyKhz10(cd->referenceFrequency, vFBDiv, cd->referenceDivider, vPostDiv), y);
+
+    while (!((xNumerator | xDenominator) & 1) ){
+        xNumerator >>= 1;
+        xDenominator >>= 1;
+    }
+
+    // Minimum number of bits to hold integer portion of x
+    int bx = numBits(xNumerator / xDenominator);
+
+    // maxmimum FIFO size XCLK representation
+    // t = x * d;
+    // Minimum number of bits needed to hold integer portion of t
+    int b1 = numBits((xNumerator * d) / xDenominator);
+
+    int p = MAX(b1 - 5, bx - 3);
+
+    int shift = 6 - p;
+
+     D(VERBOSE, "bx: %d, b1: %d, p: %d, shift: %d\n", bx, b1, p, shift);
+
+    ULONG f = MIN((xDenominator << (5 + p)) / xNumerator, d);
+
+    ULONG roff = ceilDiv((xNumerator * (f - 1)) << shift, xDenominator);
+
+    // latency for 32bit SGRAM
+    const ULONG l = 9;
+
+    // Display loop latency (two added for DISP_ACTIVE resynchronization)
+    ULONG rloop = (l + 2) << shift;
+
+    ULONG x             = R_BLKIO_L(MEM_CNTL);
+    MEM_CNTL_t mem_cntl = *(MEM_CNTL_t *)&x;
+
+    // Page fault clocks
+    ULONG pfc = mem_cntl.mem_trp + mem_cntl.mem_trcd + mem_cntl.mem_tcrd;
+
+    // Number of cycles per QWORD for 32bit SGRAM:
+    ULONG n = 2;
+
+    // Maximum random access cycle blocks
+    ULONG rcc = MAX((mem_cntl.mem_trp + mem_cntl.mem_tras), (pfc + n));
+
+    // Display FIFO ON point
+    ULONG ron = (2 * rcc + pfc + n) << shift;
+
+    if (ron + rloop  >= roff) {
+        DFUNC(VERBOSE, "adjusting ron, this might be wrong\n");
+        ron = roff - rloop - (1 << shift);
+    }
+
+    ULONG dspOn            = ron;
+    ULONG dspOff           = roff;
+    ULONG dspPrecision     = p;
+    ULONG dspXclksPerQword = (xNumerator << (11 - p))/  xDenominator;
+    ULONG dspLoopLatency   = rloop >> shift;
+
+    D(VERBOSE, "dspOn: %ld, dspOff: %ld, dspPrecision: %ld, dspXclksPerQword: %ld, dspLoopLatency: %ld\n",
+      (ULONG)dspOn, (ULONG)dspOff, (ULONG)dspPrecision, (ULONG)dspXclksPerQword, (ULONG)dspLoopLatency);
+
+    ULONG oldDSPConfig = R_BLKIO_L(DSP_CONFIG);
+    ULONG oldDSPOnOff = R_BLKIO_L(DSP_ON_OFF);
+
+    W_BLKIO_L(DSP_CONFIG,
+              DSP_XCLKS_PER_QW(dspXclksPerQword) | DSP_LOOP_LATENCY(dspLoopLatency) | DSP_PRECISION(dspPrecision));
+    W_BLKIO_L(DSP_ON_OFF, DSP_OFF(dspOff) | DSP_ON(dspOn));
 }

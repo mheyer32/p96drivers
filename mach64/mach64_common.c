@@ -59,6 +59,7 @@ void WriteDefaultRegList(const BoardInfo_t *bi, const UWORD *defaultRegs, int nu
         //     waitFifo(bi, 16);
         D(10, "[%lX_%ldh] = 0x%04lx\n", (ULONG)defaultRegs[r] / 4, (ULONG)defaultRegs[r] % 4,
           (ULONG)defaultRegs[r + 1]);
+        // Register offsets in the defaultRegs list are already BYTE offsets
         W_IO_W(defaultRegs[r], defaultRegs[r + 1]);
     }
 }
@@ -68,7 +69,10 @@ void ResetEngine(const BoardInfo_t *bi)
     DFUNC(VERBOSE, "\n");
     REGBASE();
 
-    W_BLKIO_MASK_L(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
+    if (getConstChipData(bi)->chipFamily <= MACH64VT)
+    {
+        W_BLKIO_MASK_L(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
+    }
 
     // Reset engine. FIXME: older models use the same bit, but in a different way(?)
     ULONG genTestCntl = R_BLKIO_L(GEN_TEST_CNTL) & ~GEN_GUI_RESETB_MASK;

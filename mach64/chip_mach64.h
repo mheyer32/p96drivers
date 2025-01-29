@@ -38,6 +38,8 @@ typedef struct ChipData
     UWORD minMClock;
     UWORD maxDRAMClock;
     UWORD maxVRAMClock;
+    UBYTE mclkFBDiv;
+    UBYTE mclkPostDiv;
     struct PLLValue *pllValues;
 } ChipData_t;
 
@@ -146,7 +148,7 @@ typedef struct MaxColorDepthTableEntry
 #define CRTC_VLINE_CRNT_VLINE 0x04
 #define CRTC_OFF_PITCH        0x05
 #define CRTC_INT_CNTL         0x06
-#define CRTC_GEN_CNTL         0x07
+
 #define OVR_CLR               0x10
 #define OVR_WID_LEFT_RIGHT    0x11
 #define OVR_WID_TOP_BOTTOM    0x12
@@ -218,14 +220,9 @@ typedef struct MaxColorDepthTableEntry
 #define GUI_TRAJ_CNTL     0xCC
 #define GUI_STAT          0xCE
 
-#define BUS_ROM_DIS         BIT(12)
-#define BUS_ROM_DIS_MASK    BIT(12)
-#define BUS_FIFO_ERR_INT_EN BIT(20)
-#define BUS_FIFO_ERR_INT    BIT(21)
-#define BUS_FIFO_ERR_AK     BIT(21)  // INT and ACK are the same bit, distiguished by R/W operation
-#define BUS_HOST_ERR_INT_EN BIT(22)
-#define BUS_HOST_ERR_INT    BIT(23)
-#define BUS_HOST_ERR_AK     BIT(23)  // INT and ACK are the same bit, distiguished by R/W operation
+#define HW_DEBUG         0x1F
+#define AUTO_FF_DIS      BIT(12)
+#define AUTO_FF_DIS_MASK BIT(12)
 
 static inline UBYTE REGARGS readATIRegisterB(volatile UBYTE *regbase, UWORD regIndex, UWORD byteIndex,
                                              const char *regName)
