@@ -11,7 +11,7 @@ typedef enum ChipFamily
     MACH64GX,
     MACH64VT,  // 8mb aperture only
     MACH64GT,
-    MACH64GR  // Rage 3 XL
+    MACH64GM  // Rage 3 XL
 } ChipFamily_t;
 
 typedef struct ChipData
@@ -215,10 +215,9 @@ typedef struct MaxColorDepthTableEntry
 #define CLR_CMP_MSK  0xC1
 #define CLR_CMP_CNTL 0xC2
 
-#define CONTEXT_MSK       0xC8
+#define CONTEXT_MASK       0xC8
 #define CONTEXT_LOAD_CNTL 0xCB
 #define GUI_TRAJ_CNTL     0xCC
-#define GUI_STAT          0xCE
 
 #define HW_DEBUG         0x1F
 #define AUTO_FF_DIS      BIT(12)
@@ -250,10 +249,11 @@ static inline ULONG REGARGS readATIMMIOL(volatile UBYTE *regbase, UWORD regIndex
 static inline ULONG REGARGS readATIRegisterAndMaskL(volatile UBYTE *regbase, UWORD regIndex, ULONG mask,
                                                     const char *regName)
 {
-    ULONG value = swapl(readRegL(regbase, DWORD_OFFSET(regIndex)) & swapl(mask));
-    D(VERBOSE, "R %s -> 0x%08lx\n", regName, (LONG)value);
+    ULONG value = readRegL(regbase, DWORD_OFFSET(regIndex));
+    ULONG valueMasked = value & mask;
+    D(VERBOSE, "R %s -> 0x%08lx & 0x%08lx = 0x%08lx\n", regName, value, mask, valueMasked);
 
-    return value;
+    return valueMasked;
 }
 
 static inline void REGARGS writeATIRegisterMaskB(volatile UBYTE *regbase, UWORD regIndex, UWORD byteIndex, UBYTE mask,
@@ -275,7 +275,7 @@ static inline void REGARGS writeATIRegisterB(volatile UBYTE *regbase, UWORD regI
 
 static inline void REGARGS writeATIRegisterL(volatile UBYTE *regbase, UWORD regIndex, ULONG value, const char *regName)
 {
-    D(VERBOSE, "W %s <- 0x%08lx\n", regName, (LONG)value);
+    D(VERBOSE, "W %s <- 0x%08lx\n", regName, value);
     writeRegL(regbase, DWORD_OFFSET(regIndex), value);
 }
 
@@ -283,20 +283,20 @@ static inline void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, UWORD 
                                                  const char *regName)
 {
     ULONG regValue = readRegLNoSwap(regbase, DWORD_OFFSET(regIndex));
-    D(VERBOSE, "R %s -> 0x%08lx\n", regName, (LONG)swapl(regValue));
+    D(VERBOSE, "R %s -> 0x%08lx\n", regName, swapl(regValue));
 
     mask     = swapl(mask);
     value    = swapl(value);
     regValue = (regValue & ~mask) | (mask & value);
 
-    D(VERBOSE, "W %s <- 0x%08lx\n", regName, (LONG)swapl(regValue));
+    D(VERBOSE, "W %s <- 0x%08lx\n", regName, swapl(regValue));
     writeRegLNoSwap(regbase, DWORD_OFFSET(regIndex), regValue);
 }
 
 static inline void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, UWORD regIndex, ULONG value,
                                                    const char *regName)
 {
-    D(VERBOSE, "W %s <- 0x%08lx\n", regName, (LONG)swapl(value));
+    D(VERBOSE, "W %s <- 0x%08lx\n", regName, swapl(value));
     writeRegLNoSwap(regbase, DWORD_OFFSET(regIndex), value);
 }
 

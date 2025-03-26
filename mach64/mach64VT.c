@@ -9,6 +9,18 @@
 #define CRTC_DISPREQ_ONLY       BIT(21)
 #define CRTC_DISPREQ_ONLY_MASK  BIT(21)
 
+static const UBYTE g_VPLLPostDivider[] = {1, 2, 4, 8};
+
+static const UBYTE g_VPLLPostDividerCodes[] = {
+    // *1,    *2,   *4,   *8,
+    0b00, 0b01, 0b010, 0b011};
+
+static const UBYTE g_MPLLPostDividers[] = {1, 2, 4, 8};
+
+static const UBYTE g_MPLLPostDividerCodes[] = {
+    // *1,  *2,   *4,   *8
+    0b00, 0b01, 0b10, 0b11};
+
 ULONG ComputeFrequencyKhz10(UWORD R, UWORD N, UWORD M, UBYTE Plog2)
 {
     return ((ULONG)2 * R * N) / (M << Plog2);
@@ -65,25 +77,25 @@ failure:
     return 0;
 }
 
-static const UWORD defaultRegs_VT[] = {0x00a2, 0x6007,  //
-                                       0x00a0, 0x20f8,  //
-                                       0x0018, 0x0000,  //
-                                       0x001c, 0x0200,  //
-                                       0x001e, 0x040b,  //
-                                       0x00d2, 0x0000,  //
-                                       0x00e4, 0x0020,  //
-                                       0x00b0, 0x0021,  //
-                                       0x00b2, 0x0801,  //
-                                       0x00d0, 0x0000,  //
-                                       0x001e, 0x0000,  //
-                                       0x0080, 0x0000,  //
-                                       0x0082, 0x0000,  //
-                                       0x0084, 0x0000,  //
-                                       0x0086, 0x0000,  //
-                                       0x00c4, 0x0000,  //
-                                       0x00c6, 0x8000,  //
-                                       0x007a, 0x0000,  //
-                                       0x00d0, 0x0100};
+static const UWORD defaultRegs_VT[] = {0x00a2, 0x6007,  // BUS_CNTL upper
+                                       0x00a0, 0x20f8,  // BUS_CNTL lower
+                                       0x0018, 0x0000,  // CRTC_INT_CNTL lower
+                                       0x001c, 0x0200,  // CRTC_GEN_CNTL lower
+                                       0x001e, 0x040b,  // CRTC_GEN_CNTL upper
+                                       0x00d2, 0x0000,  // GEN_TEST_CNTL upper
+                                       0x00e4, 0x0020,  // CONFIG_STAT0 upper
+                                       0x00b0, 0x0021,  // MEM_CNTL lower
+                                       0x00b2, 0x0801,  // MEM_CNTL upper
+                                       0x00d0, 0x0000,  // GEN_TEST_CNTL lower
+                                       0x001e, 0x0000,  // CRTC_GEN_CNTL upper
+                                       0x0080, 0x0000,  // SCRATCH_REG0 lower
+                                       0x0082, 0x0000,  // SCRATCH_REG0 upper
+                                       0x0084, 0x0000,  // SCRATCH_REG1 lower
+                                       0x0086, 0x0000,  // SCRATCH_REG1 upper
+                                       0x00c4, 0x0000,  // DAC_CNTL lower
+                                       0x00c6, 0x8000,  // DAC_CNTL upper
+                                       0x007a, 0x0000,  // GP_IO lower
+                                       0x00d0, 0x0100}; // GEN_TEST_CNTL lower
 
 typedef struct
 {
@@ -157,6 +169,8 @@ BOOL InitMach64VT(struct BoardInfo *bi)
     // W_BLKIO_MASK_B(CONFIG_STAT0, 0, ~0xf8, 0x3b);
 
      W_BLKIO_MASK_L(BUS_CNTL, BUS_ROM_DIS_MASK, 0);
+
+    InitVClockPLLTable(bi, g_VPLLPostDivider, ARRAY_SIZE(g_VPLLPostDivider));
 
     MEM_CNTL_Register memCntl;
     *(ULONG *)&memCntl = R_BLKIO_L(MEM_CNTL);

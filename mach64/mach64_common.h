@@ -41,8 +41,8 @@ struct BoardInfo;
 #define GEN_CUR_ENABLE_MASK BIT(7)
 #define GEN_GUI_RESETB      BIT(8)
 #define GEN_GUI_RESETB_MASK BIT(8)
-#define GEN_SOFT_RESET_MASK BIT(9)
 #define GEN_SOFT_RESET      BIT(9)
+#define GEN_SOFT_RESET_MASK BIT(9)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// PLL Stuff
@@ -90,6 +90,8 @@ struct BoardInfo;
 #define CRTC_ENABLE_MASK        BIT(25)
 #define CRTC_DISP_REQ_ENB       BIT(26)
 #define CRTC_DISP_REQ_ENB_MASK  BIT(26)
+#define VGA_ATI_LINEAR          BIT(27)
+#define VGA_ATI_LINEAR_MASK     BIT(27)
 #define VGA_XCRT_CNT_EN         BIT(30)
 #define VGA_XCRT_CNT_EN_MASK    BIT(30)
 
@@ -98,9 +100,9 @@ struct BoardInfo;
 #define BUS_FIFO_ERR_INT_EN BIT(20)
 #define BUS_FIFO_ERR_INT    BIT(21)
 #define BUS_FIFO_ERR_AK     BIT(21)  // INT and ACK are the same bit, distiguished by R/W operation
-#define BUS_HOST_ERR_INT_EN BIT(22)
-#define BUS_HOST_ERR_INT    BIT(23)
-#define BUS_HOST_ERR_AK     BIT(23)  // INT and ACK are the same bit, distiguished by R/W operation
+#define BUS_HOST_ERR_INT_EN BIT(22) // only in CT, not GT
+#define BUS_HOST_ERR_INT    BIT(23) // only in CT, not GT
+#define BUS_HOST_ERR_AK     BIT(23)  // only in CT, not GT.  INT and ACK are the same bit, distiguished by R/W operation
 
 typedef struct PLL
 {
@@ -132,6 +134,7 @@ enum PLL_REGS
 {
     PLL_MPLL_CNTL     = 0,
     PLL_MACRO_CNTL    = 1,
+    PLL_VPLL_CNTL     = 1, // GT
     PLL_REF_DIV       = 2,
     PLL_GEN_CNTL      = 3,
     PLL_MCLK_FB_DIV   = 4,
@@ -166,16 +169,14 @@ enum PLL_REGS
     PLL_PM_DYN_CLK_CNTL  = 42,  // GT
 };
 
-#define PLL_ADDR_MASK      (0x1F << 10)
+#define PLL_ADDR_MASK      (0x3F << 10) // 6 bits on GT, used to be less on older chips
 #define PLL_ADDR(x)        ((x) << 10)
 #define PLL_DATA_MASK      (0xFF << 16)
 #define PLL_DATA(x)        ((x) << 16)
 #define PLL_WR_ENABLE      BIT(9)
 #define PLL_WR_ENABLE_MASK BIT(9)
-#define CLOCK_SEL_MASK     (0x7)
+#define CLOCK_SEL_MASK     (0x3)
 #define CLOCK_SEL(x)       ((x) & CLOCK_SEL_MASK)
-
-extern void ResetEngine(const BoardInfo_t *bi);
 
 extern void WritePLL(struct BoardInfo *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllData);
 extern UBYTE ReadPLL(struct BoardInfo *bi, UBYTE pllAddr);
@@ -191,6 +192,9 @@ extern ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYT
                               PLLValue_t *pllValues);
 extern ULONG computeFrequencyKhz10(UWORD RefFreq, UWORD FBDiv, UWORD RefDiv, UBYTE PostDiv);
 extern ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues, const UBYTE *multipliers);
+
+
+extern void ResetEngine(const BoardInfo_t *bi);
 
 static inline void waitFifo(const BoardInfo_t *bi, UBYTE entries)
 {
@@ -222,3 +226,4 @@ static inline BOOL isAsiclessThanV4(const BoardInfo_t *bi)
 #define READ_PLL(pllAddr)                   ReadPLL(bi, (pllAddr))
 
 #endif  // MACH64_COMMON_H
+

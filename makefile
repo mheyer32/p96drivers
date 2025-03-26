@@ -25,8 +25,8 @@ BUILDFLAGS = -noixemul -mregparm=4 -msmall-code -m68020-60 -mtune=68030 -g -ggdb
 
 ifeq ($(DEBUG),1)
     CFLAGS += -DDBG
-    LIBS += -ldebug
-    BUILDFLAGS += -Ofast
+    LIBS += -ldebug -lm
+    BUILDFLAGS += -O3
 else
     BUILDFLAGS += -Ofast -fomit-frame-pointer
 endif

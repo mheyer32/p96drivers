@@ -70,8 +70,8 @@ extern void myPrintF(const char *fmt, ...);
 static inline ULONG swapl(ULONG value)
 {
     // endian swap value
-    value = (value & 0xFFFF0000) >> 16 | (value & 0x0000FFFF) << 16;
-    value = (value & 0xFF00FF00) >> 8 | (value & 0x00FF00FF) << 8;
+    value = ((value & 0xFFFF0000) >> 16) | ((value & 0x0000FFFF) << 16);
+    value = ((value & 0xFF00FF00) >> 8) | ((value & 0x00FF00FF) << 8);
     return value;
 }
 
@@ -97,8 +97,30 @@ static inline UWORD swapw(UWORD value)
 #define STATIC_ASSERT(COND, MSG)    typedef char static_assertion_##MSG[(COND) ? 1 : -1]
 #define SIZEOF_MEMBER(type, member) (sizeof(((type *)0)->member))
 
-#define MAX(x, y) ((x) < (y) ? (y) : (x))
-#define MIN(x, y) ((x) < (y) ? (x) : (y))
+static inline ULONG max(ULONG x, ULONG y)
+{
+    return (x < y) ? y : x;
+}
+
+static inline ULONG min(ULONG x, ULONG y)
+{
+    return (x < y) ? x : y;
+}
+
+static inline ULONG ceilDiv(ULONG x, ULONG y)
+{
+    return (x + y - 1) / y;
+}
+
+static inline int numBits(ULONG x)
+{
+    int bits = 0;
+    while (x) {
+        ++bits;
+        x >>= 1;
+    }
+    return bits;
+}
 
 typedef enum BlitterOp
 {

@@ -3,8 +3,30 @@
 
 #include <boardinfo.h>
 
+#define BLOCK1(register) ((register) - 0x100)
+
 // new for GT
 #define EXT_MEM_CNTL 0x2B
+
+// Additional register definitions
+#define GP_IO        0x1E
+#define TIMER_CONFIG 0x0A
+
+// MEM_BUF_CNTL
+#define MEM_BUF_CNTL             0x0B
+#define INVALIDATE_RB_CACHE_MASK BIT(23)
+#define INVALIDATE_RB_CACHE      BIT(23)
+
+#define CUSTOM_MACRO_CNTL 0x35
+#define MPP_CONFIG        0x3B
+#define TVO_CNTL          0x3F
+#define VGA_DSP_CONFIG    0x13
+#define VGA_DSP_ON_OFF    0x14
+#define Z_CNTL            0x53 /* GT */
+#define ALPHA_TST_CNTL    0x54 /* GTPro */
+#define SCALE_3D_CNTL     0x7f /* GT */
+
+#define SETUP_CNTL BLOCK1(0xc1)
 
 #define MEM_SDRAM_RESET_MASK BIT(1)
 #define MEM_SDRAM_RESET      BIT(1)
@@ -36,7 +58,7 @@
 #define BUS_MASTER_DIS_MASK   BIT(6)
 
 // DSP_CONFIG
-#define DSP_CONFIG  0x08
+#define DSP_CONFIG            0x08
 #define DSP_XCLKS_PER_QW(x)   (x)
 #define DSP_XCLKS_PER_QW_MASK (0x3FFF)
 #define DSP_LOOP_LATENCY(x)   ((x) << 16)
@@ -51,10 +73,14 @@
 #define DSP_ON(x)    ((x) << 16)
 #define DSP_ON_MASK  (0x7FF << 16)
 
-extern const UBYTE g_VCLKPllMultiplier[];
-extern const UBYTE g_VCLKPllMultiplierCode[];
+// DP_SET_GUI_ENGINE
+#define DP_SET_GUI_ENGINE2 0xBE
+#define DP_SET_GUI_ENGINE  0xBF
 
-void AdjustDSP(struct BoardInfo *bi, UBYTE fbDiv, UBYTE postDiv);
+extern const UBYTE g_VPLLPostDivider[];
+extern const UBYTE g_VPLLPostDividerCodes[];
+
+void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv);
 
 BOOL InitMach64GT(struct BoardInfo *bi);
 

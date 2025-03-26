@@ -60,7 +60,7 @@ ChipFamily_t getChipFamily(UWORD deviceId)
     case 0x4750:  // mach64 Rage Pro
         return MACH64GT;
     case 0x4752:  // mach64 Rage 3 XL
-        return MACH64GR;
+        return MACH64GM;
     default:
         return UNKNOWN;
     }
@@ -75,7 +75,7 @@ const char *getChipFamilyName(ChipFamily_t family)
         return "Mach64 GX";
     case MACH64GT:
         return "Mach64 GT (Rage Pro)";
-    case MACH64GR:
+    case MACH64GM:
         return "Mach64 GR (Rage3 XL)";
     default:
         return "Unknown";
@@ -380,7 +380,8 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
         }
     }
 
-    memset(bi->PixelClockCount, 0, sizeof(bi->PixelClockCount));
+    // memset not available
+    // memset(bi->PixelClockCount, 0, sizeof(bi->PixelClockCount));
 
     // FIXME: Account for OVERCLOCK
     for (UWORD i = 0; i < e; ++i) {
@@ -634,7 +635,9 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // fallthrough
         break;
     }
-    W_BLKIO_L(DP_CHAIN_MSK, dpChainMask);
+
+    //FIXME: doesn't seem to exist on RagePro/LT?!
+    // W_BLKIO_L(DP_CHAIN_MSK, dpChainMask);
 }
 
 static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width),
@@ -738,13 +741,13 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 
     // find pixel clock in pllValues via bisection
     UWORD upper     = bi->PixelClockCount[CHUNKY] - 1;
-    UWORD upperFreq = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[upper], g_VCLKPllMultiplier);
+    UWORD upperFreq = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[upper], g_VPLLPostDivider);
     UWORD lower     = 0;
-    UWORD lowerFreq = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[lower], g_VCLKPllMultiplier);
+    UWORD lowerFreq = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[lower], g_VPLLPostDivider);
 
     while (lower + 1 < upper) {
         UWORD middle     = (upper + lower) / 2;
-        UWORD middleFreq = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[middle], g_VCLKPllMultiplier);
+        UWORD middleFreq = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[middle], g_VPLLPostDivider);
         if (middleFreq < targetFreq) {
             lower     = middle;
             lowerFreq = middleFreq;
@@ -775,7 +778,7 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct Mod
     DFUNC(VERBOSE, "\n");
 
     const ChipData_t *cd = getChipData(bi);
-    UWORD freq           = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[index], g_VCLKPllMultiplier);
+    UWORD freq           = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[index], g_VPLLPostDivider);
 
     return freq * 10000;
 }
@@ -822,22 +825,27 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
     }
 #endif
 
-    // Select PLLVCLK as VCLK source
-    WRITE_PLL_MASK(PLL_VCLK_CNTL, (PLL_PRESET_MASK | VCLK_SRC_SEL_MASK), VCLK_SRC_SEL(0b00) | PLL_PRESET);
+    // Temporarily select CPUCLK as VCLK source, bring VPLL into reset
+    WRITE_PLL_MASK(PLL_VCLK_CNTL, VCLK_SRC_SEL_MASK, VCLK_SRC_SEL(0b00));
+    delayMilliSeconds(5);
+    WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, PLL_PRESET);
+
     // FIXME: GT has no PLL_FCP_CNTL. There its DLL_CNTL
     //    WRITE_PLL_MASK(PLL_FCP_CNTL, DCLK_BY2_EN_MASK, 0);
+
     WRITE_PLL(PLL_VCLK0_FB_DIV, mi->pll1.Numerator);
-    BYTE postDivCode = g_VCLKPllMultiplierCode[mi->pll2.Denominator];
+    BYTE postDivCode = g_VPLLPostDividerCodes[mi->pll2.Denominator];
     WRITE_PLL_MASK(PLL_VCLK_POST_DIV, VCLK0_POST_MASK, VCLK0_POST(postDivCode));
 
     if (getChipData(bi)->chipFamily >= MACH64GT) {
         WRITE_PLL_MASK(PLL_EXT_CNTL, ALT_VCLK0_POST_MASK,
                        (postDivCode & 0x4) ? ALT_VCLK0_POST : 0);
 
-       AdjustDSP(bi,mi->pll1.Numerator,g_VCLKPllMultiplier[mi->pll2.Denominator]);
+       AdjustDSP(bi,mi->pll1.Numerator,g_VPLLPostDivider[mi->pll2.Denominator]);
     }
 
     WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, 0);
+    delayMilliSeconds(5);
     WRITE_PLL_MASK(PLL_VCLK_CNTL, VCLK_SRC_SEL_MASK, VCLK_SRC_SEL(0b11));
 
     delayMilliSeconds(5);
@@ -1068,7 +1076,7 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
     DFUNC(VERBOSE, "\n");
     REGBASE();
 
-    W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_CUR_ENABLE_MASK, activate ? GEN_CUR_ENABLE : 0);
+    W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_CUR_ENABLE_MASK, (activate ? GEN_CUR_ENABLE : 0));
 
     if (activate) {
         SetSpriteColor(bi, 0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, bi->RGBFormat);
@@ -1082,7 +1090,6 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
 static inline void waitIdle(const BoardInfo_t *bi)
 {
     MMIOBASE();
-
     waitFifo(bi, 16);
 
     ULONG cnt = 0;
@@ -1185,8 +1192,9 @@ static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *r
     // FIXME: reading from the register is not FIFO'd. In theory to use W_MMIO_MASK_L we would need to wait for
     // engine idle to be sure
     //  that the previous write has completed. For now we just wait for 2 slots and write the register directly.
-    W_MMIO_MASK_L(DP_PIX_WIDTH, DP_DST_PIX_WIDTH_MASK | DP_HOST_PIX_WIDTH_MASK,
-                  DP_DST_PIX_WIDTH(dstPixWidth) | DP_HOST_PIX_WIDTH(COLOR_DEPTH_1));
+     W_MMIO_MASK_L(DP_PIX_WIDTH, DP_DST_PIX_WIDTH_MASK | DP_HOST_PIX_WIDTH_MASK,
+                   DP_DST_PIX_WIDTH(dstPixWidth) | DP_HOST_PIX_WIDTH(COLOR_DEPTH_8));
+    //W_MMIO_L(DP_PIX_WIDTH, DP_DST_PIX_WIDTH(dstPixWidth) | DP_HOST_PIX_WIDTH(COLOR_DEPTH_1));
 
     return TRUE;
 }
@@ -1222,6 +1230,7 @@ static inline BOOL setSrcBuffer(struct BoardInfo *bi, const struct RenderInfo *r
     }
 
     W_MMIO_MASK_L(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH_MASK, DP_SRC_PIX_WIDTH(srcPixWidth));
+//     W_MMIO_L(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH(srcPixWidth));
 
     return TRUE;
 }
@@ -1309,15 +1318,16 @@ static inline ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 static void drawRect(struct BoardInfo *bi, WORD x, WORD y, WORD width, WORD height)
 {
     MMIOBASE();
-    // W_MMIO_L(DST_Y_X, DST_Y(y) | DST_X(x));
-    // W_MMIO_L(DST_HEIGHT_WIDTH, DST_HEIGHT(height) | DST_WIDTH(width));
-
-    // micro-optimization to save on some redundant rol/swap/rol sequences
-    W_MMIO_NOSWAP_L(DST_Y_X, makeDWORD(swapw(y), swapw(x)));
-
+    W_MMIO_L(DST_Y_X, DST_Y(y) | DST_X(x));
+    W_MMIO_L(DST_HEIGHT_WIDTH, DST_HEIGHT(height) | DST_WIDTH(width));
     flushWrites();
 
-    W_MMIO_NOSWAP_L(DST_HEIGHT_WIDTH, makeDWORD(swapw(height), swapw(width)));
+    // micro-optimization to save on some redundant rol/swap/rol sequences
+    // W_MMIO_NOSWAP_L(DST_Y_X, makeDWORD(swapw(y), swapw(x)));
+
+    //flushWrites();
+
+    //W_MMIO_NOSWAP_L(DST_HEIGHT_WIDTH, makeDWORD(swapw(height), swapw(width)));
 }
 
 static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
@@ -1641,6 +1651,9 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     // the right scissor. And since we're setting the scissor anyways, we might as well set the left side
     // and spare ourselves the CPU work to "left-rotate" the template bits.
     W_MMIO_L(SC_LEFT_RIGHT, SC_RIGHT(width + x - 1) | SC_LEFT(x));
+
+    R_MMIO_L(GUI_STAT);
+
     drawRect(bi, x - template->XOffset, y, blitWidth, height);
 
     // We already used up 3 fifo slots for the setup above
@@ -1651,6 +1664,8 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
 
     for (UWORD y = 0; y < height; ++y) {
         for (UWORD x = 0; x < dwordsPerLine; ++x) {
+            D(VERBOSE, "writing to HOST_DATA%u: 0x%08lx\n", hostDataReg, ((const ULONG *)bitmap)[x]);
+
             writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), ((const ULONG *)bitmap)[x]);
 
             hostDataReg = (hostDataReg + 1) & 15;
@@ -2172,11 +2187,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
     D(INFO, "scratch register response good.\n");
 
-    W_SR(0x1, 0x02);
+    //W_SR(0x1, 0x02);
 
     W_BLKIO_MASK_L(CONFIG_CNTL, CFG_MEM_VGA_AP_EN_MASK | CFG_VGA_DIS_MASK, CFG_VGA_DIS);
 
-       if (!parseRomHeader(bi)) {
+    if (!parseRomHeader(bi)) {
         DFUNC(ERROR, "Failed to parse ROM header\n");
         return FALSE;
     }
@@ -2194,7 +2209,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         }
         break;
     case MACH64GT:
-    case MACH64GR:
+    case MACH64GM:
         if (!InitMach64GT(bi)) {
             return FALSE;
         }
@@ -2206,10 +2221,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     W_BLKIO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK, CFG_VGA_DIS);
     W_BLKIO_MASK_L(CONFIG_STAT0, CFG_VGA_EN_MASK, 0);
-
-    R_MMIO_L(GEN_TEST_CNTL);
-    R_BLKIO_L(BUS_CNTL);
-
     // ULONG clock = bi->MemoryClock;
     // if (!clock) {
     //     clock = getChipData(bi)->memClock;
@@ -2231,6 +2242,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     //     return FALSE;
     // }
 
+    //FIXME: no need to crop FB size on later chips with auxilliary MMIO aperture
     if (bi->MemorySize == 8 * 1024 * 1024) {
         bi->MemorySize -= 2048;  // Upper 2kb are reserved for MMIO register blocks 0 and 1
     }
@@ -2243,24 +2255,18 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // CRTC_DISP_REQ_ENB = 0 _enables_ display requests?!?!
     W_BLKIO_MASK_L(CRTC_GEN_CNTL,
                    CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_DISP_REQ_ENB_MASK | VGA_XCRT_CNT_EN_MASK |
-                       CRTC_LOCK_REGS_MASK,
-                   CRTC_ENABLE | CRTC_EXT_DISP_EN );
+                       VGA_ATI_LINEAR_MASK | CRTC_LOCK_REGS_MASK,
+                   CRTC_ENABLE | CRTC_EXT_DISP_EN | VGA_XCRT_CNT_EN);
     if (cd->chipFamily <= MACH64VT) {
         W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK | CRTC_FIFO_OVERFILL_MASK,
                        CRTC_FIFO_LWM(0xF) | CRTC_FIFO_OVERFILL(3));
     }
 
-    R_BLKIO_L(BUS_CNTL);
-
     // Init Engine
     ResetEngine(bi);
 
-    R_BLKIO_L(BUS_CNTL);
-
-    waitIdle(bi);
-
     waitFifo(bi, 16);
-    W_MMIO_L(CONTEXT_MSK, 0xFFFFFFFF);
+    W_MMIO_L(CONTEXT_MASK, 0xFFFFFFFF);
     W_MMIO_L(DST_Y_X, 0);
     W_MMIO_L(DST_BRES_ERR, 0);
     W_MMIO_L(DST_BRES_INC, 0);
@@ -2271,28 +2277,26 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_MMIO_L(SRC_HEIGHT1_WIDTH1, 1);
     W_MMIO_L(SRC_Y_X_START, 0);
     W_MMIO_L(SRC_HEIGHT2_WIDTH2, 1);
-
-    R_BLKIO_L(BUS_CNTL);
-    // set source pixel retrieving attributes
-    // W_MMIO_L(SRC_CNTL, SRC_LINE_X_LEFT_TO_RIGHT);
+    W_MMIO_L(SC_LEFT_RIGHT, SC_LEFT(0) | ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK));
+    W_MMIO_L(SC_TOP_BOTTOM, SC_TOP(0) | ((SC_BOTTOM_MASK >> 1) & SC_BOTTOM_MASK));
+    W_MMIO_L(SRC_Y_X_START, 0);
+    // FIXME: Docs say: Use SRC_CNTL register only if a blit source is selected in the pixel data path.
+    // What does that mean? Also, if I don't do this here, I get the dreaded GUI hangs
+    W_MMIO_L(SRC_CNTL, 0);
 
     waitFifo(bi, 16);
     W_MMIO_L(DP_BKGD_CLR, 0x0);
     W_MMIO_L(DP_FRGD_CLR, 0xFFFFFFFF);
     W_MMIO_L(DP_WRITE_MSK, 0xFFFFFFFF);
-    W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(MIX_NEW));
-    W_MMIO_L(DP_SRC, DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_ONE));
     W_MMIO_L(DP_PIX_WIDTH,
              DP_DST_PIX_WIDTH(COLOR_DEPTH_8) | DP_SRC_PIX_WIDTH(COLOR_DEPTH_8) | DP_HOST_PIX_WIDTH(COLOR_DEPTH_8));
+    W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(MIX_NEW));
+    W_MMIO_L(DP_SRC, DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_ONE));
     W_MMIO_L(CLR_CMP_CNTL, 0x0);
     W_MMIO_L(GUI_TRAJ_CNTL, DST_X_DIR | DST_Y_DIR | DST_LAST_PEL);
-    W_MMIO_L(SC_LEFT_RIGHT, SC_LEFT(0) | ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK));
-    W_MMIO_L(SC_TOP_BOTTOM, SC_TOP(0) | ((SC_BOTTOM_MASK >> 1) & SC_BOTTOM_MASK));
-    W_MMIO_L(SRC_Y_X_START, 0);
 
     D(INFO, "Monitor is %s present\n", ((R_BLKIO_B(DAC_CNTL, 0) & 0x80) ? "NOT" : ""));
 
-    READ_PLL(PLL_XCLK_CNTL);
 
     // Two sprite images, each 64x64*2 bits
     // BEWARE: softsprite data would use 4 byte per pixel
@@ -2326,6 +2330,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #include <proto/openpci.h>
 #include <proto/prometheus.h>
 #include <proto/utility.h>
+#include <proto/dos.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2365,6 +2370,11 @@ int main()
         goto exit;
     }
 
+    if (!(DOSBase = OpenLibrary(DOSNAME, 0))) {
+        D(0, "Unable to open dos.library\n");
+        goto exit;
+    }
+
     ULONG dmaSize = 128 * 1024;
 
     APTR board = NULL;
@@ -2372,8 +2382,8 @@ int main()
     D(0, "Looking for Mach64 card\n");
 
     while ((board = (APTR)Prm_FindBoardTags(board, PRM_Vendor, PCI_VENDOR, TAG_END)) != NULL) {
-        ULONG Device, Revision, Memory0Size, Memory2Size;
-        APTR Memory0, Memory1, Memory2;
+        ULONG Device, Revision, Memory0Size = 0, Memory2Size = 0;
+        APTR Memory0 = 0 , Memory1 = 0, Memory2 = 0;
 
         Prm_GetBoardAttrsTags(board, PRM_Device, (ULONG)&Device, PRM_Revision, (ULONG)&Revision, PRM_MemoryAddr0,
                               (ULONG)&Memory0, PRM_MemorySize0, (ULONG)&Memory0Size, PRM_MemoryAddr1, (ULONG)&Memory1,
@@ -2386,6 +2396,7 @@ int main()
         if (family != UNKNOWN) {
             D(ALWAYS, "ATI %s found\n", getChipFamilyName(family));
 
+            // Write PCI COMMAND register to enable IO and Memory access
             Prm_WriteConfigWord((PCIBoard *)board, 0x03, 0x04);
 
             D(INFO, "MemoryBase 0x%x, MemorySize %u, IOBase 0x%x\n", Memory0, Memory0Size, Memory1);
@@ -2406,14 +2417,23 @@ int main()
             bi->ChipBase             = ChipBase;
 
             // Block IO is in BAR1
-            bi->RegisterBase = Memory1 + REGISTER_OFFSET;
+            if (!Memory1)
+            {
+                D(ERROR, "Cannot find block IO Aperture\n");
+                goto  exit;
+            }
+
+            bi->RegisterBase = (BYTE*)Memory1 + REGISTER_OFFSET;
+
             if (Memory2) {
                 // Use Auxiliary Aperture for MMIO if available
-                bi->MemoryIOBase = Memory2 + 1024 + MMIOREGISTER_OFFSET;
+                D(INFO, "Using auxiliary register aperture at 0x%08lx\n", Memory2);
+                bi->MemoryIOBase = (BYTE*)Memory2 + 1024 + MMIOREGISTER_OFFSET;
                 setCacheMode(bi, Memory2, Memory2Size, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
             } else {
                 // MMIO registers are in top 1kb of the first 8mb memory window
-                bi->MemoryIOBase = Memory0 + 0x800000 - 1024 + MMIOREGISTER_OFFSET;
+                bi->MemoryIOBase = (BYTE*)Memory0 + 0x800000 - 1024 + MMIOREGISTER_OFFSET;
+                setCacheMode(bi,  (BYTE*)Memory0 + 0x800000 - 1024, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
             }
             // Framebuffer is at address 0x0
             bi->MemoryBase = Memory0;
@@ -2472,6 +2492,10 @@ int main()
                 SetDAC(bi, RGBFB_CLUT);
             }
             {
+                SetSprite(bi, FALSE, RGBFB_CLUT);
+            }
+
+            {
                 DFUNC(0, "SetColorArray\n");
                 UBYTE colors[256 * 3];
                 for (int c = 0; c < 256; c++) {
@@ -2518,6 +2542,7 @@ int main()
                 BlitPattern(bi, &ri, &pattern, 150, 150, 640 - 300, 480 - 300, 0xFF, RGBFB_CLUT);
             }
 
+            WaitBlitter(bi);
             // RegisterOwner(cb, board, (struct Node *)ChipBase);
 
             // if ((dmaSize > 0) && (dmaSize <= bi->MemorySize)) {
