@@ -23,6 +23,7 @@ MISCBUFFERSIZE		EQU	32*1024-2*MOUSEBUFFERSIZE-2*SPRITEBUFFERSIZE	; 32 KB Reserve
 
 gbi_CurrentMemoryMode		EQU	gbi_ChipData+0*4
 gbi_SpriteBank			EQU	gbi_ChipData+1*4
+gbi_PixelPanning		EQU	gbi_ChipData+2*4	
 gbi_DACModes			EQU	gbi_ChipData+11*4 ;MSB: lower,LSB top
 										    
 ***********************************************************
