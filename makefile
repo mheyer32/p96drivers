@@ -42,10 +42,18 @@ define source_to_object
 							$(patsubst %.asm,%.o,${1}))))
 endef
 
+define source_to_depend
+	$(addprefix ${2},$(patsubst %.c,%.d,${1}))
+endef
+
 #place chip_library first
 define create_objlist
 	$(filter chip_library.o,$(call source_to_object,${1},${2}))\
 	$(filter-out chip_library.o,$(call source_to_object,${1},${2}))
+endef
+
+define create_deplist
+	$(call source_to_depend,$(filter %.c,${1}),${2})
 endef
 
 define collect_sources
@@ -57,12 +65,12 @@ define build_rules
 %/.:
 	$$(MKDIR) $$(@D)
 
-# build .c .asm and .s files into .o
+# build .c files into .o with dependency generation
 # $$$$(@D)/. will be doubly-evaluated to $(@D)/. which will trigger the build directory
 # target above
 ${1}%.o: %.c | makefile $$$$(@D)/.
 	echo $$(@D)
-	$$(CC) $$(CFLAGS) -c $$< -o $$@
+	$$(CC) $$(CFLAGS) -MMD -MP -c $$< -o $$@
 
 ${1}%.o: %.asm | makefile $$$$(@D)/.
 	$$(ASS) $$(AFLAGS) $$< -o $$@
@@ -75,6 +83,7 @@ endef
 define make_driver
 ${1}_SRC = ${3} # $$(call collect_sources,$$(SOURCES))
 ${1}_OBJS = $$(call create_objlist,$$(${1}_SRC),${2})
+${1}_DEPS = $$(call create_deplist,$$(${1}_SRC),${2})
 ${1}_TARGET = $$(BINDIR)/${1}
 
 ${1} : LDFLAGS += -ramiga-lib -nostartfiles
@@ -91,17 +100,21 @@ ${1} : $$(${1}_OBJS)
 	$$(MKDIR) $$(dir $$(${1}_TARGET))
 	$$(LD) $$^ $${LIBS} $$(LDFLAGS) -o $$(<D)/${1}
 	$$(STRIP) $$(<D)/${1} -o $$(${1}_TARGET)
+
+# Include dependency files for this target
+-include $$(${1}_DEPS)
 endef
 
 define make_exe
 ${1}_SRC = ${3}
 ${1}_OBJS = $$(call create_objlist,$$(${1}_SRC),${2})
+${1}_DEPS = $$(call create_deplist,$$(${1}_SRC),${2})
 ${1}_TARGET = $$(BINDIR)/${1}
 
 echo "Building: $${${1}_TARGET}"
 
 ${1} : CFLAGS += -DTESTEXE -DDBG -DDEBUG
-${1} : LIBS += -ldebug
+${1} : LIBS += -ldebug -lm
 
 $$(eval $$(call build_rules,${2}))
 
@@ -110,6 +123,9 @@ ${1} : $$(${1}_OBJS)
 	$$(MKDIR) $$(dir $$(${1}_TARGET))
 	$$(LD) $$^ $$(LIBS) $$(LDFLAGS) -o $$(<D)/${1}
 	$$(STRIP) $$(<D)/${1} -o $$(${1}_TARGET)
+
+# Include dependency files for this target
+-include $$(${1}_DEPS)
 endef
 
 ###############################################################################
@@ -147,6 +163,7 @@ ATIMACH64_SRC = common.c \
                 chip_library.c
 
 ATIMach64.chip : CFLAGS+=-DBIGENDIAN_MMIO=0
+ATIMach64.chip : LDFLAGS+=-lm
 $(eval $(call make_driver,ATIMach64.chip,$(BUILDDIR)mach64/, ${ATIMACH64_SRC}))
 
 ATIMACH64_TESTEXE_SRC = common.c \
