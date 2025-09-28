@@ -145,13 +145,13 @@ S3TRIO_SRC = common.c \
              chip_library.c 
 
 
-S3Trio64Plus.chip : CFLAGS+=-DBIGENDIAN_MMIO=1 -DBUILD_VISION864=0
+S3Trio64Plus.chip : CFLAGS+=-DBIGENDIAN_MMIO=1 -DBUILD_VISION864=0 -DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000
 $(eval $(call make_driver,S3Trio64Plus.chip,$(BUILDDIR)s3trio64plus/, ${S3TRIO_SRC}))
 
-S3Trio3264.chip : CFLAGS+=-DBIGENDIAN_MMIO=0 -DBUILD_VISION864=0
+S3Trio3264.chip : CFLAGS+=-DBIGENDIAN_MMIO=0 -DBUILD_VISION864=0 -DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000
 $(eval $(call make_driver,S3Trio3264.chip,$(BUILDDIR)s3trio3264/, ${S3TRIO_SRC}))
 
-S3Vision864.chip : CFLAGS+=-DBIGENDIAN_MMIO=0 -DBUILD_VISION864=1
+S3Vision864.chip : CFLAGS+=-DBIGENDIAN_MMIO=0 -DBUILD_VISION864=1 -DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000
 $(eval $(call make_driver,S3Vision864.chip,$(BUILDDIR)s3vision864/, ${S3TRIO_SRC}))
 
 
@@ -162,7 +162,7 @@ ATIMACH64_SRC = common.c \
                 mach64/chip_mach64.c \
                 chip_library.c
 
-ATIMach64.chip : CFLAGS+=-DBIGENDIAN_MMIO=0
+ATIMach64.chip : CFLAGS+=-DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
 ATIMach64.chip : LDFLAGS+=-lm
 $(eval $(call make_driver,ATIMach64.chip,$(BUILDDIR)mach64/, ${ATIMACH64_SRC}))
 
@@ -171,6 +171,8 @@ ATIMACH64_TESTEXE_SRC = common.c \
                         mach64/mach64VT.c \
                         mach64/mach64_common.c \
                         mach64/chip_mach64.c
+
+TestMach64 : CFLAGS+=-DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
 
 $(eval $(call make_exe,TestMach64,$(BUILDDIR)testmach64/, ${ATIMACH64_TESTEXE_SRC}))
 

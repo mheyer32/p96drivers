@@ -41,8 +41,9 @@ extern void myPrintF(const char *fmt, ...);
 #endif
 
 // The offsets allow for using signed 16bit indexed addressing be used
-#define REGISTER_OFFSET     0x8000
-#define MMIOREGISTER_OFFSET 0x8000
+#if !defined(REGISTER_OFFSET) || !defined(MMIOREGISTER_OFFSET)
+#pragma GCC error "REGISTER_OFFSET or MMIOREGISTER_OFFSET not defined"
+#endif
 
 #define SEQX     0x3C4  // Access SRxx registers
 #define SEQ_DATA 0x3C5
@@ -224,17 +225,17 @@ static inline void flushWrites()
     asm volatile("nop");
 }
 
-static inline UBYTE REGARGS readReg(volatile UBYTE *regbase, UWORD reg)
+static inline UBYTE REGARGS readReg(volatile UBYTE *regbase, LONG reg)
 {
     return regbase[reg - REGISTER_OFFSET];
 }
 
-static inline void REGARGS writeReg(volatile UBYTE *regbase, UWORD reg, UBYTE value)
+static inline void REGARGS writeReg(volatile UBYTE *regbase, LONG reg, UBYTE value)
 {
     regbase[reg - REGISTER_OFFSET] = value;
 }
 
-static inline UWORD REGARGS readRegW(volatile UBYTE *regbase, UWORD reg)
+static inline UWORD REGARGS readRegW(volatile UBYTE *regbase, LONG reg)
 {
     UWORD value = swapw(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
     asm volatile("" ::"r"(value));
@@ -244,19 +245,19 @@ static inline UWORD REGARGS readRegW(volatile UBYTE *regbase, UWORD reg)
     return value;
 }
 
-static inline void REGARGS writeRegW(volatile UBYTE *regbase, UWORD reg, UWORD value)
+static inline void REGARGS writeRegW(volatile UBYTE *regbase, LONG reg, UWORD value)
 {
     D(10, "W 0x%.4lx <- 0x%04lx\n", (LONG)reg, (LONG)value);
 
     *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = swapw(value);
 }
 
-static inline void REGARGS writeRegL(volatile UBYTE *regbase, UWORD reg, ULONG value)
+static inline void REGARGS writeRegL(volatile UBYTE *regbase, LONG reg, ULONG value)
 {
     *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = swapl(value);
 }
 
-static inline ULONG REGARGS readRegLNoSwap(volatile UBYTE *regbase, UWORD reg)
+static inline ULONG REGARGS readRegLNoSwap(volatile UBYTE *regbase, LONG reg)
 {
     ULONG value = *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET));
     asm volatile("" ::"r"(value));
@@ -264,12 +265,12 @@ static inline ULONG REGARGS readRegLNoSwap(volatile UBYTE *regbase, UWORD reg)
     return value;
 }
 
-static inline void REGARGS writeRegLNoSwap(volatile UBYTE *regbase, UWORD reg, ULONG value)
+static inline void REGARGS writeRegLNoSwap(volatile UBYTE *regbase, LONG reg, ULONG value)
 {
     *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = value;
 }
 
-static inline ULONG REGARGS readRegL(volatile UBYTE *regbase, UWORD reg)
+static inline ULONG REGARGS readRegL(volatile UBYTE *regbase, LONG reg)
 {
     ULONG value = swapl(*(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)));
     asm volatile("" ::"r"(value));
@@ -277,7 +278,7 @@ static inline ULONG REGARGS readRegL(volatile UBYTE *regbase, UWORD reg)
     return value;
 }
 
-static inline UWORD REGARGS readMMIO_W(volatile UBYTE *mmiobase, UWORD regOffset)
+static inline UWORD REGARGS readMMIO_W(volatile UBYTE *mmiobase, LONG regOffset)
 {
     flushWrites();
     UWORD value = SWAPW(*(volatile UWORD *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)));
@@ -288,7 +289,7 @@ static inline UWORD REGARGS readMMIO_W(volatile UBYTE *mmiobase, UWORD regOffset
     return value;
 }
 
-static inline ULONG REGARGS readMMIO_L(volatile UBYTE *mmiobase, UWORD regOffset)
+static inline ULONG REGARGS readMMIO_L(volatile UBYTE *mmiobase, LONG regOffset)
 {
     flushWrites();
     // This construct makes sure, the compiler doesn't take shortcuts
@@ -299,20 +300,20 @@ static inline ULONG REGARGS readMMIO_L(volatile UBYTE *mmiobase, UWORD regOffset
     return value;
 }
 
-static inline void REGARGS writeMMIO_W(volatile UBYTE *mmiobase, UWORD regOffset, UWORD value)
+static inline void REGARGS writeMMIO_W(volatile UBYTE *mmiobase, LONG regOffset, UWORD value)
 {
     D(10, "W 0x%.4lx <- 0x%04lx\n", (LONG)regOffset, (LONG)value);
     *(volatile UWORD *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPW(value);
 }
 
-static inline void REGARGS writeMMIO_L(volatile UBYTE *mmiobase, UWORD regOffset, ULONG value)
+static inline void REGARGS writeMMIO_L(volatile UBYTE *mmiobase, LONG regOffset, ULONG value)
 {
     D(10, "W 0x%.4lx <- 0x%08lx\n", (LONG)regOffset, (LONG)value);
 
     *(volatile ULONG *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPL(value);
 }
 
-static inline UBYTE REGARGS readRegister(volatile UBYTE *regbase, UWORD reg)
+static inline UBYTE REGARGS readRegister(volatile UBYTE *regbase, LONG reg)
 {
     UBYTE value = readReg(regbase, reg);
     D(20, "R 0x%.4lx -> 0x%02lx\n", (LONG)reg, (LONG)value);
@@ -320,14 +321,14 @@ static inline UBYTE REGARGS readRegister(volatile UBYTE *regbase, UWORD reg)
     return value;
 }
 
-static inline void REGARGS writeRegister(volatile UBYTE *regbase, UWORD reg, UBYTE value)
+static inline void REGARGS writeRegister(volatile UBYTE *regbase, LONG reg, UBYTE value)
 {
     writeReg(regbase, reg, value);
 
     D(10, "W 0x%.4lx <- 0x%02lx\n", (LONG)reg, (LONG)value);
 }
 
-static inline void REGARGS writeRegisterMask(volatile UBYTE *regbase, UWORD reg, UBYTE mask, UBYTE value)
+static inline void REGARGS writeRegisterMask(volatile UBYTE *regbase, LONG reg, UBYTE mask, UBYTE value)
 {
     writeRegister(regbase, reg, (readRegister(regbase, reg) & ~mask) | (value & mask));
 }
