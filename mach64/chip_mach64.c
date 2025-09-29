@@ -679,7 +679,8 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     return;
 }
 
-static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REGD7(RGBFTYPE format))
+static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REGD0(struct RenderInfo *ri),
+                                __REGD7(RGBFTYPE format))
 {
     DFUNC(VERBOSE, "mem 0x%lx, format %ld\n", mem, (ULONG)format);
     switch (format) {
@@ -694,7 +695,7 @@ static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem)
     default:
         break;
     }
-    return mem;
+    return (APTR)(((ULONG)mem + 7) & ~7);
 }
 
 static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
@@ -2034,6 +2035,14 @@ static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
     D(CHATTY, "done\n");
 }
 
+APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system),
+                      __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
+{
+    // We always overallocate by 8 bytes to be able to align the memory to 8 bytes in CalculateMemory
+    size += 8;
+    return getConstCardData(bi)->AllocCardMemDefault(bi, size, force, system, bytesperrow, mi, format);
+}
+
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     REGBASE();
@@ -2053,6 +2062,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
 
     bi->SoftSpriteFlags = 0;
+
+    getCardData(bi)->AllocCardMemDefault = bi->AllocCardMem;
+    bi->AllocCardMem                     = AllocCardMem;
 
     bi->SetGC                = SetGC;
     bi->SetPanning           = SetPanning;
