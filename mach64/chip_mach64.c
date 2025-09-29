@@ -681,7 +681,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     return;
 }
 
-static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REGD0(struct RenderInfo *ri),
+static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE* mem), __REGD0(struct RenderInfo *ri),
                                 __REGD7(RGBFTYPE format))
 {
     DFUNC(VERBOSE, "mem 0x%lx, format %ld\n", mem, (ULONG)format);
@@ -707,12 +707,12 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGB
 
     // These formats can always reside in the Little Endian Window.
     // We never need to change any aperture setting for them
-    ULONG compatible = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_A8B8G8R8;
+    ULONG compatible = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
 
     switch (format) {
-    case RGBFB_A8B8G8R8:
+    case RGBFB_A8R8G8B8:
         // In Big Endian aperture, configured MEM_CNTL for byte swapping in long word
-        compatible |= RGBFF_A8B8G8R8;
+        compatible |= RGBFF_A8R8G8B8;
         break;
     case RGBFB_R5G6B5:
     case RGBFB_R5G5B5:
@@ -870,7 +870,7 @@ static inline void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __RE
         // These are the formats we place in the big endian aperture.
         // And only for those we have to do anything.
         switch (format) {
-        case RGBFB_A8B8G8R8:
+        case RGBFB_A8R8G8B8:
         case RGBFB_R5G6B5:
         case RGBFB_R5G5B5:
             if (getChipData(bi)->MemFormat == format) {
@@ -887,15 +887,14 @@ static inline void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __RE
         // These are the formats we place in the big endian aperture.
         // And only for those we have to do anything.
         switch (format) {
-        case RGBFB_A8B8G8R8:
+        case RGBFB_A8R8G8B8:
             byteSwap = UPPER_APER_ENDIAN(0b10);
             break;
         case RGBFB_R5G6B5:
         case RGBFB_R5G5B5:
             byteSwap = UPPER_APER_ENDIAN(0b01);
             break;
-        default:
-           ; // fallthrough
+        default:;  // fallthrough
         }
 
         if (getChipData(bi)->MemFormat == format) {
@@ -1241,7 +1240,7 @@ static inline BOOL setSrcBuffer(struct BoardInfo *bi, const struct RenderInfo *r
 static inline ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 {
     switch (fmt) {
-    case RGBFB_A8R8G8B8:
+    case RGBFB_B8G8R8A8:
         pen = swapl(pen);
         break;
     case RGBFB_R5G6B5PC:
