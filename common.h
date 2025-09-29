@@ -200,14 +200,24 @@ static inline WORD myabs(WORD x)
 
 typedef struct BoardInfo BoardInfo_t;
 
-static inline struct ChipData *getChipData(struct BoardInfo *bi)
+static INLINE struct ChipData *getChipData(struct BoardInfo *bi)
 {
     return (struct ChipData *)&bi->ChipData[0];
 }
 
-static inline const struct ChipData *getConstChipData(const struct BoardInfo *bi)
+static INLINE const struct ChipData *getConstChipData(const struct BoardInfo *bi)
 {
     return (const struct ChipData *)&bi->ChipData[0];
+}
+
+static INLINE struct CardData *getCardData(struct BoardInfo *bi)
+{
+    return (struct CardData *)&bi->CardData[0];
+}
+
+static INLINE const struct CardData *getConstCardData(const struct BoardInfo *bi)
+{
+    return (const struct CardData *)&bi->CardData[0];
 }
 
 static INLINE REGARGS volatile UBYTE *getLegacyBase(const struct BoardInfo *bi)

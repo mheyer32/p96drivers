@@ -45,6 +45,18 @@ typedef struct ChipData
 
 STATIC_ASSERT(sizeof(ChipData_t) < SIZEOF_MEMBER(BoardInfo_t, ChipData), check_chipdata_size);
 
+typedef struct CardData
+{
+    struct Library *PrometheusBase;
+    APTR board;
+
+    APTR ASM (*AllocCardMemDefault)(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force),
+                                    __REGD2(BOOL system), __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi),
+                                    __REGD7(RGBFTYPE));
+} CardData_t;
+
+STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);
+
 typedef struct Mach64RomHeader
 {
     UBYTE struct_size[2];           // -1, -2: Size of the structure in number of bytes
