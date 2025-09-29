@@ -220,7 +220,7 @@ void lockDLL(BoardInfo_t *bi)
     // Test mode sequence run
     W_BLKIO_L(EXT_MEM_CNTL, ext_mem_cntl | MEM_CYC_TEST(0b11) | MEM_SDRAM_RESET);
 
-    delayMilliSeconds(5);
+    delayMicroSeconds(1);
     // Take out of reset and test cycle
     W_BLKIO_L(EXT_MEM_CNTL, ext_mem_cntl);
 }
@@ -513,7 +513,16 @@ BOOL InitMach64GT(struct BoardInfo *bi)
     // Causes corruption
     // W_BLKIO_L(HW_DEBUG, AUTO_FF_DIS);
 
-    if (!probeMemorySize(bi)) {
+    int i = 0;
+    for (; i < 4; ++i) {
+        if (probeMemorySize(bi)) {
+            break;
+        }
+        DFUNC(WARN, "Failed to probe memory size, trying again...\n");
+        initClocks(bi);
+    }
+    if (i == 4) {
+        DFUNC(ERROR, "Failed to probe memory size\n");
         return FALSE;
     }
 
