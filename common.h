@@ -98,17 +98,32 @@ static inline UWORD swapw(UWORD value)
 #define STATIC_ASSERT(COND, MSG)    typedef char static_assertion_##MSG[(COND) ? 1 : -1]
 #define SIZEOF_MEMBER(type, member) (sizeof(((type *)0)->member))
 
-static inline ULONG max(ULONG x, ULONG y)
+static inline ULONG maxu(ULONG x, ULONG y)
 {
     return (x < y) ? y : x;
 }
 
-static inline ULONG min(ULONG x, ULONG y)
+static inline ULONG minu(ULONG x, ULONG y)
 {
     return (x < y) ? x : y;
 }
 
-static inline ULONG ceilDiv(ULONG x, ULONG y)
+static inline ULONG ceilDivu(ULONG x, ULONG y)
+{
+    return (x + y - 1) / y;
+}
+
+static inline int max(int x, int y)
+{
+    return (x < y) ? y : x;
+}
+
+static inline int min(int x, int y)
+{
+    return (x < y) ? x : y;
+}
+
+static inline int ceilDiv(int x, int y)
 {
     return (x + y - 1) / y;
 }

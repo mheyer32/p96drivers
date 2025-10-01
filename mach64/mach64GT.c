@@ -572,16 +572,17 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     ULONG xNumerator   = xclkFBDiv * vclkPostDiv * w;
     ULONG xDenominator = vclkFBDiv * xclkPostDiv * bpp;
 
-    float y = (float)xNumerator / (float)xDenominator;
-    D(VERBOSE, "MCLK %ld0Khz, VCLK %ld0Khz, %ld numerator %ld denominator, ratio: %f\n",
-      computeFrequencyKhz10(cd->referenceFrequency, xclkFBDiv, cd->referenceDivider, xclkPostDiv),
-      computeFrequencyKhz10(cd->referenceFrequency, vclkFBDiv, cd->referenceDivider, vclkPostDiv), xNumerator,
-      xDenominator, y);
+    //float y = (float)xNumerator / (float)xDenominator;
 
     while (!((xNumerator | xDenominator) & 1)) {
         xNumerator >>= 1;
         xDenominator >>= 1;
     }
+
+    D(VERBOSE, "MCLK %ld0Khz, VCLK %ld0Khz, %ld numerator %ld denominator, x: %ld\n",
+      computeFrequencyKhz10(cd->referenceFrequency, xclkFBDiv, cd->referenceDivider, xclkPostDiv),
+      computeFrequencyKhz10(cd->referenceFrequency, vclkFBDiv, cd->referenceDivider, vclkPostDiv), xNumerator,
+      xDenominator, xNumerator/xDenominator);
 
     // Minimum number of bits to hold integer portion of x
     int bx = numBits(xNumerator / xDenominator);
@@ -597,9 +598,9 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
 
     D(VERBOSE, "bx: %ld, b1: %ld, p: %ld, shift: %ld\n", bx, b1, p, shift);
 
-    ULONG f = min((xDenominator << (5 + p)) / xNumerator, d);
+    ULONG f = minu((xDenominator << (5 + p)) / xNumerator, d);
 
-    ULONG roff = ceilDiv((xNumerator * (f - 1)) << shift, xDenominator);
+    ULONG roff = ceilDivu((xNumerator * (f - 1)) << shift, xDenominator);
 
     // latency for 32bit SGRAM
     const ULONG l = 9;
@@ -617,7 +618,7 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     ULONG n = 2;
 
     // Maximum random access cycle blocks
-    ULONG rcc = max((mem_cntl.mem_trp + mem_cntl.mem_tras), (pfc + n));
+    ULONG rcc = maxu((mem_cntl.mem_trp + mem_cntl.mem_tras), (pfc + n));
 
     // Display FIFO ON point
     ULONG ron = (2 * rcc + pfc + n) << shift;
