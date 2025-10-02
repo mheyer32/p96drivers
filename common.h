@@ -250,17 +250,17 @@ static inline void flushWrites()
     asm volatile("nop");
 }
 
-static inline UBYTE REGARGS readReg(volatile UBYTE *regbase, LONG reg)
+static INLINE UBYTE REGARGS readReg(volatile UBYTE *regbase, LONG reg)
 {
     return regbase[reg - REGISTER_OFFSET];
 }
 
-static inline void REGARGS writeReg(volatile UBYTE *regbase, LONG reg, UBYTE value)
+static INLINE void REGARGS writeReg(volatile UBYTE *regbase, LONG reg, UBYTE value)
 {
     regbase[reg - REGISTER_OFFSET] = value;
 }
 
-static inline UWORD REGARGS readRegW(volatile UBYTE *regbase, LONG reg)
+static INLINE UWORD REGARGS readRegW(volatile UBYTE *regbase, LONG reg)
 {
     UWORD value = swapw(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
     asm volatile("" ::"r"(value));
@@ -270,19 +270,19 @@ static inline UWORD REGARGS readRegW(volatile UBYTE *regbase, LONG reg)
     return value;
 }
 
-static inline void REGARGS writeRegW(volatile UBYTE *regbase, LONG reg, UWORD value)
+static INLINE void REGARGS writeRegW(volatile UBYTE *regbase, LONG reg, UWORD value)
 {
     D(10, "W 0x%.4lx <- 0x%04lx\n", (LONG)reg, (LONG)value);
 
     *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = swapw(value);
 }
 
-static inline void REGARGS writeRegL(volatile UBYTE *regbase, LONG reg, ULONG value)
+static INLINE void REGARGS writeRegL(volatile UBYTE *regbase, LONG reg, ULONG value)
 {
     *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = swapl(value);
 }
 
-static inline ULONG REGARGS readRegLNoSwap(volatile UBYTE *regbase, LONG reg)
+static INLINE ULONG REGARGS readRegLNoSwap(volatile UBYTE *regbase, LONG reg)
 {
     ULONG value = *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET));
     asm volatile("" ::"r"(value));
@@ -290,12 +290,12 @@ static inline ULONG REGARGS readRegLNoSwap(volatile UBYTE *regbase, LONG reg)
     return value;
 }
 
-static inline void REGARGS writeRegLNoSwap(volatile UBYTE *regbase, LONG reg, ULONG value)
+static INLINE void REGARGS writeRegLNoSwap(volatile UBYTE *regbase, LONG reg, ULONG value)
 {
     *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = value;
 }
 
-static inline ULONG REGARGS readRegL(volatile UBYTE *regbase, LONG reg)
+static INLINE ULONG REGARGS readRegL(volatile UBYTE *regbase, LONG reg)
 {
     ULONG value = swapl(*(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)));
     asm volatile("" ::"r"(value));
@@ -303,7 +303,7 @@ static inline ULONG REGARGS readRegL(volatile UBYTE *regbase, LONG reg)
     return value;
 }
 
-static inline UWORD REGARGS readMMIO_W(volatile UBYTE *mmiobase, LONG regOffset)
+static INLINE UWORD REGARGS readMMIO_W(volatile UBYTE *mmiobase, LONG regOffset)
 {
     flushWrites();
     UWORD value = SWAPW(*(volatile UWORD *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)));
@@ -314,7 +314,7 @@ static inline UWORD REGARGS readMMIO_W(volatile UBYTE *mmiobase, LONG regOffset)
     return value;
 }
 
-static inline ULONG REGARGS readMMIO_L(volatile UBYTE *mmiobase, LONG regOffset)
+static INLINE ULONG REGARGS readMMIO_L(volatile UBYTE *mmiobase, LONG regOffset)
 {
     flushWrites();
     // This construct makes sure, the compiler doesn't take shortcuts
@@ -325,20 +325,20 @@ static inline ULONG REGARGS readMMIO_L(volatile UBYTE *mmiobase, LONG regOffset)
     return value;
 }
 
-static inline void REGARGS writeMMIO_W(volatile UBYTE *mmiobase, LONG regOffset, UWORD value)
+static INLINE void REGARGS writeMMIO_W(volatile UBYTE *mmiobase, LONG regOffset, UWORD value)
 {
     D(10, "W 0x%.4lx <- 0x%04lx\n", (LONG)regOffset, (LONG)value);
     *(volatile UWORD *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPW(value);
 }
 
-static inline void REGARGS writeMMIO_L(volatile UBYTE *mmiobase, LONG regOffset, ULONG value)
+static INLINE void REGARGS writeMMIO_L(volatile UBYTE *mmiobase, LONG regOffset, ULONG value)
 {
     D(10, "W 0x%.4lx <- 0x%08lx\n", (LONG)regOffset, (LONG)value);
 
     *(volatile ULONG *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPL(value);
 }
 
-static inline UBYTE REGARGS readRegister(volatile UBYTE *regbase, LONG reg)
+static INLINE UBYTE REGARGS readRegister(volatile UBYTE *regbase, LONG reg)
 {
     UBYTE value = readReg(regbase, reg);
     D(20, "R 0x%.4lx -> 0x%02lx\n", (LONG)reg, (LONG)value);
@@ -346,19 +346,19 @@ static inline UBYTE REGARGS readRegister(volatile UBYTE *regbase, LONG reg)
     return value;
 }
 
-static inline void REGARGS writeRegister(volatile UBYTE *regbase, LONG reg, UBYTE value)
+static INLINE void REGARGS writeRegister(volatile UBYTE *regbase, LONG reg, UBYTE value)
 {
     writeReg(regbase, reg, value);
 
     D(10, "W 0x%.4lx <- 0x%02lx\n", (LONG)reg, (LONG)value);
 }
 
-static inline void REGARGS writeRegisterMask(volatile UBYTE *regbase, LONG reg, UBYTE mask, UBYTE value)
+static INLINE void REGARGS writeRegisterMask(volatile UBYTE *regbase, LONG reg, UBYTE mask, UBYTE value)
 {
     writeRegister(regbase, reg, (readRegister(regbase, reg) & ~mask) | (value & mask));
 }
 
-static inline UBYTE REGARGS readCRx(volatile UBYTE *regbase, UBYTE regIndex)
+static INLINE UBYTE REGARGS readCRx(volatile UBYTE *regbase, UBYTE regIndex)
 {
     writeReg(regbase, CRTC_IDX, regIndex);
     UBYTE value = readReg(regbase, CRTC_DATA);
@@ -367,7 +367,7 @@ static inline UBYTE REGARGS readCRx(volatile UBYTE *regbase, UBYTE regIndex)
     return value;
 }
 
-static inline void REGARGS writeCRx(volatile UBYTE *regbase, UBYTE regIndex, UBYTE value)
+static INLINE void REGARGS writeCRx(volatile UBYTE *regbase, UBYTE regIndex, UBYTE value)
 {
     writeReg(regbase, CRTC_IDX, regIndex);
     writeReg(regbase, CRTC_DATA, value);
@@ -378,7 +378,7 @@ static inline void REGARGS writeCRx(volatile UBYTE *regbase, UBYTE regIndex, UBY
     D(10, "W CR%.2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
 }
 
-static inline void REGARGS writeCRxMask(volatile UBYTE *regbase, UBYTE regIndex, UBYTE mask, UBYTE value)
+static INLINE void REGARGS writeCRxMask(volatile UBYTE *regbase, UBYTE regIndex, UBYTE mask, UBYTE value)
 {
     UBYTE regvalue = (readCRx(regbase, regIndex) & ~mask) | (value & mask);
     // Keep index register from previous read
@@ -387,7 +387,7 @@ static inline void REGARGS writeCRxMask(volatile UBYTE *regbase, UBYTE regIndex,
     D(10, "W CR%.2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)regvalue);
 }
 
-static inline UBYTE REGARGS readSRx(volatile UBYTE *regbase, UBYTE regIndex)
+static INLINE UBYTE REGARGS readSRx(volatile UBYTE *regbase, UBYTE regIndex)
 {
     writeReg(regbase, SEQX, regIndex);
     UBYTE value = readReg(regbase, SEQ_DATA);
@@ -397,7 +397,7 @@ static inline UBYTE REGARGS readSRx(volatile UBYTE *regbase, UBYTE regIndex)
     return value;
 }
 
-static inline void REGARGS writeSRx(volatile UBYTE *regbase, UBYTE regIndex, UBYTE value)
+static INLINE void REGARGS writeSRx(volatile UBYTE *regbase, UBYTE regIndex, UBYTE value)
 {
     writeReg(regbase, SEQX, regIndex);
     writeReg(regbase, SEQ_DATA, value);
@@ -405,7 +405,7 @@ static inline void REGARGS writeSRx(volatile UBYTE *regbase, UBYTE regIndex, UBY
     D(10, "W SR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
 }
 
-static inline void REGARGS writeSRxMask(volatile UBYTE *regbase, UBYTE regIndex, UBYTE mask, UBYTE value)
+static INLINE void REGARGS writeSRxMask(volatile UBYTE *regbase, UBYTE regIndex, UBYTE mask, UBYTE value)
 {
     writeReg(regbase, SEQX, regIndex);
     UBYTE regvalue = (readReg(regbase, SEQ_DATA) & ~mask) | (value & mask);
@@ -416,7 +416,7 @@ static inline void REGARGS writeSRxMask(volatile UBYTE *regbase, UBYTE regIndex,
     //           (readSRx(regbase, regIndex) & ~mask) | (value & mask));
 }
 
-static inline UBYTE REGARGS readGRx(volatile UBYTE *regbase, UBYTE regIndex)
+static INLINE UBYTE REGARGS readGRx(volatile UBYTE *regbase, UBYTE regIndex)
 {
     writeReg(regbase, GRC_ADR, regIndex);
     UBYTE value = readReg(regbase, GRC_DATA);
@@ -425,7 +425,7 @@ static inline UBYTE REGARGS readGRx(volatile UBYTE *regbase, UBYTE regIndex)
     return value;
 }
 
-static inline void REGARGS writeGRx(volatile UBYTE *regbase, UBYTE regIndex, UBYTE value)
+static INLINE void REGARGS writeGRx(volatile UBYTE *regbase, UBYTE regIndex, UBYTE value)
 {
     writeReg(regbase, GRC_ADR, regIndex);
     writeReg(regbase, GRC_DATA, value);
@@ -433,7 +433,7 @@ static inline void REGARGS writeGRx(volatile UBYTE *regbase, UBYTE regIndex, UBY
     D(10, "W GR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
 }
 
-static inline UBYTE REGARGS readARx(volatile UBYTE *regbase, UBYTE regIndex)
+static INLINE UBYTE REGARGS readARx(volatile UBYTE *regbase, UBYTE regIndex)
 {
     writeReg(regbase, ATR_AD, regIndex);
     UBYTE value = readReg(regbase, ATR_DATA_R);
@@ -442,7 +442,7 @@ static inline UBYTE REGARGS readARx(volatile UBYTE *regbase, UBYTE regIndex)
     return value;
 }
 
-static inline void REGARGS writeARx(volatile UBYTE *regbase, UBYTE regIndex, UBYTE value)
+static INLINE void REGARGS writeARx(volatile UBYTE *regbase, UBYTE regIndex, UBYTE value)
 {
     // This disables the "Enable video display" bit, but only when it is disabled,
     // the Attribute Controller registers may be accessed
@@ -452,7 +452,7 @@ static inline void REGARGS writeARx(volatile UBYTE *regbase, UBYTE regIndex, UBY
     D(10, "W AR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
 }
 
-static inline void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UBYTE value)
+static INLINE void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UBYTE value)
 {
     UBYTE misc = (readRegister(regbase, 0x3CC) & ~mask) | (value & mask);
     writeRegister(regbase, 0x3C2, misc);
@@ -541,7 +541,7 @@ static inline void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
         _W_CR_OF(val_W_CR_OVERFLOW3, extOverflowReg2, bitPos4, numBits4);                                      \
     } while (0);
 
-static inline int makeDWORD(short hi, short lo)
+static INLINE int makeDWORD(short hi, short lo)
 {
     int res;
     __asm __volatile(

@@ -196,7 +196,7 @@ extern ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLV
 
 extern void ResetEngine(const BoardInfo_t *bi);
 
-static inline void waitFifo(const BoardInfo_t *bi, UBYTE entries)
+static INLINE void waitFifo(const BoardInfo_t *bi, UBYTE entries)
 {
     MMIOBASE();
 
@@ -209,13 +209,13 @@ static inline void waitFifo(const BoardInfo_t *bi, UBYTE entries)
         ;
 }
 
-static inline UBYTE getAsicVersion(const BoardInfo_t *bi)
+static INLINE UBYTE getAsicVersion(const BoardInfo_t *bi)
 {
     REGBASE();
     return (R_BLKIO_B(CONFIG_CHIP_ID, 3) & 0x7);
 }
 
-static inline BOOL isAsiclessThanV4(const BoardInfo_t *bi)
+static INLINE BOOL isAsiclessThanV4(const BoardInfo_t *bi)
 {
     return getAsicVersion(bi) < 4;
 }

@@ -29,7 +29,7 @@ typedef struct ChipData
 
 #define W_BEE8(idx, value) W_MMIO_W(0xBEE8, ((idx << 12) | value))
 
-static inline UWORD readBEE8(volatile UBYTE *RegBase, UBYTE idx)
+static INLINE UWORD readBEE8(volatile UBYTE *RegBase, UBYTE idx)
 {
   // BEWARE: the read index bit value does not fully match 'idx'
   // We do not cover 9AE8, 42E8, 476E8 here (which can be read, too through this

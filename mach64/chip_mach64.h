@@ -235,7 +235,7 @@ typedef struct MaxColorDepthTableEntry
 #define AUTO_FF_DIS      BIT(12)
 #define AUTO_FF_DIS_MASK BIT(12)
 
-static inline UBYTE REGARGS readATIRegisterB(volatile UBYTE *regbase, LONG regIndex, WORD byteIndex,
+static INLINE UBYTE REGARGS readATIRegisterB(volatile UBYTE *regbase, LONG regIndex, WORD byteIndex,
                                              const char *regName)
 {
     UBYTE value = readReg(regbase, DWORD_OFFSET(regIndex) + byteIndex);
@@ -244,7 +244,7 @@ static inline UBYTE REGARGS readATIRegisterB(volatile UBYTE *regbase, LONG regIn
     return value;
 }
 
-static inline ULONG REGARGS readATIRegisterL(volatile UBYTE *regbase, LONG regIndex, const char *regName)
+static INLINE ULONG REGARGS readATIRegisterL(volatile UBYTE *regbase, LONG regIndex, const char *regName)
 {
     ULONG value = readRegL(regbase, DWORD_OFFSET(regIndex));
     D(VERBOSE, "R %s -> 0x%08lx\n", regName, (LONG)value);
@@ -252,13 +252,13 @@ static inline ULONG REGARGS readATIRegisterL(volatile UBYTE *regbase, LONG regIn
     return value;
 }
 
-static inline ULONG REGARGS readATIMMIOL(volatile UBYTE *regbase, LONG regIndex, const char *regName)
+static INLINE ULONG REGARGS readATIMMIOL(volatile UBYTE *regbase, LONG regIndex, const char *regName)
 {
     flushWrites();
     return readATIRegisterL(regbase, regIndex, regName);
 }
 
-static inline ULONG REGARGS readATIRegisterAndMaskL(volatile UBYTE *regbase, LONG regIndex, ULONG mask,
+static INLINE ULONG REGARGS readATIRegisterAndMaskL(volatile UBYTE *regbase, LONG regIndex, ULONG mask,
                                                     const char *regName)
 {
     ULONG value       = readRegL(regbase, DWORD_OFFSET(regIndex));
@@ -268,7 +268,7 @@ static inline ULONG REGARGS readATIRegisterAndMaskL(volatile UBYTE *regbase, LON
     return valueMasked;
 }
 
-static inline void REGARGS writeATIRegisterMaskB(volatile UBYTE *regbase, LONG regIndex, BYTE byteIndex, UBYTE mask,
+static INLINE void REGARGS writeATIRegisterMaskB(volatile UBYTE *regbase, LONG regIndex, BYTE byteIndex, UBYTE mask,
                                                  UBYTE value, const char *regName)
 {
     UBYTE regValue = readReg(regbase, DWORD_OFFSET(regIndex) + byteIndex);
@@ -278,20 +278,20 @@ static inline void REGARGS writeATIRegisterMaskB(volatile UBYTE *regbase, LONG r
     writeReg(regbase, DWORD_OFFSET(regIndex) + byteIndex, regValue);
 }
 
-static inline void REGARGS writeATIRegisterB(volatile UBYTE *regbase, LONG regIndex, BYTE byteIndex, UBYTE value,
+static INLINE void REGARGS writeATIRegisterB(volatile UBYTE *regbase, LONG regIndex, BYTE byteIndex, UBYTE value,
                                              const char *regName)
 {
     D(VERBOSE, "W %s_%ld <- 0x%02lx\n", regName, (LONG)byteIndex, (LONG)value);
     writeReg(regbase, DWORD_OFFSET(regIndex) + byteIndex, value);
 }
 
-static inline void REGARGS writeATIRegisterL(volatile UBYTE *regbase, LONG regIndex, ULONG value, const char *regName)
+static INLINE void REGARGS writeATIRegisterL(volatile UBYTE *regbase, LONG regIndex, ULONG value, const char *regName)
 {
     D(VERBOSE, "W %s <- 0x%08lx\n", regName, value);
     writeRegL(regbase, DWORD_OFFSET(regIndex), value);
 }
 
-static inline void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, LONG regIndex, ULONG mask, ULONG value,
+static INLINE void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, LONG regIndex, ULONG mask, ULONG value,
                                                  const char *regName)
 {
     ULONG regValue = readRegLNoSwap(regbase, DWORD_OFFSET(regIndex));
@@ -305,7 +305,7 @@ static inline void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, LONG r
     writeRegLNoSwap(regbase, DWORD_OFFSET(regIndex), regValue);
 }
 
-static inline void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, LONG regIndex, ULONG value,
+static INLINE void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, LONG regIndex, ULONG value,
                                                    const char *regName)
 {
     D(VERBOSE, "W %s <- 0x%08lx\n", regName, swapl(value));

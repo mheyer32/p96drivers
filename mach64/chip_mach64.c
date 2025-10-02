@@ -472,7 +472,7 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
     return;
 }
 
-static inline REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags)
+static INLINE REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags)
 {
     if (modeFlags & GMF_DOUBLESCAN)
         y *= 2;
@@ -481,7 +481,7 @@ static inline REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags)
     return y;
 }
 
-static inline REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
+static INLINE REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
 {
     if (!border || x == 0)
         x = defaultX;
@@ -859,7 +859,7 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 }
 
 // FIXME: split out into family-specific functions
-static inline void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
+static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
     REGBASE();
     DFUNC(VERBOSE, "format %ld\n", (ULONG)format);
@@ -1089,7 +1089,7 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
     return TRUE;
 }
 
-static inline void waitIdle(const BoardInfo_t *bi)
+static INLINE void waitIdle(const BoardInfo_t *bi)
 {
     MMIOBASE();
     waitFifo(bi, 16);
@@ -1097,6 +1097,7 @@ static inline void waitIdle(const BoardInfo_t *bi)
     ULONG cnt = 0;
 
     while (R_MMIO_L(GUI_STAT) & 1) {
+#ifdef DBG
         if (cnt++ > 100) {
             REGBASE();
             ULONG busCntl = R_BLKIO_L(BUS_CNTL);
@@ -1105,10 +1106,11 @@ static inline void waitIdle(const BoardInfo_t *bi)
             }
             break;
         }
+#endif
     }
 }
 
-static inline void REGARGS setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fmt, BYTE waitFifoSlots)
+static INLINE void REGARGS setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fmt, BYTE waitFifoSlots)
 {
     MMIOBASE();
     ChipData_t *cd = getChipData(bi);
@@ -1134,7 +1136,7 @@ static inline void REGARGS setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fm
     }
 }
 
-static inline LONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
+static INLINE LONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
 {
     ULONG offset = (ULONG)memory - (ULONG)bi->MemoryBase;
     return offset;
@@ -1165,7 +1167,7 @@ BOOL static isVideoMemory(struct BoardInfo *bi, APTR memory)
 // #define HOST_BYTE_ALIGN      BIT(0)
 // #define HOST_BYTE_ALIGN_MASK BIT(0)
 
-static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *ri, RGBFTYPE format)
+static INLINE BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *ri, RGBFTYPE format)
 {
     ChipData_t *cd = getChipData(bi);
 
@@ -1206,7 +1208,7 @@ static inline BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *r
 #define SRC_PITCH(x)    ((x) << 22)
 #define SRC_PITCH_MASK  (0x3FF << 22)
 
-static inline BOOL setSrcBuffer(struct BoardInfo *bi, const struct RenderInfo *ri, RGBFTYPE format)
+static INLINE BOOL setSrcBuffer(struct BoardInfo *bi, const struct RenderInfo *ri, RGBFTYPE format)
 {
     ChipData_t *cd = getChipData(bi);
 
@@ -1237,7 +1239,7 @@ static inline BOOL setSrcBuffer(struct BoardInfo *bi, const struct RenderInfo *r
     return TRUE;
 }
 
-static inline ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
+static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 {
     switch (fmt) {
     case RGBFB_B8G8R8A8:
@@ -1590,7 +1592,7 @@ static void REGARGS setDrawModeInternal(BoardInfo_t *bi, UBYTE drawMode, ULONG f
     W_MMIO_L(DP_SRC, DP_FRGD_SRC(fSrc) | DP_BKGD_SRC(bSrc) | DP_MONO_SRC(monoSource));
 }
 
-static inline void REGARGS setDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format,
+static INLINE void REGARGS setDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format,
                                        BYTE monoSource)
 {
     ChipData_t *cd = getChipData(bi);
@@ -2027,7 +2029,7 @@ void ASM BlitPlanar2Direct(__REGA0(struct BoardInfo *bi), __REGA1(struct BitMap 
 {
 }
 
-static inline void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
+static INLINE void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
     D(CHATTY, "Waiting for blitter...");
 

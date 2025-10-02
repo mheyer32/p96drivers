@@ -416,7 +416,7 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
     return;
 }
 
-static inline REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags)
+static INLINE REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags)
 {
     if (modeFlags & GMF_DOUBLESCAN)
         y *= 2;
@@ -425,7 +425,7 @@ static inline REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags)
     return y;
 }
 
-static inline REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
+static INLINE REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
 {
     if (!border || x == 0)
         x = defaultX;
@@ -1082,7 +1082,7 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 #endif
 }
 
-static inline void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
+static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
 #if !BUILD_VISION864
     REGBASE();
@@ -1400,7 +1400,7 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
     return TRUE;
 }
 
-static inline void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
+static INLINE void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
 {
     if (!numSlots) {
         return;
@@ -1437,7 +1437,7 @@ static inline void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
 }
 
 #define MByte(x) ((x) * (1024 * 1024))
-static inline void REGARGS getGESegmentAndOffset(ULONG memOffset, WORD bytesPerRow, UBYTE bpp, UWORD *segment,
+static INLINE void REGARGS getGESegmentAndOffset(ULONG memOffset, WORD bytesPerRow, UBYTE bpp, UWORD *segment,
                                                  UWORD *xoffset, UWORD *yoffset)
 {
     *segment = (memOffset >> 20) & 7;
@@ -1454,7 +1454,7 @@ static inline void REGARGS getGESegmentAndOffset(ULONG memOffset, WORD bytesPerR
 #endif
 }
 
-static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
+static INLINE BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
 {
     REGBASE();
 
@@ -1500,13 +1500,13 @@ static inline BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
     return TRUE;
 }
 
-static inline ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
+static INLINE ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
 {
     ULONG offset = (ULONG)memory - (ULONG)bi->MemoryBase;
     return offset;
 }
 
-static inline ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
+static INLINE ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
 {
     switch (fmt) {
     case RGBFB_B8G8R8A8:
@@ -1530,7 +1530,7 @@ static inline ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
     return pen;
 }
 
-static inline void REGARGS DrawModeToMixMode(UBYTE drawMode, UWORD *frgdMix, UWORD *bkgdMix)
+static INLINE void REGARGS DrawModeToMixMode(UBYTE drawMode, UWORD *frgdMix, UWORD *bkgdMix)
 {
     UWORD writeMode = (drawMode & COMPLEMENT) ? MIX_NOT_CURRENT : MIX_NEW;
     UWORD f, g;
@@ -1556,7 +1556,7 @@ static inline void REGARGS DrawModeToMixMode(UBYTE drawMode, UWORD *frgdMix, UWO
     *bkgdMix = g;
 }
 
-static inline void REGARGS setMix(struct BoardInfo *bi, UWORD frgdMix, UWORD bkgdMix)
+static INLINE void REGARGS setMix(struct BoardInfo *bi, UWORD frgdMix, UWORD bkgdMix)
 {
     MMIOBASE();
 #if HAS_PACKED_MMIO
@@ -1567,7 +1567,7 @@ static inline void REGARGS setMix(struct BoardInfo *bi, UWORD frgdMix, UWORD bkg
 #endif
 }
 
-static inline void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format)
+static INLINE void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format)
 {
     ChipData_t *cd = getChipData(bi);
 
@@ -1592,7 +1592,7 @@ static inline void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG 
     }
 }
 
-static inline void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask, RGBFTYPE fmt, BYTE waitFifoSlots)
+static INLINE void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask, RGBFTYPE fmt, BYTE waitFifoSlots)
 {
     REGBASE();
     ChipData_t *cd = getChipData(bi);
@@ -1618,7 +1618,7 @@ static inline void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask, RGBF
     }
 }
 
-static inline void REGARGS setBlitSrcPosAndSize(struct BoardInfo *bi, UWORD x, UWORD y, UWORD w, UWORD h)
+static INLINE void REGARGS setBlitSrcPosAndSize(struct BoardInfo *bi, UWORD x, UWORD y, UWORD w, UWORD h)
 {
     MMIOBASE();
 #if HAS_PACKED_MMIO
@@ -1632,7 +1632,7 @@ static inline void REGARGS setBlitSrcPosAndSize(struct BoardInfo *bi, UWORD x, U
 #endif
 }
 
-static inline void REGARGS setBlitDestPos(struct BoardInfo *bi, UWORD dstX, UWORD dstY)
+static INLINE void REGARGS setBlitDestPos(struct BoardInfo *bi, UWORD dstX, UWORD dstY)
 {
     MMIOBASE();
 #if HAS_PACKED_MMIO
@@ -3000,6 +3000,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     // Two sprite images, each 64x64*2 bits
     const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
+
+    setCacheMode(bi, bi->MemoryBase, bi->MemorySize, MAPP_NONSERIALIZED|MAPP_IMPRECISE, CACHEFLAGS);
 
     // take sprite image data off the top of the memory
     // sprites can be placed at segment boundaries of 1kb
