@@ -77,6 +77,11 @@
 #define DP_SET_GUI_ENGINE2 0xBE
 #define DP_SET_GUI_ENGINE  0xBF
 
+// GUI_CNTL
+#define GUI_CNTL BLOCK1(0x5E)
+#define CMDFIFO_SIZE_MODE_MASK (0x3)
+#define CMDFIFO_SIZE_MODE(x)   ((x) & 0x3)
+
 extern const UBYTE g_VPLLPostDivider[];
 extern const UBYTE g_VPLLPostDividerCodes[];
 

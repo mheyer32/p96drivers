@@ -486,23 +486,34 @@ BOOL InitMach64GT(struct BoardInfo *bi)
     REGBASE();
     MMIOBASE();
 
-    initClocks(bi);
-
     WriteDefaultRegList(bi, defaultRegs_GT, ARRAY_SIZE(defaultRegs_GT));
 
-    W_BLKIO_MASK_L(BUS_CNTL, BUS_DBL_RESYNC_MASK |  BUS_MASTER_DIS_MASK | BUS_APER_REG_DIS_MASK,
-                   BUS_DBL_RESYNC | BUS_MASTER_DIS | BUS_APER_REG_DIS);
+    W_BLKIO_MASK_L(BUS_CNTL, BUS_MASTER_DIS_MASK | BUS_APER_REG_DIS_MASK,
+                   BUS_MASTER_DIS | BUS_APER_REG_DIS);
 
     // Set to SGRAM
     W_BLKIO_MASK_L(CONFIG_STAT0, CFG_MEM_TYPE_MASK | CFG_CLOCK_EN_MASK,
                    CFG_MEM_TYPE(CFG_MEM_TYPE_SGRAM) | CFG_CLOCK_EN);
 
-    W_BLKIO_MASK_L(EXT_MEM_CNTL, MEM_TILE_SELECT_MASK | MEM_ALL_PAGE_DIS_MASK, MEM_TILE_SELECT(0) | MEM_ALL_PAGE_DIS);
+    // Changes in settings to this register will not take affect until MEM_SDRAM_RESET is pulsed (from 0 –>1).
+    // initClocks() will do that
+    W_BLKIO_MASK_L(EXT_MEM_CNTL, MEM_TILE_SELECT_MASK | MEM_ALL_PAGE_DIS_MASK | MEM_SDRAM_RESET_MASK, MEM_TILE_SELECT(0b1000) | MEM_ALL_PAGE_DIS);
 
-    waitFifo(bi, 16);
+    // Enable Auto-FastFill. ( block writes seem to cause corruption)
+    W_BLKIO_MASK_L(HW_DEBUG, AUTO_FF_DIS_MASK /*| AUTO_BLKWRT_DIS_MASK*/, 0);
+
+    // GUI clock activity controlled
+    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_CLOCK_EN_MASK, CFG_CLOCK_EN);
+
+    // FIFO must be empty before changing its size. Assuming we only used BLKIO above, there should not have been
+    // any FIFO writes yet
+    W_MMIO_MASK_L(GUI_CNTL, CMDFIFO_SIZE_MODE_MASK, CMDFIFO_SIZE_MODE(0b00)); // 196 entries
+
+    waitFifo(bi, 4);
 
     W_MMIO_L(DP_SET_GUI_ENGINE, 0);
-    // /* On GTC (RagePro), we need to reset the 3D engine before */
+
+    /* On GTC (RagePro), we need to reset the 3D engine before */
     // W_MMIO_L(SCALE_3D_CNTL, 0xc0);
     // delayMilliSeconds(3);
     // W_MMIO_L(SETUP_CNTL, 0x00);
@@ -510,11 +521,9 @@ BOOL InitMach64GT(struct BoardInfo *bi)
     // W_MMIO_L(SCALE_3D_CNTL, 0x00);
     // delayMilliSeconds(3);
 
-    // Causes corruption
-    // W_BLKIO_L(HW_DEBUG, AUTO_FF_DIS);
-
     int i = 0;
     for (; i < 4; ++i) {
+        initClocks(bi);
         if (probeMemorySize(bi)) {
             break;
         }
@@ -530,15 +539,14 @@ BOOL InitMach64GT(struct BoardInfo *bi)
 
     InitVClockPLLTable(bi, g_VPLLPostDivider, ARRAY_SIZE(g_VPLLPostDivider));
 
+#if DBG
     ULONG x             = R_BLKIO_L(MEM_CNTL);
     MEM_CNTL_t mem_cntl = *(MEM_CNTL_t *)&x;
     print_MEM_CNTL(mem_cntl);
     x                           = R_BLKIO_L(EXT_MEM_CNTL);
     EXT_MEM_CNTL_t ext_mem_cntl = *(EXT_MEM_CNTL_t *)&x;
     print_EXT_MEM_CNTL(ext_mem_cntl);
-
-    // GUI clock activity controlled
-    // W_BLKIO_MASK_L(CONFIG_STAT0, CFG_CLOCK_EN_MASK, CFG_CLOCK_EN);
+#endif
 
     return TRUE;
 }
