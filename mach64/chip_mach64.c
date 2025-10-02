@@ -623,23 +623,27 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     }
     W_BLKIO_L(CRTC_GEN_CNTL, crtcGenCntl);
 
-    ULONG dpChainMask = 0x8080;
+    // FIXME: doesn't seem to exist on RagePro/LT?!
+    if (getChipData(bi)->chipFamily < MACH64GT) {
+        ULONG dpChainMask = 0x8080;
 
-    // FIXME: replace with fixed table?
-    switch (mi->Depth) {
-    case 15:
-        dpChainMask = 0x4210;
-        break;
-    case 16:
-        dpChainMask = 0x8410;
-        break;
-    default:
-        // fallthrough
-        break;
+        // FIXME: replace with fixed table?
+        switch (mi->Depth) {
+        case 15:
+            dpChainMask = 0x4210;
+            break;
+        case 16:
+            dpChainMask = 0x8410;
+            break;
+        default:
+            // fallthrough
+            break;
+        }
+
+        waitFifo(bi, 1);
+        MMIOBASE();
+        W_MMIO_L(DP_CHAIN_MSK, dpChainMask);
     }
-
-    //FIXME: doesn't seem to exist on RagePro/LT?!
-    // W_BLKIO_L(DP_CHAIN_MSK, dpChainMask);
 }
 
 static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width),
