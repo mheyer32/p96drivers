@@ -149,6 +149,8 @@ typedef struct MaxColorDepthTableEntry
 #define CONFIG_CHIP_ID  (0x38)
 #define CONFIG_STAT0    (0x39)
 #define CLOCK_CNTL      (0x24)
+#define CLOCK_CNTL_ADDR (1)
+#define CLOCK_CNTL_DATA (2)
 #define DAC_REGS        (0x30)
 #define DAC_CNTL        (0x31)
 #define MEM_ADDR_CONFIG (0x0D)
