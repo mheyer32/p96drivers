@@ -380,17 +380,20 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
         }
     }
 
-    // memset not available
-    // memset(bi->PixelClockCount, 0, sizeof(bi->PixelClockCount));
+    ULONG maxHiColorFreq = cd->chipFamily <= MACH64VT ? 8000 : cd->maxPClock;
+
+    for (int i = 0; i < 5; i++) {
+        bi->PixelClockCount[i] = 0;
+    }
 
     // FIXME: Account for OVERCLOCK
     for (UWORD i = 0; i < e; ++i) {
         ULONG frequency = computeFrequencyKhz10FromPllValue(bi, &pllValues[i], multipliers);
         D(CHATTY, "Pixelclock %03ld %09ldHz: \n", i, frequency * 10000);
-        if (frequency <= 13500) {  // FIXME: limits are chip dependent
-            bi->PixelClockCount[CHUNKY]++;
-        }
-        if (frequency <= 8000) {
+
+        bi->PixelClockCount[CHUNKY]++;
+
+        if (frequency <= maxHiColorFreq) {
             bi->PixelClockCount[HICOLOR]++;
             bi->PixelClockCount[TRUECOLOR]++;
             bi->PixelClockCount[TRUEALPHA]++;
@@ -845,10 +848,9 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
     WRITE_PLL_MASK(PLL_VCLK_POST_DIV, VCLK0_POST_MASK, VCLK0_POST(postDivCode));
 
     if (getChipData(bi)->chipFamily >= MACH64GT) {
-        WRITE_PLL_MASK(PLL_EXT_CNTL, ALT_VCLK0_POST_MASK,
-                       (postDivCode & 0x4) ? ALT_VCLK0_POST : 0);
+        WRITE_PLL_MASK(PLL_EXT_CNTL, ALT_VCLK0_POST_MASK, (postDivCode & 0x4) ? ALT_VCLK0_POST : 0);
 
-       AdjustDSP(bi,mi->pll1.Numerator,g_VPLLPostDivider[mi->pll2.Denominator]);
+        AdjustDSP(bi, mi->pll1.Numerator, g_VPLLPostDivider[mi->pll2.Denominator]);
     }
 
     WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, 0);
@@ -858,8 +860,7 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
     delayMilliSeconds(5);
 
     // Select VLK0 as VCLK source
-    W_BLKIO_MASK_L(CLOCK_CNTL, CLOCK_SEL_MASK, CLOCK_SEL(0));
-
+    W_BLKIO_MASK_L(CLOCK_CNTL, CLOCK_SEL_MASK | PLL_WR_ENABLE, CLOCK_SEL(0));
 }
 
 // FIXME: split out into family-specific functions
