@@ -16,12 +16,12 @@ typedef enum ChipFamily
 
 typedef struct ChipData
 {
-    UWORD MemFormat;  // programmed memory layout/format
-    UWORD GEOp;       // programmed graphics engine setup
     ULONG GEfgPen;
     ULONG GEbgPen;
     UBYTE GEmask;  // programmed mask
     UBYTE GEdrawMode;
+    UBYTE GEOp;       // programmed graphics engine setup
+    UBYTE MemFormat;  // programmed memory layout/format (FIXME: could be byte sized)
 
     struct RenderInfo dstBuffer;
     // struct RenderInfo srcBuffer;
