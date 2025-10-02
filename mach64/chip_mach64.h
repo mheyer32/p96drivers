@@ -208,7 +208,13 @@ typedef struct MaxColorDepthTableEntry
 
 #define PAT_REG0 0xA0
 #define PAT_REG1 0xA1
-#define PAT_CNTL 0xA2
+
+// PAT_CNTL
+#define PAT_CNTL       0xA2
+// These values clash with the same in GUI_TRAJ_CNTL
+// #define PAT_MONO_EN    0x01
+// #define PAT_CLR_4x2_EN 0x02
+// #define PAT_CLR_8x1_EN 0x04
 
 // #define SC_LEFT       0xA8
 // #define SC_RIGHT      0xA9
@@ -231,6 +237,8 @@ typedef struct MaxColorDepthTableEntry
 
 #define CONTEXT_MASK      0xC8
 #define CONTEXT_LOAD_CNTL 0xCB
+
+//
 #define GUI_TRAJ_CNTL     0xCC
 
 #define HW_DEBUG             0x1F

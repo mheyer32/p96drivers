@@ -1855,29 +1855,6 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 
     ChipData_t *cd = getChipData(bi);
 
-    UWORD patternHeight        = 1 << pattern->Size;
-    const UWORD *sysMemPattern = (const UWORD *)pattern->Memory;
-    UWORD *cachedPattern       = cd->patternCacheBuffer;
-    ULONG *videoMemPattern     = cd->patternVideoBuffer;
-
-    // Try to avoid wait-for-idle by first checking if the pattern changed.
-    // I'm not expecting huge patterns, so this will hopefully be fast
-    BOOL patternChanged = FALSE;
-    for (UWORD i = 0; i < patternHeight; ++i) {
-        if (sysMemPattern[i] != cachedPattern[i]) {
-            cachedPattern[i] = sysMemPattern[i];
-            patternChanged   = TRUE;
-        }
-    }
-    if (patternChanged) {
-        waitIdle(bi);
-
-        for (UWORD i = 0; i < patternHeight; ++i) {
-            // The video pattern has an 8-byte pitch. 64pixels (bits) is the minimum pitch for monochrome src blit
-            // data.
-            videoMemPattern[i * 2] = cachedPattern[i] << 16;
-        }
-    }
 
     if (cd->GEOp != BLITPATTERN) {
         cd->GEOp              = BLITPATTERN;
@@ -1892,13 +1869,91 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 
         W_MMIO_L(GUI_TRAJ_CNTL, trajectory);
 
-        // Offset is in units of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'.
+                // Offset is in units of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'.
         W_MMIO_L(SRC_OFF_PITCH, SRC_OFFSET(getMemoryOffset(bi, cd->patternVideoBuffer) / 8) | SRC_PITCH(8));
         W_MMIO_MASK_L(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH_MASK, DP_SRC_PIX_WIDTH(COLOR_DEPTH_1));
     }
 
+    UWORD patternHeight        = 1 << pattern->Size;
+    const UWORD *sysMemPattern = (const UWORD *)pattern->Memory;
+    UWORD *cachedPattern       = cd->patternCacheBuffer;
+    ULONG *videoMemPattern     = cd->patternVideoBuffer;
+
+    // Try to avoid wait-for-idle by first checking if the pattern changed.
+    // I'm not expecting huge patterns, so this will hopefully be fast
+    BOOL patternChanged = FALSE;
+    BOOL pattern8x8     = (patternHeight <= 8);
+    for (UWORD i = 0; i < patternHeight; ++i) {
+        if (sysMemPattern[i] != cachedPattern[i]) {
+            cachedPattern[i] = sysMemPattern[i];
+            patternChanged   = TRUE;
+        }
+        if ((sysMemPattern[i] >> 8) != (sysMemPattern[i] & 0xFF)) {
+            pattern8x8 = FALSE;
+        }
+    }
+
+    MMIOBASE();
+
+    waitFifo(bi, 3);
+
+    if (pattern8x8) {
+        if (patternChanged)
+        {
+            // replicate the 8xN pattern to 8x8
+            ULONG pat0;
+            ULONG pat1;
+            switch (pattern->Size) {
+            case 0:
+                pat0 = cachedPattern[0] | (cachedPattern[0] << 16);
+                pat1 = pat0;
+                break;
+            case 1:
+                pat0 = (cachedPattern[0] & 0xFF) | ((cachedPattern[1] & 0xFF) << 8);
+                pat0 |= (pat0 << 16);
+                pat1 = pat0;
+                break;
+            case 2:
+                pat0 = (cachedPattern[0] & 0xFF) | ((cachedPattern[1] & 0xFF) << 8) | ((cachedPattern[2] & 0xFF) << 16) |
+                       ((cachedPattern[3] & 0xFF00) << 16);
+                pat1 = pat0;
+                break;
+            case 3:
+                pat0 = (cachedPattern[0] & 0xFF) | ((cachedPattern[1] & 0xFF) << 8) | ((cachedPattern[2] & 0xFF) << 16) |
+                       ((cachedPattern[3] & 0xFF00) << 16);
+                pat1 = (cachedPattern[4] & 0xFF) | ((cachedPattern[5] & 0xFF) << 8) | ((cachedPattern[6] & 0xFF) << 16) |
+                       ((cachedPattern[7] & 0xFF00) << 16);
+                break;
+            default:
+                // fallthrough
+                break;
+            }
+            W_MMIO_NOSWAP_L(PAT_REG0, pat0);
+            W_MMIO_NOSWAP_L(PAT_REG1, pat1);
+        }
+
+        ULONG trajectory = DST_X_DIR | DST_Y_DIR | PAT_MONO_EN;
+        W_MMIO_L(GUI_TRAJ_CNTL, trajectory);
+        setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt, MONO_SRC_PATTERN);
+
+    } else {
+        ULONG trajectory = DST_X_DIR | DST_Y_DIR | SRC_PATT_EN | SRC_PATT_ROT_EN;
+
+        W_MMIO_L(GUI_TRAJ_CNTL, trajectory);
+
+        setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt, MONO_SRC_BLIT_SRC);
+    }
+
+    if (patternChanged) {
+        waitIdle(bi);
+
+        for (UWORD i = 0; i < patternHeight; ++i) {
+            // The video pattern has an 8-byte pitch. 64pixels (bits) is the minimum pitch for monochrome src blit
+            // data.
+            videoMemPattern[i * 2] = cachedPattern[i] << 16;
+        }
+    }
     setDstBuffer(bi, ri, fmt);
-    setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt, MONO_SRC_BLIT_SRC);
     setWriteMask(bi, mask, fmt, 0);
 
     UBYTE xOff = pattern->XOffset & 15;
@@ -1907,8 +1962,6 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     ULONG pattCache = (yOff << 16) | (xOff << 8) | pattern->Size;
     if (pattCache != cd->patternSetupCache) {
         cd->patternSetupCache = pattCache;
-
-        MMIOBASE();
 
         waitFifo(bi, 5);
 
