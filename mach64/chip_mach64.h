@@ -163,14 +163,14 @@ typedef struct MaxColorDepthTableEntry
 #define CRTC_OFF_PITCH        0x05
 #define CRTC_INT_CNTL         0x06
 
-#define OVR_CLR               0x10
-#define OVR_WID_LEFT_RIGHT    0x11
-#define OVR_WID_TOP_BOTTOM    0x12
-#define CUR_CLR0              0x18
-#define CUR_CLR1              0x19
-#define CUR_OFFSET            0x1A
-#define CUR_HORZ_VERT_POSN    0x1B
-#define CUR_HORZ_VERT_OFF     0x1C
+#define OVR_CLR            0x10
+#define OVR_WID_LEFT_RIGHT 0x11
+#define OVR_WID_TOP_BOTTOM 0x12
+#define CUR_CLR0           0x18
+#define CUR_CLR1           0x19
+#define CUR_OFFSET         0x1A
+#define CUR_HORZ_VERT_POSN 0x1B
+#define CUR_HORZ_VERT_OFF  0x1C
 
 #define FIFO_STAT  0xC4
 #define GUI_STAT   0xCE
@@ -229,7 +229,7 @@ typedef struct MaxColorDepthTableEntry
 #define CLR_CMP_MSK  0xC1
 #define CLR_CMP_CNTL 0xC2
 
-#define CONTEXT_MASK       0xC8
+#define CONTEXT_MASK      0xC8
 #define CONTEXT_LOAD_CNTL 0xCB
 #define GUI_TRAJ_CNTL     0xCC
 

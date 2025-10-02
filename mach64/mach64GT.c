@@ -645,9 +645,6 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     D(VERBOSE, "dspOn: %ld, dspOff: %ld, dspPrecision: %ld, dspXclksPerQword: %ld, dspLoopLatency: %ld\n", (ULONG)dspOn,
       (ULONG)dspOff, (ULONG)dspPrecision, (ULONG)dspXclksPerQword, (ULONG)dspLoopLatency);
 
-    ULONG oldDSPConfig = R_BLKIO_L(DSP_CONFIG);
-    ULONG oldDSPOnOff  = R_BLKIO_L(DSP_ON_OFF);
-
     W_BLKIO_L(DSP_CONFIG,
               DSP_XCLKS_PER_QW(dspXclksPerQword) | DSP_LOOP_LATENCY(dspLoopLatency) | DSP_PRECISION(dspPrecision));
     W_BLKIO_L(DSP_ON_OFF, DSP_OFF(dspOff) | DSP_ON(dspOn));

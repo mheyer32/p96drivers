@@ -93,7 +93,7 @@ int svga_compute_pll(const struct svga_pll *pll, ULONG f_wanted_khz, USHORT *m, 
 void delayMicroSeconds(ULONG us)
 {
     flushWrites();
-    int count = ((us << 4) + 15) / (UWORD)22;
+    int count = ((us << 4) + 15) / 22;
     // CIA access has deterministic speed, use it for a short delay
     extern volatile FAR struct CIA ciaa;
     for (int i = 0; i < count; ++i) {

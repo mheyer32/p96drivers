@@ -1143,7 +1143,7 @@ static INLINE void REGARGS setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fm
 
 static INLINE LONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
 {
-    ULONG offset = (ULONG)memory - (ULONG)bi->MemoryBase;
+    LONG offset = (ULONG)memory - (ULONG)bi->MemoryBase;
     return offset;
 }
 
@@ -1201,9 +1201,8 @@ static INLINE BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *r
     // FIXME: reading from the register is not FIFO'd. In theory to use W_MMIO_MASK_L we would need to wait for
     // engine idle to be sure
     //  that the previous write has completed. For now we just wait for 2 slots and write the register directly.
-     W_MMIO_MASK_L(DP_PIX_WIDTH, DP_DST_PIX_WIDTH_MASK | DP_HOST_PIX_WIDTH_MASK,
-                   DP_DST_PIX_WIDTH(dstPixWidth) | DP_HOST_PIX_WIDTH(COLOR_DEPTH_8));
-    //W_MMIO_L(DP_PIX_WIDTH, DP_DST_PIX_WIDTH(dstPixWidth) | DP_HOST_PIX_WIDTH(COLOR_DEPTH_1));
+    W_MMIO_MASK_L(DP_PIX_WIDTH, DP_DST_PIX_WIDTH_MASK | DP_HOST_PIX_WIDTH_MASK,
+                  DP_DST_PIX_WIDTH(dstPixWidth) | DP_HOST_PIX_WIDTH(COLOR_DEPTH_1));
 
     return TRUE;
 }
@@ -1239,7 +1238,6 @@ static INLINE BOOL setSrcBuffer(struct BoardInfo *bi, const struct RenderInfo *r
     }
 
     W_MMIO_MASK_L(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH_MASK, DP_SRC_PIX_WIDTH(srcPixWidth));
-//     W_MMIO_L(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH(srcPixWidth));
 
     return TRUE;
 }
@@ -1640,6 +1638,8 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         cd->GEdrawMode = 0xFF;
         waitFifo(bi, 1);
         W_MMIO_L(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
+
+//        W_MMIO_MASK_L(DP_PIX_WIDTH, DP_HOST_PIX_WIDTH_MASK, DP_HOST_PIX_WIDTH(COLOR_DEPTH_1));
     }
 
     setDrawMode(bi, template->FgPen, template->BgPen, template->DrawMode, fmt, MONO_SRC_HOST_DATA);
@@ -1660,8 +1660,6 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     // the right scissor. And since we're setting the scissor anyways, we might as well set the left side
     // and spare ourselves the CPU work to "left-rotate" the template bits.
     W_MMIO_L(SC_LEFT_RIGHT, SC_RIGHT(width + x - 1) | SC_LEFT(x));
-
-    R_MMIO_L(GUI_STAT);
 
     drawRect(bi, x - template->XOffset, y, blitWidth, height);
 
@@ -2207,17 +2205,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
     D(INFO, "scratch register response good.\n");
 
-    //W_SR(0x1, 0x02);
-
-    W_BLKIO_MASK_L(CONFIG_CNTL, CFG_MEM_VGA_AP_EN_MASK | CFG_VGA_DIS_MASK, CFG_VGA_DIS);
-
     if (!parseRomHeader(bi)) {
         DFUNC(ERROR, "Failed to parse ROM header\n");
         return FALSE;
     }
-
-    // R_BLKIO_L(BUS_CNTL);
-    // W_BLKIO_MASK_L(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
 
     ULONG configCntl = R_BLKIO_L(CONFIG_CNTL);
 
@@ -2239,8 +2230,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         return FALSE;
     }
 
-    W_BLKIO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK, CFG_VGA_DIS);
+    W_BLKIO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
     W_BLKIO_MASK_L(CONFIG_STAT0, CFG_VGA_EN_MASK, 0);
+
     // ULONG clock = bi->MemoryClock;
     // if (!clock) {
     //     clock = getChipData(bi)->memClock;
@@ -2262,8 +2254,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     //     return FALSE;
     // }
 
-    //FIXME: no need to crop FB size on later chips with auxilliary MMIO aperture
-    if (bi->MemorySize == 8 * 1024 * 1024) {
+    // FIXME: no need to crop FB size on later chips with auxilliary MMIO aperture
+    if (bi->MemorySize == 8 * 1024 * 1024 && cd->chipFamily <= MACH64VT) {
         bi->MemorySize -= 2048;  // Upper 2kb are reserved for MMIO register blocks 0 and 1
     }
 
@@ -2301,7 +2293,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_MMIO_L(SC_TOP_BOTTOM, SC_TOP(0) | ((SC_BOTTOM_MASK >> 1) & SC_BOTTOM_MASK));
     W_MMIO_L(SRC_Y_X_START, 0);
     // FIXME: Docs say: Use SRC_CNTL register only if a blit source is selected in the pixel data path.
-    // What does that mean? Also, if I don't do this here, I get the dreaded GUI hangs
+    // What does that mean? Also, if I don't do this here, I get the dreaded GUI hangs. Is it about Busmastering
+    // being tuned off vaia SRC_CNTL?
     W_MMIO_L(SRC_CNTL, 0);
 
     waitFifo(bi, 16);
