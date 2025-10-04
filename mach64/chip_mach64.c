@@ -2278,7 +2278,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         }
 
         // User-Defines configuration
-        UBYTE config = Prm_ReadConfigByte((PCIBoard *)bi->CardPrometheusDevice, 0x40);
+        UBYTE config    = Prm_ReadConfigByte((PCIBoard *)bi->CardPrometheusDevice, 0x40);
+        ULONG prmStatus = Prm_ReadConfigLong((PCIBoard *)bi->CardPrometheusDevice, 0x60);
 
         UWORD ioBase = 0;
         switch (config & 0x03) {
@@ -2295,8 +2296,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         BOOL blockIO      = !!(config & 0x04);
         BOOL enableGENENA = !(config & 0x08);
 
-        D(0, "PCI config: ioBase : 0x%lx, sparse/block IO : %ld, enable GENENA : %ld\n", (ULONG)ioBase, (ULONG)blockIO,
-          (ULONG)enableGENENA);
+        // Try making it more compatible with other VGA cards down the line
+        // By disabling all classic IO decoding
+        config |= 0x08;  // Disable decoding GENENA (no response at IO 0x46E8)
+        Prm_WriteConfigByte((PCIBoard *)bi->CardPrometheusDevice, config, 0x40);
     }
 
     // Test scratch register response
