@@ -181,6 +181,11 @@ enum PLL_REGS
 extern void WritePLL(struct BoardInfo *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllData);
 extern UBYTE ReadPLL(struct BoardInfo *bi, UBYTE pllAddr);
 
+#define WRITE_PLL(pllAddr, data)            WritePLL(bi, (pllAddr), 0xFF, (data))
+#define WRITE_PLL_MASK(pllAddr, mask, data) WritePLL(bi, (pllAddr), (mask), (data))
+#define READ_PLL(pllAddr)                   ReadPLL(bi, (pllAddr))
+
+
 extern void WriteDefaultRegList(const struct BoardInfo *bi, const UWORD *defaultRegs, int numRegs);
 extern void InitVClockPLLTable(struct BoardInfo *bi, const BYTE *multipliers, BYTE numMultipliers);
 
@@ -219,11 +224,6 @@ static INLINE BOOL isAsiclessThanV4(const BoardInfo_t *bi)
 {
     return getAsicVersion(bi) < 4;
 }
-
-
-#define WRITE_PLL(pllAddr, data)            WritePLL(bi, (pllAddr), 0xFF, (data))
-#define WRITE_PLL_MASK(pllAddr, mask, data) WritePLL(bi, (pllAddr), (mask), (data))
-#define READ_PLL(pllAddr)                   ReadPLL(bi, (pllAddr))
 
 #endif  // MACH64_COMMON_H
 

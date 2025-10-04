@@ -688,7 +688,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     return;
 }
 
-static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE* mem), __REGD0(struct RenderInfo *ri),
+static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *mem), __REGD0(struct RenderInfo *ri),
                                 __REGD7(RGBFTYPE format))
 {
     DFUNC(VERBOSE, "mem 0x%lx, format %ld\n", mem, (ULONG)format);
@@ -1637,7 +1637,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         waitFifo(bi, 1);
         W_MMIO_L(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
 
-//        W_MMIO_MASK_L(DP_PIX_WIDTH, DP_HOST_PIX_WIDTH_MASK, DP_HOST_PIX_WIDTH(COLOR_DEPTH_1));
+        //        W_MMIO_MASK_L(DP_PIX_WIDTH, DP_HOST_PIX_WIDTH_MASK, DP_HOST_PIX_WIDTH(COLOR_DEPTH_1));
     }
 
     setDrawMode(bi, template->FgPen, template->BgPen, template->DrawMode, fmt, MONO_SRC_HOST_DATA);
@@ -2039,8 +2039,8 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEOp != LINE) {
-        cd->GEOp              = LINE;
-        cd->GEdrawMode        = 0xFF;
+        cd->GEOp            = LINE;
+        cd->GEdrawMode      = 0xFF;
         cd->patternCacheKey = 0xFFFFFFFF;
 
         waitFifo(bi, 4);
