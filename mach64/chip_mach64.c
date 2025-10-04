@@ -1325,16 +1325,14 @@ static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 static void drawRect(struct BoardInfo *bi, WORD x, WORD y, WORD width, WORD height)
 {
     MMIOBASE();
-    W_MMIO_L(DST_Y_X, DST_Y(y) | DST_X(x));
-    W_MMIO_L(DST_HEIGHT_WIDTH, DST_HEIGHT(height) | DST_WIDTH(width));
-    flushWrites();
+
+    // W_MMIO_L(DST_Y_X, DST_Y(y) | DST_X(x));
+    // W_MMIO_L(DST_HEIGHT_WIDTH, DST_HEIGHT(height) | DST_WIDTH(width));
 
     // micro-optimization to save on some redundant rol/swap/rol sequences
-    // W_MMIO_NOSWAP_L(DST_Y_X, makeDWORD(swapw(y), swapw(x)));
-
-    //flushWrites();
-
-    //W_MMIO_NOSWAP_L(DST_HEIGHT_WIDTH, makeDWORD(swapw(height), swapw(width)));
+    W_MMIO_NOSWAP_L(DST_Y_X, makeDWORD(swapw(y), swapw(x)));
+    W_MMIO_NOSWAP_L(DST_HEIGHT_WIDTH, makeDWORD(swapw(height), swapw(width)));
+    flushWrites();
 }
 
 static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
