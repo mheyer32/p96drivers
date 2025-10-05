@@ -1915,8 +1915,6 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 
     MMIOBASE();
 
-    waitFifo(bi, 3);
-
     if (is8x8) {
         // The Rage 8x8 mono patttern cannot be offset directly.
         // Instead, its "destination aligned". So in order to offset the pattern, we
@@ -1995,11 +1993,14 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
                 }
             }
 
+            waitFifo(bi, 3);
+
             W_MMIO_NOSWAP_L(PAT_REG0, pat0);
             W_MMIO_NOSWAP_L(PAT_REG1, pat1);
+        } else {
+            waitFifo(bi, 1);
         }
 
-        waitFifo(bi, 1);
         ULONG trajectory = DST_X_DIR | DST_Y_DIR | PAT_MONO_EN;
         W_MMIO_L(GUI_TRAJ_CNTL, trajectory);
 
@@ -2017,10 +2018,6 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
             }
         }
 
-        waitFifo(bi, 4);
-        ULONG trajectory = DST_X_DIR | DST_Y_DIR | SRC_PATT_EN | SRC_PATT_ROT_EN;
-        W_MMIO_L(GUI_TRAJ_CNTL, trajectory);
-
         setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt, MONO_SRC_BLIT_SRC);
 
         UBYTE xOff = pattern->XOffset & 15;
@@ -2030,11 +2027,18 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         if (pattCacheKey != cd->patternCacheKey) {
             cd->patternCacheKey = pattCacheKey;
 
+            waitFifo(bi, 6);
+
             W_MMIO_L(SRC_Y_X, SRC_X(xOff) | SRC_Y(yOff));
             W_MMIO_L(SRC_HEIGHT1_WIDTH1, SRC_HEIGHT1(patternHeight - yOff) | SRC_WIDTH1(16 - xOff));
             W_MMIO_L(SRC_HEIGHT2_WIDTH2, SRC_HEIGHT2(patternHeight) | SRC_WIDTH2(16));
-            waitFifo(bi, 2);
         }
+        else
+        {
+            waitFifo(bi, 3);
+        }
+        ULONG trajectory = DST_X_DIR | DST_Y_DIR | SRC_PATT_EN | SRC_PATT_ROT_EN;
+        W_MMIO_L(GUI_TRAJ_CNTL, trajectory);
     }
 
     drawRect(bi, x, y, width, height);
