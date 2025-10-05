@@ -514,12 +514,12 @@ BOOL InitMach64GT(struct BoardInfo *bi)
     W_MMIO_L(DP_SET_GUI_ENGINE, 0);
 
     /* On GTC (RagePro), we need to reset the 3D engine before */
-    // W_MMIO_L(SCALE_3D_CNTL, 0xc0);
-    // delayMilliSeconds(3);
-    // W_MMIO_L(SETUP_CNTL, 0x00);
-    // delayMilliSeconds(3);
-    // W_MMIO_L(SCALE_3D_CNTL, 0x00);
-    // delayMilliSeconds(3);
+    W_MMIO_L(SCALE_3D_CNTL, 0xc0);
+    delayMilliSeconds(3);
+    W_MMIO_L(SETUP_CNTL, 0x00);
+    delayMilliSeconds(3);
+    W_MMIO_L(SCALE_3D_CNTL, 0x00);
+    delayMilliSeconds(3);
 
     int i = 0;
     for (; i < 4; ++i) {
