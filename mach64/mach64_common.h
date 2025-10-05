@@ -203,6 +203,7 @@ extern void ResetEngine(const BoardInfo_t *bi);
 
 static INLINE void waitFifo(const BoardInfo_t *bi, UBYTE entries)
 {
+    return;
     MMIOBASE();
 
     if (!entries)

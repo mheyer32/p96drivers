@@ -56,6 +56,10 @@
 #define BUS_APER_REG_DIS_MASK BIT(4)
 #define BUS_MASTER_DIS        BIT(6)
 #define BUS_MASTER_DIS_MASK   BIT(6)
+#define BUS_PCI_RETRY_EN      BIT(15)
+#define BUS_PCI_RETRY_EN_MASK BIT(15)
+#define BUS_FIFO_WS(x)        ((x) << 16)
+#define BUS_FIFO_WS_MASK      (0xF << 16)
 
 // DSP_CONFIG
 #define DSP_CONFIG            0x08
@@ -78,7 +82,7 @@
 #define DP_SET_GUI_ENGINE  0xBF
 
 // GUI_CNTL
-#define GUI_CNTL BLOCK1(0x5E)
+#define GUI_CNTL               BLOCK1(0x5E)
 #define CMDFIFO_SIZE_MODE_MASK (0x3)
 #define CMDFIFO_SIZE_MODE(x)   ((x) & 0x3)
 
