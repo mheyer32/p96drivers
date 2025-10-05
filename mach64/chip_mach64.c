@@ -420,7 +420,9 @@ static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD w
     UBYTE bpp = getBPP(format);
 
     UWORD bytesPerRow = width * bpp;
-    bytesPerRow       = (bytesPerRow + 7) & ~7;
+    // FIXME: RagePro manual says that SGRAM needs to be aligned to 64byte and pitch needs to be 64byte aligned
+    // bytesPerRow       = (bytesPerRow + 7) & ~7;
+    bytesPerRow = (bytesPerRow + 63) & ~63;
 
     ULONG maxHeight = 2048;  // FIXME: check this value
     if (height > maxHeight) {
@@ -704,7 +706,9 @@ static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *me
     default:
         break;
     }
-    return (APTR)(((ULONG)mem + 7) & ~7);
+    // FIXME: RagePro manual says that SGRAM needs to be aligned to 64byte and pitch needs to be 64byte aligned
+    // return (APTR)(((ULONG)mem + 7) & ~7);
+    return (APTR)(((ULONG)mem + 63) & ~63);
 }
 
 static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
@@ -1251,6 +1255,13 @@ static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
     case RGBFB_R5G6B5PC:
     case RGBFB_R5G5B5PC:
         pen = swapw(pen);
+        // Fallthrough
+    case RGBFB_R5G6B5:
+    case RGBFB_R5G5B5:
+        pen |= pen << 16;
+        break;
+    case RGBFB_CLUT:
+        pen = (pen & 0xFF) | ((pen & 0xFF) << 8) | ((pen & 0xFF) << 16) | ((pen & 0xFF) << 24);
         break;
     default:
         break;
@@ -1357,7 +1368,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         MMIOBASE();
 
         W_MMIO_L(DP_SRC, DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_ONE));
-        W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(MIX_NEW));
+        W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_CURRENT) | DP_FRGD_MIX(MIX_NEW));
         W_MMIO_L(GUI_TRAJ_CNTL, DST_X_DIR | DST_Y_DIR);
     }
 
@@ -1478,7 +1489,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         cd->GEdrawMode = opCode;
 
         waitFifo(bi, 1);
-        W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(minTermToMix[opCode]));
+        W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_CURRENT) | DP_FRGD_MIX(minTermToMix[opCode]));
     }
 
     ULONG dir = DST_X_DIR | DST_Y_DIR;  // left-to-right, top-to-bottom
@@ -1528,7 +1539,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         waitFifo(bi, 2);
 
         W_MMIO_L(DP_SRC, DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_BLIT_SRC) | DP_MONO_SRC(MONO_SRC_ONE));
-        W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(MIX_NEW));
+        W_MMIO_L(DP_MIX, DP_BKGD_MIX(MIX_CURRENT) | DP_FRGD_MIX(MIX_NEW));
     }
 
     ULONG dir = DST_X_DIR | DST_Y_DIR;  // left-to-right, top-to-bottom
@@ -2152,7 +2163,9 @@ APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD
                       __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
 {
     // We always overallocate by 8 bytes to be able to align the memory to 8 bytes in CalculateMemory
-    size += 8;
+    // SGRAM requries 64byte alignment
+    // size += 8;
+    size += 64;
     return getConstCardData(bi)->AllocCardMemDefault(bi, size, force, system, bytesperrow, mi, format);
 }
 

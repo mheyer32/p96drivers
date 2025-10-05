@@ -241,11 +241,13 @@ typedef struct MaxColorDepthTableEntry
 //
 #define GUI_TRAJ_CNTL     0xCC
 
-#define HW_DEBUG             0x1F
-#define AUTO_FF_DIS          BIT(12)
-#define AUTO_FF_DIS_MASK     BIT(12)
-#define AUTO_BLKWRT_DIS      BIT(13)
-#define AUTO_BLKWRT_DIS_MASK BIT(13)
+#define HW_DEBUG                   0x1F
+#define AUTO_BLKWRT_COLOR_DIS      BIT(8)
+#define AUTO_BLKWRT_COLOR_DIS_MASK BIT(8)
+#define AUTO_FF_DIS                BIT(12)
+#define AUTO_FF_DIS_MASK           BIT(12)
+#define AUTO_BLKWRT_DIS            BIT(13)
+#define AUTO_BLKWRT_DIS_MASK       BIT(13)
 
 static INLINE UBYTE REGARGS readATIRegisterB(volatile UBYTE *regbase, LONG regIndex, WORD byteIndex,
                                              const char *regName)
