@@ -1442,9 +1442,9 @@ static INLINE void REGARGS getGESegmentAndOffset(ULONG memOffset, WORD bytesPerR
 {
     *segment = (memOffset >> 20) & 7;
 
-    ULONG srcOffset = memOffset & 0xFFFFF;
-    *yoffset        = srcOffset / bytesPerRow;
-    *xoffset        = (srcOffset % bytesPerRow) / bpp;
+    ULONG segOffset = memOffset & 0xFFFFF;
+    *yoffset        = segOffset / bytesPerRow;
+    *xoffset        = (segOffset % bytesPerRow) / bpp;
 
 #ifdef DBG
     if (*segment > 0) {
@@ -1454,11 +1454,18 @@ static INLINE void REGARGS getGESegmentAndOffset(ULONG memOffset, WORD bytesPerR
 #endif
 }
 
+static INLINE ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
+{
+    ULONG offset = (ULONG)memory - (ULONG)bi->MemoryBase;
+    return offset;
+}
+
 static INLINE BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
 {
     REGBASE();
 
-    if (getChipData(bi)->GEbytesPerRow == bytesPerRow && getChipData(bi)->GEbpp == bpp) {
+    ChipData_t *cd = getChipData(bi);
+    if (cd->GEbytesPerRow == bytesPerRow && cd->GEbpp == bpp) {
         return TRUE;
     }
 
@@ -1486,24 +1493,26 @@ static INLINE BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
         return FALSE;  // reserved
     }
 
+    cd->patternCacheKey = ~0;  // Force pattern update because pitch may have changed
+    cd->GEbytesPerRow   = bytesPerRow;
+    cd->GEbpp           = bpp;
+
+    getGESegmentAndOffset(getMemoryOffset(bi, cd->patternVideoBuffer), bytesPerRow, bpp, &cd->pattSegment, &cd->pattX,
+                          &cd->pattY);
+    D(CHATTY, "pattSeg %ld, pattX %ld, pattY %ld, bytesPerRow %ld\n", (ULONG)cd->pattSegment, (ULONG)cd->pattX,
+      (ULONG)cd->pattY, (ULONG)cd->GEbytesPerRow);
+#if DBG
+    if (cd->pattX & 7 || cd->pattY & 7) {
+        D(WARN, "pattern not on 8 pixel boundary\n");
+    }
+#endif
+
     WaitBlitter(bi);
 
     W_CR_MASK(0x50, 0xF1, CR50_76_0 | ((bpp - 1) << 4));
     W_CR_MASK(0x31, (1 << 1), CR31_1);
 
-    MMIOBASE();
-    W_BEE8(MULT_MISC, (1 << 9));
-
-    getChipData(bi)->GEbytesPerRow = bytesPerRow;
-    getChipData(bi)->GEbpp         = bpp;
-
     return TRUE;
-}
-
-static INLINE ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
-{
-    ULONG offset = (ULONG)memory - (ULONG)bi->MemoryBase;
-    return offset;
 }
 
 static INLINE ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
@@ -2140,51 +2149,214 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 
     ChipData_t *cd = getChipData(bi);
 
-    if (cd->GEOp != BLITTEMPLATE) {
-        cd->GEOp = BLITTEMPLATE;
+    if (cd->GEOp != BLITPATTERN) {
+        cd->GEOp = BLITPATTERN;
 
         // Invalidate the pen and drawmode caches
         cd->GEdrawMode = 0xFF;
 
         // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
         WaitForBlitter(bi);
-
-        WaitFifo(bi, 1);
-
-        W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
     }
 
-    SetDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
     SetGEWriteMask(bi, mask, fmt, 6);
 
-    // This could/should get chached as well
-    W_BEE8(MULT_MISC2, seg << 4);
+    // First, figure out if the new pattern would actually fit into an 8x8 mono pattern.
+    // Then we can use the hardware pattern registers, which are much faster.
+    // If not, upload the pattern to video memory and use that as mono blit source.
+    // We cache the last pattern to avoid re-uploading it if it didn't change.
+    UWORD patternHeight        = 1 << pattern->Size;
+    const UWORD *sysMemPattern = (const UWORD *)pattern->Memory;
+    UWORD *cachedPattern       = cd->patternCacheBuffer;
 
-    setBlitSrcPosAndSize(bi, x, y, width, height);
+    // Try to avoid wait-for-idle by first checking if the pattern changed.
+    // I'm not expecting huge patterns, so this will hopefully be fast
+    BOOL patternChanged = FALSE;
+    BOOL is8x8          = (patternHeight <= 8);
+    for (UWORD i = 0; i < patternHeight; ++i) {
+        UWORD row = sysMemPattern[i];
+        // Compare new pattern with last one uploaded
+        if (row != cachedPattern[i]) {
+            cachedPattern[i] = row;
+            patternChanged   = TRUE;
+        }
+        // Check if upper half and lower half of the 16bit pattern row are identical,
+        // so the pattern width is essentially 8bit
+        if ((UBYTE)(row >> 8) != (UBYTE)row) {
+            is8x8 = FALSE;
+        }
+    }
 
-    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
-                      CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
+    BOOL was8x8 = (cd->patternCacheKey & 0x80000000) != 0;
 
-    WORD dwordsPerLine      = (width + 31) / 32;
-    UWORD *bitmap           = (UWORD *)pattern->Memory;
-    UBYTE rol               = pattern->XOffset % 16;
-    UWORD patternHeightMask = (1 << pattern->Size) - 1;
+    if (is8x8) {
+        // The Trio64 8x8 mono patttern cannot be offset directly.
+        // Instead, its "destination aligned". So in order to offset the pattern, we
+        // need to manually rotate it here.
+        UBYTE pattOffX = (UBYTE)((x - pattern->XOffset) & 7);
+        UBYTE pattOffY = (UBYTE)((y - pattern->YOffset) & 7);
 
-    if (!rol) {
-        for (WORD y = 0; y < height; ++y) {
-            UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
-            ULONG bitsL = makeDWORD(bits, bits);
-            for (WORD x = 0; x < dwordsPerLine; ++x) {
-                W_MMIO_L(PIX_TRANS, bitsL);
+        ULONG pattCacheKey = (pattOffX << 16) | (pattOffY << 8) | pattern->Size | 0x80000000;
+        if (pattCacheKey != cd->patternCacheKey) {
+            cd->patternCacheKey = pattCacheKey;
+            patternChanged      = TRUE;
+        }
+
+        if (patternChanged) {
+            // replicate the 8xN pattern to 8x8
+            ULONG pat0;
+            ULONG pat1;
+
+            // Build the 8x8 pattern in the two registers
+            // Source patterns that are smaller than 8 in height will be extended to height 8
+            switch (pattern->Size) {
+            case 0:
+                // our pattern data is already 16bit, with the upper half and lower half determined to be identical
+                pat0 = cachedPattern[0] | (cachedPattern[0] << 16);
+                pat1 = pat0;
+                break;
+            case 1:
+                pat0 = (cachedPattern[0] & 0xFF00) | ((cachedPattern[1] & 0xFF));
+                pat0 |= (pat0 << 16);
+                pat1 = pat0;
+                break;
+            case 2:
+                pat0 = ((cachedPattern[0] & 0xFF00) << 16) | ((cachedPattern[1] & 0xFF00) << 8) |
+                       (cachedPattern[2] & 0xFF00) | (cachedPattern[3] & 0xFF);
+                pat1 = pat0;
+                break;
+            case 3:
+                pat0 = ((cachedPattern[0] & 0xFF00) << 16) | ((cachedPattern[1] & 0xFF00) << 8) |
+                       (cachedPattern[2] & 0xFF00) | (cachedPattern[3] & 0xFF);
+                pat1 = ((cachedPattern[4] & 0xFF00) << 16) | ((cachedPattern[5] & 0xFF00) << 8) |
+                       (cachedPattern[6] & 0xFF00) | (cachedPattern[7] & 0xFF);
+                break;
+            default:
+                // fallthrough
+                break;
+            }
+
+            // Since the Mach64 pattern is "destination aligned", emulate offsetting the pattern by uploading
+            // a rotated pattern
+            if (pattOffX) {
+                // Rotate 'right' in X direction, we need to rotate within each byte
+                ULONG maskLower = (1 << pattOffX) - 1;
+                maskLower |= (maskLower << 8) | (maskLower << 16) | (maskLower << 24);
+                ULONG maskUpper = ~maskLower;
+                pat0            = ((pat0 & maskUpper) >> pattOffX) | ((pat0 & maskLower) << (8 - pattOffX));
+                pat1            = ((pat1 & maskUpper) >> pattOffX) | ((pat1 & maskLower) << (8 - pattOffX));
+            }
+
+            if (pattOffY) {
+                // Rotate 'down' in Y direction
+                ULONG temp;
+                if (pattOffY & 1) {
+                    temp = pat0;
+                    pat0 = (pat0 >> 8) | (pat1 << 24);
+                    pat1 = (pat1 >> 8) | (temp << 24);
+                }
+                if (pattOffY & 2) {
+                    temp = pat0;
+                    pat0 = (pat0 >> 16) | (pat1 << 16);
+                    pat1 = (pat1 >> 16) | (temp << 16);
+                }
+                if (pattOffY & 4) {
+                    temp = pat0;
+                    pat0 = pat1;
+                    pat1 = temp;
+                }
+            }
+
+            // First upload the pattern to the offscreen area.
+            // I was hoping I could just place the 8x8 mono pattern into an offscreen area and
+            // get the pattern blit monochrome-expand the bits to actual pixels.
+            // But no. Instead, we need to blow up the 8x8 bit pattern into 8x8 actual black and white pixels.
+            // Ontop, they need to be spread out by the actual pitch currently selected for the graphics engine.
+            // As I understand the PATBLT text: the pattern pixel is read. Then all the '1' bits in the RD_MASK
+            // are compared to the same bits in the fetched pixel. If they match, the the foreground mix path
+            // is taken, otherwise the background path.
+            // Therefore, instead of typical monochrome expansion, we need to produce the pattern first as "full blown" pixels.
+            // We upload the monochrome pattern first via a fill blit under monochrome expansion.
+            // Then we point the actual pattern blit at the produced "black and white pixels" image and let it be expanded
+            // to colored pixels via above mentioned mechanism.
+            cd->GEfgPen    = 0xFFFFFFFF;
+            cd->GEbgPen    = 0;
+            cd->GEdrawMode = 0xFF;
+
+            WaitFifo(bi, 16);
+            W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+            W_BEE8(MULT_MISC2, cd->pattSegment << 4);
+
+            REGBASE();
+            W_IO_L(FRGD_COLOR, 0xFFFFFFFF);
+            W_IO_L(BKGD_COLOR, 0x0);
+
+            setMix(bi, CLR_SRC_FRGD_COLOR | MIX_NEW, CLR_SRC_BKGD_COLOR | MIX_NEW);
+            setBlitSrcPosAndSize(bi, cd->pattX, cd->pattY, 8, 8);
+
+            W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+                              CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED);
+
+            W_MMIO_L(PIX_TRANS, pat0);
+            W_MMIO_L(PIX_TRANS, pat1);
+
+            WaitFifo(bi, 1);
+            W_BEE8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
+        } else {
+            if (!was8x8) {
+                WaitFifo(bi, 1);
+                W_BEE8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
             }
         }
+
+        SetDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
+
+        WaitFifo(bi, 8);
+        W_BEE8(MULT_MISC2, (cd->pattSegment << 4) | seg);
+        setBlitDestPos(bi, x, y);
+        setBlitSrcPosAndSize(bi, cd->pattX, cd->pattY, width, height);
+        W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_PAT_BLIT | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+                          CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED);
+
     } else {
-        for (WORD y = 0; y < height; ++y) {
-            UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
-            bits        = (bits << rol) | (bits >> (16 - rol));
-            ULONG bitsL = makeDWORD(bits, bits);
-            for (WORD x = 0; x < dwordsPerLine; ++x) {
-                W_MMIO_L(PIX_TRANS, bitsL);
+        cd->patternCacheKey &= ~0x80000000;
+
+        SetDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
+
+        WaitFifo(bi, 7);
+
+        if (was8x8) {
+            W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+        }
+        // This could/should get chached as well
+        W_BEE8(MULT_MISC2, seg << 4);
+
+        setBlitSrcPosAndSize(bi, x, y, width, height);
+
+        W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+                          CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
+
+        WORD dwordsPerLine      = (width + 31) / 32;
+        UWORD *bitmap           = (UWORD *)pattern->Memory;
+        UBYTE rol               = pattern->XOffset % 16;
+        UWORD patternHeightMask = (1 << pattern->Size) - 1;
+
+        if (!rol) {
+            for (WORD y = 0; y < height; ++y) {
+                UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
+                ULONG bitsL = makeDWORD(bits, bits);
+                for (WORD x = 0; x < dwordsPerLine; ++x) {
+                    W_MMIO_L(PIX_TRANS, bitsL);
+                }
+            }
+        } else {
+            for (WORD y = 0; y < height; ++y) {
+                UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
+                bits        = (bits << rol) | (bits >> (16 - rol));
+                ULONG bitsL = makeDWORD(bits, bits);
+                for (WORD x = 0; x < dwordsPerLine; ++x) {
+                    W_MMIO_L(PIX_TRANS, bitsL);
+                }
             }
         }
     }
@@ -3034,7 +3206,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_BEE8(MULT_MISC, (1 << 9));
 
     W_BEE8(MULT_MISC2, 0);
-    // Init GE write/read masks. The use of IO instead of MMIO is delibeerate.
+    // Init GE write/read masks. The use of IO instead of MMIO is deliberate.
     // Apparently when we switch these registers to 32bit via MULT_MISC above,
     // Only the registers in the IO space become 32bit, but not in MMIO!
     W_IO_L(WRT_MASK, 0xFFFFFFFF);
@@ -3044,8 +3216,21 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_MMIO_W(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
     W_MMIO_W(BKGD_MIX, CLR_SRC_BKGD_COLOR | MIX_NEW);
 
+    W_MMIO_W(PAT_Y, 0);
+    W_MMIO_W(PAT_X, 0);
+
     // Flush FIFO
     W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
+
+    // reserve memory for a 8x8 monochrome pattern
+    ChipData_t *cd = getChipData(bi);
+    // Unfortunately we're overallocating here for the largest pitch.
+    ULONG patternSize      = 8 * 2048;
+    bi->MemorySize         = (bi->MemorySize - patternSize) & ~(7);
+    cd->patternVideoBuffer = (ULONG *)(bi->MemoryBase + bi->MemorySize);
+    cd->patternCacheBuffer = AllocVec(patternSize, MEMF_PUBLIC);
+
+    // setCacheMode(bi, bi->MemoryBase, bi->MemorySize & ~4095, MAPP_NONSERIALIZED | MAPP_IMPRECISE, CACHEFLAGS);
 
     return TRUE;
 }
