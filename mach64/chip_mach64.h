@@ -5,6 +5,8 @@
 
 #include <exec/types.h>  // This header is required for UBYTE and UWORD
 
+#include <assert.h>
+
 typedef enum ChipFamily
 {
     UNKNOWN,
@@ -260,9 +262,7 @@ static INLINE UBYTE REGARGS readATIRegisterB(volatile UBYTE *regbase, LONG regIn
 
 static INLINE ULONG REGARGS readATIRegisterL(volatile UBYTE *regbase, LONG regIndex, const char *regName)
 {
-    ULONG value = readRegL(regbase, DWORD_OFFSET(regIndex));
-    D(VERBOSE, "R %s -> 0x%08lx\n", regName, (LONG)value);
-
+    ULONG value = readRegL(regbase, DWORD_OFFSET(regIndex), regName);
     return value;
 }
 
@@ -275,7 +275,7 @@ static INLINE ULONG REGARGS readATIMMIOL(volatile UBYTE *regbase, LONG regIndex,
 static INLINE ULONG REGARGS readATIRegisterAndMaskL(volatile UBYTE *regbase, LONG regIndex, ULONG mask,
                                                     const char *regName)
 {
-    ULONG value       = readRegL(regbase, DWORD_OFFSET(regIndex));
+    ULONG value       = readRegL(regbase, DWORD_OFFSET(regIndex), regName);
     ULONG valueMasked = value & mask;
     D(VERBOSE, "R %s -> 0x%08lx & 0x%08lx = 0x%08lx\n", regName, value, mask, valueMasked);
 
@@ -301,40 +301,45 @@ static INLINE void REGARGS writeATIRegisterB(volatile UBYTE *regbase, LONG regIn
 
 static INLINE void REGARGS writeATIRegisterL(volatile UBYTE *regbase, LONG regIndex, ULONG value, const char *regName)
 {
-    D(VERBOSE, "W %s <- 0x%08lx\n", regName, value);
-    writeRegL(regbase, DWORD_OFFSET(regIndex), value);
+    writeRegL(regbase, DWORD_OFFSET(regIndex), value, regName);
 }
 
 static INLINE void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, LONG regIndex, ULONG mask, ULONG value,
                                                  const char *regName)
 {
-    ULONG regValue = readRegLNoSwap(regbase, DWORD_OFFSET(regIndex));
-    D(VERBOSE, "R %s -> 0x%08lx\n", regName, swapl(regValue));
+    ULONG regValue = readRegLNoSwap(regbase, DWORD_OFFSET(regIndex), regName);
 
     mask     = swapl(mask);
     value    = swapl(value);
     regValue = (regValue & ~mask) | (mask & value);
 
-    D(VERBOSE, "W %s <- 0x%08lx\n", regName, swapl(regValue));
-    writeRegLNoSwap(regbase, DWORD_OFFSET(regIndex), regValue);
+    writeRegLNoSwap(regbase, DWORD_OFFSET(regIndex), regValue, regName);
 }
 
 static INLINE void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, LONG regIndex, ULONG value,
                                                    const char *regName)
 {
-    D(VERBOSE, "W %s <- 0x%08lx\n", regName, swapl(value));
-    writeRegLNoSwap(regbase, DWORD_OFFSET(regIndex), value);
+    writeRegLNoSwap(regbase, DWORD_OFFSET(regIndex), value, regName);
 }
 
 // FIXME reusing the same function for IO and MMIO shouldn't work because MMIOREGISTER_OFFSET and REGISTER_OFFSET might
 // be different, but in practise they aren't. Refactor the code.
+#define CHECK_BLKIO(regIndex, X)                                        \
+    do {                                                                \
+        _Static_assert(regIndex < 0x40, "BLKIO only for regs < 0x040"); \
+        X;                                                              \
+    } while (0)
 #define R_BLKIO_B(regIndex, byteIndex)        readATIRegisterB(RegBase, regIndex, byteIndex, #regIndex)
 #define R_BLKIO_L(regIndex)                   readATIRegisterL(RegBase, regIndex, #regIndex)
 #define R_BLKIO_AND_L(regIndex, mask)         readATIRegisterAndMaskL(RegBase, regIndex, mask, #regIndex)
 #define W_BLKIO_B(regIndex, byteIndex, value) writeATIRegisterB(RegBase, regIndex, byteIndex, value, #regIndex)
 #define W_BLKIO_MASK_B(regIndex, byteIndex, mask, value) \
     writeATIRegisterMaskB(RegBase, regIndex, byteIndex, mask, value, #regIndex)
-#define W_BLKIO_L(regIndex, value)            writeATIRegisterL(RegBase, regIndex, value, #regIndex)
+#define W_BLKIO_L(regIndex, value)                                      \
+    do {                                                                \
+        _Static_assert(regIndex < 0x40, "BLKIO only for regs < 0x040"); \
+        writeATIRegisterL(RegBase, regIndex, value, #regIndex);         \
+    } while (0)
 #define W_BLKIO_MASK_L(regIndex, mask, value) writeATIRegisterMaskL(RegBase, regIndex, mask, value, #regIndex)
 
 #undef R_MMIO_L

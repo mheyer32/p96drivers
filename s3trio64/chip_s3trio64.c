@@ -16,7 +16,7 @@
 #include <SDI_stdarg.h>
 
 #ifdef DBG
-int debugLevel = 10;
+int debugLevel = INFO;
 #endif
 
 #if !BUILD_VISION864
@@ -962,7 +962,7 @@ static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
                                    __REGD0(ULONG pixelClock), __REGD7(RGBFTYPE RGBFormat))
 {
-    DFUNC(5, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
+    DFUNC(INFO, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
 
     mi->Flags &= ~GMF_ALWAYSBORDER;
     if (0x3ff < mi->VerTotal) {
@@ -988,7 +988,7 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
     if (getBPP(RGBFormat) >= 3) {
         // In 24/32bit modes, it takes 2 clock cycles to transfer one pixel to the RAMDAC,
         // and for the RAMDAC to output this pixel. Therefore, we need to double VCLK
-        D(2, "Applying 2x clocking\n");
+        D(VERBOSE, "Applying 2x clocking\n");
         pixelClock *= 2;
     }
 #endif
@@ -999,13 +999,13 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 
     UWORD m, n, r;
 
-    D(5, "Adjusted Pixel Hz: %ld\n", pixelClock);
+    D(VERBOSE, "Adjusted Pixel Hz: %ld\n", pixelClock);
 
     const struct svga_pll *pll = (getChipData(bi)->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
 
     int currentKhz = svga_compute_pll(pll, pixelClock / 1000, &m, &n, &r);
     if (currentKhz < 0) {
-        DFUNC(0, "Cannot resolve requested pixclock %ld, format %ld\n", pixelClock, RGBFormat);
+        DFUNC(WARN, "Cannot resolve requested pixclock %ld, format %ld\n", pixelClock, RGBFormat);
         return 0;
     }
 
@@ -1019,7 +1019,7 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 
     mi->PixelClock = currentKhz * 1000;
 
-    D(5, "Resulting pixelclock Hz: %ld\n\n", mi->PixelClock);
+    D(VERBOSE, "Resulting pixelclock Hz: %ld\n\n", mi->PixelClock);
 
     mi->pll1.Numerator   = (n - 2) | (r << 5);
     mi->pll2.Denominator = m - 2;

@@ -1682,7 +1682,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         for (UWORD x = 0; x < dwordsPerLine; ++x) {
             D(VERBOSE, "writing to HOST_DATA%u: 0x%08lx\n", hostDataReg, ((const ULONG *)bitmap)[x]);
 
-            writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), ((const ULONG *)bitmap)[x]);
+            writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), ((const ULONG *)bitmap)[x], STRINGIFY(HOST_DATA0));
 
             hostDataReg = (hostDataReg + 1) & 15;
             if (!hostDataReg) {
@@ -1730,7 +1730,7 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
         if (!rol) {
             for (UWORD y = 0; y < height; ++y) {
                 for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), ((ULONG *)bitmap)[x]);
+                    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), ((ULONG *)bitmap)[x], STRINGIFY(HOST_DATA0));
 
                     hostDataReg = (hostDataReg + 1) & 15;
                     if (!hostDataReg) {
@@ -1745,7 +1745,7 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
                     ULONG left  = ((ULONG *)bitmap)[x] << rol;
                     ULONG right = ((ULONG *)bitmap)[x + 1] >> (32 - rol);
 
-                    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), (left | right));
+                    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), (left | right), STRINGIFY(HOST_DATA0));
 
                     hostDataReg = (hostDataReg + 1) & 15;
                     if (!hostDataReg) {
