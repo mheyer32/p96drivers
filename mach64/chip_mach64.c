@@ -4,6 +4,7 @@
 #include "mach64_common.h"
 
 #include <graphics/rastport.h>
+#include <libraries/prometheus.h>
 #include <proto/prometheus.h>
 
 #include <string.h>  // memcmp
