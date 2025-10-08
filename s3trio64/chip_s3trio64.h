@@ -3,6 +3,8 @@
 
 #include "common.h"
 
+#define VENDOR_ID_S3 0x5333
+
 typedef enum ChipFamily
 {
     UNKNOWN,

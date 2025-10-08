@@ -131,7 +131,7 @@ endef
 ###############################################################################
 # target 'all' (default target)
 
-all : S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip ATIMach64.chip TestMach64
+all : S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip ATIMach64.chip TestMach64 TestTrio64Plus
 
 openpci.h : openpci/openpci.fd openpci/clib/openpci_protos.h
 	@$(MKDIR) -p openpci/inline
@@ -154,6 +154,13 @@ $(eval $(call make_driver,S3Trio3264.chip,$(BUILDDIR)s3trio3264/, ${S3TRIO_SRC})
 S3Vision864.chip : CFLAGS+=-DBIGENDIAN_MMIO=0 -DBUILD_VISION864=1 -DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000
 $(eval $(call make_driver,S3Vision864.chip,$(BUILDDIR)s3vision864/, ${S3TRIO_SRC}))
 
+S3TRIO64PLUS_TESTEXE_SRC = common.c \
+                           s3trio64/s3ramdac.c \
+                           s3trio64/chip_s3trio64.c
+
+TestTrio64Plus : CFLAGS+=-DBIGENDIAN_MMIO=1 -DBUILD_VISION864=0 -DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000
+
+$(eval $(call make_exe,TestTrio64Plus,$(BUILDDIR)testtrio64plus/, ${S3TRIO64PLUS_TESTEXE_SRC}))
 
 ATIMACH64_SRC = common.c \
                 mach64/mach64GT.c \

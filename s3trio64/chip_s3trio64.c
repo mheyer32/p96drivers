@@ -2609,6 +2609,53 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     }
 }
 
+ChipFamily_t detectChipFamily(UWORD deviceId, UWORD revision)
+{
+    switch (deviceId) {
+    case 0x88C0:  // 86c864 Vision 864
+    case 0x88C1:  // 86c864 Vision 864
+        return VISION864;
+    case 0x8813:        // 86c764_3 [Trio 32/64 vers 3]
+        return TRIO64;  // correct?
+    case 0x8811:        // 86c764/765 [Trio32/64/64V+]
+        return revision & 0x40 ? TRIO64PLUS : TRIO64;
+    case 0x8812:  // 86CM65 Aurora64V+
+    case 0x8814:  // 86c767 [Trio 64UV+]
+    case 0x8900:  // 86c755 [Trio 64V2/DX]
+    case 0x8901:  // 86c775/86c785 [Trio 64V2/DX or /GX]
+    case 0x8905:  // Trio 64V+ family
+    case 0x8906:  // Trio 64V+ family
+    case 0x8907:  // Trio 64V+ family
+    case 0x8908:  // Trio 64V+ family
+    case 0x8909:  // Trio 64V+ family
+    case 0x890a:  // Trio 64V+ family
+    case 0x890b:  // Trio 64V+ family
+    case 0x890c:  // Trio 64V+ family
+    case 0x890d:  // Trio 64V+ family
+    case 0x890e:  // Trio 64V+ family
+    case 0x890f:  // Trio 64V+ family
+        return TRIO64PLUS;
+    default:
+        DFUNC(WARN, "Unknown chip family, aborting\n");
+        return UNKNOWN;
+    }
+}
+
+const char *getChipFamilyName(ChipFamily_t family)
+{
+    switch (family) {
+    case VISION864:
+        return "Vision864";
+    case TRIO64:
+        return "Trio32/64";
+    case TRIO64PLUS:
+        return "Trio64Plus";
+    case UNKNOWN:
+    default:
+        return "Unknown";
+    }
+}
+
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     REGBASE();
@@ -2686,6 +2733,20 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
           bi->WaitBlitter, bi->BlitRect, bi->InvertRect, bi->FillRect, bi->BlitTemplate, bi->BlitPlanar2Chunky,
           bi->BlitRectNoMaskComplete, bi->DrawLine);
 
+    ChipData_t *cd = getChipData(bi);
+
+    {
+        ULONG revision;
+        ULONG deviceId;
+        LOCAL_PROMETHEUSBASE();
+        Prm_GetBoardAttrsTags((PCIBoard *)bi->CardPrometheusDevice, PRM_Device, (ULONG)&deviceId, PRM_Revision,
+                              (ULONG)&revision, TAG_END);
+
+        DFUNC(0, "Determine Chip Family\n");
+        if ((cd->chipFamily = detectChipFamily(deviceId, revision)) == UNKNOWN) {
+            return FALSE;
+        }
+    }
     bi->PixelClockCount[PLANAR] = 0;
 #if BUILD_VISION864
     bi->PixelClockCount[CHUNKY]    = 135;
@@ -2731,53 +2792,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     bi->MaxHorResolution[TRUEALPHA] = 1280;
     bi->MaxVerResolution[TRUEALPHA] = 1280;
-
-    {
-        DFUNC(0, "Determine Chip Family\n");
-
-        ULONG revision;
-        ULONG deviceId;
-        LOCAL_PROMETHEUSBASE();
-        Prm_GetBoardAttrsTags((PCIBoard *)bi->CardPrometheusDevice, PRM_Device, (ULONG)&deviceId, PRM_Revision,
-                              (ULONG)&revision, TAG_END);
-
-        ChipData_t *cd = getChipData(bi);
-        cd->chipFamily = UNKNOWN;
-
-        switch (deviceId) {
-        case 0x88C0:  // 86c864 Vision 864
-        case 0x88C1:  // 86c864 Vision 864
-            cd->chipFamily = VISION864;
-            break;
-        case 0x8813:                  // 86c764_3 [Trio 32/64 vers 3]
-            cd->chipFamily = TRIO64;  // correct?
-            break;
-        case 0x8811:  // 86c764/765 [Trio32/64/64V+]
-            cd->chipFamily = revision & 0x40 ? TRIO64PLUS : TRIO64;
-            break;
-        case 0x8812:  // 86CM65 Aurora64V+
-        case 0x8814:  // 86c767 [Trio 64UV+]
-        case 0x8900:  // 86c755 [Trio 64V2/DX]
-        case 0x8901:  // 86c775/86c785 [Trio 64V2/DX or /GX]
-        case 0x8905:  // Trio 64V+ family
-        case 0x8906:  // Trio 64V+ family
-        case 0x8907:  // Trio 64V+ family
-        case 0x8908:  // Trio 64V+ family
-        case 0x8909:  // Trio 64V+ family
-        case 0x890a:  // Trio 64V+ family
-        case 0x890b:  // Trio 64V+ family
-        case 0x890c:  // Trio 64V+ family
-        case 0x890d:  // Trio 64V+ family
-        case 0x890e:  // Trio 64V+ family
-        case 0x890f:  // Trio 64V+ family
-            cd->chipFamily = TRIO64PLUS;
-            break;
-        default:
-            cd->chipFamily = UNKNOWN;
-            DFUNC(0, "Unknown chip family, aborting\n");
-            return FALSE;
-        }
-    }
 
     if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
         /* Chip wakeup Trio64+ */
@@ -3223,7 +3237,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
 
     // reserve memory for a 8x8 monochrome pattern
-    ChipData_t *cd = getChipData(bi);
     // Unfortunately we're overallocating here for the largest pitch.
     ULONG patternSize      = 8 * 2048;
     bi->MemorySize         = (bi->MemorySize - patternSize) & ~(7);
@@ -3234,3 +3247,367 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     return TRUE;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#ifdef TESTEXE
+
+#include <boardinfo.h>
+#include <libraries/openpci.h>
+// #include <libraries/prometheus.h>
+#include <proto/dos.h>
+#include <proto/expansion.h>
+#include <proto/openpci.h>
+// #include <proto/prometheus.h>
+#include <proto/timer.h>
+#include <proto/utility.h>
+
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define VENDOR_E3B        0xE3B
+#define VENDOR_MATAY      0xAD47
+#define DEVICE_FIRESTORM  200
+#define DEVICE_PROMETHEUS 1
+
+struct Library *PrometheusBase = NULL;
+struct Library *OpenPciBase    = NULL;
+struct IORequest ioRequest;
+struct Device *TimerBase = NULL;
+struct UtilityBase *UtilityBase;
+struct ExpansionBase *ExpansionBase;
+
+void SigIntHandler(int dummy)
+{
+    if (PrometheusBase) {
+        CloseLibrary(PrometheusBase);
+    }
+    if (OpenPciBase) {
+        CloseLibrary(OpenPciBase);
+    }
+    abort();
+}
+
+APTR findLegacyIOBase()
+{
+    struct ConfigDev *cd;
+
+    APTR legacyIOBase = NULL;
+    if (cd = FindConfigDev(NULL, VENDOR_MATAY, DEVICE_PROMETHEUS))
+        legacyIOBase = cd->cd_BoardAddr;
+    else if (cd = FindConfigDev(NULL, VENDOR_E3B, DEVICE_FIRESTORM))
+        legacyIOBase = (APTR)((ULONG)cd->cd_BoardAddr + 0x1fe00000);
+
+    return legacyIOBase;
+}
+
+int main()
+{
+    signal(SIGINT, SigIntHandler);
+
+    int rval = EXIT_FAILURE;
+
+    // if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
+    //     D(0, "Unable to open openpci.library\n");
+    // }
+
+    if (!(PrometheusBase = OpenLibrary(PROMETHEUSNAME, 0))) {
+        D(0, "Unable to open prometheus.library\n");
+        goto exit;
+    }
+
+    APTR legacyIOBase = NULL;
+    if (!(legacyIOBase = findLegacyIOBase())) {
+        D(0, "Unable to find legacy IO base\n");
+        goto exit;
+    }
+
+    // if (!(DOSBase = OpenLibrary(DOSNAME, 0))) {
+    //     D(0, "Unable to open dos.library\n");
+    //     goto exit;
+    // }
+
+    // if (OpenDevice(TIMERNAME, 0, &ioRequest, 0)) {
+    //     D(0, "Unable to open " TIMERNAME "\n");
+    //     goto exit;
+    // }
+    // TimerBase = ioRequest.io_Device;
+
+    // struct EClockVal startTime, endTime;
+    // ULONG eFreq = ReadEClock(&startTime);
+    // delayMicroSeconds(555);
+    // ReadEClock(&endTime);
+    // ULONG delta = *(uint64_t *)&endTime - *(uint64_t *)&startTime;
+    // delta       = (delta * 1000) / (eFreq / 1000);
+
+    // D(INFO, "Delay: %ld ms\n", delta);
+
+    ULONG dmaSize = 128 * 1024;
+
+    APTR board = NULL;
+
+    D(0, "Looking for S3 Trio64 card\n");
+
+    while ((board = (APTR)Prm_FindBoardTags(board, PRM_Vendor, VENDOR_ID_S3, TAG_END)) != NULL) {
+        ULONG Device, Revision, Memory0Size = 0, Memory2Size = 0;
+        APTR Memory0 = 0, Memory1 = 0, Memory2 = 0;
+
+        Prm_GetBoardAttrsTags(board, PRM_Device, (ULONG)&Device, PRM_Revision, (ULONG)&Revision, PRM_MemoryAddr0,
+                              (ULONG)&Memory0, PRM_MemorySize0, (ULONG)&Memory0Size, PRM_MemoryAddr1, (ULONG)&Memory1,
+                              PRM_MemoryAddr2, (ULONG)&Memory2, PRM_MemorySize2, (ULONG)&Memory2Size, TAG_END);
+
+        D(0, "device %x revision %x\n", Device, Revision);
+
+        ChipFamily_t chipFamily = detectChipFamily(Device, Revision);
+
+        if (chipFamily != UNKNOWN) {
+            D(ALWAYS, "S3: %s found\n", getChipFamilyName(chipFamily));
+
+            // Write PCI COMMAND register to enable IO and Memory access
+            Prm_WriteConfigWord((PCIBoard *)board, 0x03, 0x04);
+
+            D(ALWAYS, "MemoryBase 0x%x, MemorySize %u, IOBase 0x%x\n", Memory0, Memory0Size, Memory1);
+
+            APTR physicalAddress = Prm_GetPhysicalAddress(Memory0);
+            D(ALWAYS, "physicalAdress 0x%08lx\n", physicalAddress);
+
+            struct ChipBase *ChipBase = NULL;
+
+            struct BoardInfo boardInfo;
+            memset(&boardInfo, 0, sizeof(boardInfo));
+            struct BoardInfo *bi = &boardInfo;
+
+            bi->ExecBase             = SysBase;
+            bi->UtilBase             = UtilityBase;
+            bi->CardPrometheusBase   = (ULONG)PrometheusBase;
+            bi->CardPrometheusDevice = (ULONG)board;
+            bi->ChipBase             = ChipBase;
+
+            if (chipFamily >= TRIO64PLUS) {
+                // The Trio64
+                // S3Trio64.chip expects register base adress to be offset by 0x8000
+                // to be able to address all registers with just regular signed 16bit
+                // offsets
+                bi->RegisterBase = ((UBYTE *)legacyIOBase) + REGISTER_OFFSET;
+                // Use the Trio64+ MMIO range in the BE Address Window at BaseAddress +
+                // 0x3000000
+                bi->MemoryIOBase = Memory0 + 0x3000000 + MMIOREGISTER_OFFSET;
+                // No need to fudge with the base address here
+                bi->MemoryBase = Memory0;
+            } else {
+                bi->RegisterBase = ((UBYTE *)legacyIOBase) + REGISTER_OFFSET;
+                // This is how I understand Trio64/32 MMIO approach: 0xA0000 is
+                // hardcoded as the base of the enhanced registers I need to make
+                // sure, the first 1 MB of address space don't overlap with anything.
+                bi->MemoryIOBase = Prm_GetVirtualAddress((APTR)0xA0000);
+
+                if (bi->MemoryIOBase == NULL) {
+                    D(ALWAYS, "VGA memory window at 0xA0000-BFFFF is not available. Aborting.\n");
+                    goto exit;
+                }
+
+                D(ALWAYS, "MMIO Base at physical address 0xA0000 virtual: 0x%lx.\n", bi->MemoryIOBase);
+
+                bi->MemoryIOBase += MMIOREGISTER_OFFSET;
+
+                // I have to push out the card's Linear Address Window memory base
+                // address to not overlap with its own MMIO address range at
+                // 0xA8000-0xAFFFF On Trio64+ this is way easier with the "new MMIO"
+                // approach. Here we move the Linear Address Window up by 4MB. This
+                // gives us 4MB alignment and moves the LAW while not moving the PCI
+                // BAR of teh card. The assumption is that the gfx card is the first
+                // one to be initialized and thus sit at 0x00000000 in PCI address
+                // space. This way 0xA8000 is in the card's BAR and the LAW should be
+                // at 0x400000
+                bi->MemoryBase = Memory0;
+                if (Prm_GetPhysicalAddress(bi->MemoryBase) <= (APTR)0xB0000) {
+                    // This shifts the memory base address by 4MB, which should be ok
+                    // since the S3Trio asks for 8MB PCI address space, typically only
+                    // utilizing the first 4MB
+                    bi->MemoryBase += 0x400000;
+
+                    D(ALWAYS,
+                      "WARNING: Trio64/32 memory base overlaps with MMIO address at "
+                      "0xA8000-0xAFFFF.\n"
+                      "Moving FB adress window out by 4mb to 0x%lx\n",
+                      bi->MemoryBase);
+                }
+            }
+
+            D(ALWAYS, "Trio64 init chip\n");
+            if (!InitChip(bi)) {
+                D(ERROR, "InitChip failed. Exit");
+                goto exit;
+            }
+            D(ALWAYS, "Trio64 has %ldkb usable memory\n", bi->MemorySize / 1024);
+
+            {
+                DFUNC(ALWAYS, "SetDisplay OFF\n");
+                SetDisplay(bi, FALSE);
+            }
+
+            {
+                // test 640x480 screen
+                struct ModeInfo mi;
+
+                mi.Depth            = 8;
+                mi.Flags            = 0;
+                mi.Height           = 480;
+                mi.Width            = 680;
+                mi.HorBlankSize     = 0;
+                mi.HorEnableSkew    = 0;
+                mi.HorSyncSize      = 96;
+                mi.HorSyncStart     = 16;
+                mi.HorTotal         = 800;
+                mi.PixelClock       = 25175000;
+                mi.pll1.Numerator   = 190;
+                mi.pll2.Denominator = 2;
+                mi.VerBlankSize     = 0;
+                mi.VerSyncSize      = 2;
+                mi.VerSyncStart     = 10;
+                mi.VerTotal         = 525;
+
+                bi->ModeInfo = &mi;
+
+                ULONG index = ResolvePixelClock(bi, &mi, mi.PixelClock, RGBFB_CLUT);
+
+                DFUNC(ALWAYS, "SetClock\n");
+
+                SetClock(bi);
+
+                DFUNC(ALWAYS, "SetGC\n");
+
+                SetGC(bi, &mi, TRUE);
+            }
+            {
+                DFUNC(ALWAYS, "SetDAC\n");
+                SetDAC(bi, RGBFB_CLUT);
+            }
+            {
+                SetSprite(bi, FALSE, RGBFB_CLUT);
+            }
+
+            {
+                DFUNC(0, "SetColorArray\n");
+                UBYTE colors[256 * 3];
+                for (int c = 0; c < 256; c++) {
+                    bi->CLUT[c].Red   = c;
+                    bi->CLUT[c].Green = c;
+                    bi->CLUT[c].Blue  = c;
+                }
+                SetColorArray(bi, 0, 256);
+            }
+            {
+                SetPanning(bi, bi->MemoryBase, 640, 480, 0, 0, RGBFB_CLUT);
+            }
+            {
+                DFUNC(ALWAYS, "SetDisplay ON\n");
+                SetDisplay(bi, TRUE);
+            }
+
+            for (int y = 0; y < 480; y++) {
+                for (int x = 0; x < 640; x++) {
+                    *(volatile UBYTE *)(bi->MemoryBase + y * 640 + x) = x;
+                }
+            }
+
+            struct RenderInfo ri;
+            ri.Memory      = bi->MemoryBase;
+            ri.BytesPerRow = 640;
+            ri.RGBFormat   = RGBFB_CLUT;
+
+            {
+                FillRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, 0xFF, RGBFB_CLUT);
+            }
+
+            {
+                FillRect(bi, &ri, 64, 64, 128, 128, 0xAA, 0xFF, RGBFB_CLUT);
+            }
+
+            {
+                FillRect(bi, &ri, 256, 10, 128, 128, 0x33, 0xFF, RGBFB_CLUT);
+            }
+
+            for (int i = 0; i < 8; ++i) {
+                {
+                    UWORD patternData[] = {0x0101, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
+                    struct Pattern pattern;
+                    pattern.BgPen    = 127;
+                    pattern.FgPen    = 255;
+                    pattern.DrawMode = JAM2;
+                    pattern.Size     = 2;
+                    pattern.Memory   = patternData;
+                    pattern.XOffset  = i;
+                    pattern.YOffset  = i;
+
+                    BlitPattern(bi, &ri, &pattern, 100 + i * 32, 150 + i * 32, 24, 24, 0xFF, RGBFB_CLUT);
+                }
+            }
+
+            for (int i = 0; i < 8; ++i) {
+                {
+                    UWORD patternData[] = {0x0101, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
+                    struct Pattern pattern;
+                    pattern.BgPen    = 127;
+                    pattern.FgPen    = 255;
+                    pattern.DrawMode = JAM2;
+                    pattern.Size     = 2;
+                    pattern.Memory   = patternData;
+                    pattern.XOffset  = 0;
+                    pattern.YOffset  = 0;
+
+                    BlitPattern(bi, &ri, &pattern, 150 + i * 32 + i, 150 + i * 32 + i, 24, 24, 0xFF, RGBFB_CLUT);
+                }
+            }
+
+            for (int i = 0; i < 8; ++i) {
+                {
+                    UWORD patternData[] = {
+                        0xF0F0, 0xF0F0, 0x0F0F, 0x0F0F, 0x0, 0x0, 0x0,
+                    };
+                    struct Pattern pattern;
+                    pattern.BgPen    = 127;
+                    pattern.FgPen    = 255;
+                    pattern.DrawMode = JAM2;
+                    pattern.Size     = 2;
+                    pattern.Memory   = patternData;
+                    pattern.XOffset  = i;
+                    pattern.YOffset  = i;
+
+                    BlitPattern(bi, &ri, &pattern, 200 + i * 32 + i, 150 + i * 32 + i, 24, 24, 0xFF, RGBFB_CLUT);
+                }
+            }
+
+            WaitBlitter(bi);
+            // RegisterOwner(cb, board, (struct Node *)ChipBase);
+
+            // if ((dmaSize > 0) && (dmaSize <= bi->MemorySize)) {
+            //     // Place DMA window at end of memory window 0 and page-align it
+            //     ULONG dmaOffset = (bi->MemorySize - dmaSize) & ~(4096 - 1);
+            //     InitDMAMemory(cb, bi->MemoryBase + dmaOffset, dmaSize);
+            //     bi->MemorySize = dmaOffset;
+            //     cb->cb_DMAMemGranted = TRUE;
+            // }
+            // no need to continue - we have found a match
+            rval = EXIT_SUCCESS;
+            goto exit;
+        }
+    }  // while
+
+    D(ERROR, "no Trio64 found.\n");
+
+exit:
+    if (PrometheusBase) {
+        CloseLibrary(PrometheusBase);
+    }
+    if (OpenPciBase) {
+        CloseLibrary(OpenPciBase);
+    }
+
+    return rval;
+}
+#endif  // TESTEXE
