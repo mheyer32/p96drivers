@@ -13,6 +13,13 @@ typedef enum ChipFamily
     TRIO64PLUS  // integrated RAMDAC, newstyle+packed MMIO
 } ChipFamily_t;
 
+typedef struct PLLValue
+{
+    UBYTE m;  // M numerant
+    UBYTE n;  // N divider
+    UBYTE r;  // 2 << R divider
+} PLLValue_t;
+
 typedef struct ChipData
 {
     ULONG GEfgPen;
@@ -38,14 +45,19 @@ typedef struct ChipData
     UWORD *patternCacheBuffer;  // points to system memory
     ULONG patternCacheKey;
 
+    // PLL table for pixel clocks
+    PLLValue_t *pllValues;
+    UWORD numPllValues;
+
 } ChipData_t;
 
-#define W_BEE8(idx, value) W_MMIO_W(0xBEE8, ((idx << 12) | value))
+
+STATIC_ASSERT(sizeof(ChipData_t) <= sizeof(((BoardInfo_t *)0)->ChipData), ChipData_t_too_large);
 
 static INLINE UWORD readBEE8(volatile UBYTE *RegBase, UBYTE idx)
 {
     // BEWARE: the read index bit value does not fully match 'idx'
-    // We do not cover 9AE8, 42E8, 476E8 here (which can be read, too through this
+    // We do not cover 9AE8, 42E8, 476E8 here (which can be read, too, through this
     // register)
     switch (idx) {
     case 0xA:
@@ -64,6 +76,8 @@ static INLINE UWORD readBEE8(volatile UBYTE *RegBase, UBYTE idx)
     W_IO_W(0xBEE8, (0xF << 12) | idx);
     return R_IO_W(0xBEE8) & 0xFFF;
 }
+
 #define R_BEE8(idx) readBEE8(RegBase, idx)
+#define W_BEE8(idx, value) W_MMIO_W(0xBEE8, ((idx << 12) | value))
 
 #endif

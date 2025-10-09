@@ -186,6 +186,56 @@ static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 static const struct svga_pll s3trio64_pll = {3, 129, 3, 33, 0, 3, 35000, 240000, 14318};
 static const struct svga_pll s3sdac_pll   = {3, 129, 3, 33, 0, 3, 60000, 270000, 14318};
 
+// Helper function to compute frequency from PLL values
+static ULONG computeKhzFromPllValue(const struct svga_pll *pll, const PLLValue_t *pllValue)
+{
+    ULONG f_vco = (pll->f_base * pllValue->m) / pllValue->n;
+    return f_vco >> pllValue->r;
+}
+
+// Initialize PLL table for pixel clocks
+void InitPixelClockPLLTable(BoardInfo_t *bi)
+{
+    DFUNC(VERBOSE, "", bi);
+
+    LOCAL_SYSBASE();
+
+    ChipData_t *cd             = getChipData(bi);
+    const struct svga_pll *pll = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
+
+    UWORD maxFreq    = 135;  // 135MHz max
+    UWORD minFreq    = 12;   // 12MHz min
+    UWORD numEntries = maxFreq - minFreq + 1;
+
+    PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * numEntries, MEMF_PUBLIC);
+    if (!pllValues) {
+        DFUNC(ERROR, "Failed to allocate PLL table\n");
+        return;
+    }
+
+    cd->pllValues    = pllValues;
+    cd->numPllValues = 0;
+
+    int lastValue = 0;
+    // Generate PLL values for each frequency
+    for (UWORD freq = minFreq; freq <= maxFreq; freq++) {
+        UWORD m, n, r;
+        int currentKhz = svga_compute_pll(pll, freq * 1000, &m, &n, &r);
+
+        if (currentKhz >= 0) {
+            pllValues[cd->numPllValues].m = m;
+            pllValues[cd->numPllValues].n = n;
+            pllValues[cd->numPllValues].r = r;
+            cd->numPllValues++;
+
+            DFUNC(CHATTY, "Pixelclock %03ld %09ldHz: m=%ld n=%ld r=%ld\n", (ULONG)cd->numPllValues - 1,
+                  (ULONG)currentKhz * 1000, (ULONG)m, (ULONG)n, (ULONG)r);
+        }
+    }
+
+    D(VERBOSE, "Initialized %ld PLL entries\n", cd->numPllValues);
+}
+
 ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 {
     REGBASE();
@@ -205,20 +255,16 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 
     if (getChipData(bi)->chipFamily >= TRIO64) {
         /* Set S3 clock registers */
-        W_SR(0x10, (n - 2) | (r << 5));
+        W_SR(0x10, (r << 5) | (n - 2));
         W_SR(0x11, m - 2);
 
-        // CIA access has deterministic speed, use it for a short delay
-        extern volatile FAR struct CIA ciaa;
-        for (int i = 0; i < 10; ++i) {
-            UBYTE x = ciaa.ciapra;
-        }
+        delayMicroSeconds(10);
 
         /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
-        regval = R_SR(0x15); /* | 0x80; */
-        W_SR(0x15, regval & ~(1 << 5));
-        W_SR(0x15, regval | (1 << 5));
-        W_SR(0x15, regval & ~(1 << 5));
+        regval = R_SR(0x15) & ~BIT(5); /* | 0x80; */
+        W_SR(0x15, regval );
+        W_SR(0x15, regval | BIT(5));
+        W_SR(0x15, regval);
     } else {
         /* set RS2 via CR55 - I believe this switches to a second "bank" of RAMDAC registers */
         W_CR_MASK(0x55, 0x01, 0x01);
@@ -227,7 +273,7 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
         // Is the one selected at power up
         W_REG(DAC_WR_AD, 0x0A);
         W_REG(DAC_DATA, m - 2);
-        W_REG(DAC_DATA, (n - 2) | (r << 5));
+        W_REG(DAC_DATA, (r << 5) | (n - 2));
 
         W_CR_MASK(0x55, 0x01, 0x00);
     }
@@ -471,12 +517,12 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     depth = mi->Depth;
     if (depth <= 8) {
         if ((border == 0) || ((mi->HorBlankSize == 0 || (mi->VerBlankSize == 0)))) {
-            D(6, "8-Bit Mode, NO Border\n");
+            D(INFO, "8-Bit Mode, NO Border\n");
             // Bit 5 BDR SEL - Blank/Border Select
             // 1 = BLANK is active during entire display inactive period (no border)
             W_CR_MASK(0x33, 0x20, 0x20);
         } else {
-            D(6, "8-Bit Mode, Border\n");
+            D(INFO, "8-Bit Mode, Border\n");
             // Bit 5 BDR SEL - Blank/Border Select
             // o = BLANK active time is defined by CR2 and CR3
             W_CR_MASK(0x33, 0x20, 0x0);
@@ -486,7 +532,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         W_CR_MASK(0x43, 0x80, 0x00);
 
         if (modeFlags & GMF_DOUBLECLOCK) {
-            DFUNC(0, "Double-Clock Mode\n");
+            DFUNC(INFO, "Double-Clock Mode\n");
 #if BUILD_VISION864
             hTotal      = hTotal / 2;
             ScreenWidth = ScreenWidth / 2;
@@ -507,7 +553,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 #endif
         }
     } else if (depth <= 16) {
-        D(6, "16-Bit Mode, No Border\n");
+        D(INFO, "16-Bit Mode, No Border\n");
         // Bit 5 BDR SEL - Blank/Border Select
         // o = BLANK active time is defined by CR2 and CR3
         W_CR_MASK(0x33, 0x20, 0x0);
@@ -516,7 +562,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         W_CR_MASK(0x43, 0x80, 0x80);
         border = 0;
     } else {
-        D(6, "24-Bit Mode, No Border\n");
+        D(INFO, "24-Bit Mode, No Border\n");
         // Bit 5 BDR SEL - Blank/Border Select
         // 0 = BLANK active time is defined by CR2 and CR3
         W_CR_MASK(0x33, 0x20, 0x0);
@@ -542,7 +588,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     {
         // Horizontal Total (CRO)
         UWORD hTotalClk = TO_CLKS(hTotal) - 5;
-        D(6, "Horizontal Total %ld\n", (ULONG)hTotalClk);
+        D(INFO, "Horizontal Total %ld\n", (ULONG)hTotalClk);
         W_CR_OVERFLOW1(hTotalClk, 0x0, 0, 8, 0x5D, 0, 1);
         // FIXME: is this correct?
         {
@@ -556,7 +602,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // This register defines the number of character clocks for one line of the
         // active display. Bit 8 of this value is bit 1 of CR5D.
         UWORD hDisplayEnd = TO_CLKS(ScreenWidth) - 1;
-        D(6, "Display End %ld\n", (ULONG)hDisplayEnd);
+        D(INFO, "Display End %ld\n", (ULONG)hDisplayEnd);
         W_CR_OVERFLOW1(hDisplayEnd, 0x1, 0, 8, 0x5D, 1, 1);
     }
 
@@ -568,14 +614,14 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // Enable) signals are inactive.
 
         // Start Horizontal Blank Register (S_H_BLNKI (CR2))
-        D(6, "Horizontal Blank Start %ld\n", (ULONG)hBlankStart);
+        D(INFO, "Horizontal Blank Start %ld\n", (ULONG)hBlankStart);
         W_CR_OVERFLOW1(hBlankStart, 0x2, 0, 8, 0x5d, 2, 1);
     }
 
     {
         // End Horizontal Blank Register (E_H_BLNKI (CR3)
         UWORD hBlankEnd = TO_CLKS(hTotal - hBorderSize) - 1;
-        D(6, "Horizontal Blank End %ld\n", (ULONG)hBlankEnd);
+        D(INFO, "Horizontal Blank End %ld\n", (ULONG)hBlankEnd);
         //    W_CR_OVERFLOW2(hBlankEnd, 0x3, 0, 5, 0x5, 7, 1, 0x5d, 3, 1);
         W_CR_OVERFLOW1(hBlankEnd, 0x3, 0, 5, 0x5, 7, 1);
     }
@@ -583,14 +629,14 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     UWORD hSyncStart = TO_CLKS(mi->HorSyncStart + ScreenWidth);
     {
         // Start Horizontal Sync Position Register (S_H_SV _PI (CR4)
-        D(6, "HSync start %ld\n", (ULONG)hSyncStart);
+        D(INFO, "HSync start %ld\n", (ULONG)hSyncStart);
         W_CR_OVERFLOW1(hSyncStart, 0x4, 0, 8, 0x5d, 4, 1);
     }
 
     UWORD endHSync = hSyncStart + TO_CLKS(mi->HorSyncSize);
     {
         // End Horizontal Sync Position Register (E_H_SY_P) (CR5)
-        D(6, "HSync End %ld\n", (ULONG)endHSync);
+        D(INFO, "HSync End %ld\n", (ULONG)endHSync);
         W_CR_MASK(0x5, 0x1f, endHSync);
         //    W_CR_OVERFLOW1(endHSync, 0x5, 0, 5, 0x5d, 5, 1);
     }
@@ -607,14 +653,14 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         if (endHSync > startDisplayFifo) {
             startDisplayFifo = endHSync + 1;
         }
-        D(6, "Start Display Fifo %ld\n", (ULONG)startDisplayFifo);
+        D(INFO, "Start Display Fifo %ld\n", (ULONG)startDisplayFifo);
         W_CR_OVERFLOW1(startDisplayFifo, 0x3b, 0, 8, 0x5d, 6, 1);
     }
 
     {
         // Vertical Total (CR6)
         UWORD vTotal = TO_SCANLINES(mi->VerTotal) - 2;
-        D(6, "VTotal %ld\n", (ULONG)vTotal);
+        D(INFO, "VTotal %ld\n", (ULONG)vTotal);
         W_CR_OVERFLOW3(vTotal, 0x6, 0, 8, 0x7, 0, 1, 0x7, 5, 1, 0x5e, 0, 1);
     }
 
@@ -622,7 +668,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     {
         // Vertical Display End register (CR12)
         UWORD vDisplayEnd = TO_SCANLINES(mi->Height) - 1;
-        D(6, "Vertical Display End %ld\n", (ULONG)vDisplayEnd);
+        D(INFO, "Vertical Display End %ld\n", (ULONG)vDisplayEnd);
         W_CR_OVERFLOW3(vDisplayEnd, 0x12, 0, 8, 0x7, 1, 1, 0x7, 6, 1, 0x5e, 1, 1);
     }
 
@@ -635,7 +681,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // FIXME: the blankSize is unaffected by double scan, but affected by
         // interlaced?
         vBlankStart = ((vBlankStart + vBlankSize) >> isInterlaced) - 1;
-        D(6, "VBlank Start %ld\n", (ULONG)vBlankStart);
+        D(INFO, "VBlank Start %ld\n", (ULONG)vBlankStart);
         W_CR_OVERFLOW3(vBlankStart, 0x15, 0, 8, 0x7, 3, 1, 0x9, 5, 1, 0x5e, 2, 1);
     }
 
@@ -657,7 +703,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // Vertical Retrace Start Register (VRS) (CR10)
         // FIXME: here VsyncStart is in lines, not scanlines, while mi->VerBlankSize
         // is in scanlines?
-        D(6, "VRetrace Start %ld\n", (ULONG)vRetraceStart);
+        D(INFO, "VRetrace Start %ld\n", (ULONG)vRetraceStart);
         W_CR_OVERFLOW3(vRetraceStart, 0x10, 0, 8, 0x7, 2, 1, 0x7, 7, 1, 0x5e, 4, 1);
     }
 
@@ -669,7 +715,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // 4 1east significant bits of this sum are programmed into this field.
         // This allows a maximum VSYNC pulse width of 15 scan line units.
         UWORD vRetraceEnd = vRetraceStart + TO_SCANLINES(mi->VerSyncSize);
-        D(6, "VRetrace End %ld\n", (ULONG)vRetraceEnd);
+        D(INFO, "VRetrace End %ld\n", (ULONG)vRetraceEnd);
         W_CR_MASK(0x11, 0x0F, vRetraceEnd);
     }
 
@@ -962,25 +1008,30 @@ static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
                                    __REGD0(ULONG pixelClock), __REGD7(RGBFTYPE RGBFormat))
 {
-    DFUNC(INFO, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
+    DFUNC(VERBOSE, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
+
+    const ChipData_t *cd       = getChipData(bi);
+    const struct svga_pll *pll = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
 
     mi->Flags &= ~GMF_ALWAYSBORDER;
     if (0x3ff < mi->VerTotal) {
         mi->Flags |= GMF_ALWAYSBORDER;
     }
 
-    mi->Flags &= ~GMF_DOUBLECLOCK;
+    mi->Flags &= ~GMF_DOUBLESCAN;
+    if (mi->Height < 400) {
+        mi->Flags |= GMF_DOUBLESCAN;
+    }
 
+    // Figure out if we can/need to make use of double clocking
+    mi->Flags &= ~GMF_DOUBLECLOCK;
 #if !BUILD_VISION864
     // Enable Double Clock for 8Bit modes when required pixelclock exceeds 80Mhz
     // I couldn't get this to work on the VISION864
     if (RGBFormat == RGBFB_CLUT || RGBFormat == RGBFB_NONE) {
-        if (pixelClock > 80000000) {
-            D(2, "Applying pixel multiplex clocking\n")
+        if (pixelClock > 67500000) {
+            D(VERBOSE, "Applying pixel multiplex clocking\n")
             mi->Flags |= GMF_DOUBLECLOCK;
-#if BUILD_VISION864
-            pixelClock /= 2;
-#endif
         }
     }
 #endif
@@ -993,90 +1044,118 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
     }
 #endif
 
-    //  if (mi->Height < 400) {
-    //    mi->Flags |= GMF_DOUBLESCAN;
-    //  }
+    ULONG targetFreqKhz = pixelClock / 1000;
 
-    UWORD m, n, r;
+    // Find the best matching PLL entry using binary search
+    UWORD upper     = cd->numPllValues - 1;
+    ULONG upperFreq = computeKhzFromPllValue(pll, &cd->pllValues[upper]);
+    UWORD lower     = 0;
+    ULONG lowerFreq = computeKhzFromPllValue(pll, &cd->pllValues[lower]);
 
-    D(VERBOSE, "Adjusted Pixel Hz: %ld\n", pixelClock);
+    while (lower + 1 < upper) {
+        UWORD middle     = (upper + lower) / 2;
+        ULONG middleFreq = computeKhzFromPllValue(pll, &cd->pllValues[middle]);
 
-    const struct svga_pll *pll = (getChipData(bi)->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
+        // DFUNC(INFO, "l %ld @ %ld, u %ld @ %ld, middle %ld @ %ld\n", (ULONG)lower, (ULONG)lowerFreq, (ULONG)upper,
+        //       (ULONG)upperFreq, (ULONG)middle, (ULONG)middleFreq);
 
-    int currentKhz = svga_compute_pll(pll, pixelClock / 1000, &m, &n, &r);
-    if (currentKhz < 0) {
-        DFUNC(WARN, "Cannot resolve requested pixclock %ld, format %ld\n", pixelClock, RGBFormat);
-        return 0;
+        if (targetFreqKhz > middleFreq) {
+            lower     = middle;
+            lowerFreq = middleFreq;
+        } else {
+            upper     = middle;
+            upperFreq = middleFreq;
+        }
     }
 
-#if BUILD_VISION864
-    if (mi->Flags & GMF_DOUBLECLOCK) {
-        currentKhz *= 2;
-    } else if (getBPP(RGBFormat) >= 3) {
-        currentKhz /= 2;
+    // DFUNC(INFO, "Candidate fequencies: lower %ld @ %ld, upper %ld @ %ld, target %ld\n", (ULONG)lower,
+    // (ULONG)lowerFreq,
+    //       (ULONG)upper, (ULONG)upperFreq, (ULONG)targetFreqKhz);
+
+    // Return the best match between upper and lower
+    if (targetFreqKhz - lowerFreq > upperFreq - targetFreqKhz) {
+        lower     = upper;
+        lowerFreq = upperFreq;
     }
-#endif
 
-    mi->PixelClock = currentKhz * 1000;
+    mi->PixelClock = lowerFreq * 1000;
 
-    D(VERBOSE, "Resulting pixelclock Hz: %ld\n\n", mi->PixelClock);
+    PLLValue_t pllValues = cd->pllValues[lower];
 
-    mi->pll1.Numerator   = (n - 2) | (r << 5);
-    mi->pll2.Denominator = m - 2;
+    //     if (mi->Flags & GMF_DOUBLECLOCK) {
+    //         pllValues.r += 1;
+    // #if DBG
+    //         ULONG halfFreq = computeKhzFromPllValue(pll, &pllValues);
+    //         D(VERBOSE, "true DCLK Hz: %ld\n", halfFreq * 1000);
+    // #endif
+    //     }
 
-    return currentKhz / 1000;  // uses Mhz as "index"
+    DFUNC(VERBOSE, "Reporting pixelclock Hz: %ld, index: %ld,  M:%ld N:%ld R:%ld \n\n", mi->PixelClock, (ULONG)lower,
+          (ULONG)pllValues.m, (ULONG)pllValues.n, (ULONG)pllValues.r);
+
+    // Store PLL values in the format expected by SetClock
+    mi->pll1.Numerator   = pllValues.m - 2;
+    mi->pll2.Denominator = (pllValues.r << 5) | (pllValues.n - 2);
+
+    return lower;  // Return the index into the PLL table
 }
 
 static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(ULONG index),
                                __REGD7(RGBFTYPE format))
 {
-    DFUNC(5, "\n");
+    DFUNC(INFO, "Index: %ld\n", index);
 
-    ULONG pixelClockKhz = index * 1000;
-    return pixelClockKhz * 1000;
+    const ChipData_t *cd       = getChipData(bi);
+    const struct svga_pll *pll = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
+
+    if (index >= cd->numPllValues) {
+        DFUNC(ERROR, "Invalid pixel clock index %ld (max %ld)\n", index, cd->numPllValues - 1);
+        return 0;
+    }
+
+    ULONG frequency = computeKhzFromPllValue(pll, &cd->pllValues[index]);
+    return frequency * 1000;  // Convert kHz to Hz
 }
 
 static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 {
-    REGBASE();
+    DFUNC(INFO, "\n");
 
-    DFUNC(0, "\n");
+    struct ModeInfo *mi = bi->ModeInfo;
 
-    ULONG pixelClock = bi->ModeInfo->PixelClock;
+    D(INFO, "SetClock: PixelClock %ldHz\n", mi->PixelClock);
 
-#if BUILD_VISION864
-    if (bi->ModeInfo->Depth >= 24) {
-        pixelClock *= 2;
-    }
+#if DBG
+    const ChipData_t *cd         = getChipData(bi);
+    const struct svga_pll *pll   = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
+    const PLLValue_t selectedPll = {
+        .m = (mi->pll1.Numerator + 2), .n = (mi->pll2.Denominator & 0x1F) + 2, .r = (mi->pll2.Denominator >> 5) & 0x03};
+    ULONG frequency = computeKhzFromPllValue(pll, &selectedPll);
+    D(VERBOSE, "         Actual PixelClock %ldHz M: %ld N: %ld, R: %ld\n", frequency * 1000, (ULONG)selectedPll.m,
+      (ULONG)selectedPll.n, (ULONG)selectedPll.r);
 #endif
-    // FIXME: better actually compute the frequency from the Numerator/Denominator
-    D(0, "SetClock: PixelClock %ldHz -> %ldHz \n", bi->ModeInfo->PixelClock, pixelClock);
+
+    REGBASE();
 
 #if !BUILD_VISION864
     /* Set S3 DCLK clock registers */
     // Clock-Doubling will be enabled by SetGC
-    W_SR(0x12, bi->ModeInfo->pll1.Numerator);
-    W_SR(0x13, bi->ModeInfo->pll2.Denominator);
+    W_SR(0x13, mi->pll1.Numerator);    // write M
+    W_SR(0x12, mi->pll2.Denominator);  // write N and R
 
-    // I used to use DOS' Delay() here but then realized that Delay()
-    // is likely using VBLank interrupt
-    // CIA access has deterministic speed, use it for a short delay
-    extern volatile FAR struct CIA ciaa;
-    for (int i = 0; i < 10; ++i) {
-        UBYTE x = ciaa.ciapra;
-    }
+    delayMicroSeconds(100);
 
     /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
-    UBYTE regval = R_SR(0x15); /* | 0x80; */
-    W_SR(0x15, regval & ~(1 << 5));
-    W_SR(0x15, regval | (1 << 5));
-    W_SR(0x15, regval & ~(1 << 5));
+    UBYTE regval = R_SR(0x15) & ~BIT(5); /* | 0x80; */
+    W_SR(0x15, regval);
+    W_SR(0x15, regval | BIT(5));
+    W_SR(0x15, regval);
 #else
     W_CR_MASK(0x55, 0x01, 0x01);
 
     W_REG(DAC_WR_AD, 2);
-    W_REG(DAC_DATA, bi->ModeInfo->pll2.Denominator);
-    W_REG(DAC_DATA, bi->ModeInfo->pll1.Numerator);
+    W_REG(DAC_DATA, mi->pll1.Numerator);
+    W_REG(DAC_DATA, mi->pll2.Denominator);
 
     W_CR_MASK(0x55, 0x01, 0x00);
 #endif
@@ -1303,6 +1382,9 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
         }
     }
 #endif
+
+    LOCAL_SYSBASE();
+    CacheClearU();
 }
 
 static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
@@ -2275,10 +2357,10 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
             // As I understand the PATBLT text: the pattern pixel is read. Then all the '1' bits in the RD_MASK
             // are compared to the same bits in the fetched pixel. If they match, the the foreground mix path
             // is taken, otherwise the background path.
-            // Therefore, instead of typical monochrome expansion, we need to produce the pattern first as "full blown" pixels.
-            // We upload the monochrome pattern first via a fill blit under monochrome expansion.
-            // Then we point the actual pattern blit at the produced "black and white pixels" image and let it be expanded
-            // to colored pixels via above mentioned mechanism.
+            // Therefore, instead of typical monochrome expansion, we need to produce the pattern first as "full blown"
+            // pixels. We upload the monochrome pattern first via a fill blit under monochrome expansion. Then we point
+            // the actual pattern blit at the produced "black and white pixels" image and let it be expanded to colored
+            // pixels via above mentioned mechanism.
             cd->GEfgPen    = 0xFFFFFFFF;
             cd->GEbgPen    = 0;
             cd->GEdrawMode = 0xFF;
@@ -2662,7 +2744,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     MMIOBASE();
     LOCAL_SYSBASE();
 
-    DFUNC(0, "\n");
+    DFUNC(ALWAYS, "\n");
 
     //  getChipData(bi)->DOSBase = (ULONG)OpenLibrary(DOSNAME, 0);
     //  if (!getChipData(bi)->DOSBase) {
@@ -2725,7 +2807,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->DrawLine               = DrawLine;
     bi->BlitPattern            = BlitPattern;
 
-    DFUNC(15,
+    DFUNC(CHATTY,
           "WaitBlitter 0x%08lx\nBlitRect 0x%08lx\nInvertRect 0x%08lx\nFillRect "
           "0x%08lx\n"
           "BlitTemplate 0x%08lx\n BlitPlanar2Chunky 0x%08lx\n"
@@ -2747,18 +2829,39 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             return FALSE;
         }
     }
+
+    // Initialize PLL table for pixel clocks
+    InitPixelClockPLLTable(bi);
+
+    // Set pixel clock counts based on initialized PLL table
     bi->PixelClockCount[PLANAR] = 0;
-#if BUILD_VISION864
-    bi->PixelClockCount[CHUNKY]    = 135;
-    bi->PixelClockCount[HICOLOR]   = 80;
-    bi->PixelClockCount[TRUECOLOR] = 50;
-    bi->PixelClockCount[TRUEALPHA] = 50;
-#else
-    bi->PixelClockCount[CHUNKY]    = 135;  // > 67Mhz can be achieved via Double Clock mode
-    bi->PixelClockCount[HICOLOR]   = 80;
-    bi->PixelClockCount[TRUECOLOR] = 50;
-    bi->PixelClockCount[TRUEALPHA] = 50;
-#endif
+    bi->PixelClockCount[CHUNKY] = cd->numPllValues;
+
+    // For higher color depths, limit to lower frequencies for stability
+    ULONG maxHiColorFreq   = 80000;  // 80MHz max for HiColor
+    ULONG maxTrueColorFreq = 50000;  // 50MHz max for TrueColor
+
+    bi->PixelClockCount[HICOLOR]   = 0;
+    bi->PixelClockCount[TRUECOLOR] = 0;
+    bi->PixelClockCount[TRUEALPHA] = 0;
+
+    // Count how many PLL entries are suitable for each color depth
+    const struct svga_pll *pll = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
+    for (UWORD i = 0; i < cd->numPllValues; i++) {
+        ULONG freqKhz = computeKhzFromPllValue(pll, &cd->pllValues[i]);
+
+        if (freqKhz <= maxHiColorFreq) {
+            bi->PixelClockCount[HICOLOR]++;
+            if (freqKhz <= maxTrueColorFreq) {
+                bi->PixelClockCount[TRUECOLOR]++;
+                bi->PixelClockCount[TRUEALPHA]++;
+            }
+        }
+    }
+
+    DFUNC(INFO, "PixelClockCount: Planar %ld, Chunky %ld, HiColor %ld, TrueColor %ld, TrueAlpha %ld\n",
+          bi->PixelClockCount[PLANAR], bi->PixelClockCount[CHUNKY], bi->PixelClockCount[HICOLOR],
+          bi->PixelClockCount[TRUECOLOR], bi->PixelClockCount[TRUEALPHA]);
 
     // Informed by the largest X/Y coordinates the blitter can talk to
     bi->MaxBMWidth  = 2048;
@@ -3187,8 +3290,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Two sprite images, each 64x64*2 bits
     const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
 
-    setCacheMode(bi, bi->MemoryBase, bi->MemorySize, MAPP_NONSERIALIZED|MAPP_IMPRECISE, CACHEFLAGS);
-
     // take sprite image data off the top of the memory
     // sprites can be placed at segment boundaries of 1kb
     bi->MemorySize       = (bi->MemorySize - maxSpriteBuffersSize) & ~(1024 - 1);
@@ -3207,6 +3308,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_CR(0x47, 0);
     W_CR(0x48, 0);
     W_CR(0x49, 0);
+
+    WaitForIdle(bi);
 
     // Write conservative scissors
     W_BEE8(SCISSORS_T, 0x0000);
@@ -3353,12 +3456,11 @@ int main()
     D(0, "Looking for S3 Trio64 card\n");
 
     while ((board = (APTR)Prm_FindBoardTags(board, PRM_Vendor, VENDOR_ID_S3, TAG_END)) != NULL) {
-        ULONG Device, Revision, Memory0Size = 0, Memory2Size = 0;
-        APTR Memory0 = 0, Memory1 = 0, Memory2 = 0;
+        ULONG Device, Revision, Memory0Size = 0;
+        APTR Memory0 = 0;
 
         Prm_GetBoardAttrsTags(board, PRM_Device, (ULONG)&Device, PRM_Revision, (ULONG)&Revision, PRM_MemoryAddr0,
-                              (ULONG)&Memory0, PRM_MemorySize0, (ULONG)&Memory0Size, PRM_MemoryAddr1, (ULONG)&Memory1,
-                              PRM_MemoryAddr2, (ULONG)&Memory2, PRM_MemorySize2, (ULONG)&Memory2Size, TAG_END);
+                              (ULONG)&Memory0, PRM_MemorySize0, (ULONG)&Memory0Size, TAG_END);
 
         D(0, "device %x revision %x\n", Device, Revision);
 
@@ -3370,7 +3472,7 @@ int main()
             // Write PCI COMMAND register to enable IO and Memory access
             Prm_WriteConfigWord((PCIBoard *)board, 0x03, 0x04);
 
-            D(ALWAYS, "MemoryBase 0x%x, MemorySize %u, IOBase 0x%x\n", Memory0, Memory0Size, Memory1);
+            D(ALWAYS, "MemoryBase 0x%x, MemorySize %u, IOBase 0x%x\n", Memory0, Memory0Size, legacyIOBase);
 
             APTR physicalAddress = Prm_GetPhysicalAddress(Memory0);
             D(ALWAYS, "physicalAdress 0x%08lx\n", physicalAddress);
@@ -3464,14 +3566,16 @@ int main()
                 mi.HorSyncStart     = 16;
                 mi.HorTotal         = 800;
                 mi.PixelClock       = 25175000;
-                mi.pll1.Numerator   = 190;
-                mi.pll2.Denominator = 2;
+                mi.pll1.Numerator   = 0;
+                mi.pll2.Denominator = 0;
                 mi.VerBlankSize     = 0;
                 mi.VerSyncSize      = 2;
                 mi.VerSyncStart     = 10;
                 mi.VerTotal         = 525;
 
                 bi->ModeInfo = &mi;
+
+                // ResolvePixelClock(bi, &mi, 67000000, RGBFB_CLUT);
 
                 ULONG index = ResolvePixelClock(bi, &mi, mi.PixelClock, RGBFB_CLUT);
 
@@ -3532,6 +3636,7 @@ int main()
                 FillRect(bi, &ri, 256, 10, 128, 128, 0x33, 0xFF, RGBFB_CLUT);
             }
 
+#if 0
             for (int i = 0; i < 8; ++i) {
                 {
                     UWORD patternData[] = {0x0101, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
@@ -3581,7 +3686,7 @@ int main()
                     BlitPattern(bi, &ri, &pattern, 200 + i * 32 + i, 150 + i * 32 + i, 24, 24, 0xFF, RGBFB_CLUT);
                 }
             }
-
+#endif
             WaitBlitter(bi);
             // RegisterOwner(cb, board, (struct Node *)ChipBase);
 

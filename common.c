@@ -32,7 +32,7 @@ int svga_compute_pll(const struct svga_pll *pll, ULONG f_wanted_khz, USHORT *m, 
     USHORT am, an, ar;
     ULONG f_vco, f_current, delta_current, delta_best;
 
-    DFUNC(8, "ideal frequency: %ld kHz\n", (unsigned int)f_wanted_khz);
+    DFUNC(CHATTY, "ideal frequency: %ld kHz\n", (unsigned int)f_wanted_khz);
 
     ar    = pll->r_max;
     f_vco = f_wanted_khz << ar;
@@ -84,8 +84,8 @@ int svga_compute_pll(const struct svga_pll *pll, ULONG f_wanted_khz, USHORT *m, 
 
     f_current = (pll->f_base * *m) / *n;
 
-    D(15, "found frequency: %ld kHz (VCO %ld kHz)\n", (int)(f_current >> ar), (int)f_current);
-    D(15, "m = %ld n = %ld r = %ld\n", (unsigned int)*m, (unsigned int)*n, (unsigned int)*r);
+    D(CHATTY, "found frequency: %ld kHz (VCO %ld kHz)\n", (int)(f_current >> ar), (int)f_current);
+    D(CHATTY, "m = %ld n = %ld r = %ld\n", (unsigned int)*m, (unsigned int)*n, (unsigned int)*r);
 
     return (f_current >> ar);
 }
