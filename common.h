@@ -2,9 +2,9 @@
 #define COMMON_H
 
 #include <SDI_compiler.h>
-#include <proto/exec.h>
 #include <exec/types.h>
 #include <mmu/context.h>
+#include <proto/exec.h>
 
 #include <boardinfo.h>
 // FIXME: copy header into common location
@@ -321,7 +321,7 @@ static INLINE UWORD REGARGS readMMIO_W(volatile UBYTE *mmiobase, LONG regOffset,
     // requires register access as words
     asm volatile("" ::"r"(value));
 
-    D(VERBOSE, "R %s -> 0x%08lx\n", (ULONG)regName, value);
+    D(VERBOSE, "R %s -> 0x%04lx\n", (ULONG)regName, (ULONG)value);
 
     return value;
 }
@@ -378,7 +378,7 @@ static INLINE UBYTE REGARGS readCRx(volatile UBYTE *regbase, UBYTE regIndex)
     writeReg(regbase, CRTC_IDX, regIndex);
     UBYTE value = readReg(regbase, CRTC_DATA);
 
-    D(VERBOSE, "R CR%.2lx -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
+    D(VERBOSE, "R CR%lX -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
     return value;
 }
 
@@ -390,7 +390,7 @@ static INLINE void REGARGS writeCRx(volatile UBYTE *regbase, UBYTE regIndex, UBY
     // one go
     //  writeRegW(regbase, CRTC_IDX, (regIndex << 8) | value );
 
-    D(VERBOSE, "W CR%.2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
+    D(VERBOSE, "W CR%lX <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
 }
 
 static INLINE void REGARGS writeCRxMask(volatile UBYTE *regbase, UBYTE regIndex, UBYTE mask, UBYTE value)
@@ -399,7 +399,7 @@ static INLINE void REGARGS writeCRxMask(volatile UBYTE *regbase, UBYTE regIndex,
     // Keep index register from previous read
     writeReg(regbase, CRTC_DATA, regvalue);
 
-    D(VERBOSE, "W CR%.2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)regvalue);
+    D(VERBOSE, "W CR%lX <- 0x%02lx\n", (LONG)regIndex, (LONG)regvalue);
 }
 
 static INLINE UBYTE REGARGS readSRx(volatile UBYTE *regbase, UBYTE regIndex)
@@ -407,7 +407,7 @@ static INLINE UBYTE REGARGS readSRx(volatile UBYTE *regbase, UBYTE regIndex)
     writeReg(regbase, SEQX, regIndex);
     UBYTE value = readReg(regbase, SEQ_DATA);
 
-    D(VERBOSE, "R SR%2lx -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
+    D(VERBOSE, "R SR%lX -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
 
     return value;
 }
@@ -417,7 +417,7 @@ static INLINE void REGARGS writeSRx(volatile UBYTE *regbase, UBYTE regIndex, UBY
     writeReg(regbase, SEQX, regIndex);
     writeReg(regbase, SEQ_DATA, value);
 
-    D(VERBOSE, "W SR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
+    D(VERBOSE, "W SR%lX <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
 }
 
 static INLINE void REGARGS writeSRxMask(volatile UBYTE *regbase, UBYTE regIndex, UBYTE mask, UBYTE value)
@@ -426,7 +426,7 @@ static INLINE void REGARGS writeSRxMask(volatile UBYTE *regbase, UBYTE regIndex,
     UBYTE regvalue = (readReg(regbase, SEQ_DATA) & ~mask) | (value & mask);
     writeReg(regbase, SEQ_DATA, regvalue);
 
-    D(VERBOSE, "W SR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
+    D(VERBOSE, "W SR%lX <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
     //  writeSRx(regbase, regIndex,
     //           (readSRx(regbase, regIndex) & ~mask) | (value & mask));
 }
@@ -436,7 +436,7 @@ static INLINE UBYTE REGARGS readGRx(volatile UBYTE *regbase, UBYTE regIndex)
     writeReg(regbase, GRC_ADR, regIndex);
     UBYTE value = readReg(regbase, GRC_DATA);
 
-    D(VERBOSE, "R GR%2lx -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
+    D(VERBOSE, "R GR%lX -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
     return value;
 }
 
@@ -445,7 +445,7 @@ static INLINE void REGARGS writeGRx(volatile UBYTE *regbase, UBYTE regIndex, UBY
     writeReg(regbase, GRC_ADR, regIndex);
     writeReg(regbase, GRC_DATA, value);
 
-    D(VERBOSE, "W GR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
+    D(VERBOSE, "W GR%lX <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
 }
 
 static INLINE UBYTE REGARGS readARx(volatile UBYTE *regbase, UBYTE regIndex)
@@ -453,7 +453,7 @@ static INLINE UBYTE REGARGS readARx(volatile UBYTE *regbase, UBYTE regIndex)
     writeReg(regbase, ATR_AD, regIndex);
     UBYTE value = readReg(regbase, ATR_DATA_R);
 
-    D(VERBOSE, "R AR%2lx -> 0x%lx\n", (LONG)regIndex, (LONG)value);
+    D(VERBOSE, "R AR%lX -> 0x%lx\n", (LONG)regIndex, (LONG)value);
     return value;
 }
 
@@ -464,7 +464,7 @@ static INLINE void REGARGS writeARx(volatile UBYTE *regbase, UBYTE regIndex, UBY
     writeReg(regbase, ATR_AD, regIndex);
     writeReg(regbase, ATR_DATA_W, value);
 
-    D(VERBOSE, "W AR%2lx <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
+    D(VERBOSE, "W AR%lX <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
 }
 
 static INLINE void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UBYTE value)
