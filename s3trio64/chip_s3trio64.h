@@ -28,19 +28,19 @@ typedef struct ChipData
     UWORD GEbytesPerRow;  // programmed graphics engine bytes per row
     UWORD GEsegs;         // programmed src/dst memory segments
 
-    UBYTE GEOp;           // programmed graphics engine setup
+    UBYTE GEOp;  // programmed graphics engine setup
     UBYTE GEFormat;
 
     UBYTE GEbpp;   // programmed graphics engine bpp
     UBYTE GEmask;  // programmed mask
 
     UBYTE GEdrawMode;
-    UBYTE MemFormat;      // programmed memory layout/format
-                      //  struct Library *DOSBase;
-    UBYTE chipFamily;  // chip family
-    UWORD pattSegment;  // segment where pattern is stored FIXME can use UBYTE to store both segments
-    UWORD pattX;        // x offset in pattern
-    UWORD pattY;        // y offset in pattern
+    UBYTE MemFormat;            // programmed memory layout/format
+                                //  struct Library *DOSBase;
+    UBYTE chipFamily;           // chip family
+    UWORD pattSegment;          // segment where pattern is stored FIXME can use UBYTE to store both segments
+    UWORD pattX;                // x offset in pattern
+    UWORD pattY;                // y offset in pattern
     ULONG *patternVideoBuffer;  // points to video memory
     UWORD *patternCacheBuffer;  // points to system memory
     ULONG patternCacheKey;
@@ -51,8 +51,16 @@ typedef struct ChipData
 
 } ChipData_t;
 
-
 STATIC_ASSERT(sizeof(ChipData_t) <= sizeof(((BoardInfo_t *)0)->ChipData), ChipData_t_too_large);
+
+typedef struct CardData
+{
+    struct Library *PrometheusBase;
+    APTR board;
+
+} CardData_t;
+
+STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);
 
 static INLINE UWORD readBEE8(volatile UBYTE *RegBase, UBYTE idx)
 {
@@ -77,7 +85,7 @@ static INLINE UWORD readBEE8(volatile UBYTE *RegBase, UBYTE idx)
     return R_IO_W(0xBEE8) & 0xFFF;
 }
 
-#define R_BEE8(idx) readBEE8(RegBase, idx)
+#define R_BEE8(idx)        readBEE8(RegBase, idx)
 #define W_BEE8(idx, value) W_MMIO_W(0xBEE8, ((idx << 12) | value))
 
 #endif
