@@ -262,9 +262,22 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 
         /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
         regval = R_SR(0x15) & ~BIT(5); /* | 0x80; */
-        W_SR(0x15, regval );
+        W_SR(0x15, regval);
         W_SR(0x15, regval | BIT(5));
         W_SR(0x15, regval);
+
+        // Setting this bit to 1 improves performance for systems using an MCLK less than 57
+        // MHz. For MCLK frequencies between 55 and 57 MHz, bit 7 of SR15 should also be set
+        // to 1 if linear addressing is being used.
+        if (clockHz >= 55000000 && clockHz <= 57000000) {
+            // 2 MCLK memory writes
+            W_SR_MASK(0xA, 0x80, 0x8);
+            W_SR_MASK(0x15, 0x80, 0x8);
+        } else {
+            // 3 MCLK memory writes
+            W_SR_MASK(0xA, 0x80, 0x00);
+            W_SR_MASK(0x15, 0x80, 0x00);
+        }
     } else {
         /* set RS2 via CR55 - I believe this switches to a second "bank" of RAMDAC registers */
         W_CR_MASK(0x55, 0x01, 0x01);
@@ -324,7 +337,7 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
     REGBASE();
     LOCAL_SYSBASE();
 
-    DFUNC(5, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
+    DFUNC(VERBOSE, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
 
     // FIXME: this should be a constant for the Trio, no need to make it dynamic
     const UBYTE bppDiff = 2;  // 8 - bi->BitsPerCannon;
@@ -354,7 +367,7 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
     REGBASE();
 
-    DFUNC(5, "\n");
+    DFUNC(VERBOSE, "\n");
 #if BUILD_VISION864
     static const UBYTE SDAC_ColorModes[] = {
         0x00,  // RGBFB_NONE
@@ -488,7 +501,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     UWORD hTotal;
     UWORD ScreenWidth;
 
-    DFUNC(5,
+    DFUNC(VERBOSE,
           "W %ld, H %ld, HTotal %ld, HBlankSize %ld, HSyncStart %ld, HSyncSize "
           "%ld, "
           "\nVTotal %ld, VBlankSize %ld,  VSyncStart %ld ,  VSyncSize %ld\n",
@@ -841,7 +854,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     REGBASE();
     LOCAL_SYSBASE();
 
-    DFUNC(5,
+    DFUNC(VERBOSE,
           "mem 0x%lx, width %ld, height %ld, xoffset %ld, yoffset %ld, "
           "format %ld\n",
           memory, (ULONG)width, (ULONG)height, (LONG)xoffset, (LONG)yoffset, (ULONG)format);
@@ -997,7 +1010,7 @@ static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
     // Clocking Mode Register (ClK_MODE) (SR1)
     REGBASE();
 
-    DFUNC(5, " state %ld\n", (ULONG)state);
+    DFUNC(VERBOSE, " state %ld\n", (ULONG)state);
 
     W_SR_MASK(0x01, 0x20, (~(UBYTE)state & 1) << 5);
     //  R_REG(0x3DA);
@@ -1097,6 +1110,18 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
     mi->pll1.Numerator   = pllValues.m - 2;
     mi->pll2.Denominator = (pllValues.r << 5) | (pllValues.n - 2);
 
+#if !BUILD_VISION864
+    if (mi->Flags & GMF_DOUBLECLOCK) {
+        // Bit 7 CLKx2 - Enable clock doubled mode
+        // 0 = RAMDAC clock doubled mode (0001) disabled
+        // 1 = RAMDAC clock doubled mode (0001) enabled
+        // This bit must be set to 1 when mode 0001 is specified in bits 7-4 of CR67 or SRC.
+        // Either bit 4 or bit 6 of SR15 must also be set to 1. This bit has the same function as
+        // SR18_7. It allows enabling of clock doubling at the same time as the PLL parameters
+        // are programmed, resulting in more controlled VCO operation.
+        mi->pll2.Denominator |= 0x80;  // Set bit 7 to indicate double clocking;
+    }
+#endif
     return lower;  // Return the index into the PLL table
 }
 
@@ -1256,7 +1281,7 @@ static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level)
 static void ASM SetSplitPosition(__REGA0(struct BoardInfo *bi), __REGD0(SHORT splitPos))
 {
     REGBASE();
-    DFUNC(5, "%ld\n", (ULONG)splitPos);
+    DFUNC(VERBOSE, "%ld\n", (ULONG)splitPos);
 
     bi->YSplit = splitPos;
     if (!splitPos) {
@@ -1272,7 +1297,7 @@ static void ASM SetSplitPosition(__REGA0(struct BoardInfo *bi), __REGD0(SHORT sp
 static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xpos), __REGD1(WORD ypos),
                                   __REGD7(RGBFTYPE fmt))
 {
-    DFUNC(5, "\n");
+    DFUNC(VERBOSE, "\n");
     REGBASE();
 
     bi->MouseX = xpos;
@@ -1321,7 +1346,7 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xp
 
 static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fmt))
 {
-    DFUNC(5, "\n");
+    DFUNC(VERBOSE, "\n");
 
     // FIXME: need to set temporary memory format?
     // No, MouseImage should be in little endian window and not affected
@@ -1390,7 +1415,7 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
 static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
                                __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE fmt))
 {
-    DFUNC(5, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
+    DFUNC(VERBOSE, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
     REGBASE();
     LOCAL_SYSBASE();
 
@@ -1456,7 +1481,7 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE inde
 
 static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate), __REGD7(RGBFTYPE RGBFormat))
 {
-    DFUNC(5, "\n");
+    DFUNC(VERBOSE, "\n");
     REGBASE();
 
 #if BUILD_VISION864
@@ -1746,7 +1771,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
                          __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(ULONG pen),
                          __REGD5(UBYTE mask), __REGD7(RGBFTYPE fmt))
 {
-    DFUNC(5,
+    DFUNC(VERBOSE,
           "\nx %ld, y %ld, w %ld, h %ld\npen %08lx, mask 0x%lx fmt %ld\n"
           "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)pen, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
@@ -1813,7 +1838,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
                            __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask),
                            __REGD7(RGBFTYPE fmt))
 {
-    DFUNC(5,
+    DFUNC(VERBOSE,
           "\nx %ld, y %ld, w %ld, h %ld\nmask 0x%lx fmt %ld\n"
           "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
@@ -1866,7 +1891,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
                          __REGD1(WORD srcY), __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
                          __REGD5(WORD height), __REGD6(UBYTE mask), __REGD7(RGBFTYPE fmt))
 {
-    DFUNC(5,
+    DFUNC(VERBOSE,
           "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
           "h %ld\nmask 0x%lx fmt %ld\n"
           "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
@@ -1961,7 +1986,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
                                        __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
                                        __REGD5(WORD height), __REGD6(UBYTE opCode), __REGD7(RGBFTYPE format))
 {
-    DFUNC(5,
+    DFUNC(VERBOSE,
           "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
           "h %ld\nminTerm 0x%lx fmt %ld\n"
           "sri->bytesPerRow %ld, sri->memory 0x%lx\n",
@@ -2112,7 +2137,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
                              __REGA2(struct Template *template), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
                              __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
 {
-    DFUNC(5,
+    DFUNC(VERBOSE,
           "\nx %ld, y %ld, w %ld, h %ld\nmask 0x%lx fmt %ld\n"
           "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
@@ -2200,7 +2225,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
                             __REGA2(struct Pattern *pattern), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
                             __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
 {
-    DFUNC(5,
+    DFUNC(VERBOSE,
           "\nx %ld, y %ld, w %ld, h %ld\nmask 0x%lx fmt %ld\n"
           "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
@@ -2501,7 +2526,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
                                   __REGD2(SHORT dstX), __REGD3(SHORT dstY), __REGD4(SHORT width), __REGD5(SHORT height),
                                   __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
 {
-    DFUNC(5,
+    DFUNC(VERBOSE,
           "\nsrcX %ld, srcY %ld, dstX %ld, dstY %ld, w %ld, h %ld"
           "\nmask 0x%lx minTerm %ld\n"
           "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
@@ -2596,7 +2621,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
 void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGA2(struct Line *line),
                   __REGD0(UBYTE mask), __REGD7(RGBFTYPE fmt))
 {
-    DFUNC(5, "\n");
+    DFUNC(VERBOSE, "\n");
 
     MMIOBASE();
 
