@@ -298,13 +298,15 @@ static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD w
                                   __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
 {
     // Make the bytes per row compatible with the Graphics Engine's presets
-    if (width <= 640) {
+    if (width <= 320) {
         // We allow only small resolutions to have a non-Graphics Engine size.
         // These resolutions (notably 320xY) are often used in games and these games
         // assume a pitch of 320 bytes (not 640 which expansion to 640 would
         // require). Nevertheless, align to 8 bytes. We constrain all other
         // resolutions to Graphics Engine supported pitch.
         width = (width + 7) & ~7;
+    } else if (width <= 640) {
+        width = 640;
     } else if (width <= 800) {
         width = 800;
     } else if (width <= 1024) {
