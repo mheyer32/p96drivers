@@ -8,15 +8,14 @@
 #include <exec/types.h>
 #include <graphics/rastport.h>
 #include <hardware/cia.h>
+#include <libraries/pcitags.h>
 #include <proto/exec.h>
-
-#include "libraries/prometheus.h"
-#include "proto/prometheus.h"
+#include <proto/openpci.h>
 
 #include <SDI_stdarg.h>
 
 #ifdef DBG
-int debugLevel = INFO;
+int debugLevel = CHATTY;
 #endif
 
 #if !BUILD_VISION864
@@ -960,15 +959,12 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
 static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REGD7(RGBFTYPE format))
 {
 #if !BUILD_VISION864
-    if (getChipData(bi)->chipFamily >= TRIO64PLUS)  // Trio64+?
-    {
+    if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
         switch (format) {
         case RGBFB_A8R8G8B8:
         case RGBFB_R5G6B5:
         case RGBFB_R5G5B5:
-            // Redirect to Big Endian Linear Address Window. On the Prometheus, due to
-            // its hardware byteswapping, this effectively makes the BE CPU writes
-            // appear as LE in memory
+            // Redirect to Big Endian Linear Address Window.
             return mem + 0x2000000;
             break;
         default:
@@ -1337,7 +1333,7 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xp
         spriteY = 0;
     }
 
-    D(5, "SpritePos X: %ld 0x%lx, Y: %ld 0x%lx\n", (LONG)spriteX, (ULONG)spriteX, (LONG)spriteY, (ULONG)spriteY);
+    D(VERBOSE, "SpritePos X: %ld 0x%lx, Y: %ld 0x%lx\n", (LONG)spriteX, (ULONG)spriteX, (LONG)spriteY, (ULONG)spriteY);
     // should we be able to handle negative values and use the offset registers
     // for that?
     W_CR_OVERFLOW1(spriteX, 0x47, 0, 8, 0x46, 0, 8);
@@ -2722,53 +2718,6 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     }
 }
 
-ChipFamily_t detectChipFamily(UWORD deviceId, UWORD revision)
-{
-    switch (deviceId) {
-    case 0x88C0:  // 86c864 Vision 864
-    case 0x88C1:  // 86c864 Vision 864
-        return VISION864;
-    case 0x8813:        // 86c764_3 [Trio 32/64 vers 3]
-        return TRIO64;  // correct?
-    case 0x8811:        // 86c764/765 [Trio32/64/64V+]
-        return revision & 0x40 ? TRIO64PLUS : TRIO64;
-    case 0x8812:  // 86CM65 Aurora64V+
-    case 0x8814:  // 86c767 [Trio 64UV+]
-    case 0x8900:  // 86c755 [Trio 64V2/DX]
-    case 0x8901:  // 86c775/86c785 [Trio 64V2/DX or /GX]
-    case 0x8905:  // Trio 64V+ family
-    case 0x8906:  // Trio 64V+ family
-    case 0x8907:  // Trio 64V+ family
-    case 0x8908:  // Trio 64V+ family
-    case 0x8909:  // Trio 64V+ family
-    case 0x890a:  // Trio 64V+ family
-    case 0x890b:  // Trio 64V+ family
-    case 0x890c:  // Trio 64V+ family
-    case 0x890d:  // Trio 64V+ family
-    case 0x890e:  // Trio 64V+ family
-    case 0x890f:  // Trio 64V+ family
-        return TRIO64PLUS;
-    default:
-        DFUNC(WARN, "Unknown chip family, aborting\n");
-        return UNKNOWN;
-    }
-}
-
-const char *getChipFamilyName(ChipFamily_t family)
-{
-    switch (family) {
-    case VISION864:
-        return "Vision864";
-    case TRIO64:
-        return "Trio32/64";
-    case TRIO64PLUS:
-        return "Trio64Plus";
-    case UNKNOWN:
-    default:
-        return "Unknown";
-    }
-}
-
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     REGBASE();
@@ -2848,25 +2797,14 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     ChipData_t *cd = getChipData(bi);
 
-    {
-        ULONG revision;
-        ULONG deviceId;
-        LOCAL_PROMETHEUSBASE();
-        Prm_GetBoardAttrsTags((PCIBoard *)bi->CardPrometheusDevice, PRM_Device, (ULONG)&deviceId, PRM_Revision,
-                              (ULONG)&revision, TAG_END);
+    ULONG revision;
+    ULONG deviceId;
+    LOCAL_OPENPCIBASE();
+    GetBoardAttrs(getCardData(bi)->board, PRM_Device, (ULONG)&deviceId, PRM_Revision, (ULONG)&revision, TAG_END);
 
-        DFUNC(0, "Determine Chip Family\n");
-        if ((cd->chipFamily = detectChipFamily(deviceId, revision)) == UNKNOWN) {
-            return FALSE;
-        }
+    if ((cd->chipFamily = getChipFamily(deviceId, revision)) == UNKNOWN) {
+        return FALSE;
     }
-
-    // Initialize PLL table for pixel clocks
-    InitPixelClockPLLTable(bi);
-
-    // Set pixel clock counts based on initialized PLL table
-    bi->PixelClockCount[PLANAR] = 0;
-    bi->PixelClockCount[CHUNKY] = cd->numPllValues;
 
     // For higher color depths, limit to lower frequencies for stability
     ULONG maxHiColorFreq   = 80000;  // 80MHz max for HiColor
@@ -2875,24 +2813,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->PixelClockCount[HICOLOR]   = 0;
     bi->PixelClockCount[TRUECOLOR] = 0;
     bi->PixelClockCount[TRUEALPHA] = 0;
-
-    // Count how many PLL entries are suitable for each color depth
-    const struct svga_pll *pll = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
-    for (UWORD i = 0; i < cd->numPllValues; i++) {
-        ULONG freqKhz = computeKhzFromPllValue(pll, &cd->pllValues[i]);
-
-        if (freqKhz <= maxHiColorFreq) {
-            bi->PixelClockCount[HICOLOR]++;
-            if (freqKhz <= maxTrueColorFreq) {
-                bi->PixelClockCount[TRUECOLOR]++;
-                bi->PixelClockCount[TRUEALPHA]++;
-            }
-        }
-    }
-
-    DFUNC(INFO, "PixelClockCount: Planar %ld, Chunky %ld, HiColor %ld, TrueColor %ld, TrueAlpha %ld\n",
-          bi->PixelClockCount[PLANAR], bi->PixelClockCount[CHUNKY], bi->PixelClockCount[HICOLOR],
-          bi->PixelClockCount[TRUECOLOR], bi->PixelClockCount[TRUEALPHA]);
 
     // Informed by the largest X/Y coordinates the blitter can talk to
     bi->MaxBMWidth  = 2048;
@@ -2927,6 +2847,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->MaxHorResolution[TRUEALPHA] = 1280;
     bi->MaxVerResolution[TRUEALPHA] = 1280;
 
+    DFUNC(VERBOSE, "S3 chip wakeup\n");
     if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
         /* Chip wakeup Trio64+ */
         W_REG(0x3C3, 0x01);
@@ -2949,20 +2870,53 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_CR(0x38, 0x48);
     W_CR(0x39, 0xa5);
 
+    DFUNC(VERBOSE, "check register response\n");
+    UBYTE deviceIdHi = R_CR(0x2D);
+    UBYTE deviceIdLo = R_CR(0x2E);
+
+    if ((deviceIdHi << 8 | deviceIdLo) != deviceId) {
+        DFUNC(ERROR, "Chipset ID mismatch: expected 0x%04lx, got 0x%02lx%02lx\n", deviceId, deviceIdHi, deviceIdLo);
+        return FALSE;
+    }
+
+    // Initialize PLL table for pixel clocks
+    InitPixelClockPLLTable(bi);
+
+    // Set pixel clock counts based on initialized PLL table
+    bi->PixelClockCount[PLANAR] = 0;
+    bi->PixelClockCount[CHUNKY] = cd->numPllValues;
+    // Count how many PLL entries are suitable for each color depth
+    const struct svga_pll *pll = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
+    for (UWORD i = 0; i < cd->numPllValues; i++) {
+        ULONG freqKhz = computeKhzFromPllValue(pll, &cd->pllValues[i]);
+
+        if (freqKhz <= maxHiColorFreq) {
+            bi->PixelClockCount[HICOLOR]++;
+            if (freqKhz <= maxTrueColorFreq) {
+                bi->PixelClockCount[TRUECOLOR]++;
+                bi->PixelClockCount[TRUEALPHA]++;
+            }
+        }
+    }
+
+    DFUNC(INFO, "PixelClockCount: Planar %ld, Chunky %ld, HiColor %ld, TrueColor %ld, TrueAlpha %ld\n",
+          bi->PixelClockCount[PLANAR], bi->PixelClockCount[CHUNKY], bi->PixelClockCount[HICOLOR],
+          bi->PixelClockCount[TRUECOLOR], bi->PixelClockCount[TRUEALPHA]);
+
     UBYTE chipRevision = R_CR(0x2F);
     if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
         BOOL LPBMode            = (R_CR(0x6F) & 0x01) == 0;
         CONST_STRPTR modeString = (LPBMode ? "Local Peripheral Bus (LPB)" : "Compatibility");
-        D(0, "Chip is Trio64+/V2 (Rev %ld) in %s mode\n", (ULONG)chipRevision & 0x0f, modeString);
+        D(INFO, "Chip is Trio64+/V2 (Rev %ld) in %s mode\n", (ULONG)chipRevision & 0x0f, modeString);
 
         // We can support byte-swapped formats on this chip via the Big Linear
         // Adressing Window
         bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
     } else {
-        D(0, "Chip is Visiona864/Trio64/32 (Rev %ld)\n", (ULONG)chipRevision);
+        D(INFO, "Chip is Visiona864/Trio64/32 (Rev %ld)\n", (ULONG)chipRevision);
 #if BUILD_VISION864
         if (!CheckForSDAC(bi)) {
-            D(0, "Unsupported RAMDAC.\n");
+            DFUNC(ERROR, "Unsupported RAMDAC.\n");
             return FALSE;
         }
 #endif
@@ -3164,13 +3118,13 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // Test, also enable MMIO and Linear addressing via the other register
         // W_REG_MASK(ADVFUNC_CNTL, 0x30, 0x30);
 
-#if DBG
+#if DBG || 1
         {
-            LOCAL_PROMETHEUSBASE();
+            LOCAL_OPENPCIBASE();
             // LAW start address
-            ULONG physAddress = (ULONG)Prm_GetPhysicalAddress(bi->MemoryBase);
+            ULONG physAddress = (ULONG)pci_logic_to_physic_addr(bi->MemoryBase, getCardData(bi)->board);
             if (physAddress & 0x3FFFFF) {
-                D(0, "WARNING: card's base address is not 4MB aligned!\n");
+                D(WARN, "WARNING: card's base address is not 4MB aligned!\n");
             }
         }
 #endif
@@ -3392,11 +3346,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
 #include <boardinfo.h>
 #include <libraries/openpci.h>
-// #include <libraries/prometheus.h>
 #include <proto/dos.h>
 #include <proto/expansion.h>
 #include <proto/openpci.h>
-// #include <proto/prometheus.h>
 #include <proto/timer.h>
 #include <proto/utility.h>
 
@@ -3410,56 +3362,27 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #define DEVICE_FIRESTORM  200
 #define DEVICE_PROMETHEUS 1
 
-struct Library *PrometheusBase = NULL;
-struct Library *OpenPciBase    = NULL;
+struct Library *OpenPciBase = NULL;
 struct IORequest ioRequest;
 struct Device *TimerBase = NULL;
 struct UtilityBase *UtilityBase;
-struct ExpansionBase *ExpansionBase;
 
-void SigIntHandler(int dummy)
+void sigIntHandler(int dummy)
 {
-    if (PrometheusBase) {
-        CloseLibrary(PrometheusBase);
-    }
     if (OpenPciBase) {
         CloseLibrary(OpenPciBase);
     }
     abort();
 }
 
-APTR findLegacyIOBase()
-{
-    struct ConfigDev *cd;
-
-    APTR legacyIOBase = NULL;
-    if (cd = FindConfigDev(NULL, VENDOR_MATAY, DEVICE_PROMETHEUS))
-        legacyIOBase = cd->cd_BoardAddr;
-    else if (cd = FindConfigDev(NULL, VENDOR_E3B, DEVICE_FIRESTORM))
-        legacyIOBase = (APTR)((ULONG)cd->cd_BoardAddr + 0x1fe00000);
-
-    return legacyIOBase;
-}
-
 int main()
 {
-    signal(SIGINT, SigIntHandler);
+    signal(SIGINT, sigIntHandler);
 
     int rval = EXIT_FAILURE;
 
-    // if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
-    //     D(0, "Unable to open openpci.library\n");
-    // }
-
-    if (!(PrometheusBase = OpenLibrary(PROMETHEUSNAME, 0))) {
-        D(0, "Unable to open prometheus.library\n");
-        goto exit;
-    }
-
-    APTR legacyIOBase = NULL;
-    if (!(legacyIOBase = findLegacyIOBase())) {
-        D(0, "Unable to find legacy IO base\n");
-        goto exit;
+    if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
+        D(0, "Unable to open openpci.library\n");
     }
 
     // if (!(DOSBase = OpenLibrary(DOSNAME, 0))) {
@@ -3484,30 +3407,32 @@ int main()
 
     ULONG dmaSize = 128 * 1024;
 
-    APTR board = NULL;
+    struct pci_dev *board = NULL;
 
     D(0, "Looking for S3 Trio64 card\n");
 
-    while ((board = (APTR)Prm_FindBoardTags(board, PRM_Vendor, VENDOR_ID_S3, TAG_END)) != NULL) {
+    while ((board = FindBoard(board, PRM_Vendor, VENDOR_ID_S3, TAG_END)) != NULL) {
         ULONG Device, Revision, Memory0Size = 0;
-        APTR Memory0 = 0;
+        APTR Memory0      = 0;
+        APTR legacyIOBase = 0;
 
-        Prm_GetBoardAttrsTags(board, PRM_Device, (ULONG)&Device, PRM_Revision, (ULONG)&Revision, PRM_MemoryAddr0,
-                              (ULONG)&Memory0, PRM_MemorySize0, (ULONG)&Memory0Size, TAG_END);
+        ULONG count = GetBoardAttrs(board, PRM_Device, (ULONG)&Device, PRM_Revision, (ULONG)&Revision, PRM_MemoryAddr0,
+                                    (ULONG)&Memory0, PRM_MemorySize0, (ULONG)&Memory0Size, PRM_LegacyIOSpace,
+                                    (ULONG)&legacyIOBase, TAG_END);
 
         D(0, "device %x revision %x\n", Device, Revision);
 
-        ChipFamily_t chipFamily = detectChipFamily(Device, Revision);
+        ChipFamily_t chipFamily = getChipFamily(Device, Revision);
 
         if (chipFamily != UNKNOWN) {
             D(ALWAYS, "S3: %s found\n", getChipFamilyName(chipFamily));
 
             // Write PCI COMMAND register to enable IO and Memory access
-            Prm_WriteConfigWord((PCIBoard *)board, 0x03, 0x04);
+            //            pci_write_config_word(0x04, 0x0003, board);
 
             D(ALWAYS, "MemoryBase 0x%x, MemorySize %u, IOBase 0x%x\n", Memory0, Memory0Size, legacyIOBase);
 
-            APTR physicalAddress = Prm_GetPhysicalAddress(Memory0);
+            APTR physicalAddress = pci_logic_to_physic_addr(Memory0, board);
             D(ALWAYS, "physicalAdress 0x%08lx\n", physicalAddress);
 
             struct ChipBase *ChipBase = NULL;
@@ -3516,11 +3441,11 @@ int main()
             memset(&boardInfo, 0, sizeof(boardInfo));
             struct BoardInfo *bi = &boardInfo;
 
-            bi->ExecBase             = SysBase;
-            bi->UtilBase             = UtilityBase;
-            bi->CardPrometheusBase   = (ULONG)PrometheusBase;
-            bi->CardPrometheusDevice = (ULONG)board;
-            bi->ChipBase             = ChipBase;
+            bi->ExecBase                 = SysBase;
+            bi->UtilBase                 = UtilityBase;
+            bi->ChipBase                 = ChipBase;
+            getCardData(bi)->OpenPciBase = OpenPciBase;
+            getCardData(bi)->board       = board;
 
             if (chipFamily >= TRIO64PLUS) {
                 // The Trio64
@@ -3538,7 +3463,7 @@ int main()
                 // This is how I understand Trio64/32 MMIO approach: 0xA0000 is
                 // hardcoded as the base of the enhanced registers I need to make
                 // sure, the first 1 MB of address space don't overlap with anything.
-                bi->MemoryIOBase = Prm_GetVirtualAddress((APTR)0xA0000);
+                bi->MemoryIOBase = pci_physic_to_logic_addr((APTR)0xA0000, board);
 
                 if (bi->MemoryIOBase == NULL) {
                     D(ALWAYS, "VGA memory window at 0xA0000-BFFFF is not available. Aborting.\n");
@@ -3559,7 +3484,7 @@ int main()
                 // space. This way 0xA8000 is in the card's BAR and the LAW should be
                 // at 0x400000
                 bi->MemoryBase = Memory0;
-                if (Prm_GetPhysicalAddress(bi->MemoryBase) <= (APTR)0xB0000) {
+                if (pci_logic_to_physic_addr(bi->MemoryBase, board) <= (APTR)0xB0000) {
                     // This shifts the memory base address by 4MB, which should be ok
                     // since the S3Trio asks for 8MB PCI address space, typically only
                     // utilizing the first 4MB
@@ -3739,9 +3664,6 @@ int main()
     D(ERROR, "no Trio64 found.\n");
 
 exit:
-    if (PrometheusBase) {
-        CloseLibrary(PrometheusBase);
-    }
     if (OpenPciBase) {
         CloseLibrary(OpenPciBase);
     }

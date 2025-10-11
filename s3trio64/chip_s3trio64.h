@@ -2,16 +2,7 @@
 #define CHIP_S3TRIO64_H
 
 #include "common.h"
-
-#define VENDOR_ID_S3 0x5333
-
-typedef enum ChipFamily
-{
-    UNKNOWN,
-    VISION864,  // pre-Trio64, separate RAMDAC, oldstyle MMIO, no packed MMIO
-    TRIO64,     // integrated RAMDAC, oldstyle+packed MMIO
-    TRIO64PLUS  // integrated RAMDAC, newstyle+packed MMIO
-} ChipFamily_t;
+#include "s3trio64_common.h"
 
 typedef struct PLLValue
 {
@@ -56,8 +47,9 @@ STATIC_ASSERT(sizeof(ChipData_t) <= sizeof(((BoardInfo_t *)0)->ChipData), ChipDa
 typedef struct CardData
 {
     struct Library *PrometheusBase;
-    APTR board;
-
+    struct Library *OpenPciBase;
+    struct pci_dev *board;
+    struct Node boardNode;
 } CardData_t;
 
 STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);

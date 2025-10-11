@@ -21,6 +21,21 @@ void myPrintF(const char *fmt, ...)
 
     va_end(args);
 }
+
+void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+
+#if defined(TESTEXE)
+    vprintf(fmt, args);
+#else
+    KVPrintF(fmt, args);
+#endif
+
+    va_end(args);
+}
+
 #endif
 
 // Compute PLL parameters accordng to

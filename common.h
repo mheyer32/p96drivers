@@ -26,6 +26,7 @@ extern int debugLevel;
 #define LOCAL_DEBUGLEVEL(level) int debugLevel = level;
 
 extern void myPrintF(const char *fmt, ...);
+extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, ...);
 
 #define D(level, ...)            \
     if (debugLevel >= (level)) { \
@@ -63,11 +64,9 @@ extern void myPrintF(const char *fmt, ...);
 #define DAC_WR_AD 0x3C8
 #define DAC_DATA  0x3C9
 
-#define CardPrometheusBase   CardData[0]
-#define CardPrometheusDevice CardData[1]
-
 #define LOCAL_SYSBASE()        struct ExecBase *SysBase = bi->ExecBase
-#define LOCAL_PROMETHEUSBASE() struct Library *PrometheusBase = (struct Library *)(bi->CardPrometheusBase)
+#define LOCAL_PROMETHEUSBASE() struct Library *PrometheusBase = getCardData(bi)->PrometheusBase
+#define LOCAL_OPENPCIBASE()    struct Library *OpenPciBase = getCardData(bi)->OpenPciBase
 // #define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
 
 static inline ULONG swapl(ULONG value)
@@ -279,7 +278,7 @@ static INLINE void REGARGS writeRegW(volatile UBYTE *regbase, LONG reg, UWORD va
     *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = swapw(value);
 }
 
-static INLINE void REGARGS writeRegL(volatile UBYTE *regbase, LONG reg, ULONG value, const char  *regName)
+static INLINE void REGARGS writeRegL(volatile UBYTE *regbase, LONG reg, ULONG value, const char *regName)
 {
     D(VERBOSE, "W %s <- 0x%08lx\n", regName, (ULONG)value);
 
@@ -335,7 +334,7 @@ static INLINE ULONG REGARGS readMMIO_L(volatile UBYTE *mmiobase, LONG regOffset,
     ULONG value = SWAPL(*(volatile ULONG *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)));
     asm volatile("" ::"r"(value));
 
-     D(VERBOSE, "R %s -> 0x%08lx\n", (ULONG)regName, value);
+    D(VERBOSE, "R %s -> 0x%08lx\n", (ULONG)regName, value);
 
     return value;
 }
@@ -621,8 +620,6 @@ static inline UBYTE getBPPLog2(RGBFTYPE format)
     }
     return 0;
 }
-
-BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
 // Apparently the mix modes can be shared between S3 cards and ATI Mach64
 #define MIX_NOT_CURRENT             0b0000

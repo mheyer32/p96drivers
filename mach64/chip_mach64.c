@@ -152,7 +152,7 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
     LOCAL_PROMETHEUSBASE();
 
     UBYTE *romBase = NULL;
-    Prm_GetBoardAttrsTags((PCIBoard *)bi->CardPrometheusDevice, PRM_ROM_Address, (ULONG)&romBase, TAG_END);
+    Prm_GetBoardAttrsTags(getCardData(bi)->board, PRM_ROM_Address, (ULONG)&romBase, TAG_END);
     if (!romBase) {
         DFUNC(ERROR, "Unable to get ROM address\n");
         return NULL;
@@ -2279,13 +2279,13 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     ChipData_t *cd = getChipData(bi);
     {
+        PCIBoard *board = (PCIBoard *)getCardData(bi)->board;
         DFUNC(INFO, "Determine Chip Family\n");
 
         ULONG revision;
         ULONG deviceId;
         LOCAL_PROMETHEUSBASE();
-        Prm_GetBoardAttrsTags((PCIBoard *)bi->CardPrometheusDevice, PRM_Device, (ULONG)&deviceId, PRM_Revision,
-                              (ULONG)&revision, TAG_END);
+        Prm_GetBoardAttrsTags(board, PRM_Device, (ULONG)&deviceId, PRM_Revision, (ULONG)&revision, TAG_END);
 
         cd->chipFamily = getChipFamily(deviceId);
 
@@ -2297,8 +2297,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         }
 
         // User-Defines configuration
-        UBYTE config    = Prm_ReadConfigByte((PCIBoard *)bi->CardPrometheusDevice, 0x40);
-        ULONG prmStatus = Prm_ReadConfigLong((PCIBoard *)bi->CardPrometheusDevice, 0x60);
+        UBYTE config    = Prm_ReadConfigByte(board, 0x40);
+        ULONG prmStatus = Prm_ReadConfigLong(board, 0x60);
 
         UWORD ioBase = 0;
         switch (config & 0x03) {
@@ -2318,7 +2318,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // Try making it more compatible with other VGA cards down the line
         // By disabling all classic IO decoding
         config |= 0x08;  // Disable decoding GENENA (no response at IO 0x46E8)
-        Prm_WriteConfigByte((PCIBoard *)bi->CardPrometheusDevice, config, 0x40);
+        Prm_WriteConfigByte(board, config, 0x40);
     }
 
     // Test scratch register response
@@ -2551,11 +2551,11 @@ int main()
             memset(&boardInfo, 0, sizeof(boardInfo));
             struct BoardInfo *bi = &boardInfo;
 
-            bi->ExecBase             = SysBase;
-            bi->UtilBase             = UtilityBase;
-            bi->CardPrometheusBase   = (ULONG)PrometheusBase;
-            bi->CardPrometheusDevice = (ULONG)board;
-            bi->ChipBase             = ChipBase;
+            bi->ExecBase                    = SysBase;
+            bi->UtilBase                    = UtilityBase;
+            bi->ChipBase                    = ChipBase;
+            getCardData(bi)->PrometheusBase = PrometheusBase;
+            getCardData(bi)->board          = board;
 
             // Block IO is in BAR1
             if (!Memory1) {
