@@ -1598,7 +1598,7 @@ static INLINE BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
         CR31_1    = (1 << 1);
         CR50_76_0 = 0b00000000;
     } else {
-        DFUNC(0, "Width unsupported by Graphics Engine, choosing unaccelerated  path\n");
+        DFUNC(0, "Width %ld unsupported by Graphics Engine, choosing unaccelerated  path\n", (ULONG)width);
         return FALSE;  // reserved
     }
 
@@ -1608,11 +1608,13 @@ static INLINE BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
 
     getGESegmentAndOffset(getMemoryOffset(bi, cd->patternVideoBuffer), bytesPerRow, bpp, &cd->pattSegment, &cd->pattX,
                           &cd->pattY);
+    cd->pattX = (cd->pattX + 7) & ~7;  // Align to 8 pixel boundary
+    cd->pattY = (cd->pattY + 7) & ~7;
     D(CHATTY, "pattSeg %ld, pattX %ld, pattY %ld, bytesPerRow %ld\n", (ULONG)cd->pattSegment, (ULONG)cd->pattX,
       (ULONG)cd->pattY, (ULONG)cd->GEbytesPerRow);
 #if DBG
     if (cd->pattX & 7 || cd->pattY & 7) {
-        D(WARN, "pattern not on 8 pixel boundary\n");
+        D(WARN, "pattern not on 8 pixel boundary %ld,%ld\n", (ULONG)cd->pattX, (ULONG)cd->pattY);
     }
 #endif
 
@@ -2263,9 +2265,11 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 
         // Invalidate the pen and drawmode caches
         cd->GEdrawMode = 0xFF;
+        cd->patternCacheKey &= ~0x80000000;
 
         // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
         WaitForBlitter(bi);
+        W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
     }
 
     SetGEWriteMask(bi, mask, fmt, 6);
@@ -3368,8 +3372,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     // reserve memory for a 8x8 monochrome pattern
     // Unfortunately we're overallocating here for the largest pitch.
-    ULONG patternSize      = 8 * 2048;
-    bi->MemorySize         = (bi->MemorySize - patternSize) & ~(7);
+    ULONG patternSize      = 8 * 3200;  // 800 * 4 * 8
+    ULONG patternOffset    = (bi->MemorySize - patternSize);
+    patternOffset          = (patternOffset / 3200) * 3200;  // align to 800pixel@32bit boundary
+    bi->MemorySize         = patternOffset;
     cd->patternVideoBuffer = (ULONG *)(bi->MemoryBase + bi->MemorySize);
     cd->patternCacheBuffer = AllocVec(patternSize, MEMF_PUBLIC);
 
