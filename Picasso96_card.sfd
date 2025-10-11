@@ -1,0 +1,11 @@
+==id $Id: picasso96_card.sfd,v 1.0 2025/10/10 11:43:08 matze Exp $
+==base _CardBase
+==basetype struct Library*
+==libname Picasso96_card
+==bias 30
+==public
+BOOL FindCard(struct BoardInfo *bi) (a0)
+BOOL InitCard(struct BoardInfo *bi, STRPTR* tooltypes) (a0,a1)
+==end
+
+

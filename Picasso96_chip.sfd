@@ -1,0 +1,10 @@
+==id $Id: picasso96_chip.sfd,v 1.0 2025/10/17 13:27:01 matze Exp $
+==base _ChipBase
+==basetype struct Library*
+==libname Picasso96_chip
+==bias 30
+==public
+BOOL InitChip(struct BoardInfo *bi) (a0)
+==end
+
+

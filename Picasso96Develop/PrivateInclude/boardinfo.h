@@ -131,6 +131,9 @@ typedef enum {
 	BT_IndiECS,
 	BT_RageXL,
 	BT_Radeon,
+	BT_PiStorm,
+        BT_S3Trio64,
+        BT_Mach64,
         BT_MaxBoardTypes
 } BTYPE;
 
@@ -165,6 +168,9 @@ typedef enum {
 	PCT_ADV7120,
 	PCT_Matrox,
 	PCT_IndiECS,
+	PCT_RageXL,
+	PCT_Radeon,
+	PCT_PiStorm,
         PCT_MaxPaletteChipTypes
 } PCTYPE;
 
@@ -193,6 +199,10 @@ typedef enum {
 	GCT_IMSG300,
 	GCT_IMSG364,
 	GCT_Matrox,
+	GCT_IndiECS,
+	GCT_RageXL,
+	GCT_Radeon,
+	GCT_PiStorm,
         GCT_MaxGraphicsControllerTypes
 } GCTYPE;
 

@@ -12,6 +12,7 @@ CC = m68k-amigaos-gcc
 LD = m68k-amigaos-gcc
 STRIP = m68k-amigaos-strip
 MKDIR = mkdir -p
+COPY = cp
 
 BINDIR ?= _bin/
 BUILDDIR ?= _o/
@@ -138,6 +139,18 @@ openpci.h : openpci/openpci.fd openpci/clib/openpci_protos.h
 	fd2sfd openpci/openpci.fd openpci/clib/openpci_protos.h openpci/openpci.sfd
 	sfdc --output=openpci/inline/openpci.h --target=m68k-amigaos --mode=macros openpci/openpci.sfd
 	sfdc --output=openpci/proto/openpci.h --target=m68k-amigaos --mode=proto openpci/openpci.sfd
+
+#@$(COPY) Picasso96_card.h Picasso96Develop/PrivateInclude/clib/picasso96_card_protos.h # SFDC generated a header including this name
+
+P96Headers : Picasso96_card.sfd Picasso96Develop/PrivateInclude/clib/Picasso96_card_protos.h Picasso96_chip.sfd Picasso96Develop/PrivateInclude/clib/Picasso96_chip_protos.h makefile
+	sfdc --sdi --output=Picasso96Develop/PrivateInclude/inline/picasso96_card.h --target=m68k-amigaos --mode=macros Picasso96_card.sfd
+	sfdc --sdi --output=Picasso96Develop/PrivateInclude/proto/picasso96_card.h --target=m68k-amigaos --mode=proto Picasso96_card.sfd
+	sfdc --sdi --output=Picasso96Develop/PrivateInclude/clib/picasso96_card_protos.h --target=m68k-amigaos --mode=clib Picasso96_card.sfd
+	sfdc --sdi --output=Picasso96Develop/PrivateInclude/inline/picasso96_chip.h --target=m68k-amigaos --mode=macros Picasso96_chip.sfd
+	sfdc --sdi --output=Picasso96Develop/PrivateInclude/proto/picasso96_chip.h --target=m68k-amigaos --mode=proto Picasso96_chip.sfd
+	sfdc --sdi --output=Picasso96Develop/PrivateInclude/clib/picasso96_chip_protos.h --target=m68k-amigaos --mode=clib Picasso96_chip.sfd
+
+
 
 S3TRIO_SRC = common.c \
              s3trio64/chip_s3trio64.c \

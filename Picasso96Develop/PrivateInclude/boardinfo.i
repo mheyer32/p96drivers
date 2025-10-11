@@ -86,6 +86,7 @@ MAXSPRITEHEIGHT equ     48
         EITEM	BT_IndiECS
 	EITEM	BT_RageXL
 	EITEM	BT_Radeon
+	EITEM	BT_PiStorm
         EITEM   BT_MaxBoardTypes
 
         ENUM    0
@@ -116,6 +117,9 @@ MAXSPRITEHEIGHT equ     48
 	EITEM	PCT_ADV7120
    	EITEM	PCT_Matrox
       	EITEM	PCT_IndiECS
+	EITEM	PCT_RageXL
+	EITEM	PCT_Radeon
+	EITEM	PCT_PiStorm
 	EITEM   PCT_MaxPaletteChipTypes
 
         ENUM    0
@@ -140,6 +144,10 @@ MAXSPRITEHEIGHT equ     48
 	EITEM	GCT_IMSG300
    	EITEM	GCT_IMSG364
 	EITEM	GCT_Matrox
+	EITEM	GCT_IndiECS
+	EITEM	GCT_RageXL
+	EITEM	GCT_Radeon
+	EITEM	GCT_PiStorm
 	EITEM   GCT_MaxGraphicsControllerTypes
 
 ************************************************************************
