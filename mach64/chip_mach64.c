@@ -1294,7 +1294,7 @@ static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 #define DP_FRGD_MIX_MASK    (0x1F << 16)
 
 #define DST_X(x)   ((x) << 16)
-#define DST_X_MASK (0x1FFF < 16)
+#define DST_X_MASK (0x1FFF << 16)
 #define DST_Y(y)   (y)
 #define DST_Y_MASK (0x7FFF)
 
@@ -1442,17 +1442,17 @@ const static UWORD minTermToMix[16] = {
 };
 
 #define SRC_X(x)   ((x) << 16)
-#define SRC_X_MASK (0x1FFF < 16)
+#define SRC_X_MASK (0x1FFF << 16)
 #define SRC_Y(y)   (y)
 #define SRC_Y_MASK (0x7FFF)
 
 #define SRC_WIDTH1(x)    ((x) << 16)
-#define SRC_WIDTH1_MASK  (0x1FFF < 16)
+#define SRC_WIDTH1_MASK  (0x1FFF << 16)
 #define SRC_HEIGHT1(y)   (y)
 #define SRC_HEIGHT1_MASK (0x7FFF)
 
 #define SRC_WIDTH2(x)    ((x) << 16)
-#define SRC_WIDTH2_MASK  (0x1FFF < 16)
+#define SRC_WIDTH2_MASK  (0x1FFF << 16)
 #define SRC_HEIGHT2(y)   (y)
 #define SRC_HEIGHT2_MASK (0x7FFF)
 
@@ -1683,7 +1683,8 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         for (UWORD x = 0; x < dwordsPerLine; ++x) {
             D(VERBOSE, "writing to HOST_DATA%u: 0x%08lx\n", hostDataReg, ((const ULONG *)bitmap)[x]);
 
-            writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), ((const ULONG *)bitmap)[x], STRINGIFY(HOST_DATA0));
+            writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), ((const ULONG *)bitmap)[x],
+                            STRINGIFY(HOST_DATA0));
 
             hostDataReg = (hostDataReg + 1) & 15;
             if (!hostDataReg) {
@@ -1731,7 +1732,8 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
         if (!rol) {
             for (UWORD y = 0; y < height; ++y) {
                 for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), ((ULONG *)bitmap)[x], STRINGIFY(HOST_DATA0));
+                    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), ((ULONG *)bitmap)[x],
+                                    STRINGIFY(HOST_DATA0));
 
                     hostDataReg = (hostDataReg + 1) & 15;
                     if (!hostDataReg) {
@@ -1746,7 +1748,8 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
                     ULONG left  = ((ULONG *)bitmap)[x] << rol;
                     ULONG right = ((ULONG *)bitmap)[x + 1] >> (32 - rol);
 
-                    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), (left | right), STRINGIFY(HOST_DATA0));
+                    writeRegLNoSwap(MMIOBase, DWORD_OFFSET(HOST_DATA0 + hostDataReg), (left | right),
+                                    STRINGIFY(HOST_DATA0));
 
                     hostDataReg = (hostDataReg + 1) & 15;
                     if (!hostDataReg) {
@@ -2033,9 +2036,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
             W_MMIO_L(SRC_Y_X, SRC_X(xOff) | SRC_Y(yOff));
             W_MMIO_L(SRC_HEIGHT1_WIDTH1, SRC_HEIGHT1(patternHeight - yOff) | SRC_WIDTH1(16 - xOff));
             W_MMIO_L(SRC_HEIGHT2_WIDTH2, SRC_HEIGHT2(patternHeight) | SRC_WIDTH2(16));
-        }
-        else
-        {
+        } else {
             waitFifo(bi, 3);
         }
         ULONG trajectory = DST_X_DIR | DST_Y_DIR | SRC_PATT_EN | SRC_PATT_ROT_EN;
@@ -2438,7 +2439,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     D(INFO, "Monitor is %s present\n", ((R_BLKIO_B(DAC_CNTL, 0) & 0x80) ? "NOT" : ""));
 
-
     // Two sprite images, each 64x64*2 bits
     // BEWARE: softsprite data would use 4 byte per pixel
     const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
@@ -2467,11 +2467,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #include <boardinfo.h>
 #include <libraries/openpci.h>
 #include <libraries/prometheus.h>
+#include <proto/dos.h>
 #include <proto/expansion.h>
 #include <proto/openpci.h>
 #include <proto/prometheus.h>
 #include <proto/utility.h>
-#include <proto/dos.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2524,7 +2524,7 @@ int main()
 
     while ((board = (APTR)Prm_FindBoardTags(board, PRM_Vendor, PCI_VENDOR, TAG_END)) != NULL) {
         ULONG Device, Revision, Memory0Size = 0, Memory2Size = 0;
-        APTR Memory0 = 0 , Memory1 = 0, Memory2 = 0;
+        APTR Memory0 = 0, Memory1 = 0, Memory2 = 0;
 
         Prm_GetBoardAttrsTags(board, PRM_Device, (ULONG)&Device, PRM_Revision, (ULONG)&Revision, PRM_MemoryAddr0,
                               (ULONG)&Memory0, PRM_MemorySize0, (ULONG)&Memory0Size, PRM_MemoryAddr1, (ULONG)&Memory1,
@@ -2558,23 +2558,22 @@ int main()
             bi->ChipBase             = ChipBase;
 
             // Block IO is in BAR1
-            if (!Memory1)
-            {
+            if (!Memory1) {
                 D(ERROR, "Cannot find block IO Aperture\n");
-                goto  exit;
+                goto exit;
             }
 
-            bi->RegisterBase = (BYTE*)Memory1 + REGISTER_OFFSET;
+            bi->RegisterBase = (BYTE *)Memory1 + REGISTER_OFFSET;
 
             if (Memory2) {
                 // Use Auxiliary Aperture for MMIO if available
                 D(INFO, "Using auxiliary register aperture at 0x%08lx\n", Memory2);
-                bi->MemoryIOBase = (BYTE*)Memory2 + 1024 + MMIOREGISTER_OFFSET;
+                bi->MemoryIOBase = (BYTE *)Memory2 + 1024 + MMIOREGISTER_OFFSET;
                 setCacheMode(bi, Memory2, Memory2Size, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
             } else {
                 // MMIO registers are in top 1kb of the first 8mb memory window
-                bi->MemoryIOBase = (BYTE*)Memory0 + 0x800000 - 1024 + MMIOREGISTER_OFFSET;
-                setCacheMode(bi,  (BYTE*)Memory0 + 0x800000 - 1024, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
+                bi->MemoryIOBase = (BYTE *)Memory0 + 0x800000 - 1024 + MMIOREGISTER_OFFSET;
+                setCacheMode(bi, (BYTE *)Memory0 + 0x800000 - 1024, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
             }
             // Framebuffer is at address 0x0
             bi->MemoryBase = Memory0;
