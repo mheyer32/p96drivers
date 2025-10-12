@@ -71,7 +71,7 @@ typedef enum {
 	RGBFB_YUV422PA,		/* 2 Byte TrueColor CCIR601 for use with YUV12 planar
 									assist mode on Cirrus Logic base graphics chips.
 									(Y0-Y1-V0-U0) */
-	RGBFB_YUV422PAPC,		/* 2 Byte TrueColor YUV12 byte swapped (U0-V0-Y1-Y0) */
+	RGBFB_YUV422PAPC,		/* 2 Byte TrueColor YUV12 long word swapped (U0-V0-Y1-Y0) */
 
 	RGBFB_MaxFormats
 	} RGBFTYPE;

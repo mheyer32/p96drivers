@@ -80,6 +80,12 @@ MAXSPRITEHEIGHT equ     48
         EITEM   BT_GVP110
 	EITEM   BT_GBAPII
 	EITEM	BT_RainbowII
+	EITEM	BT_Voodoo
+	EITEM	BT_Matrox
+        EITEM	BT_S3Virge
+        EITEM	BT_IndiECS
+	EITEM	BT_RageXL
+	EITEM	BT_Radeon
         EITEM   BT_MaxBoardTypes
 
         ENUM    0
@@ -108,6 +114,8 @@ MAXSPRITEHEIGHT equ     48
    	EITEM	PCT_IMSG364
 	EITEM	PCT_BT458
 	EITEM	PCT_ADV7120
+   	EITEM	PCT_Matrox
+      	EITEM	PCT_IndiECS
 	EITEM   PCT_MaxPaletteChipTypes
 
         ENUM    0
@@ -131,6 +139,7 @@ MAXSPRITEHEIGHT equ     48
 	EITEM   GCT_NCR77C22E
 	EITEM	GCT_IMSG300
    	EITEM	GCT_IMSG364
+	EITEM	GCT_Matrox
 	EITEM   GCT_MaxGraphicsControllerTypes
 
 ************************************************************************
@@ -539,6 +548,7 @@ ABMA_BitmapColors32	equ	(TAG_USER + 32 + $23)
 	APTR	gbi_HostMouseImage	;the original mouse image in host memory
 	UWORD   gbi_MonitorWidth	;in mm
 	UWORD	gbi_MonitorHeight	;in mm
+        ULONG   gbi_DisplayMemory       ;largest non-continous non-DMA block
         LABEL   gbi_SIZEOF
 
         BITDEF  BI,HARDWARESPRITE,0

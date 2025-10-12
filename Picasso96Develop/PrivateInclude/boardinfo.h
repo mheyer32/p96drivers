@@ -125,6 +125,12 @@ typedef enum {
 	BT_GVP110,
 	BT_GBAPII,
 	BT_RainbowII,
+	BT_Voodoo,
+	BT_Matrox,
+	BT_S3Virge,
+	BT_IndiECS,
+	BT_RageXL,
+	BT_Radeon,
         BT_MaxBoardTypes
 } BTYPE;
 
@@ -157,6 +163,8 @@ typedef enum {
 	PCT_IMSG364,
 	PCT_BT458,
 	PCT_ADV7120,
+	PCT_Matrox,
+	PCT_IndiECS,
         PCT_MaxPaletteChipTypes
 } PCTYPE;
 
@@ -184,6 +192,7 @@ typedef enum {
         GCT_NCR77C22E,
 	GCT_IMSG300,
 	GCT_IMSG364,
+	GCT_Matrox,
         GCT_MaxGraphicsControllerTypes
 } GCTYPE;
 
@@ -457,7 +466,7 @@ struct BoardInfo{
 
         ULONG                                            PixelClockCount[MAXMODES];
 
-        APTR ASM                                       (*AllocCardMem)(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system));
+        APTR ASM                                        (*AllocCardMem)(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system), __REGD3(ULONG bytesperrow),__REGA1(struct ModeInfo *mi),__REGD7(RGBFTYPE));
         BOOL ASM                                        (*FreeCardMem)(__REGA0(struct BoardInfo *bi), __REGA1(APTR membase));
 
         BOOL ASM                                        (*SetSwitch)(__REGA0(struct BoardInfo *), __REGD0(BOOL));
@@ -468,7 +477,7 @@ struct BoardInfo{
         void ASM                                        (*SetGC)(__REGA0(struct BoardInfo *), __REGA1(struct ModeInfo *), __REGD0(BOOL));
         void ASM                                        (*SetPanning)(__REGA0(struct BoardInfo *), __REGA1(UBYTE *), __REGD0(UWORD), __REGD3(UWORD), __REGD1(WORD), __REGD2(WORD), __REGD7(RGBFTYPE));
         UWORD ASM                                       (*CalculateBytesPerRow)(__REGA0(struct BoardInfo *), __REGD0(UWORD), __REGD1(UWORD), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE));
-        APTR ASM                                        (*CalculateMemory)(__REGA0(struct BoardInfo *), __REGA1(APTR), __REGD7(RGBFTYPE));
+        APTR ASM                                        (*CalculateMemory)(__REGA0(struct BoardInfo *), __REGA1(APTR), __REGD0(struct RenderInfo *), __REGD7(RGBFTYPE));
         ULONG ASM                                       (*GetCompatibleFormats)(__REGA0(struct BoardInfo *), __REGD7(RGBFTYPE));
         BOOL ASM                                        (*SetDisplay)(__REGA0(struct BoardInfo *), __REGD0(BOOL));
 
@@ -601,6 +610,7 @@ struct BoardInfo{
         UBYTE                                              *HostMouseImage;     /* where originally located by P96 */
         UWORD                                               MonitorWidth;       /* In mm */
         UWORD                                               MonitorHeight;      /* In mm */
+        ULONG                                               DisplayMemory;      /* largest non-continous non-DMA block */
 };
 
 /* BoardInfo flags */

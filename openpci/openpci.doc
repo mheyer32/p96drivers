@@ -1,0 +1,2486 @@
+TABLE OF CONTENTS
+
+openpci.library/--background--
+openpci.library/AddMemoryHandlerForBoard
+openpci.library/AllocateDMAMemoryForBoard
+openpci.library/FindBoard
+openpci.library/GetBoardAttrs
+openpci.library/host_to_pcicpy
+openpci.library/pci_add_intserver
+openpci.library/pci_allocdma_mem
+openpci.library/pci_bus
+openpci.library/pci_find_class
+openpci.library/pci_find_device
+openpci.library/pci_find_slot
+openpci.library/pci_freedma_mem
+openpci.library/pci_inb
+openpci.library/pci_inl
+openpci.library/pci_inw
+openpci.library/pci_logic_to_physic_addr
+openpci.library/pci_obtain_card
+openpci.library/pci_outb
+openpci.library/pci_outl
+openpci.library/pci_outw
+openpci.library/pci_physic_to_logic_addr
+openpci.library/pci_read_config_byte
+openpci.library/pci_read_config_long
+openpci.library/pci_read_config_word
+openpci.library/pci_release_card
+openpci.library/pci_rem_intserver
+openpci.library/pci_set_master
+openpci.library/pci_to_hostcpy
+openpci.library/pci_to_pcicpy
+openpci.library/pci_write_config_byte
+openpci.library/pci_write_config_long
+openpci.library/pci_write_config_word
+openpci.library/ReleaseDMAMemoryForBoard
+openpci.library/RemMemoryHandlerForBoard
+openpci.library/SetBoardAttrs
+PCI-Configuration/Emulate
+PCI-Configuration/Ignore
+PCI-Configuration/ReserveIOSpace
+PCI-Configuration/ReserveMemSpace
+PCI-Configuration/SetCacheLineSize
+PCI-Configuration/SetInterrupt
+PCI-Configuration/SetLatency
+PCI-Configuration/SetPri
+PCI-Configuration/WriteIO
+openpci.library/--background--                 openpci.library/--background--
+
+   PURPOSE
+        The purpose of openpci.library is to provide an abstraction
+        interface for PCI bridge boards in Amiga installations, that
+        is, openpci.library is to PCI what expansion.library is to
+        Zorro.
+        
+   SUPPORTED HARDWARE        
+        At the time of writing, openpci.library supports the
+        Mediator A1200 boards (all of them), the Mediator A4000,
+        the Prometheus (the original version by Matay), the
+        Prometheus Firestorm and the Grex boards for the A4000
+        and A1200.
+        
+   ACCESS TO PCI CARDS
+        PCI devices are described by the pci_dev structure defined
+        in libraries/openpci.h. Properties of PCI devices,
+        including their mapping into the Amiga address space are
+        best obtained through the GetBoardAttrs() function, which
+        requires a pci_dev structure and a tag list that defines        
+        the properties to be defined.
+        PCI devices installed in the system can be found by        
+        the FindBoardTags() function, which identifies devices
+        by properties also defined in a tag list.
+        Alternatively, the pci_find_device() and pci_find_class()
+        functions can be used to scan by a vendor/device or
+        class/subclass/progIF tupel.
+
+   CLAIMING PCI RESOURCES        
+        Once a device is found, a handler or driver making use
+        if this device should claim it for exclusive use,
+        ideally by SetBoardAttrs() or by pci_obtain_card().
+
+   PCI BAR REGISTERS        
+        PCI devices map their resources - hardware registers
+        and memory - through so called "BAR registers". The
+        registers are configured at the time openpci.library
+        is loaded, and their values are accessible through
+        GetBoardAttrs() or alternatively through the elements
+        of the pci_dev structure.
+
+   68K ADDRESSES AND PCI ADDRESSES
+        The attributes and the elements of this structure
+        contain the logical 68K addresses by which the
+        registers and memory regions of each device can be
+        accessed from the 68K CPU. These addresses are
+        not necessarily identical to the addresses on
+        the PCI bus because they are translated by the
+        68K MMU and the PCI board logic.
+        To translate such logical 68K addresses to their
+        physical representation on the PCI bus, use the
+        pci_logic_to_physic_addr() function. Such addresses
+        are, however, only required if a PCI device is
+        required to perform DMA and thus requires a
+        physical address.
+
+   PCI DMA
+        Unfortunately, due to hardware restrictions,
+        PCI devices are typically not able to reach memory
+        on the Zorro or the CPU board, and thus require
+        bounce buffers on the PCI bus. To allocate memory
+        there, use the pci_allocdma_mem() function.
+        This requires some help by software admininstrating
+        PCI boards containing memory, for example VGA
+        cards. In such a case, the P96 graphics stack can
+        provide it. Note that a relatively modern version
+        of P96 is required, namely 3.5.0 or better.        
+
+   PCI BAR SIZES
+        While the sizes of the PCI BAR regions are are also
+        indicated in the pci_dev structure, they are there
+        stored in one's complement notation along with some
+        additional flags in the least significant bits that
+        need to be masked out. GetBoardAttrs() provides more
+        convenient access to sizes.
+
+   PCI ROM ACCESS        
+        PCI boards can also contain ROMs, e.g. the VGA bios,
+        which includes configuration data that may be valuable
+        for drivers. The board address and its size is also
+        accessible through GetBoardAttrs() or the pci_dev
+        structure.
+
+   LEGACY IO REGISTERS
+        Some PCI cards require initialization steps through
+        legacy x86 IO registers. Their mapping in the 68K
+        address space is also available in the pci_dev
+        structure.        
+
+   PCI CONFIGURATION SPACE
+        In case handlers or device drivers require direct
+        access to the PCI configuration registers, the
+        pci_read_config_XXXX() or pci_write_config_XXXX()
+        functions provide access to the PCI configuration
+        area. They also perform the necessary endian switch
+        for the 68K CPU.
+        While the configuration area also includes the BAR
+        registers, the values read there correspond to the
+        physical addresses on the PCI bus and not addresses
+        under which PCI resources are reachable by the 68K
+        CPU.
+
+   PCI TO EXPANSION MAPPING
+        This implementation of openpci.library DOES NOT
+        make use of vendor specific driver libraries.
+        Instead, it accesses the hardware directly and
+        is thus independent of original vendor support.
+        In fact, the original vendor libraries will cease
+        to work once openpci.library has been initialized.
+        This is intentional to avoid conflicts.
+
+        Each PCI resource is also made available to 
+        AmigaOs by creating one expansion ConfigDev
+        structure per resource. That is, after 
+        initialization, the system will list many more
+        resources. The PCI bridge board resources,
+        each BAR region, each PCI ROM, the PCI configuration
+        area and the legacy IO region are each represented
+        by their own ConfigDev structure. Their mapping is
+        as follows:
+
+        The Expansion vendor is set to 1729 to 1735,
+        according to the PCI host bridge the resource
+        is connected to, irrespectively of the actual
+        PCI device connected to the bus board.
+
+        The following table identifies the bus board
+        through the Expansion vendor:        
+        1729        :        a resource of/at the A1200 mediator.
+        1730        :        a resource of/at the A4000 mediator.
+        1731        :        of/at the Prometheus or Firestorm PCI:
+        1733        :        of/at the G-Rex (A1200 or A4000 bus).        
+
+        The Expansion device ID is selected as follows:
+        0        :        PCI bridge board resources
+        1        :        PCI configuration register (one per board)
+        2        :        PCI memory region (multiple per board)
+        3        :        PCI memory mapped registers (multiple)
+        4        :        PCI IO region (multiple per board)
+        5        :        PCI ROM region (e.g. VESA Bios)
+        6        :        legacy IO region (once per bridge)
+        7        :        legacy VGA region (once per bridge)
+
+        The PCI vendor and device ID is found in er_SerialNumber
+        with the vendor ID in the most significant bits.
+
+   USER CONFIGURATION
+        openpci.library is configured through the file
+        ENVARC:PCI-Configuration, which may contain
+        additional commands to configure or initialize
+        PCI cards. The commands in this file are found
+        in additional sections (labeled PCI-Configuration)
+        of this document.
+
+   INSTALLATION
+        openpci.library needs to go to LIBS:. In most
+        cases, ENVARC:PCI-Configuration may remain blank
+        or absent.
+        If the mmu.library is used, PCIInit should be
+        copied to LIBS:mmu, and the following line should
+        be included at the end of ENVARC:MMU-Configuration:
+
+        PCIInit
+
+        This tiny helper tool ensures that openpci is
+        initialized before MMU table building, and thus
+        is used to mark only the required PCI resources
+        instead of the entire PCI memory window.
+        By this tool, the boottime of the system can be
+        speed up significantly.        
+
+   BUGS
+        The A1200 mediators, with the exception of the        
+        A1200 TX, provide only a single memory window
+        to the PCI memory space. Nonaligned long or
+        word accesses crossing a window boundary would        
+        therefore need to be broken down to two accesses.
+        Unfortunately, the restart exception handling of
+        some members of the 68K CPU family does not allow
+        to split up such an access access to two separate
+        cylces with an exception in the middle to re-
+        configure the window. To avoid an endless loop
+        of exceptions, the openpci.library window handler
+        instead passes the exception onwards, either to
+        to MuForce or to the exec kernel, generating a
+        deadend software alert.
+        This is a hardware design defect openpci.library
+        cannot work around, unfortunately.
+        
+openpci.library/AddMemoryHandlerForBoardnpci.library/AddMemoryHandlerForBoard
+
+   NAME
+        AddMemoryHandlerForBoard -- add a PCI board offering DMA
+                                    memory to its PCI bus
+
+   SYNOPSIS
+        success = AddMemoryHandlerForBoard(pci_dev, hook, pri)
+          D0                                 A0      A1    D0
+
+        BOOL AddMemoryHandlerForBoard(struct pci_dev *, struct Hook *,
+                                      BYTE)
+
+   FUNCTION
+        This function announces that the pci_dev may offer memory
+        as DMA bounce buffer for DMA operations on the PCI bus it
+        is located on, and provides services to allocate and release
+        memory on this bus through the given hook.        
+        
+   INPUTS
+        pci_dev - PCI device which offers memory on the PCI bus.
+        hook    - a hook pointer through which memory is allocated
+                  and released (see below).
+        pri        - priority at which this device offers its services.
+                
+        The hook is called as follows:
+                hook->hk_Entry(hook,object,message)
+                                A0    A2     A1
+
+        where its arguments are as follows:
+        hook        - (struct Hook *) a pointer to the hook through
+                  hk_Entry is called.
+        object        - (ULONG) a ULONG identifying the requested
+                  activity. The following activities are currently
+                  defined:
+                'ALOC'        : allocate memory
+                'RELA'        : release memory
+
+        message        - (void *) a pointer to an activity (object)
+                  dependent structure providing information for
+                  the activity.
+        
+                  For memory allocations ('ALOC'), the structure
+                  is as follows:
+
+                        struct AllocationInfo {
+                          ULONG  am_bytesize;
+                          ULONG  am_reqments;
+                          UBYTE *am_lower;
+                          UBYTE *am_upper;
+                        };
+
+                        am_bytesize: is the size of the memory in bytes
+                        requested.
+
+                        am_reqments: is the flags argument of the
+                        pci_allocdma_mem() function and defines the
+                        the type of memory.
+        
+                        am_lower: is the lower end of the memory window
+                        occupied by the PCI bus on which memory is to be
+                        allocated. This can be used by the hook to check
+                        whether it can satisfy the request, i.e. whether
+                        it offers memory in this memory window. The
+                        address provided here is a logical address in
+                        the 68K address space.
+
+                        am_upper: is the upper end of the memory window
+                        occuped by the PCI bus on which memory is to be
+                        allocated. Along with am_lower, the hook can
+                        check whether it is able to provide memory in
+                        this window.
+
+                  For this object, the hook shall return the logical 68K
+                  address of the memory block allocated, or NULL in case
+                  of failure.        
+
+                  For memory deallocations ('RELA'), the structure
+                  is as follows:
+
+                        struct ReleaseInfo {
+                          ULONG  ar_size;
+                          UBYTE *ar_mem;
+                        };
+
+                        ar_size: is the byte size of the memory block to
+                        release and corresponds to the second argument of
+                        of pci_freedma_mem()
+
+                        ar_mem: is the logical address in 68K memory space   
+     
+                        to the memory to be released, and thus copied
+                        from the first argument of pci_freedma_mem()
+        
+                  For this object, the hook return code is ignored.
+        
+   RESULTS
+        success - success indicator whether the hook could be installed.
+                  possible failure cases are lack of memory to allocate
+                  internal management structures.
+        
+   NOTES
+        The P96 graphics stack adds its memory hook for all PCI
+        graphics cards registered by openpci at priority -10.
+        Other sources of bounce buffers, preferably free memory,
+        should probably choose a higher priority such that graphics
+        memory remains undisturbed.
+        
+   BUGS
+
+   SEE ALSO
+        pci_allocdma_mem(), AllocateDMAMemoryForBoard()
+        RemMemoryHandlerForBoard(), 
+        utility/hooks.h libraries/pcimemory.h
+
+openpci.library/AllocateDMAMemoryForBoardci.library/AllocateDMAMemoryForBoard
+
+   NAME
+        AllocateDMAMemoryForBoard -- allocate memory on the PCI bus
+
+   SYNOPSIS
+        buffer = AllocateDMAMemoryForBoard(pci_dev, size, flags)
+          D0                                 A0      D0     D1
+
+        APTR AllocateDMAMemoryForBoard(struct pci_dev *, ULONG, ULONG)
+
+   FUNCTION
+        This function allocates memory for the given PCI device on
+        on the PCI bus it is located on. Such memory can be used as
+        bounce-buffer for the PCI device passed in.
+        
+   INPUTS
+        pci_dev - PCI device for which suitable memory on the PCI
+                  bus shall be located.        
+        size    - size of the memory region to allocate in bytes.
+        flags   - additional requirements on the memory to allocate.
+                  The following flags are currently defined:
+        
+                  MEM_PCI            allocate memory on the PCI bus,
+                                   always implied
+                  MEM_NONCACHEABLE ensure allocated memory is not
+                                    cached by the CPU
+
+                 The flags passed here ARE NOT compatible to the
+                 flags of the exec/AllocMem() or exec/AllocVec().
+                 In particular, the MEMF_CLEAR flag is NOT honored.
+        
+   RESULTS
+        buffer - address of the buffer allocated, or NULL in case
+                 of failure. The buffer address returned is a virtual
+                 address of the host 68K CPU and NOT an address of the
+                 PCI bus. To compute the corresponding address on the
+                 PCI bus, use pci_logic_to_physic_addr().
+        
+                 The buffer returned is not guaranteed to be aligned
+                 to a particular byte boundary. If alignment is
+                 required, a somewhat larger buffer must be allocated
+                 and the target buffer be manually aligned within the
+                 the allocated buffer.        
+        
+   NOTES
+        The PCI device passed in is the device for which suitable
+        memory shall be found, NOT the device acting as victim to
+        to provide the device (even though, in some cases, this may
+        be the same device).        
+        This function attempts to allocate memory on the PCI bus to
+        act as an interim (bounce) buffer for the device given as
+        first argument. While ideally such devices should access
+        memory on the Zorro bus, many PCI bridges are not able to
+        perform DMA into the host system, and thus require an
+        intermediate buffer on the PCI bridge. Such buffers are
+        typically taken from graphics cards on the same bus.
+        In particular, if P96 is used as graphics system, the
+        following tooltype must be set in order to allow access
+        to graphics card memory:
+        
+                GRANTDIRECTACCESS=Yes
+
+        Unlike the exec memory allocation function, this function
+        may break a Forbid() state. It secures the internal state        
+        of openpci.library and its clients by semaphores which may
+        block the calling task and thus break the Forbid() state.
+
+        If MEM_NONCACHEABLE is set in flags, this function attemps
+        to only allocate non-cachable memory. In order to ensure
+        that the memory is indeed non-cacheable, the mmu.library is
+        be required. This function DOES NOT attempt to change the
+        caching mode of the memory in case only cachable memory is
+        available. If allocating memory failed because only cachable        
+        memory is available, the user should allocate the buffer
+        without this flag, and then modify the caching mode himself
+        with the mmu.library function SetProperties() and then
+        recreate the MMU tables with RebuildTree().
+
+        This function does not ensure that the returned buffer is
+        aligned to a page boundary (whatever that page may be). If
+        PCI devices require alignment, a larger buffer must be
+        allocated and the target buffer be manually aligned within
+        the allocated memory region.
+
+        The buffer address returned is a logical address of the 68K
+        bus. that is, it may even require translation to a physical
+        68K address for some PCI boards. The physical 68K address
+        again undergoes translation to a physical PCI address by the
+        PCI bridge board. The pci_logic_to_physic_addr() function
+        performs both translations (logical-to-physical-to-PCI) in
+        in one step.        
+        
+   BUGS
+
+   SEE ALSO
+        pci_allocdma_mem(), exec/AllocMem(), exec/memory.h,
+        libraries/openpci.h, pci_freedma_mem(),
+        pci_logic_to_physic_addr(), mmu/SetProperties(),
+        mmu/GetProperties(), mmu/RebuildTree()
+
+openpci.library/FindBoard                           openpci.library/FindBoard
+
+   NAME
+        FindBoard -- find a board from specifications
+
+   SYNOPSIS
+        pci_dev = FindBoardA(prev,tags)
+          D0                  A0    A1 
+
+        struct pci_dev *FindBoardA(struct pci_dev *,
+                                   struct TagItem *)
+        
+        struct pci_dev *FindBoard(struct pci_dev *,...)
+
+   FUNCTION
+        This function locates a board of particular properties
+        given by a tag list passed as second argument, or
+        on the stack, starting the search at the pci device
+        passed in as first argument. If the first argument is
+        NULL, then the scan starts at the beginning, otherwise
+        the scan starts behind the device passed in, allowing
+        to iterate through all devices found in the system.
+
+   INPUTS
+        prev    - device behind which to start the scan, or
+                  NULL to start from the beginning.
+        tags        - tag list terminated by TAG_DONE including
+                  all the properties found device should
+                  match.        
+
+        The tags that can be used for matching are defined
+        in libraries/pcitags.h. This includes the following
+        tags:
+
+        PRM_Vendor        match devices of the given vendor ID
+        PRM_Device      match devices of the given device ID
+        PRM_Revision    match devices of the given revision
+        PRM_Class       match devices of the given PCI class
+        PRM_SubClass    match devices of the given PCI subclass
+
+        PRM_MemoryAddr0        match devices whose BAR0 register starts
+                        at the given logical 68K address.        
+        PRM_MemoryAddr1 match the logical address in BAR1
+        PRM_MemoryAddr2 match the logical address in BAR2
+        PRM_MemoryAddr3 match the logical address in BAR3
+        PRM_MemoryAddr4 match the logical address in BAR4
+        PRM_MemoryAddr5 match the logical address in BAR5
+        PRM_ROM_Address match the logical address of the ROM,
+                        e.g. the VGA bios of the card.
+        PRM_MemorySize0 match the byte size of the BAR0
+                        region of the device. This is a
+                        size in bytes, not the one's
+                        complement found in the PCI config area.
+        PRM_MemorySize1 match the byte size of BAR1 region
+        PRM_MemorySize2 match the byte size of BAR2 region
+        PRM_MemorySize3 match the byte size of BAR3 region
+        PRM_MemorySize4 match the byte size of BAR4 region
+        PRM_MemorySize5 match the byte size of BAR5 region
+        PRM_ROM_Size    match the byte size of the card ROM.
+
+        PRM_BoardOwner  match Node * identifying the owner that
+                        obtained the card. For cards obtained
+                        through pci_obtain_card(), the owner
+                        is the openpci.library itself and the
+                        board owner is the pointer to the
+                        library. If a board is free, this
+                        tag is filled with NULL.        
+        
+        PRM_SlotNumber  match the slot number of the device,
+                        which starts from 0.
+        PRM_FunctionNumber match the device function within
+                        the slot, starting from 0.
+        PRM_BusNumber   matches the PCI bus number, the first
+                        bus having the number 1.
+        PRM HeaderType  matches the PCI header type. Currently,
+                        openpci.library only keeps devices with
+                        the header type 0 in its database        
+        PRM_SubsysVendor match the ID of the subsystem vendor
+        PRM_SubsysID    match the subsystem ID
+        PRM_Interface   match the PCI programming interface ID
+
+        The following tags are new in release 5.0 of the
+        library:
+
+        PRM_InterruptPin outgoing interrupt pin of the
+                        device. This is a number from 1 to 4
+                        corresponding to INTA to INTD. If the
+                        tag is filled with 0, the device does
+                        not generate an interrupt.
+        PRM_InterruptLine incoming interrupt line at the PCI
+                        bridge board. Due to interrupt routing,
+                        the interrupt pin as generated by the
+                        hardware is different from the interrupt
+                        line at which the signal arrives.        
+        PRM_LegacyIOSpace pointer to a memory block to which
+                        the legacy (non-PCI configured) I/O
+                        addresses are mapped to.        
+        PRM_PCIToHostOffset byte offset to be added to
+                        addresses on the PCI bus to obtain
+                        (logical) addresses for the 68K based
+                        programs.
+
+        PRM_MemRangeLower this tag, along with the next,
+        PRM_MemRangeUpper defines a range of logical addresses
+                         that are routed through one of the BAR
+                         addresses to the device.        
+
+   RESULTS
+        pci_dev        - matching PCI device, or NULL if no matching
+                  device can be found.
+
+   NOTES
+        The tags used by this function are intentionally identical
+        to the tags of the prometheus.library.        
+
+   BUGS
+
+   SEE ALSO
+        libraries/pcitags.h
+        
+openpci.library/GetBoardAttrs                   openpci.library/GetBoardAttrs
+
+   NAME
+        GetBoardAttrs -- retrieve board attributes from a PCI device
+
+   SYNOPSIS
+        count = GetBoardAttrsA(pci_dev,tags)
+          D0                     A0     A1 
+
+        ULONG GetBoardAttrsA(struct pci_dev *,struct TagItem *)
+        
+        ULONG GetBoardAttrs(struct pci_dev *,...)
+
+   FUNCTION
+        This function retrieves attributes of a PCI device.
+        The tag value of each tag is a pointer to a 32-bit variable,
+        either a LONG, ULONG or APTR, which are filled by this
+        function.
+
+   INPUTS
+        pci_dev - The PCI device from which attributes will be
+                  retrieved.
+        tags        - tag list containing all the attributes to be
+                  retrieved, with tag values pointing to memory
+                  locations to be filled.        
+
+        The file libraries/pcitags.h defines the tags that are
+        recognized by this function:
+
+        PRM_Vendor        (LONG *) filled by the vendor ID
+        PRM_Device      (LONG *) filled by the device ID
+        PRM_Revision    (LONG *) filled by the revision
+        PRM_Class       (LONG *) filled by the PCI class
+        PRM_SubClass    (LONG *) filled by the PCI subclass
+
+        PRM_MemoryAddr0        (APTR *) filled by the pointer to the
+                        68K logical address in BAR0
+        PRM_MemoryAddr1 (APTR *) filled by BAR1
+        PRM_MemoryAddr2 (APTR *) filled by BAR2
+        PRM_MemoryAddr3 (APTR *) filled by BAR3
+        PRM_MemoryAddr4 (APTR *) filled by BAR4
+        PRM_MemoryAddr5 (APTR *) filled by BAR5
+        PRM_ROM_Address (APTR *) filled by the logical
+                        address to which the ROM is mapped.
+        PRM_MemorySize0 (ULONG *) filled by the byte size
+                        of the BAR0 window. This is a size,
+                        not the one's complenet found in
+                        the PCI config area.
+        PRM_MemorySize1 (ULONG *) byte size of BAR1 region
+        PRM_MemorySize2 (ULONG *) byte size of BAR2 region
+        PRM_MemorySize3 (ULONG *) byte size of BAR3 region
+        PRM_MemorySize4 (ULONG *) byte size of BAR4 region
+        PRM_MemorySize5 (ULONG *) byte size of BAR5 region
+        PRM_ROM_Size    (ULONG *) byte size of the card ROM.
+
+        PRM_BoardOwner  (struct Node **) filled by the owner ID
+                        that reserved the card. For cards obtained
+                        by pci_obtain_card(), the owner is a
+                        pointer to the openpci library base.
+                        If a board is free, this is NULL.
+        
+        PRM_SlotNumber  (LONG *) filled by the slot number
+                        of the device which starts from 0.
+        PRM_FunctionNumber (LONG *) filled by the device function,
+                        starting from 0.
+        PRM_BusNumber        (LONG *) filled by the PCI bus number,
+                        the first bus having the number 1.
+        PRM HeaderType        (LONG *) filled by the PCI header type.
+                        This is currently always 0 as this is the
+                        only device type openpci.library keeps.
+        PRM_SubsysVendor (LONG *) filled by the ID of the subsystem
+                        vendor
+        PRM_SubsysID    (LONG *) filled by the subsystem ID
+        PRM_Interface   (LONG *) filled by the PCI programming
+                        interface ID
+        
+        The following tags are new in release 5.0 of the
+        library:
+
+        PRM_InterruptPin (ULONG *) outgoing interrupt pin of the
+                        device. This is a number from 1 to 4
+                        corresponding to INTA to INTD. If the
+                        tag is filled with 0, the device does
+                        not generate an interrupt.
+        PRM_InterruptLine (ULONG *) incoming interrupt line at
+                        the PCI bridge board. Due to interrupt
+                        routing, the interrupt pin as generated
+                        by the hardware is different from the
+                        interrupt line at which the signal arrives.        
+        PRM_LegacyIOSpace (void **) pointer to a memory block to
+                        which the legacy (non-PCI configured)
+                        I/O addresses are mapped to.        
+        PRM_PCIToHostOffset (LONG *) byte offset to be added to
+                        addresses on the PCI bus to obtain
+                        (logical) addresses for the 68K based
+                        programs.
+   RESULTS
+        count - number of tags that could be retrieved.
+
+   NOTES
+        The tags used by this function are intentionally identical
+        to the tags of the prometheus.library.        
+
+   BUGS
+
+   SEE ALSO
+        libraries/pcitags.h
+        
+openpci.library/host_to_pcicpy                 openpci.library/host_to_pcicpy
+
+   NAME
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+        host_to_pcicpy -- copy a byte array to from the host to PCI
+
+   SYNOPSIS
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+        host_to_pcicpy(cpuaddr,pci,size)
+                         A0    A1   D0
+
+        void pci_to_hostcpy(APTR cpuaddr,APTR pci,ULONG size)        
+
+   FUNCTION
+        This function copies a sequence of size bytes from the
+        address given by the first argument in CPU space
+        to the PCI bus on an address as seen by the CPU.
+
+        This function is identical to:
+                memcpy(dst,src,size)
+        It does not attempt to adjust the endianness, and
+        only performs a raw byte copy.
+
+   INPUTS
+        pci     - source address on PCI as seen from the 68K
+        cpuaddr - 68K address to write to.
+        size    - number of bytes to copy
+
+   RESULTS
+
+   BUGS
+        As this function does not perform any sophisticated
+        operation on its argument, it has been obsoleted.
+        The openpci.library arranges the PCI bus always such
+        that memory or IO data can be written directly to
+        the address the board maps to.
+openpci.library/pci_add_intserver           openpci.library/pci_add_intserver
+
+   NAME
+        pci_add_intserver -- add an interrupt server to a PCI device
+
+   SYNOPSIS
+        result = pci_add_intserver(interrupt, pcidev)
+          D0                          A0        A1
+
+        BOOL pci_add_intserver(struct Interrupt *, struct pci_dev *)
+
+   FUNCTION
+        This function attempts to add an interrupt server to the
+        PCI device given by the second argument. If successful,
+        it returns a non-zero value. It returns FALSE in case
+        of error, possibly because the device or PCI bridge does
+        not allow interrupt forwarding to the 68K side.
+        
+   INPUTS
+        interrupt - an interrupt structure that will be called
+                    in case the device triggered an interrupt.        
+        pcidev    - PCI device for which an interrupt server is
+                    to be registered.
+
+   RESULTS
+        result - boolean success indicator. Non-zero for success,
+                 FALSE for an error.        
+        
+   NOTES
+        The interrupt shall be ready to run immediately, as soon
+        as it has been registered. This is because not all PCI
+        bridges support interrupt masking. The interrupt server
+        also needs to check whether the device actually triggered
+        the interrupt as not all PCI bridge boards are able to 
+        filter interrupts according to their origin. Thus, it is
+        not guaranteed that the interrupt server is ONLY called
+        if pci_dev has triggered an interrupt.        
+
+        Similar to all exec interrupts, the interrupt function        
+        IS_CODE is called with IS_DATA in a1, and may use d0-d1,
+        a0-a1/a5-a6 as scratch registers. All other registers
+        shall be preserved. In case the interrupt server recognizes
+        pci_dev as source of the interrupt and is able to handle
+        the interrupt, IS_CODE shall return with the Z flag of
+        the processor cleared. Otherwise, the interrupt code shall
+        return with the Z flag set. In particular, it is NOT
+        sufficient to load the D0 register with a return code.
+
+        Adding an interrupt server may fail, for example because the
+        PCI bridge is unable to forward PCI generated interrupts
+        to the host CPU. Also note that even though some chips are
+        able to generate interrupts, their interrupt pins may not be
+        actually connected to the PCI bus. This is rather typical
+        for PCI graphic cards.        
+        
+   BUGS
+
+   SEE ALSO
+        exec/AddIntServer(), pci_rem_intserver()        
+
+openpci.library/pci_allocdma_mem             openpci.library/pci_allocdma_mem
+
+   NAME
+        pci_allocdma_mem -- allocate memory on the PCI bus
+
+   SYNOPSIS
+        buffer = pci_allocdma_mem(size, flags)
+          D0                       D0     D1
+
+        APTR pci_allocdma_mem(ULONG, ULONG)
+
+   FUNCTION
+        This function allocates memory from a device on the first PCI
+        bus found in the system, probably to act as bounce-buffer for
+        devices on the same bus.         
+        
+   INPUTS
+        size   - size of the memory region to allocate in bytes.
+        flags  - additional requirements on the memory to allocate.
+                 The following flags are currently defined:
+        
+                 MEM_PCI           allocate memory on the PCI bus,
+                                  always implied
+                 MEM_NONCACHEABLE ensure allocated memory is not
+                                  cached by the CPU
+
+                 The flags passed here ARE NOT compatible to the
+                 flags of the exec/AllocMem() or exec/AllocVec().
+                 In particular, the MEMF_CLEAR flag is NOT honored.
+        
+   RESULTS
+        buffer - address of the buffer allocated, or NULL in case
+                 of failure. The buffer address returned is a virtual
+                 address of the host 68K CPU and NOT an address of the
+                 PCI bus. To compute the corresponding address on the
+                 PCI bus, use pci_logic_to_physic_addr().
+        
+                 The buffer returned is not guaranteed to be aligned
+                 to a particular byte boundary. If alignment is
+                 required, a somewhat larger buffer must be allocated
+                 and the target buffer be manually aligned within the
+                 the allocated buffer.        
+        
+   NOTES
+        This function attempts to allocate memory on the PCI bus to
+        act as an interim (bounce) buffer for devices performing DMA
+        on the PCI bus. While ideally such devices should access
+        memory on the Zorro bus, many PCI bridges are not able to
+        perform DMA into the host system, and thus require an
+        intermediate buffer on the PCI bridge. Such buffers are
+        typically taken from graphics cards on the same bus.
+        In particular, if P96 is used as graphics system, the
+        following tooltype must be set in order to allow access
+        to graphics card memory:
+        
+                GRANTDIRECTACCESS=Yes
+
+        Unlike the exec memory allocation function, this function
+        may break a Forbid() state. It secures the internal state        
+        of openpci.library and its clients by semaphores which may
+        block the calling task and thus break the Forbid() state.
+
+        If MEM_NONCACHEABLE is set in flags, this function attemps
+        to only allocate non-cachable memory. In order to ensure
+        that the memory is indeed non-cacheable, the mmu.library is
+        be required. This function DOES NOT attempt to change the
+        caching mode of the memory in case only cachable memory is
+        available. If allocating memory failed because only cachable        
+        memory is available, the user should allocate the buffer
+        without this flag, and then modify the caching mode himself
+        with the mmu.library function SetProperties() and then
+        recreate the MMU tables with RebuildTree().
+
+        This function does not ensure that the returned buffer is
+        aligned to a page boundary (whatever that page may be). If
+        PCI devices require alignment, a larger buffer must be
+        allocated and the target buffer be manually aligned within
+        the allocated memory region.
+
+        The buffer address returned is a logical address of the 68K
+        bus. that is, it may even require translation to a physical
+        68K address for some PCI boards. The physical 68K address
+        again undergoes translation to a physical PCI address by the
+        PCI bridge board. The pci_logic_to_physic_addr() function
+        performs both translations (logical-to-physical-to-PCI) in
+        in one step.        
+        
+   BUGS
+        There is no indication on which PCI bus this function shall
+        allocate memory, and thus, it remains unclear whether the
+        allocated memory is suitable for its intent. Instead of
+        of this function, AllocDMAMemoryForBoard() shall be prefered
+        which does receive such information.
+        This function allocates memory on the first PCI bus found.        
+
+   SEE ALSO
+        AllocDMAMemoryForBoard(), exec/AllocMem(), exec/memory.h,
+        libraries/openpci.h, pci_freedma_mem(),
+        pci_logic_to_physic_addr(), mmu/SetProperties(),
+        mmu/GetProperties(), mmu/RebuildTree()
+
+openpci.library/pci_bus                               openpci.library/pci_bus
+
+   NAME
+        pci_bus -- return an indicator on available PCI bus hardware
+
+   SYNOPSIS
+        bus = pci_bus()
+        D0
+
+        ULONG pci_bus()        
+
+   FUNCTION
+        This function returns a bit mask indicating which PCI
+        hardware is found present in the system. The result
+        code is a bitmask where for each found bus type a
+        a bit is set in the result code.
+
+   INPUTS
+
+   RESULTS
+        A bit mask consisting of the following bits:
+        #define MediatorA1200Bus 0x1
+        #define MediatorZ4Bus    0x2
+        #define PrometheusBus    0x4
+        #define GrexA1200Bus     0x8
+        #define GrexA4000Bus     0x10
+        Note that several bits may be set in case the
+        multiple different PCI boards are in the system.
+
+   BUGS
+        The current implementation cannot tell the
+        GrexA1200 and GrexA4000 bus apart.
+        The interface does not allow to identify multiple        
+        instances of the same bus type.
+openpci.library/pci_find_class                 openpci.library/pci_find_class
+
+   NAME
+        pci_find_device -- find a PCI device by class, subclass and
+                           and interface
+
+   SYNOPSIS
+        pci_dev = pci_find_class(class,previous)
+                                    D0    A0
+
+        struct pci_dev *pci_find_class(ULONG,struct pci_dev *)        
+
+   FUNCTION
+        This function searches the list of PCI devices starting
+        at, and excluding the device given as last argument, finding
+        a device whose class, subclass and program interface matches
+        the one given as first argument.        
+
+        If the last argument is NULL, the list of PCI devices is
+        searched from the beginning, otherwise the scan continues
+        at the previous device. This allows scanning the PCI bus
+        device by device.
+
+   INPUTS
+        class    - a 32 bit word concatenated from the class, subclass
+                   and program interface.
+                   The PCI device class is contained in bits 23..16,
+                   the subclass in bits 15..8,
+                   the prog/if in bits 7..0.
+        previous - device at which to continue to the scan, or NULL
+                   to start the scan from the beginning. The passed
+                   in device is NOT included in the scan.
+        
+   RESULTS
+        pci_dev -  a pointer to a pci_dev structure describing the
+                   found device, or NULL if no matching device could
+                   be found.        
+        
+   BUGS
+        FindBoardTagList() should be preferred as a more generic
+        and more flexible function.        
+
+   SEE ALSO
+        pci_find_device(), pci_find_slot(), FindBoardTagList()        
+
+openpci.library/pci_find_device               openpci.library/pci_find_device
+
+   NAME
+        pci_find_device -- find a PCI device by vendor/device ID pair
+
+   SYNOPSIS
+        pci_dev = pci_find_device(vendor,device,previous)
+                                    D0     D1     A0
+
+        struct pci_dev *pci_find_device(UWORD,UWORD,struct pci_dev *)        
+
+   FUNCTION
+        This function searches the list of PCI devices starting
+        at, and excluding the device given as last argument, finding
+        a device whose vendor ID is given by the first argument and
+        and whose device ID is given by the second argument.
+
+        If the last argument is NULL, the list of PCI devices is
+        searched from the beginning, otherwise the scan continues
+        at the previous device. This allows scanning the PCI bus
+        device by device.
+
+   INPUTS
+        vendor   - the PCI vendor ID to match, or -1 to match any vendor
+        device   - the vendor specific device ID, or -1 to match any
+                   device
+        previous - device at which to continue to the scan, or NULL
+                   to start the scan from the beginning. The passed
+                   in device is NOT included in the scan.
+        
+   RESULTS
+        pci_dev -  a pointer to a pci_dev structure describing the
+                   found device, or NULL if no matching device could
+                   be found.        
+        
+   BUGS
+        FindBoardTagList() should be preferred as a more generic
+        and more flexible function.        
+
+   SEE ALSO
+        pci_find_class(), pci_find_slot(), FindBoardTagList()        
+
+openpci.library/pci_find_slot                   openpci.library/pci_find_slot
+
+   NAME
+        pci_find_slot -- find a PCI device by bus and slot number
+
+   SYNOPSIS
+        pci_dev = pci_find_slot(bus, devfn)
+                                D0    D1
+
+        struct pci_dev *pci_find_slot(UBYTE, ULONG)        
+
+   FUNCTION
+        This function locates a pci device on the PCI bus
+        given by the first argument, and the device and function index
+        as given by the second argument.
+
+   INPUTS
+        bus      - the PCI bus enumerator, counting the PCI busses
+                   in the system from 1 up. If only one PCI bus is
+                   present, this argument is 1.
+        devfn    - slot and function index of the device to be found.
+                   Bits 3 and up identify the slot number,
+                   bits 2..0 the function within the device.
+                   Most PCI devices only provide a single function.
+                   Slots and functions are enumerated from 0 up,
+                   unlike PCI busses which count from 1.
+
+        The PCI_DEVFN() function converts a slot/function pair to
+        to a concatenated devfn function, and the PCI_SLOT() and
+        PCI_FUNC() function extract the slot and function from a
+        devfn pair.        
+        
+   RESULTS
+        pci_dev -  a pointer to a pci_dev structure describing the
+                   found device, or NULL if no matching device could
+                   be found.        
+        
+   BUGS
+        FindBoardTagList() should be preferred as a more generic
+        and more flexible function.        
+
+   SEE ALSO
+        pci_find_device(), pci_find_class(), FindBoardTagList()
+                
+
+openpci.library/pci_freedma_mem               openpci.library/pci_freedma_mem
+
+   NAME
+        pci_freedma_mem -- release memory on the PCI bus
+
+   SYNOPSIS
+        pci_freedma_mem(buffer, size)
+                         A0     D0
+
+        void pci_freedma_mem(APTR, ULONG)
+
+   FUNCTION
+        This function releases memory allocated by pci_allocdma_mem()
+        
+   INPUTS
+        buffer - logical 68K address of the buffer to release
+        size   - size of the buffer in bytes to release
+        
+   RESULTS
+        
+   NOTES
+        Unlike the exec memory allocation function, this function
+        may break a Forbid() state. It secures the internal state        
+        of openpci.library and its clients by semaphores which may
+        block the calling task and thus break the Forbid() state.
+        
+   BUGS
+        This function does not receive the bus on which the memory
+        is located. Prefer ReleaseDMAMemoryForBoard() to manage
+        DMA bounce buffers on a multi-PCI-bus system.        
+
+   SEE ALSO
+        ReleaseDMAMemoryForBoard(), exec/FreeMem(),
+        exec/memory.h, libraries/openpci.h,
+        pci_allocdma_mem(), pci_logic_to_physic_addr(),
+        mmu/SetProperties(), mmu/GetProperties(), mmu/RebuildTree()
+
+openpci.library/pci_inb                               openpci.library/pci_inb
+
+   NAME
+        pci_inb -- read a single byte from a PCI board
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+
+   SYNOPSIS
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+        value = pci_inb(address)
+        D0                   A0
+
+        UBYTE pci_inb(APTR)        
+
+   FUNCTION
+        This function reads a single byte from a PCI bus from
+        the 68K address given by its argument, returning the
+        value in D0.
+
+        This function is identical to:
+                value = *(UBYTE *)(address)        
+        It does not attempt to adjust the endianness.
+
+   INPUTS
+        address - 68K address to read from.
+
+   RESULTS
+        value - the byte read from the given address.
+
+   BUGS
+        As this function does not perform any sophisticated
+        operation on its argument, it has been obsoleted.
+        The openpci.library arranges the PCI bus always such
+        that memory or IO data can be read directly from
+        the address the board maps to.
+
+openpci.library/pci_inl                               openpci.library/pci_inl
+
+   NAME
+        pci_inw -- read a single long word from a PCI board
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+
+   SYNOPSIS
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+        value = pci_inl(address)
+        D0                   A0
+
+        UWORD pci_inl(APTR)        
+
+   FUNCTION
+        This function reads a single long word from a PCI bus
+        from the 68K address given by its argument, returning
+        the value in D0.
+
+        This function is identical to:
+                value = *(ULONG *)(address)        
+        It does not attempt to adjust the endianness.
+
+   INPUTS
+        address - 68K address to read from.
+
+   RESULTS
+        value - the word read from the given address.
+
+   BUGS
+        As this function does not perform any sophisticated
+        operation on its argument, it has been obsoleted.
+        The openpci.library arranges the PCI bus always such
+        that memory or IO data can be read directly from
+        the address the board maps to.
+
+openpci.library/pci_inw                               openpci.library/pci_inw
+
+   NAME
+        pci_inw -- read a single word from a PCI board
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+
+   SYNOPSIS
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+        value = pci_inw(address)
+        D0                   A0
+
+        UWORD pci_inw(APTR)        
+
+   FUNCTION
+        This function reads a single word from a PCI bus from
+        the 68K address given by its argument, returning the
+        value in D0.
+
+        This function is identical to:
+                value = *(UWORD *)(address)        
+        It does not attempt to adjust the endianness.
+
+   INPUTS
+        address - 68K address to read from.
+
+   RESULTS
+        value - the word read from the given address.
+
+   BUGS
+        As this function does not perform any sophisticated
+        operation on its argument, it has been obsoleted.
+        The openpci.library arranges the PCI bus always such
+        that memory or IO data can be read directly from
+        the address the board maps to.
+
+openpci.library/pci_logic_to_physic_addrnpci.library/pci_logic_to_physic_addr
+
+   NAME
+        pci_logic_to_physic_addr -- compute PCI address from 68K addr
+
+   SYNOPSIS
+        pciaddr = pci_logic_to_physic_addr(logical, pcidev)
+          D0                                  A0      A1
+
+        APTR pci_logic_to_physic_addr(APTR logical, struct pci_dev *)
+
+   FUNCTION
+        This function computes from a logical 68K address as given
+        by the first argument a physical address as seen on the
+        PCI bus on which pcidev is located.
+        
+   INPUTS
+        logical - a logical address as seen by software running on
+                  the host system.        
+        pcidev  - PCI device identifying the bus for which to
+                  to translate an address.
+
+   RESULTS
+        pciaddr - physical address on the PCI bus or NULL in case
+                  address translation cannot be performed because
+                  the logical address is not in the address window
+                  of the PCI bus on which pci_dev is located.        
+        
+   NOTES
+        This function performs address translation of logical 68K
+        addresses to addresses as seen by the PCI device pci_dev.
+        Two types of adddress translations are implied: First, the
+        passed in address may be a logical address that is
+        translated by the 68K MMU of the host CPU, and second, this
+        physical address is translated to an address on the PCI bus
+        by the PCI bus.
+        DMA hardware of the pci_dev will require the latter, the
+        physical PCI address, whereas the 68K CPU operates with the
+        input, the logical 68K address.
+        
+        This function may return NULL in case it cannot translate
+        address        because it is not contained in the address window
+        of the PCI bus on which pci_dev is located.        
+        
+   BUGS
+        This function should really also take a byte size in order
+        to check whether an entire address range is located within
+        the PCI bus.        
+
+   SEE ALSO
+        pci_physic_to_logic_addr()
+
+openpci.library/pci_obtain_card               openpci.library/pci_obtain_card
+
+   NAME
+        pci_obtain_card -- reserve a PCI device for exclusive usage
+
+   SYNOPSIS
+        success = pci_obtain_card(pcidev)
+          D0                        A0 
+
+        BOOL pci_obtain_card(struct pci_dev *)
+
+   FUNCTION
+        This function attempts to reserve a card for exclusive
+        usage of the caller.
+        
+   INPUTS
+        pcidev  - PCI device to reserve.
+
+   RESULTS
+        success - indicator whether the device could be reserved
+                  by the caller. Non-zero in case the device could
+                  be claimed, FALSE in case the device is already
+                  reserved by some other process or handler.        
+        
+   NOTES
+        This function attempts to reserve a PCI device for exclusive
+        usage by the caller. Drivers that handle a particular device
+        should call this function to indicate that they claimed the
+        device such that no other driver attempts to access the same
+        device simultaneously. Put in other words, obtaining a card
+        creates a binding between a device driver and the PCI device.
+        
+        If a device is already claimed by another handler already,
+        this function returns FALSE. Otherwise, it returns a non-zero
+        result code.
+
+        An alternative and equivalent way how to obtain a device is
+        through SetBoardAttrs().        
+        
+   BUGS
+
+   SEE ALSO
+        pci_release_card(), SetBoardAttrs()
+
+openpci.library/pci_outb                             openpci.library/pci_outb
+
+   NAME
+        pci_outb -- write a single byte to a PCI board
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+
+   SYNOPSIS
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+        pci_outb(value,address)
+                  D0         A0
+
+        void pci_outb(UBYTE,APTR)        
+
+   FUNCTION
+        This function writes a single byte to a PCI bus at
+        the 68K address given by its argument.
+
+        This function is identical to:
+                *(UBYTE *)(address) = value
+        It does not attempt to adjust the endianness.
+
+   INPUTS
+        value - value to write.
+        address - 68K address to write to.
+
+   RESULTS
+
+   BUGS
+        As this function does not perform any sophisticated
+        operation on its argument, it has been obsoleted.
+        The openpci.library arranges the PCI bus always such
+        that memory or IO data can be written directly to
+        the address the board maps to.
+
+openpci.library/pci_outl                             openpci.library/pci_outl
+
+   NAME
+        pci_outl -- write a single long word to a PCI board
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+
+   SYNOPSIS
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+        pci_outl(value,address)
+                  D0         A0
+
+        void pci_outl(ULONG,APTR)        
+
+   FUNCTION
+        This function writes a single long word to a PCI bus
+        at the 68K address given by its argument.
+
+        This function is identical to:
+                *(ULONG *)(address) = value
+        It does not attempt to adjust the endianness.
+
+   INPUTS
+        value - value to write.
+        address - 68K address to write to.
+
+   RESULTS
+
+   BUGS
+        As this function does not perform any sophisticated
+        operation on its argument, it has been obsoleted.
+        The openpci.library arranges the PCI bus always such
+        that memory or IO data can be written directly to
+        the address the board maps to.
+
+openpci.library/pci_outw                             openpci.library/pci_outw
+
+   NAME
+        pci_outw -- write a single word to a PCI board
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+
+   SYNOPSIS
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+        pci_outw(value,address)
+                  D0         A0
+
+        void pci_outw(UWORD,APTR)        
+
+   FUNCTION
+        This function writes a single word to a PCI bus at
+        the 68K address given by its argument.
+
+        This function is identical to:
+                *(UWORD *)(address) = value
+        It does not attempt to adjust the endianness.
+
+   INPUTS
+        value - value to write.
+        address - 68K address to write to.
+
+   RESULTS
+
+   BUGS
+        As this function does not perform any sophisticated
+        operation on its argument, it has been obsoleted.
+        The openpci.library arranges the PCI bus always such
+        that memory or IO data can be written directly to
+        the address the board maps to.
+
+openpci.library/pci_physic_to_logic_addrnpci.library/pci_physic_to_logic_addr
+
+   NAME
+        pci_physic_to_logic_addr -- compute 68K address from PCI addr
+
+   SYNOPSIS
+        logical = pci_physic_to_logic_addr(pciaddr, pcidev)
+          D0                                  A0      A1
+
+        APTR pci_physic_to_logic_addr(APTR pciaddr, struct pci_dev *)
+
+   FUNCTION
+        This function computes from a physical address on the PCI bus
+        a logical 68K address as seen by the host PCI. The PCI bus
+        is identified by the pci_dev given as second argument.
+        
+   INPUTS
+        pciaddr - a physical address as seen by the pci_dev
+                  on its PCI bus.        
+        pcidev  - PCI device identifying the bus for which to
+                  to translate an address.
+
+   RESULTS
+        logical - logical address as seen by software running on the
+                  host CPU.
+        
+   NOTES
+        This function performs address translation of PCI addresses
+        as seen by the PCI device pci_dev to logical 68K addresses.
+        Two types of adddress translations are implied: First, the
+        physical address on the PCI bus is reversely translated to
+        a physical address on the 68K bus, which is then reversely
+        translated to a logical 68K address.        
+        
+        This function may return NULL in case it cannot translate
+        address        because it is not contained in the address window
+        of the PCI bus on which pci_dev is located.        
+        
+   BUGS
+        This function should really also take a byte size in order
+        to check whether an entire address range is located within
+        the PCI bus.        
+
+   SEE ALSO
+        pci_logic_to_physic_addr()
+
+openpci.library/pci_read_config_byte     openpci.library/pci_read_config_byte
+
+   NAME
+        pci_read_config_byte -- read a byte from PCI config space
+
+   SYNOPSIS
+        value = pci_read_config_byte(offset,pcidev)
+                                       D0    A0
+
+        UBYTE pci_read_config_byte(UBYTE, struct pci_dev *)        
+
+   FUNCTION
+        This function reads a byte from the 256 byte configuration
+        space of the given PCI device. The offset is the byte offset
+        from the start of the configuration space.
+
+   INPUTS
+        offset - byte offset from the start of the PCI configuration
+                 space to read.
+        pcidev - PCI device from which to read configuration data.
+        
+   RESULTS
+        value  - byte value read from the device.
+        
+   NOTES
+        The PCI configuration space is little endian, and thus for
+        data types that extends over multiple bytes the byte of the
+        lowest address contains the least significant byte.
+        The addresses contained in the BAR registers are given in
+        the PCI address space, and thus not necessarily identical to        
+        the addresses the CPU uses to address memory or registers on
+        the PCI bus. Thus, their value may be meaningless to the 68K.
+        Instead, the addresses in the pci_dev structure or the         
+        addresses returned by GetBoardAttrs() shall be used to
+        reach registers or memory in PCI space.
+
+        This function may block interrupts and thus multitasking
+        for a short period of time. Some PCI boards may require
+        bankswitching to reach the configuration area access 
+        which is Disable() protected.
+        
+   BUGS
+
+   SEE ALSO
+        pci_read_config_word(), pci_read_config_long(),
+        pci_write_config_byte(), GetBoardAttrs()        
+                
+
+openpci.library/pci_read_config_long     openpci.library/pci_read_config_long
+
+   NAME
+        pci_read_config_long -- read a long from PCI config space
+
+   SYNOPSIS
+        value = pci_read_config_long(offset,pcidev)
+                                       D0    A0
+
+        UWORD pci_read_config_long(UBYTE, struct pci_dev *)        
+
+   FUNCTION
+        This function reads a long word from the 256 byte
+        configuration space of the given PCI device. The offset is
+        the byte offset of the first byte of the long word in the
+        configuration space. The returned long word is endian-swapped,
+        i.e. big-endian, though read as little-endian long word from
+        the PCI space.        
+
+   INPUTS
+        offset - byte offset from the start of the PCI configuration
+                 space where the long word to read starts.
+        pcidev - PCI device from which to read configuration data.
+        
+   RESULTS
+        value  - long word value read from the device, in big endian.
+        
+   NOTES
+        The PCI configuration space is little endian, and thus for
+        data types that extends over multiple bytes the byte of the
+        lowest address contains the least significant byte.
+        The passed in offset is therefore the offset of the least
+        significant byte of the long word to read.
+        The result is endian-swapped to big-endian, as required for
+        the 68K.        
+        The addresses contained in the BAR registers are given in
+        the PCI address space, and thus not necessarily identical to        
+        the addresses the CPU uses to address memory or registers on
+        the PCI bus. Thus, their value may be meaningless to the 68K.
+        Instead, the addresses in the pci_dev structure or the         
+        addresses returned by GetBoardAttrs() shall be used to
+        reach registers or memory in PCI space.
+
+        This function may block interrupts and thus multitasking
+        for a short period of time. Some PCI boards may require
+        bankswitching to reach the configuration area access 
+        which is Disable() protected.
+        
+   BUGS
+
+   SEE ALSO
+        pci_read_config_byte(), pci_read_config_long(),
+        pci_write_config_byte(), GetBoardAttrs()        
+                
+
+openpci.library/pci_read_config_word     openpci.library/pci_read_config_word
+
+   NAME
+        pci_read_config_word -- read a word from PCI config space
+
+   SYNOPSIS
+        value = pci_read_config_word(offset,pcidev)
+                                       D0    A0
+
+        UWORD pci_read_config_word(UBYTE, struct pci_dev *)        
+
+   FUNCTION
+        This function reads a word from the 256 byte configuration
+        space of the given PCI device. The offset is the byte offset
+        of the first byte of the word in the configuration space.
+        The returned word is endian-swapped, i.e. big-endian, though
+        read as little-endian word from the PCI space.        
+
+   INPUTS
+        offset - byte offset from the start of the PCI configuration
+                 space where the word to read starts.
+        pcidev - PCI device from which to read configuration data.
+        
+   RESULTS
+        value  - word value read from the device, in big endian.
+        
+   NOTES
+        The PCI configuration space is little endian, and thus for
+        data types that extends over multiple bytes the byte of the
+        lowest address contains the least significant byte.
+        The passed in offset is therefore the offset of the least
+        significant byte of the word to read.
+        The result is endian-swapped to big-endian, as required for
+        the 68K.        
+        The addresses contained in the BAR registers are given in
+        the PCI address space, and thus not necessarily identical to        
+        the addresses the CPU uses to address memory or registers on
+        the PCI bus. Thus, their value may be meaningless to the 68K.
+        Instead, the addresses in the pci_dev structure or the         
+        addresses returned by GetBoardAttrs() shall be used to
+        reach registers or memory in PCI space.
+
+        This function may block interrupts and thus multitasking
+        for a short period of time. Some PCI boards may require
+        bankswitching to reach the configuration area access
+        which is Disable() protected.
+        
+   BUGS
+
+   SEE ALSO
+        pci_read_config_byte(), pci_read_config_long(),
+        pci_write_config_byte(), GetBoardAttrs()        
+                
+
+openpci.library/pci_release_card             openpci.library/pci_release_card
+
+   NAME
+        pci_release_card -- release exclusive access to a PCI device
+
+   SYNOPSIS
+        pci_release_card(pcidev)
+                           A0 
+
+        void pci_release_card(struct pci_dev *)
+
+   FUNCTION
+        This function releases a PCI device reserved for exclusive
+        usage.
+        
+   INPUTS
+        pcidev  - PCI device to release.
+
+   RESULTS
+        
+   NOTES
+        This function releases a previously reserved PCI device for
+        other callers.
+        The caller shall have reserved the device before.
+        
+        An alternative and equivalent way how to relase a device is
+        through SetBoardAttrs().        
+        
+   BUGS
+
+   SEE ALSO
+        pci_obtain_card()
+
+openpci.library/pci_rem_intserver           openpci.library/pci_rem_intserver
+
+   NAME
+        pci_rem_intserver -- remove an interrupt server from a PCI device
+
+   SYNOPSIS
+        pci_rem_intserver(interrupt, pcidev)
+                             A0        A1
+
+        void pci_rem_intserver(struct Interrupt *, struct pci_dev *)
+
+   FUNCTION
+        This function removes an interrupt server from the PCI
+        device given by the second argument.
+        
+   INPUTS
+        interrupt - an interrupt structure registered for a receiving
+                    interrupts generated by pcidev.
+        pcidev    - PCI device on which interrupt is registered as
+                    interrupt server.
+
+   RESULTS
+        
+   NOTES
+        This function may corrupt data if interrupt is not an
+        interrupt server already added to pcidev.
+        
+   BUGS
+
+   SEE ALSO
+        exec/RemIntServer(), pci_add_intserver()        
+
+openpci.library/pci_set_master                 openpci.library/pci_set_master
+
+   NAME
+        pci_set_master -- switch a PCI device to bus master mode
+
+   SYNOPSIS
+        result = pci_set_master(pcidev)
+          D0                      A0
+
+        void pci_set_master(struct pci_dev *)        
+
+   FUNCTION
+        This function attempts to enable the bus master mode
+        of the given PCI device. If successful, it returns
+        a non-zero value. It returns FALSE in case of error,
+        possibly because the addressed device does not support
+        the mode.
+        
+   INPUTS
+        pcidev - PCI device to put into bus master mode.
+        
+   RESULTS
+        result - boolean success indicator        
+        
+   BUGS
+
+   SEE ALSO
+
+openpci.library/pci_to_hostcpy                 openpci.library/pci_to_hostcpy
+
+   NAME
+        pci_to_hostcpy -- copy a byte array to from PCI to the host
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+
+   SYNOPSIS
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+        pci_to_hostcpy(pci,cpuaddr,size)
+                        A0   A1     D0
+
+        void pci_to_hostcpy(APTR pci,APTR cpuaddr,ULONG size)        
+
+   FUNCTION
+        This function copies a sequence of size bytes from the
+        address given by the first argument on a PCI address
+        to the CPU space given by the second argument.
+
+        This function is identical to:
+                memcpy(dst,src,size)
+        It does not attempt to adjust the endianness, and
+        only performs a raw byte copy.
+
+   INPUTS
+        pci     - source address on PCI as seen from the 68K
+        cpuaddr - 68K address to write to.
+        size    - number of bytes to copy
+
+   RESULTS
+
+   BUGS
+        As this function does not perform any sophisticated
+        operation on its argument, it has been obsoleted.
+        The openpci.library arranges the PCI bus always such
+        that memory or IO data can be written directly to
+        the address the board maps to.
+
+openpci.library/pci_to_pcicpy                   openpci.library/pci_to_pcicpy
+
+   NAME
+        pci_to_pcicpy -- copy a byte array between to PCI devices
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+
+   SYNOPSIS
+         OBSOLETE OBSOLETE OBSOLETE OBSOLETE OBSOLETE
+        pci_to_pcicpy(pcisrc,pcidst,size)
+                        A0     A1    D0
+
+        void pci_to_hostcpy(APTR pcisrc,APTR pcidst,ULONG size)        
+
+   FUNCTION
+        This function copies a sequence of size bytes from the
+        address given by the first argument in PCI space
+        to another PCI device at the address given by the second
+        argument. Both addresses are as seen by the CPU.
+        
+        This function is identical to:
+                memcpy(dst,src,size)
+        It does not attempt to adjust the endianness, and
+        only performs a raw byte copy. It neither attempts
+        to use DMA to copy memory.
+
+   INPUTS
+        pcisrc  - source address on PCI as seen from the 68K
+        pcidst  - destination address on PCI as seen by the CPU
+        size    - number of bytes to copy
+
+   RESULTS
+
+   BUGS
+        As this function does not perform any sophisticated
+        operation on its argument, it has been obsoleted.
+        The openpci.library arranges the PCI bus always such
+        that memory or IO data can be written directly to
+        the address the board maps to.
+
+openpci.library/pci_write_config_byte   openpci.library/pci_write_config_byte
+
+   NAME
+        pci_write_config_byte -- write a byte to PCI config space
+
+   SYNOPSIS
+        pci_write_config_byte(offset,val,pcidev)
+                                D0   D1    A0
+
+        void pci_write_config_byte(UBYTE, UBYTE, struct pci_dev *)        
+
+   FUNCTION
+        This function writes a byte to the 256 byte configuration
+        space of the given PCI device. The offset is the byte offset
+        from the start of the configuration space.
+
+   INPUTS
+        offset - byte offset from the start of the PCI configuration
+                 space to write to.
+        val    - byte value to write.
+        pcidev - PCI device into whose configuration space to write.
+        
+   RESULTS
+        
+   NOTES
+        The PCI configuration space is little endian, and thus for
+        data types that extends over multiple bytes the byte of the
+        lowest address contains the least significant byte.
+        The BAR registers should not be written to as they have been
+        configured already by openpci.library and contain addresses
+        on the PCI address bus that not necessarily coincide with
+        addresses on the CPU bus.        
+
+        This function may block interrupts and thus multitasking
+        for a short period of time. Some PCI boards may require
+        bankswitching to reach the configuration area access
+        which is Disable() protected.
+        
+   BUGS
+
+   SEE ALSO
+        pci_write_config_word(), pci_write_config_long(),
+        pci_read_config_byte()
+                
+
+openpci.library/pci_write_config_long   openpci.library/pci_write_config_long
+
+   NAME
+        pci_write_config_long -- write a word to PCI config space
+
+   SYNOPSIS
+        pci_write_config_long(offset,val,pcidev)
+                                D0   D1    A0
+
+        void pci_write_config_long(UBYTE, ULONG, struct pci_dev *)        
+
+   FUNCTION
+        This function writes a long word to the 256 byte configuration
+        space of the given PCI device. The offset is the byte offset
+        from the start of the configuration space.
+
+   INPUTS
+        offset - byte offset from the start of the PCI configuration
+                 space to write to. This byte contains the lowest
+                 order byte of the four bytes that will be written.        
+        val    - long word value to write.
+        pcidev - PCI device into whose configuration space to write.
+        
+   RESULTS
+        
+   NOTES
+        The PCI configuration space is little endian, and thus for
+        data types that extends over multiple bytes the byte of the
+        lowest address contains the least significant byte.
+        The long word value to be written will be endian-swapped first
+        such that the lowest order byte will end up at the given offset,
+        and all higher order bytes in the subsequent offsets.        
+        The BAR registers should not be written to as they have been
+        configured already by openpci.library and contain addresses
+        on the PCI address bus that not necessarily coincide with
+        addresses on the CPU bus.        
+
+        This function may block interrupts and thus multitasking
+        for a short period of time. Some PCI boards may require
+        bankswitching to reach the configuration area access
+        which is Disable() protected.
+        
+   BUGS
+
+   SEE ALSO
+        pci_write_config_byte(), pci_write_config_word(),
+        pci_read_config_long()
+                
+
+openpci.library/pci_write_config_word   openpci.library/pci_write_config_word
+
+   NAME
+        pci_write_config_word -- write a word to PCI config space
+
+   SYNOPSIS
+        pci_write_config_write(offset,val,pcidev)
+                                D0   D1    A0
+
+        void pci_write_config_write(UBYTE, UWORD, struct pci_dev *)        
+
+   FUNCTION
+        This function writes a word to the 256 byte configuration
+        space of the given PCI device. The offset is the byte offset
+        from the start of the configuration space.
+
+   INPUTS
+        offset - byte offset from the start of the PCI configuration
+                 space to write to. This byte contains the low-order
+                 byte of the two bytes that will be written.        
+        val    - word value to write.
+        pcidev - PCI device into whose configuration space to write.
+        
+   RESULTS
+        
+   NOTES
+        The PCI configuration space is little endian, and thus for
+        data types that extends over multiple bytes the byte of the
+        lowest address contains the least significant byte.
+        The word value to be written will be endian-swapped first
+        before its lower order byte is written to the given offset,
+        and its higher order byte is written to offset+1.        
+        The BAR registers should not be written to as they have been
+        configured already by openpci.library and contain addresses
+        on the PCI address bus that not necessarily coincide with
+        addresses on the CPU bus.        
+
+        This function may block interrupts and thus multitasking
+        for a short period of time. Some PCI boards may require
+        bankswitching to reach the configuration area access
+        which is Disable() protected.
+        
+   BUGS
+
+   SEE ALSO
+        pci_write_config_byte(), pci_write_config_long(),
+        pci_read_config_word()
+                
+
+openpci.library/ReleaseDMAMemoryForBoardnpci.library/ReleaseDMAMemoryForBoard
+
+   NAME
+        ReleaseDMAMemoryForBoard -- release memory on the PCI bus
+
+   SYNOPSIS
+        ReleaseDMAMemoryForBoard(pci_dev, buffer, size)
+                                    A0     A1      D0
+
+        void ReleaseDMAMemoryForBoard(struct pci_dev *, APTR, ULONG)
+
+   FUNCTION
+        This function releases memory allocated by
+        AllocateDMAMemoryForBoard()
+        
+   INPUTS
+        buffer - logical 68K address of the buffer to release
+        size   - size of the buffer in bytes to release
+        
+   RESULTS
+        
+   NOTES
+        Unlike the exec memory allocation function, this function
+        may break a Forbid() state. It secures the internal state        
+        of openpci.library and its clients by semaphores which may
+        block the calling task and thus break the Forbid() state.
+        
+   BUGS
+
+   SEE ALSO
+        pci_freedma_mem(), exec/FreeMem(),
+        exec/memory.h, libraries/openpci.h,
+        pci_allocdma_mem(), pci_logic_to_physic_addr(),
+        mmu/SetProperties(), mmu/GetProperties(), mmu/RebuildTree()
+
+openpci.library/RemMemoryHandlerForBoardnpci.library/RemMemoryHandlerForBoard
+
+   NAME
+        RemMemoryHandlerForBoard -- remove a PCI board offering DMA
+                                    memory to its PCI bus
+
+   SYNOPSIS
+        success = RemMemoryHandlerForBoard(pci_dev, hook)
+          D0                                 A0      A1   
+
+        BOOL RemMemoryHandlerForBoard(struct pci_dev *, struct Hook *)
+
+   FUNCTION
+        This function removes pci_dev from the list of devices that
+        offers DMA bounce buffers on its PCI device.
+        
+   INPUTS
+        pci_dev - PCI device which offers memory on the PCI bus.
+        hook    - a hook pointer through which memory is allocated
+                  and released, this hook is removed from the hooks
+                  offering memory allocation and release services.        
+        
+   RESULTS
+        success - success indicator whether the hook could be removed.
+                  The only failure case is that the hook was never
+                  registered and could not be found.
+        
+   NOTES
+        
+   BUGS
+
+   SEE ALSO
+        pci_allocdma_mem(), AllocateDMAMemoryForBoard()
+        AddMemoryHandlerForBoard()
+        utility/hooks.h libraries/pcimemory.h
+
+openpci.library/SetBoardAttrs                   openpci.library/SetBoardAttrs
+
+   NAME
+        SetBoardAttrs -- set board attributes of a PCI device
+
+   SYNOPSIS
+        success = SetBoardAttrsA(pci_dev,tags)
+          D0                       A0     A1 
+
+        BOOL SetBoardAttrsA(struct pci_dev *,struct TagItem *)
+        
+        BOOL SetBoardAttrs(struct pci_dev *,...)
+
+   FUNCTION
+        This function sets attributes of a PCI device.
+
+   INPUTS
+        pci_dev - The PCI device of which attributes will be
+                  set.
+        tags        - tag list containing the attributes to be
+                  changed, with tag values containing
+                  the new attributes to be installed.        
+
+        The file libraries/pcitags.h defines the tags that are
+        recognized by this function:
+
+        PRM_BoardOwner  This tag takes a struct Node *.
+                        If set to a non-NULL value, the board
+                        is reserved for the caller which leaves
+                        a struct Node * here whose ln_Name serves
+                        to identify the owner. If set to NULL,
+                        the device is released and becomes
+                        available to another caller.
+
+        PRM_MemorySize0 only setable at config time through
+                        tools run from PCI-Configuration, this
+                        tag defines the size of a BAR that cannot
+                        be determined by scanning. Must be a power
+                        of 2. This tag defines the size of bar 0.
+        PRM_MemorySize1 defines the size of bar 1 at config time.
+        PRM_MemorySize2 defines the size of bar 2 at config time.
+        PRM_MemorySize3 defines the size of bar 3 at config time.
+        PRM_MemorySize4 defines the size of bar 4 at config time.
+        PRM_MemorySize5 defines the size of bar 5 at config time.
+        PRM_ROM_Size    defines the size of the ROM at config time.
+
+        PRM_MemoryFlags0 defines flags of the BAR 0 at config time.
+                        The following flags are setable at this
+                        time:
+                PCI_BASE_ADDRESS_SPACE_IO allocate BAR in an
+                                          I/O region.
+                PCI_BASE_ADDRESS_MEM_PREFETCH BAR region is
+                                                  memory-like        
+
+        PRM_MemoryFlags1 defines flags for BAR 1 at config time.
+        PRM_MemoryFlags2 defines flags for BAR 2 at config time.
+        PRM_MemoryFlags3 defines flags for BAR 3 at config time.
+        PRM_MemoryFlags4 defines flags for BAR 4 at config time.
+        PRM_MemoryFlags5 defines flags for BAR 5 at config time.
+        PRM_ROM_Flags    defines flags for the ROM at config time.
+
+   RESULTS
+        success - counts the number of tags that could be set.
+                  Zero on failure.        
+
+   NOTES
+        The tag used by this function are intentionally identical
+        to the tags of the prometheus.library. Only a single
+        attribute can be set currently, all others are either        
+        provided by the hardware of the board, or computed and
+        installed by openpci.library on startup.
+        Properties of the device defined by the PCI configuration
+        space can be adjusted by the pci_write_config_...()
+        function.
+        
+   BUGS
+
+   SEE ALSO
+        libraries/pcitags.h, pci_write_config_byte(),
+        pci_write_config_word(), pci_write_config_long(),
+        pci_obtain_card(), pci_release_card()        
+        
+PCI-Configuration/Emulate                           PCI-Configuration/Emulate
+
+   NAME
+        Emulate -- emulate PCI libraries
+
+   SYNOPSIS
+        Emulate PROMETHEUS/S,MEDIATOR/S,GREX/S
+
+   FUNCTION
+        This command enables emulation of various third
+        party products and driver libraries to improve
+        interoperability. As a result, reimplementations
+        of such libraries, along with emulated expansion
+        configuration structures will be created.
+
+   TEMPLATE
+        PROMETHEUS:     emulate the Matay Prometheus PCI bridge
+                        along with the prometheus.library.
+        MEDIATOR:       emulate an Mediator A4000 bridge along
+                        with the pci.library.
+        GREX:               emulate the G-Rex cybpci.library.
+        
+   EXAMPLE
+        Emulate Prometheus
+
+        enables emulation of the Matay PCI bridge and
+        driver library.
+
+   BUGS
+
+PCI-Configuration/Ignore                             PCI-Configuration/Ignore
+
+   NAME
+        Ignore -- disable a device or a BAR region of a device
+
+   SYNOPSIS
+        Ignore DEVICE,CLASS,SLOT,BAR
+
+   FUNCTION
+        This command disables a device (or function of a device)
+        from being intitialized, or a BAR register of the
+        device from getting initialized. Non-configured devices
+        will not appear on the PCI bus and in the library,
+        non-configured BAR registers will not take address
+        space.        
+
+   TEMPLATE
+        DEVICE: provides the device to ignore by
+                a triple of vendor and device ID
+                separated by colon, optionally
+                followed by the device function
+                separated by a dot.        
+        
+        CLASS:  provides the class to ignore by
+                by a triple of class, subclass and,
+                optionally, progIF, all separated
+                by colon.
+
+        SLOT:   identifies the device by its location
+                on the PCI bus, by a (hexadecimal) bus
+                number starting from 1 for the host
+                bridge, followed by a (hexadecimal)
+                device number starting from 0 for the
+                first device, optionally followed by
+                a dot and a function number.
+
+        BAR:    if present, only a particular BAR
+                register will not be initialized;
+                if not given, then the entire device
+                will be ignored.
+                The argument to BAR is either a
+                number from 0 to 5, or the keyword
+                ROM, in which case the device ROM,
+                for example the VGA bios, is not
+                mapped.        
+
+        Values are by default in hex, accepting 0x or
+        or $ as prefix.        # enforces decimal, % binary
+        and 0 or O octal numbers.
+        
+   EXAMPLE
+        Ignore Device 5333:5631 Bar 1
+
+        Ignore BAR region 1 of the S3 Virge.
+
+   BUGS
+
+PCI-Configuration/ReserveIOSpace             PCI-Configuration/ReserveIOSpace
+
+   NAME
+        ReserveIOSpace -- reserve IO space
+
+   SYNOPSIS
+        ReserveIOSpace BRIDGE/K,BYTES/A
+
+   FUNCTION
+        This command reserves a region at the beginning of the
+        PCI IO region to keep PCI BAR registers out of this
+        region. Some devices, most notably VGA cards, react
+        on registers in the legacy IO region. Conflicts arise
+        if BAR regions are mapped into the same area.
+        By default, openpci.library reserves all IO registers
+        below address 0x6000 for legacy IO.        
+
+   TEMPLATE
+        BRIDGE: the name of the PCI bridge on which
+                an IO region shall be reserved. If
+                missing, then all PCI bridge boards
+                will be affected. The following bridge
+                types are currently supported:
+        "Mediator A1200" : any of the A1200 mediator boards
+        "Mediator A4000" : the A4000 mediator board
+        "Prometheus"         : the original Prometheus board
+        "Prometheus Firestorm"        : the Prometheus Firestorm
+        "G-Rex"                 : the A4000 or A1200 GRex board        
+                If the name contains spaces, it must be
+                enclosed in spaces.        
+        
+        BYTES:  the number of bytes to reserve at the start
+                of the IO region, given in hex.
+
+        Values are by default in hex, accepting 0x or
+        or $ as prefix.        # enforces decimal, % binary
+        and 0 or O octal numbers.
+        
+   EXAMPLE
+        ReserveIOSpace 0x400
+
+        Reserve 1024 IO port bytes at the start of the IO
+        window, thus making additional ports available.
+
+   BUGS
+
+PCI-Configuration/ReserveMemSpace           PCI-Configuration/ReserveMemSpace
+
+   NAME
+        ReserveMemSpace -- reserve memory space
+
+   SYNOPSIS
+        ReserveMemSpace BRIDGE/K,BYTES/A
+
+   FUNCTION
+        This command reserves a region at the beginning of the
+        PCI memory space to keep PCI BAR registers out of this
+        region. Some devices, most notably VGA cards, react
+        on memory accesses in the legacy VGA area. Conflicts arise
+        if BAR regions are mapped into the same area.
+        This command can be used to keep the legacy VGA region
+        free of BAR regions.        
+
+   TEMPLATE
+        BRIDGE: the name of the PCI bridge on which
+                a memory region shall be reserved. If
+                missing, then all PCI bridge boards
+                will be affected. The following bridge
+                types are currently supported:
+        "Mediator A1200" : any of the A1200 mediator boards
+        "Mediator A4000" : the A4000 mediator board
+        "Prometheus"         : the original Prometheus board
+        "Prometheus Firestorm"        : the Prometheus Firestorm
+        "G-Rex"                 : the A4000 or A1200 GRex board        
+                If the name contains spaces, it must be
+                enclosed in spaces.        
+        
+        BYTES:  the number of bytes to reserve at the start
+                of the memory region, given in hex.
+
+        Values are by default in hex, accepting 0x or
+        or $ as prefix.        # enforces decimal, % binary
+        and 0 or O octal numbers.
+        
+   EXAMPLE
+        ReserveMemSpace 0xc0000
+
+        Keep BAR regions out of the legacy VGA region.
+
+   BUGS
+
+PCI-Configuration/SetCacheLineSize         PCI-Configuration/SetCacheLineSize
+
+   NAME
+        SetCacheLineSize -- set expected cache line size in bytes
+
+   SYNOPSIS
+        SetCacheLineSize DEVICE,CLASS,SLOT,SIZE=BYTES/A
+
+   FUNCTION
+        This command changes the cache line size of a PCI device
+        that can act as bus master, to invalidate parts of the
+        cache of the host CPU by the Memory Write and Invalidate
+        command. This should most likely be 0 to disable this
+        feature, or 16 to match the cache line size of the 68K.
+
+   TEMPLATE
+        DEVICE: provides the device to configure by
+                a triple of vendor and device ID
+                separated by colon, optionally
+                followed by the device function
+                separated by a dot.        
+        
+        CLASS:  provides the class to configure by
+                by a triple of class, subclass and,
+                optionally, progIF, all separated
+                by colon.
+
+        SLOT:   identifies the device by its location
+                on the PCI bus, by a (hexadecimal) bus
+                number starting from 1 for the host
+                bridge, followed by a (hexadecimal)
+                device number starting from 0 for the
+                first device, optionally followed by
+                a dot and a function number.
+        
+        SIZE:   The cache line size of the device in bytes,
+                a value between 0 and 1024. The value is
+                rounded down to the next multiple of 4.        
+
+        Values are by default in hex, accepting 0x or
+        or $ as prefix.        # enforces decimal, % binary
+        and 0 or O octal numbers. The cache line size
+        is in decimal by default.        
+        
+   EXAMPLE
+        SetCacheLine Bytes 0
+
+        Disables the Memory Write and Invalidate command
+        for all devices.
+
+   BUGS
+
+PCI-Configuration/SetInterrupt                 PCI-Configuration/SetInterrupt
+
+   NAME
+        SetInterrupt -- set the pin on which to expect device interrupts
+
+   SYNOPSIS
+        SetInterrupt DEVICE,CLASS,SLOT,PIN/A
+
+   FUNCTION
+        This command changes the interrupt pin on which
+        openpci.library should expect interrupts of the
+        given device to be routed, or it disables the
+        interrupt. Without this function, this information
+        is taken from the PCI configuration area. While it
+        is usually correct, some cards provide false information
+        in its config area, thus requiring fixup by this
+        command.
+        Note that this command does not change the interrupt
+        routing, it only changes where openpci.library is
+        supposed to expect the interrupt.        
+
+   TEMPLATE
+        DEVICE: provides the device to configure by
+                a triple of vendor and device ID
+                separated by colon, optionally
+                followed by the device function
+                separated by a dot.        
+        
+        CLASS:  provides the class to configure by
+                by a triple of class, subclass and,
+                optionally, progIF, all separated
+                by colon.
+
+        SLOT:   identifies the device by its location
+                on the PCI bus, by a (hexadecimal) bus
+                number starting from 1 for the host
+                bridge, followed by a (hexadecimal)
+                device number starting from 0 for the
+                first device, optionally followed by
+                a dot and a function number.
+        
+        PIN:    the pin on which the device interrupt
+                appears. Values 1 to 4 correspond to
+                interrupt pins A to D. The value 0
+                disables the interrupt.
+
+        Values are by default in hex, accepting 0x or
+        or $ as prefix.        # enforces decimal, % binary
+        and 0 or O octal numbers.
+        
+   EXAMPLE
+        SetInterrupt Device 5333:5631 Pin 0
+
+        Disables the interrupt of the S3 Virge.
+
+   BUGS
+
+PCI-Configuration/SetLatency                     PCI-Configuration/SetLatency
+
+   NAME
+        SetLatency -- set latency of the device in PCI cycles
+
+   SYNOPSIS
+        SetLatency DEVICE,CLASS,SLOT,LATENCY=CYCLES/A
+
+   FUNCTION
+        This command changes the latency of the device
+        on the PCI bus in cylces. It sets the number of
+        cylces the device is allowed to lock the PCI bus
+        until another device is able to get the bus.
+
+   TEMPLATE
+        DEVICE: provides the device to configure by
+                a triple of vendor and device ID
+                separated by colon, optionally
+                followed by the device function
+                separated by a dot.        
+        
+        CLASS:  provides the class to configure by
+                by a triple of class, subclass and,
+                optionally, progIF, all separated
+                by colon.
+
+        SLOT:   identifies the device by its location
+                on the PCI bus, by a (hexadecimal) bus
+                number starting from 1 for the host
+                bridge, followed by a (hexadecimal)
+                device number starting from 0 for the
+                first device, optionally followed by
+                a dot and a function number.
+
+        LATENCY: The latency of the device in cycles
+                on the PCI bus, a value between 0 and 255.
+
+        Values are by default in decimal, accepting 0x or
+        or $ as prefix force to hex input. # enforces decimal,
+        % binary and 0 or O octal numbers. The latency is in
+        decimal by default.        
+        
+   EXAMPLE
+        SetLatency Device 5333:5631 Cycles 255
+
+        Sets the latency of the S3 Virge to 255 cycles.
+
+   BUGS
+
+PCI-Configuration/SetPri                             PCI-Configuration/SetPri
+
+   NAME
+        SetPri -- set the initialization priority of a device
+
+   SYNOPSIS
+        SetPri DEVICE,CLASS,SLOT,PRI/A
+
+   FUNCTION
+        This command adjusts the order in which devices are
+        initialized by assigning a priority to them. Devices
+        of higher priority are initialized first and thus
+        address space is assigned to them first. The default
+        priority is 0. Devices of the same priority are
+        assigned in the order of decreasing size.        
+
+   TEMPLATE
+        DEVICE: provides the device to prioritize by
+                a triple of vendor and device ID
+                separated by colon, optionally
+                followed by the device function
+                separated by a dot.        
+        
+        CLASS:  provides the class to prioritize by
+                by a triple of class, subclass and,
+                optionally, progIF, all separated
+                by colon.
+
+        SLOT:   identifies the device by its location
+                on the PCI bus, by a (hexadecimal) bus
+                number starting from 1 for the host
+                bridge, followed by a (hexadecimal)
+                device number starting from 0 for the
+                first device, optionally followed by
+                a dot and a function number.
+
+        Values are by default in decimal, accepting 0x or
+        or $ as prefix to force hex input. # enforces decimal,
+        % binary and 0 or O octal numbers.
+        
+   EXAMPLE
+        SetPri Device 5333:5631 Pri 20
+
+        Allocate BAR registers of the S3 Virge with
+        elevated priority.        
+
+   BUGS
+
+PCI-Configuration/WriteIO                           PCI-Configuration/WriteIO
+
+   NAME
+        WriteIO -- write a byte to a legacy IO register
+
+   SYNOPSIS
+        WriteIO DEVICE,CLASS,SLOT,VALUE/A,ADDRESS=TO/A
+
+   FUNCTION
+        This command writes a byte to a legacy IO register
+        to initialize a board on the PCI bus.
+
+   TEMPLATE
+        DEVICE: provides the device to initiate by
+                a triple of vendor and device ID
+                separated by colon, optionally
+                followed by the device function
+                separated by a dot.        
+        
+        CLASS:  provides the class to initiate by
+                by a triple of class, subclass and,
+                optionally, progIF, all separated
+                by colon.
+
+        SLOT:   identifies the device by its location
+                on the PCI bus, by a (hexadecimal) bus
+                number starting from 1 for the host
+                bridge, followed by a (hexadecimal)
+                device number starting from 0 for the
+                first device, optionally followed by
+                a dot and a function number.
+
+        VALUE:  the byte value to write
+                
+        ADDRESS=TO: the target address in the legacy
+                IO region
+
+        Values are by default in hex, accepting 0x or
+        or $ as prefix.        # enforces decimal, % binary
+        and 0 or O octal numbers.
+        
+   EXAMPLE
+        WriteIO Device 5333:5631 VALUE 0x01 TO 0x3c3
+
+        This initializes the S3 Virge by writing the
+        the value 1 into register 3C3.        
+
+   BUGS
+
+

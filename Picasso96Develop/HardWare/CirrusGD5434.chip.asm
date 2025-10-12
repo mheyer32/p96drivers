@@ -471,7 +471,8 @@ SetGC:
                                      ;d4 = 0xff: draw a border, d4=0x00: draw no border
         moveq   #0,d6
         moveq   #0,d7
-
+	st.b	gbi_PixelPanning(a2)
+	
         moveq   #0,d5
         move.w  gmi_HorTotal(a1),d5
         move.w  gmi_Width(a1),d3
@@ -1101,7 +1102,7 @@ SetPanning:
         bclr    #0,d2
 
 .all_formats:
-        movea.l gbi_ExecBase(a0),a1
+	move.l	a0,a1
         movea.l gbi_RegisterBase(a0),a0
 
 .linear_start_address:
@@ -1151,6 +1152,11 @@ SetPanning:
         move.b  d0,CRTCD(a0)            ; lower eight bits
 
 .pixelpanning:
+	cmp.b	gbi_PixelPanning(a1),d1	;did it change?
+	beq.s	nochange
+	move.b	d1,gbi_PixelPanning(a1)
+	
+	movea.l gbi_ExecBase(a1),a1
         DISABLE a1,NOFETCH              ; no disturbance while modifying ATC registers
 
         ResetATC
@@ -1163,7 +1169,7 @@ SetPanning:
         move.b  d3,ATCI(a0)
 
         ENABLE  a1,NOFETCH
-
+nochange:
         move.b  #CRTC_LinearStartingAddressLow,CRTCI(a0)        ; use new address now
         move.b  d2,CRTCD(a0)
 
