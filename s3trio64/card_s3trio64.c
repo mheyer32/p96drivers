@@ -6,10 +6,11 @@
 #include <exec/types.h>
 #include <proto/exec.h>
 
-#define OPENPCI_SWAP // don't make it define its own SWAP macros
+#define OPENPCI_SWAP  // don't make it define its own SWAP macros
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>
 #include <proto/openpci.h>
+#include <proto/timer.h>
 
 #ifndef TESTEXE
 const char LibName[]     = "S3Trio64.card";
@@ -32,14 +33,13 @@ int debugLevel = VERBOSE;
 BOOL FindCard(__REGA0(struct BoardInfo *bi))
 {
     LOCAL_SYSBASE();
+    CardData_t *cd = getCardData(bi);
 
     struct Library *OpenPciBase = NULL;
     if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
         DFUNC(ERROR, "Cannot open openpci.library v%ld+\n", MIN_OPENPCI_VERSION);
-        return FALSE;
+        goto exit;
     }
-
-    CardData_t *cd = getCardData(bi);
 
     struct pci_dev *board = NULL;
     while (board = FindBoard(board, PRM_Vendor, VENDOR_ID_S3, TAG_END)) {
@@ -60,17 +60,27 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi))
         }
         D(INFO, "%s found\n", getChipFamilyName(chipFamily));
 
-        cd->boardNode.ln_Name = "P96_S3Trio64.card";
+        cd->boardNode.ln_Name = "S3Trio64.card";
         if (!SetBoardAttrs(board, PRM_BoardOwner, (Tag)&cd->boardNode, TAG_END)) {
-            struct Node owner;
+            struct Node *owner;
             GetBoardAttrs(board, PRM_BoardOwner, (Tag)&owner, TAG_END);
-            D(INFO, "Card already claimed by: %s\n", owner.ln_Name ? owner.ln_Name : "Unknown");
+            D(INFO, "Card already claimed by: %s\n", (owner && owner->ln_Name) ? owner->ln_Name : "Unknown");
             continue;
         }
 
         cd->board       = board;
         cd->OpenPciBase = OpenPciBase;
+
+        bi->BoardType              = BT_S3Trio64;
+        bi->GraphicsControllerType = GCT_S3Trio64;
+        bi->PaletteChipType        = PCT_S3Trio64;
+        bi->BoardName              = "S3Trio64";
+
+        // success!
+        break;
     }
+
+exit:
 
     if (!cd->board) {
         CloseLibrary(OpenPciBase);
@@ -119,36 +129,36 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes))
     static const char *libNames[] = {CHIP_NAME_VISION864, CHIP_NAME_TRIO3264, CHIP_NAME_TRIO64PLUS};
 
     if (!(ChipBase = (struct ChipBase *)OpenLibrary(libNames[chipFamily - 1], 0)) != NULL) {
-        D(ERROR, "could not open chip library %d\n", libNames[chipFamily - 1]);
+        D(ERROR, "S3Trio.card: could not open chip library %d\n", libNames[chipFamily - 1]);
         return FALSE;
     }
 
-    bi->ChipBase = ChipBase;
-
+    bi->ChipBase                  = ChipBase;
+    getCardData(bi)->legacyIOBase = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
     if (chipFamily >= TRIO64PLUS) {
         // The Trio64
         // S3Trio64.chip expects register base adress to be offset by 0x8000
         // to be able to address all registers with just regular signed 16bit
         // offsets
-        bi->RegisterBase = (UBYTE*)legacyIOBase + REGISTER_OFFSET;
+        bi->RegisterBase = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
         // Use the Trio64+ MMIO range in the BE Address Window at BaseAddress +
         // 0x3000000
-        bi->MemoryIOBase = (UBYTE*)memory0 + 0x3000000 + MMIOREGISTER_OFFSET;
+        bi->MemoryIOBase = (UBYTE *)memory0 + 0x3000000 + MMIOREGISTER_OFFSET;
         // No need to fudge with the base address here
-        bi->MemoryBase = (UBYTE*)memory0;
+        bi->MemoryBase = (UBYTE *)memory0;
     } else {
-        bi->RegisterBase = (UBYTE*)legacyIOBase + REGISTER_OFFSET;
+        bi->RegisterBase = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
         // This is how I understand Trio64/32 MMIO approach: 0xA0000 is
         // hardcoded as the base of the enhanced registers I need to make
         // sure, the first 1 MB of address space don't overlap with anything.
-        bi->MemoryIOBase = (UBYTE*)pci_physic_to_logic_addr((APTR)0xA0000, cd->board);
+        bi->MemoryIOBase = (UBYTE *)pci_physic_to_logic_addr((APTR)0xA0000, cd->board);
 
         if (bi->MemoryIOBase == NULL) {
-            D(ERROR, "VGA memory window at 0xA0000-BFFFF is not available. Aborting.\n");
+            D(ERROR, "S3Trio.card: VGA memory window at 0xA0000-BFFFF is not available. Aborting.\n");
             return FALSE;
         }
 
-        D(ERROR, "MMIO Base at physical address 0xA0000 virtual: 0x%lx.\n", bi->MemoryIOBase);
+        D(ERROR, "S3Trio.card: MMIO Base at physical address 0xA0000 virtual: 0x%lx.\n", bi->MemoryIOBase);
 
         bi->MemoryIOBase += MMIOREGISTER_OFFSET;
 
@@ -175,15 +185,12 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes))
         }
     }
 
-    D(INFO, "Trio64 init chip...\n");
-    if (!InitChip(bi))
-    {
+    D(INFO, "S3Trio64 calling init chip...\n");
+    if (!InitChip(bi)) {
         DFUNC(ERROR, "InitChip() failed\n");
         return FALSE;
     }
-    D(INFO, "Trio64 has %ldkb usable memory\n", bi->MemorySize / 1024);
-
-    bi->BoardName = "S3Trio64";
+    D(INFO, "S3Trio64 has %ldkb usable memory\n", bi->MemorySize / 1024);
 
     // register interrupt server
     // pci_add_intserver(&bi->HardInterrupt, board);
