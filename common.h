@@ -92,6 +92,14 @@ static inline UWORD swapw(UWORD value)
 #define SWAPL(x) swapl(x)
 #endif
 
+#ifdef BIGENDIAN_IO
+#define SWAPW_IO(x) x
+#define SWAPL_IO(x) x
+#else
+#define SWAPW_IO(x) swapw(x)
+#define SWAPL_IO(x) swapl(x)
+#endif
+
 #define BIT(x) (1 << (x))
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
@@ -263,7 +271,7 @@ static INLINE void REGARGS writeReg(volatile UBYTE *regbase, LONG reg, UBYTE val
 
 static INLINE UWORD REGARGS readRegW(volatile UBYTE *regbase, LONG reg, const char *regName)
 {
-    UWORD value = swapw(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
+    UWORD value = SWAPW_IO(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
     asm volatile("" ::"r"(value));
 
     D(VERBOSE, "R %s -> 0x%04lx\n", regName, (ULONG)value);
@@ -275,14 +283,14 @@ static INLINE void REGARGS writeRegW(volatile UBYTE *regbase, LONG reg, UWORD va
 {
     D(VERBOSE, "W %s <- 0x%04lx\n", regName, (ULONG)value);
 
-    *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = swapw(value);
+    *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = SWAPW_IO(value);
 }
 
 static INLINE void REGARGS writeRegL(volatile UBYTE *regbase, LONG reg, ULONG value, const char *regName)
 {
     D(VERBOSE, "W %s <- 0x%08lx\n", regName, (ULONG)value);
 
-    *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = swapl(value);
+    *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = SWAPL_IO(value);
 }
 
 static INLINE ULONG REGARGS readRegLNoSwap(volatile UBYTE *regbase, LONG reg, const char *regName)
@@ -303,7 +311,7 @@ static INLINE void REGARGS writeRegLNoSwap(volatile UBYTE *regbase, LONG reg, UL
 
 static INLINE ULONG REGARGS readRegL(volatile UBYTE *regbase, LONG reg, const char *regName)
 {
-    ULONG value = swapl(*(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)));
+    ULONG value = SWAPL_IO(*(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)));
     asm volatile("" ::"r"(value));
 
     D(VERBOSE, "R %s -> 0x%08lx\n", regName, value);
