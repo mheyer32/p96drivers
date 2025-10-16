@@ -3441,11 +3441,12 @@ int main()
             memset(&boardInfo, 0, sizeof(boardInfo));
             struct BoardInfo *bi = &boardInfo;
 
-            bi->ExecBase                 = SysBase;
-            bi->UtilBase                 = UtilityBase;
-            bi->ChipBase                 = ChipBase;
-            getCardData(bi)->OpenPciBase = OpenPciBase;
-            getCardData(bi)->board       = board;
+            CardData_t *card = getCardData(bi);
+            bi->ExecBase      = SysBase;
+            bi->UtilBase      = UtilityBase;
+            bi->ChipBase      = ChipBase;
+            card->OpenPciBase = OpenPciBase;
+            card->board       = board;
 
             if (chipFamily >= TRIO64PLUS) {
                 // The Trio64
