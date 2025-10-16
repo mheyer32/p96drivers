@@ -266,12 +266,11 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
         W_SR(0x10, (r << 5) | (n - 2));
         W_SR(0x11, m - 2);
 
-        delayMicroSeconds(10);
-
         /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
-        regval = R_SR(0x15) & ~BIT(5); /* | 0x80; */
+        regval = R_SR(0x15) & ~BIT(0);
         W_SR(0x15, regval);
-        W_SR(0x15, regval | BIT(5));
+        W_SR(0x15, regval | BIT(0));
+        delayMicroSeconds(10);
         W_SR(0x15, regval);
 
         // Setting this bit to 1 improves performance for systems using an MCLK less than 57
@@ -279,8 +278,8 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
         // to 1 if linear addressing is being used.
         if (clockHz >= 55000000 && clockHz <= 57000000) {
             // 2 MCLK memory writes
-            W_SR_MASK(0xA, 0x80, 0x8);
-            W_SR_MASK(0x15, 0x80, 0x8);
+            W_SR_MASK(0xA, 0x80, 0x80);
+            W_SR_MASK(0x15, 0x80, 0x80);
         } else {
             // 3 MCLK memory writes
             W_SR_MASK(0xA, 0x80, 0x00);
@@ -526,8 +525,8 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 
     // Disable Clock Doubling
 #if !BUILD_VISION864
-    W_SR_MASK(0x15, 0x50, 0);
-    W_SR_MASK(0x18, 0x80, 0);
+    W_SR_MASK(0x15, BIT(4)|BIT(6), 0);
+    W_SR_MASK(0x18, BIT(7), 0);
 #else
     W_SR_MASK(0x01, 0x04, 0x00);
 #endif
@@ -561,18 +560,18 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
             ScreenWidth = ScreenWidth / 2;
 //      W_SR_MASK(0x01, 0x04, 0x04);
 #else
-            // CLKSVN Control 2 Register (SR15)
+            // CLKSYN Control 2 Register (SR15)
             // Bit 4 DCLK/2 - Divide DCLK by 2
             // Either this bit or bit 6 of this register must be set to 1 for clock
             // doubled RAMDAC operation (mode 0001).
-            W_SR_MASK(0x15, 0x10, 0x10);
+            W_SR_MASK(0x15, BIT(4), BIT(4));
 
-            // RAMDAC/CLKSVN Control Register (SR18)
+            // RAMDAC/CLKSYN Control Register (SR18)
             // Bit 7 CLKx2 - Enable clock doubled mode
             // 1 = RAMDAC clock doubled mode (0001) enabled
             // This bit must be set to 1 when mode 0001 is specified in bits 7-4
             // of CR67 or SRC. Either bit 4 or bit 6 of SR15 must also be set to 1.
-            W_SR_MASK(0x18, 0x80, 0x80);
+            W_SR_MASK(0x18, BIT(7), BIT(7));
 #endif
         }
     } else if (depth <= 16) {
@@ -1102,6 +1101,9 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 
     PLLValue_t pllValues = cd->pllValues[lower];
 
+    //FIXME: There's a note in the manual saying that fDCLK > fSCLK "to ensure proper PLL writes"
+    // I take SCLK as the 33Mhz PCI clock, thus DCLK must be greater than 16.5Mhz
+
     //     if (mi->Flags & GMF_DOUBLECLOCK) {
     //         pllValues.r += 1;
     // #if DBG
@@ -1118,7 +1120,7 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
     mi->pll2.Denominator = (pllValues.r << 5) | (pllValues.n - 2);
 
 #if !BUILD_VISION864
-    if (mi->Flags & GMF_DOUBLECLOCK) {
+    if (mi->Flags & GMF_DOUBLECLOCK && cd->chipFamily >= TRIO64PLUS) {
         // Bit 7 CLKx2 - Enable clock doubled mode
         // 0 = RAMDAC clock doubled mode (0001) disabled
         // 1 = RAMDAC clock doubled mode (0001) enabled
@@ -1178,10 +1180,11 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
     delayMicroSeconds(100);
 
     /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
-    UBYTE regval = R_SR(0x15) & ~BIT(5); /* | 0x80; */
-    W_SR(0x15, regval);
-    W_SR(0x15, regval | BIT(5));
-    W_SR(0x15, regval);
+    UBYTE sr15 = R_SR(0x15) & ~BIT(1);
+    W_SR(0x15, sr15);
+    W_SR(0x15, sr15 | BIT(1));
+    delayMicroSeconds(10);
+    // W_SR(0x15, sr15);
 #else
     W_CR_MASK(0x55, 0x01, 0x01);
 
