@@ -1,7 +1,6 @@
 #ifndef CHIP_S3TRIO64_H
 #define CHIP_S3TRIO64_H
 
-#include "common.h"
 #include "s3trio64_common.h"
 
 typedef struct PLLValue

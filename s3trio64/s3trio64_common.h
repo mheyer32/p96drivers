@@ -1,6 +1,8 @@
 #ifndef S3TRIO64_COMMON_H
 #define S3TRIO64_COMMON_H
 
+#include "common.h"
+
 #include <exec/types.h>
 
 #define VENDOR_ID_S3 0x5333
@@ -17,5 +19,9 @@ typedef enum ChipFamily
 
 extern ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision);
 extern const char *getChipFamilyName(ChipFamily_t family);
+
+#ifdef MMIO_ONLY // On S3Trio there's a couple of 32bit registers accessed through I/O only
+#undef W_IO_L
+#endif
 
 #endif  // S3TRIO64_COMMON_H

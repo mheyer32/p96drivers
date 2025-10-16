@@ -22,11 +22,20 @@ int debugLevel = CHATTY;
 #define HAS_PACKED_MMIO 1
 #else
 #define HAS_PACKED_MMIO 0
+#ifdef MMIO_ONLY
+#pragma gcc error "Vision864 does not support newstyle MMIO"
+#endif
 #endif
 
+#ifndef MMIO_ONLY
 #define SUBSYS_STAT  0x42E8  // Read
 #define SUBSYS_CNTL  0x42E8  // Write
 #define ADVFUNC_CNTL 0x4AE8
+#else
+#define SUBSYS_STAT  0x8504  // Read
+#define SUBSYS_CNTL  0x8504  // Write
+#define ADVFUNC_CNTL 0x850C
+#endif
 
 #define CUR_Y          0x82E8
 #define CUR_Y2         0x82EA
@@ -1683,6 +1692,30 @@ static INLINE void REGARGS setMix(struct BoardInfo *bi, UWORD frgdMix, UWORD bkg
 #endif
 }
 
+static INLINE void setForegroundColor(struct BoardInfo *bi, ULONG fgPen)
+{
+#ifndef MMIO_ONLY
+    REGBASE();
+    W_IO_L(FRGD_COLOR, fgPen);
+#else
+    MMIOBASE();
+    W_MMIO_W(FRGD_COLOR, fgPen);
+    W_MMIO_W(FRGD_COLOR, fgPen >> 16);
+#endif
+}
+
+static INLINE void setBackgroundColor(struct BoardInfo *bi, ULONG bgPen)
+{
+#ifndef MMIO_ONLY
+    REGBASE();
+    W_IO_L(BKGD_COLOR, bgPen);
+#else
+    MMIOBASE();
+    W_MMIO_W(BKGD_COLOR, bgPen);
+    W_MMIO_W(BKGD_COLOR, bgPen >> 16);
+#endif
+}
+
 static INLINE void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format)
 {
     ChipData_t *cd = getChipData(bi);
@@ -1700,24 +1733,34 @@ static INLINE void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG 
 
         WaitFifo(bi, 6);
 
-        REGBASE();
-        W_IO_L(FRGD_COLOR, fgPen);
-        W_IO_L(BKGD_COLOR, bgPen);
+        setForegroundColor(bi, fgPen);
+        setBackgroundColor(bi, bgPen);
 
         setMix(bi, frgdMix, bkgdMix);
     }
 }
 
+static INLINE void setWriteMask(const struct BoardInfo *bi, ULONG mask)
+{
+#ifndef MMIO_ONLY
+    REGBASE();
+    W_IO_L(WRT_MASK, mask);
+#else
+    MMIOBASE();
+    W_MMIO_W(WRT_MASK, mask);
+    W_MMIO_W(WRT_MASK, mask >> 16);
+#endif
+}
+
 static INLINE void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask, RGBFTYPE fmt, BYTE waitFifoSlots)
 {
-    REGBASE();
     ChipData_t *cd = getChipData(bi);
 
     if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
         // 16/32 bit modes ignore the mask
         cd->GEmask = 0xFF;
         WaitFifo(bi, waitFifoSlots + 2);
-        W_IO_L(WRT_MASK, 0xFFFFFFFF);
+        setWriteMask(bi, 0xFFFFFFFF);
     } else {
         // 8bit modes use the mask
         if (cd->GEmask != mask) {
@@ -1727,7 +1770,7 @@ static INLINE void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask, RGBF
 
             UWORD wmask = mask;
             wmask |= (wmask << 8);
-            W_IO_L(WRT_MASK, makeDWORD(wmask, wmask));
+            setWriteMask(bi, makeDWORD(wmask, wmask));
         } else {
             WaitFifo(bi, waitFifoSlots);
         }
@@ -1818,8 +1861,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         pen          = PenToColor(pen, fmt);
 
         WaitFifo(bi, 8);
-        REGBASE();
-        W_IO_L(FRGD_COLOR, pen);
+        setForegroundColor(bi, pen);
     } else {
         WaitFifo(bi, 6);
     }
@@ -2012,8 +2054,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         WaitFifo(bi, 3);
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
 
-        REGBASE();
-        W_IO_L(WRT_MASK, 0xFFFFFFFF);
+        setWriteMask(bi, 0xFFFFFFFF);
     }
 
     if (cd->GEdrawMode != opCode) {
@@ -2396,9 +2437,8 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
             W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
             W_BEE8(MULT_MISC2, cd->pattSegment << 4);
 
-            REGBASE();
-            W_IO_L(FRGD_COLOR, 0xFFFFFFFF);
-            W_IO_L(BKGD_COLOR, 0x0);
+            setForegroundColor(bi, 0xFFFFFFFF);
+            setBackgroundColor(bi, 0x0);
 
             setMix(bi, CLR_SRC_FRGD_COLOR | MIX_NEW, CLR_SRC_BKGD_COLOR | MIX_NEW);
             setBlitSrcPosAndSize(bi, cd->pattX, cd->pattY, 8, 8);
@@ -2535,8 +2575,6 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
           (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)minTerm,
           (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
 
-    MMIOBASE();
-
     BOOL emulate320  = (ri->BytesPerRow == 320);
     WORD bytesPerRow = emulate320 ? 640 : ri->BytesPerRow;
     // how many dwords per line in the source plane
@@ -2565,9 +2603,8 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         // Invalidate the pen and drawmode caches
         cd->GEdrawMode = 0xFF;
 
-        REGBASE();
-        W_IO_L(FRGD_COLOR, 0xFFFFFFFF);
-        W_IO_L(BKGD_COLOR, 0x00000000);
+        setForegroundColor(bi, 0xFFFFFFFF);
+        setBackgroundColor(bi, 0x00000000);
     }
 
     UWORD mixMode = minTermToMix[minTerm];
@@ -2581,6 +2618,8 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         WaitFifo(bi, 10);
         setMix(bi, (CLR_SRC_FRGD_COLOR | mixMode), (CLR_SRC_BKGD_COLOR | mixMode));
     }
+
+    MMIOBASE();
 
     // This could/should get chached as well
     W_BEE8(MULT_MISC2, seg << 4);
@@ -2625,8 +2664,6 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
 {
     DFUNC(VERBOSE, "\n");
 
-    MMIOBASE();
-
     UBYTE bpp = getBPP(fmt);
     if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp) || !line->Length) {
         DFUNC(1, "Fallback to DrawLineDefault\n")
@@ -2655,6 +2692,8 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     }
 
     WaitFifo(bi, 1);
+
+    MMIOBASE();
 
     // This could/should get chached as well
     W_BEE8(MULT_MISC2, seg << 4);
@@ -3311,9 +3350,28 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Init GE write/read masks. The use of IO instead of MMIO is deliberate.
     // Apparently when we switch these registers to 32bit via MULT_MISC above,
     // Only the registers in the IO space become 32bit, but not in MMIO!
+#ifndef MMIO_ONLY
+    // Set MULT_MISC first so that
+    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
+    // Bit 9 CMR 32B - Select 32-Bit Command Registers
+    W_BEE8(MULT_MISC, (1 << 9));
+
     W_IO_L(WRT_MASK, 0xFFFFFFFF);
     W_IO_L(RD_MASK, 0xFFFFFFFF);
     W_IO_L(COLOR_CMP, 0x0);
+#else
+    // Set MULT_MISC first so that
+    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
+    // Bit 9 CMR 32B - Select 32-Bit Command Registers
+    W_BEE8(MULT_MISC, 0);
+
+    W_MMIO_W(WRT_MASK, 0xFFFF);
+    W_MMIO_W(WRT_MASK, 0xFFFF);
+    W_MMIO_W(RD_MASK, 0xFFFF);
+    W_MMIO_W(RD_MASK, 0xFFFF);
+    W_MMIO_W(COLOR_CMP, 0x0);
+    W_MMIO_W(COLOR_CMP, 0x0);
+#endif
 
     W_MMIO_W(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
     W_MMIO_W(BKGD_MIX, CLR_SRC_BKGD_COLOR | MIX_NEW);
