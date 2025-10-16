@@ -134,7 +134,6 @@ typedef enum {
 	BT_PiStorm,
         BT_S3Trio64,
         BT_Mach64,
-        BT_MaxBoardTypes
 } BTYPE;
 
 /************************************************************************/
