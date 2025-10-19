@@ -18,7 +18,7 @@ const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 card driver v
 const UWORD LibVersion   = 1;
 const UWORD LibRevision  = 0;
 #endif
-#include <proto/Picasso96_chip.h>
+#include <proto/picasso96_chip.h>
 
 
 #ifdef DBG
@@ -126,7 +126,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes))
 
     struct ChipBase *ChipBase = NULL;
 
-    static const char *libNames[] = {CHIP_NAME_VISION864, CHIP_NAME_TRIO3264, CHIP_NAME_TRIO64PLUS};
+    static const char *libNames[] = {CHIP_NAME_VISION864, CHIP_NAME_TRIO3264, CHIP_NAME_TRIO64PLUS, CHIP_NAME_TRIO64PLUS};
 
     if (!(ChipBase = (struct ChipBase *)OpenLibrary(libNames[chipFamily - 1], 0)) != NULL) {
         D(ERROR, "S3Trio.card: could not open chip library %d\n", libNames[chipFamily - 1]);

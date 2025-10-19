@@ -211,9 +211,9 @@ void InitPixelClockPLLTable(BoardInfo_t *bi)
     ChipData_t *cd             = getChipData(bi);
     const struct svga_pll *pll = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
 
-    UWORD maxFreq    = 135;  // 135MHz max
+    UWORD maxFreq    = (cd->chipFamily >= TRIO64V2) ? 170 : 135;  // 170MHz max for Trio64V2, 135MHz for others
     UWORD minFreq    = 12;   // 12MHz min
-    UWORD numEntries = maxFreq - minFreq + 1;
+    UWORD numEntries = (maxFreq - minFreq + 1) * 2;
 
     PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * numEntries, MEMF_PUBLIC);
     if (!pllValues) {
@@ -224,17 +224,38 @@ void InitPixelClockPLLTable(BoardInfo_t *bi)
     cd->pllValues    = pllValues;
     cd->numPllValues = 0;
 
-    int lastValue = 0;
-    // Generate PLL values for each frequency
-    for (UWORD freq = minFreq; freq <= maxFreq; freq++) {
-        UWORD m, n, r;
-        int currentKhz = svga_compute_pll(pll, freq * 1000, &m, &n, &r);
+    // For higher color depths, limit to lower frequencies for stability
+    ULONG maxHiColorFreq   = 80000;  // 80MHz max for HiColor
+    ULONG maxTrueColorFreq = 50000;  // 50MHz max for TrueColor
 
-        if (currentKhz >= 0) {
+    bi->PixelClockCount[PLANAR]    = 0;
+    bi->PixelClockCount[HICOLOR]   = 0;
+    bi->PixelClockCount[TRUECOLOR] = 0;
+    bi->PixelClockCount[TRUEALPHA] = 0;
+    bi->PixelClockCount[CHUNKY]    = numEntries;
+
+    // Generate PLL values for each frequency
+    int lastValue = 0;
+    for (UWORD i = 0; i < numEntries; ++i) {
+        ULONG freq = (minFreq + i) * 500;
+        UWORD m, n, r;
+        int currentKhz = svga_compute_pll(pll, freq, &m, &n, &r);
+
+        if (currentKhz >= 0 && currentKhz != lastValue) {
+            lastValue                     = currentKhz;
             pllValues[cd->numPllValues].m = m;
             pllValues[cd->numPllValues].n = n;
             pllValues[cd->numPllValues].r = r;
+
             cd->numPllValues++;
+
+            if (currentKhz <= maxHiColorFreq) {
+                bi->PixelClockCount[HICOLOR]++;
+                if (currentKhz <= maxTrueColorFreq) {
+                    bi->PixelClockCount[TRUECOLOR]++;
+                    bi->PixelClockCount[TRUEALPHA]++;
+                }
+            }
 
             DFUNC(CHATTY, "Pixelclock %03ld %09ldHz: m=%ld n=%ld r=%ld\n", (ULONG)cd->numPllValues - 1,
                   (ULONG)currentKhz * 1000, (ULONG)m, (ULONG)n, (ULONG)r);
@@ -242,6 +263,10 @@ void InitPixelClockPLLTable(BoardInfo_t *bi)
     }
 
     D(VERBOSE, "Initialized %ld PLL entries\n", cd->numPllValues);
+
+    DFUNC(INFO, "PixelClockCount: Planar %ld, Chunky %ld, HiColor %ld, TrueColor %ld, TrueAlpha %ld\n",
+          bi->PixelClockCount[PLANAR], bi->PixelClockCount[CHUNKY], bi->PixelClockCount[HICOLOR],
+          bi->PixelClockCount[TRUECOLOR], bi->PixelClockCount[TRUEALPHA]);
 }
 
 ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
@@ -2848,14 +2873,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         return FALSE;
     }
 
-    // For higher color depths, limit to lower frequencies for stability
-    ULONG maxHiColorFreq   = 80000;  // 80MHz max for HiColor
-    ULONG maxTrueColorFreq = 50000;  // 50MHz max for TrueColor
-
-    bi->PixelClockCount[HICOLOR]   = 0;
-    bi->PixelClockCount[TRUECOLOR] = 0;
-    bi->PixelClockCount[TRUEALPHA] = 0;
-
     // Informed by the largest X/Y coordinates the blitter can talk to
     bi->MaxBMWidth  = 2048;
     bi->MaxBMHeight = 2048;
@@ -2923,27 +2940,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     // Initialize PLL table for pixel clocks
     InitPixelClockPLLTable(bi);
-
-    // Set pixel clock counts based on initialized PLL table
-    bi->PixelClockCount[PLANAR] = 0;
-    bi->PixelClockCount[CHUNKY] = cd->numPllValues;
-    // Count how many PLL entries are suitable for each color depth
-    const struct svga_pll *pll = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
-    for (UWORD i = 0; i < cd->numPllValues; i++) {
-        ULONG freqKhz = computeKhzFromPllValue(pll, &cd->pllValues[i]);
-
-        if (freqKhz <= maxHiColorFreq) {
-            bi->PixelClockCount[HICOLOR]++;
-            if (freqKhz <= maxTrueColorFreq) {
-                bi->PixelClockCount[TRUECOLOR]++;
-                bi->PixelClockCount[TRUEALPHA]++;
-            }
-        }
-    }
-
-    DFUNC(INFO, "PixelClockCount: Planar %ld, Chunky %ld, HiColor %ld, TrueColor %ld, TrueAlpha %ld\n",
-          bi->PixelClockCount[PLANAR], bi->PixelClockCount[CHUNKY], bi->PixelClockCount[HICOLOR],
-          bi->PixelClockCount[TRUECOLOR], bi->PixelClockCount[TRUEALPHA]);
 
     UBYTE chipRevision = R_CR(0x2F);
     if (getChipData(bi)->chipFamily >= TRIO64PLUS) {

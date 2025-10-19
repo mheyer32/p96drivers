@@ -13,8 +13,9 @@ typedef enum ChipFamily
 {
     UNKNOWN,
     VISION864,  // pre-Trio64, separate RAMDAC, oldstyle MMIO, no packed MMIO
-    TRIO64,     // integrated RAMDAC, oldstyle+packed MMIO
-    TRIO64PLUS  // integrated RAMDAC, newstyle+packed MMIO
+    TRIO64,     // integrated 135Mhz RAMDAC, oldstyle+packed MMIO
+    TRIO64PLUS, // integrated 135Mhz RAMDAC, newstyle+packed MMIO
+    TRIO64V2,   // integrated 170Mhz RAMDAC, newstyle+packed MMIO 60-66Mhz RAM
 } ChipFamily_t;
 
 extern ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision);

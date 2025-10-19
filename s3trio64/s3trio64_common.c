@@ -14,8 +14,10 @@ ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision)
         return revision & 0x40 ? TRIO64PLUS : TRIO64;
     case 0x8812:  // 86CM65 Aurora64V+
     case 0x8814:  // 86c767 [Trio 64UV+]
+        return TRIO64PLUS;
     case 0x8900:  // 86c755 [Trio 64V2/DX]
     case 0x8901:  // 86c775/86c785 [Trio 64V2/DX or /GX]
+        return TRIO64V2;
     case 0x8905:  // Trio 64V+ family
     case 0x8906:  // Trio 64V+ family
     case 0x8907:  // Trio 64V+ family
@@ -42,7 +44,9 @@ const char *getChipFamilyName(ChipFamily_t family)
     case TRIO64:
         return "Trio32/64";
     case TRIO64PLUS:
-        return "Trio64Plus";
+        return "Trio64+";
+    case TRIO64V2:
+        return "Trio64V2";
     case UNKNOWN:
     default:
         return "Unknown";
