@@ -300,7 +300,7 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 
         // Setting this bit to 1 improves performance for systems using an MCLK less than 57
         // MHz. For MCLK frequencies between 55 and 57 MHz, bit 7 of SR15 should also be set
-        // to 1 if linear addressing is being used.
+        // // to 1 if linear addressing is being used.
         if (clockHz >= 55000000 && clockHz <= 57000000) {
             // 2 MCLK memory writes
             W_SR_MASK(0xA, 0x80, 0x80);
@@ -496,11 +496,14 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
             D(5, "Setting 8bit multiplex DAC mode\n");
             // pixel multiplex and invert DCLK; This way it results in double-inversion and thus VCLK/PCLK on the RAMDAC
             // are in-phase with its internal double-clocked ICLK
+            // Bit 0 VCLK PHS - VCLK Phase With Respect to DCLK
+            //     0 = VCLK is 180° out of phase with DCLK (inverted)
+            //     1 = VCLK is in phase with DCLK
             dacMode = 0x11;
         } else {
             dacMode = DAC_ColorModes[format];
         }
-        W_CR_MASK(0x67, 0xF2, dacMode);
+        W_CR_MASK(0x67, 0xF1, dacMode);
 
         // XFree86 does this... not sure if I need it?
         //        W_CR(0x6D, 0x02); // Blank Delay
@@ -1145,7 +1148,7 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
     mi->pll2.Denominator = (pllValues.r << 5) | (pllValues.n - 2);
 
 #if !BUILD_VISION864
-    if (mi->Flags & GMF_DOUBLECLOCK && cd->chipFamily >= TRIO64PLUS) {
+    if ((mi->Flags & GMF_DOUBLECLOCK) && cd->chipFamily >= TRIO64PLUS) {
         // Bit 7 CLKx2 - Enable clock doubled mode
         // 0 = RAMDAC clock doubled mode (0001) disabled
         // 1 = RAMDAC clock doubled mode (0001) enabled
@@ -1153,7 +1156,9 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
         // Either bit 4 or bit 6 of SR15 must also be set to 1. This bit has the same function as
         // SR18_7. It allows enabling of clock doubling at the same time as the PLL parameters
         // are programmed, resulting in more controlled VCO operation.
-        mi->pll2.Denominator |= 0x80;  // Set bit 7 to indicate double clocking;
+
+        //FIXME: This confuses at least the S3TrioV264, so disable it for now
+        //mi->pll2.Denominator |= 0x80;  // Set bit 7 to indicate double clocking;
     }
 #endif
     return lower;  // Return the index into the PLL table
@@ -2923,7 +2928,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         W_REG(0x46E8, 0x08);
     }
 
-    W_REG(0x3C2, 0x0F);  // Enable clock via clock select CR42; Color-Emulation, 0x3D4/5 for CR_IDX/DATA
+    W_REG(0x3C2, 0x0F);  // Enable clock via clock select CR42 on Vision864; Color-Emulation, 0x3D4/5 for CR_IDX/DATA
 
     // Unlock S3 registers
     W_CR(0x38, 0x48);
@@ -2969,7 +2974,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     /* Now that we enabled enhanced mode register access;
      * Enable enhanced mode functions,  write lower byte of 0x4AE8
      * WARNING: DO NOT ENABLE MMIO WITH BIT 5 HERE.
-     * This bit will be OR'd into CR53 and thus makes into impossible to setup
+     * This bit will be OR'd into CR53 and thus makes impossible to setup
      * "new MMIO only" mode on Trio64+. This is despite the docs claiming Bit 5 is
      * "reserved" on there.
      */
@@ -3056,7 +3061,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_CR(0x10, 0x9c);
 
     // 5 DRAM refresh cycles, unlock CR0/CR7, disable Vertical Interrupt
-    W_CR(0x11, 0xe);
+    W_CR(0x11, 0x70);
 
     W_CR(0x12, 0x8f);
 
@@ -3504,6 +3509,7 @@ int main()
             bi->ChipBase      = ChipBase;
             card->OpenPciBase = OpenPciBase;
             card->board       = board;
+            bi->MemoryClock = 54000000;
 
             if (chipFamily >= TRIO64PLUS) {
                 // The Trio64

@@ -431,11 +431,10 @@ static INLINE void REGARGS writeSRxMask(volatile UBYTE *regbase, UBYTE regIndex,
 {
     writeReg(regbase, SEQX, regIndex);
     UBYTE regvalue = (readReg(regbase, SEQ_DATA) & ~mask) | (value & mask);
-    writeReg(regbase, SEQ_DATA, regvalue);
 
-    D(VERBOSE, "W SR%lX <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
-    //  writeSRx(regbase, regIndex,
-    //           (readSRx(regbase, regIndex) & ~mask) | (value & mask));
+    D(VERBOSE, "W SR%lX <- 0x%02lx\n", (LONG)regIndex, (ULONG)regvalue);
+
+    writeReg(regbase, SEQ_DATA, regvalue);
 }
 
 static INLINE UBYTE REGARGS readGRx(volatile UBYTE *regbase, UBYTE regIndex)
