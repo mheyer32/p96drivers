@@ -45,7 +45,7 @@ STATIC_ASSERT(sizeof(ChipData_t) <= sizeof(((BoardInfo_t *)0)->ChipData), ChipDa
 
 typedef struct CardData
 {
-    BYTE* legacyIOBase;  // legacy I/O base address
+    BYTE *legacyIOBase;  // legacy I/O base address
     struct Library *OpenPciBase;
     struct pci_dev *board;
     struct Node boardNode;

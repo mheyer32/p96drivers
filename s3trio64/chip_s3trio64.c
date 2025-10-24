@@ -8,6 +8,7 @@
 #include <exec/types.h>
 #include <graphics/rastport.h>
 #include <hardware/cia.h>
+#include <libraries/openpci.h>
 #include <libraries/pcitags.h>
 #include <proto/exec.h>
 #include <proto/openpci.h>
@@ -32,9 +33,10 @@ int debugLevel = CHATTY;
 #define SUBSYS_CNTL  0x42E8  // Write
 #define ADVFUNC_CNTL 0x4AE8
 #else
-#define SUBSYS_STAT  0x8504  // Read
-#define SUBSYS_CNTL  0x8504  // Write
-#define ADVFUNC_CNTL 0x850C
+// Offset from 'IO Register Base' (0x1008000) in MMIO addresses
+#define SUBSYS_STAT  0x0504  // Read
+#define SUBSYS_CNTL  0x0504  // Write
+#define ADVFUNC_CNTL 0x050C
 #endif
 
 #define CUR_Y          0x82E8
@@ -212,7 +214,7 @@ void InitPixelClockPLLTable(BoardInfo_t *bi)
     const struct svga_pll *pll = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
 
     UWORD maxFreq    = (cd->chipFamily >= TRIO64V2) ? 170 : 135;  // 170MHz max for Trio64V2, 135MHz for others
-    UWORD minFreq    = 12;   // 12MHz min
+    UWORD minFreq    = 12;                                        // 12MHz min
     UWORD numEntries = (maxFreq - minFreq + 1) * 2;
 
     PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * numEntries, MEMF_PUBLIC);
@@ -232,7 +234,7 @@ void InitPixelClockPLLTable(BoardInfo_t *bi)
     bi->PixelClockCount[HICOLOR]   = 0;
     bi->PixelClockCount[TRUECOLOR] = 0;
     bi->PixelClockCount[TRUEALPHA] = 0;
-    bi->PixelClockCount[CHUNKY]    = numEntries;
+    bi->PixelClockCount[CHUNKY]    = 0;
 
     // Generate PLL values for each frequency
     int lastValue = 0;
@@ -249,6 +251,7 @@ void InitPixelClockPLLTable(BoardInfo_t *bi)
 
             cd->numPllValues++;
 
+            bi->PixelClockCount[CHUNKY]++;
             if (currentKhz <= maxHiColorFreq) {
                 bi->PixelClockCount[HICOLOR]++;
                 if (currentKhz <= maxTrueColorFreq) {
@@ -291,24 +294,27 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
         W_SR(0x10, (r << 5) | (n - 2));
         W_SR(0x11, m - 2);
 
+        // delayMicroSeconds(10);
+
         /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
         regval = R_SR(0x15) & ~BIT(0);
         W_SR(0x15, regval);
         W_SR(0x15, regval | BIT(0));
-        delayMicroSeconds(10);
         W_SR(0x15, regval);
 
         // Setting this bit to 1 improves performance for systems using an MCLK less than 57
         // MHz. For MCLK frequencies between 55 and 57 MHz, bit 7 of SR15 should also be set
         // // to 1 if linear addressing is being used.
-        if (clockHz >= 55000000 && clockHz <= 57000000) {
+        if (clockHz <= 57000000) {
             // 2 MCLK memory writes
-            W_SR_MASK(0xA, 0x80, 0x80);
-            W_SR_MASK(0x15, 0x80, 0x80);
+            W_SR_MASK(0xA, BIT(7), BIT(7));
+            if (clockHz >= 55000000) {
+                W_SR_MASK(0x15, BIT(7), BIT(7));
+            }
         } else {
             // 3 MCLK memory writes
-            W_SR_MASK(0xA, 0x80, 0x00);
-            W_SR_MASK(0x15, 0x80, 0x00);
+            W_SR_MASK(0xA, BIT(7), 0x00);
+            W_SR_MASK(0x15, BIT(7), 0x00);
         }
     } else {
         /* set RS2 via CR55 - I believe this switches to a second "bank" of RAMDAC registers */
@@ -323,6 +329,7 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
         W_CR_MASK(0x55, 0x01, 0x00);
     }
 
+    // testS3PLLClock(bi, TRUE);
     return currentKhz * 1000;
 }
 
@@ -368,10 +375,10 @@ static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD w
 
 static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count))
 {
+    DFUNC(VERBOSE, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
+
     REGBASE();
     LOCAL_SYSBASE();
-
-    DFUNC(VERBOSE, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
 
     // FIXME: this should be a constant for the Trio, no need to make it dynamic
     const UBYTE bppDiff = 2;  // 8 - bi->BitsPerCannon;
@@ -393,15 +400,14 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
     }
 
     Enable();
-
     return;
 }
 
 static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
-    REGBASE();
-
     DFUNC(VERBOSE, "\n");
+
+    REGBASE();
 #if BUILD_VISION864
     static const UBYTE SDAC_ColorModes[] = {
         0x00,  // RGBFB_NONE
@@ -435,7 +441,7 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
             sdacMode = SDAC_ColorModes[format];
         }
         W_CR_MASK(0x55, 0x01, 0x01);
-        W_REG(0x3c6, sdacMode);
+        W_REG(DAC_MASK, sdacMode);
         W_CR_MASK(0x55, 0x01, 0x00);
     }
 #endif
@@ -553,7 +559,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 
     // Disable Clock Doubling
 #if !BUILD_VISION864
-    W_SR_MASK(0x15, BIT(4)|BIT(6), 0);
+    W_SR_MASK(0x15, BIT(4) | BIT(6), 0);
     W_SR_MASK(0x18, BIT(7), 0);
 #else
     W_SR_MASK(0x01, 0x04, 0x00);
@@ -592,6 +598,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
             // Bit 4 DCLK/2 - Divide DCLK by 2
             // Either this bit or bit 6 of this register must be set to 1 for clock
             // doubled RAMDAC operation (mode 0001).
+            // This essentially makes DCLK = VCLK/2, which is then again doubled by the RAMDAC for the pixel clock
             W_SR_MASK(0x15, BIT(4), BIT(4));
 
             // RAMDAC/CLKSYN Control Register (SR18)
@@ -1129,18 +1136,10 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 
     PLLValue_t pllValues = cd->pllValues[lower];
 
-    //FIXME: There's a note in the manual saying that fDCLK > fSCLK "to ensure proper PLL writes"
-    // I take SCLK as the 33Mhz PCI clock, thus DCLK must be greater than 16.5Mhz
+    // FIXME: There's a note in the manual saying that fDCLK > fSCLK "to ensure proper PLL writes"
+    //  I take SCLK as the 33Mhz PCI clock, thus DCLK must be greater than 16.5Mhz
 
-    //     if (mi->Flags & GMF_DOUBLECLOCK) {
-    //         pllValues.r += 1;
-    // #if DBG
-    //         ULONG halfFreq = computeKhzFromPllValue(pll, &pllValues);
-    //         D(VERBOSE, "true DCLK Hz: %ld\n", halfFreq * 1000);
-    // #endif
-    //     }
-
-    DFUNC(VERBOSE, "Reporting pixelclock Hz: %ld, index: %ld,  M:%ld N:%ld R:%ld \n\n", mi->PixelClock, (ULONG)lower,
+    DFUNC(CHATTY, "Reporting pixelclock Hz: %ld, index: %ld,  M:%ld N:%ld R:%ld \n\n", mi->PixelClock, (ULONG)lower,
           (ULONG)pllValues.m, (ULONG)pllValues.n, (ULONG)pllValues.r);
 
     // Store PLL values in the format expected by SetClock
@@ -1157,8 +1156,8 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
         // SR18_7. It allows enabling of clock doubling at the same time as the PLL parameters
         // are programmed, resulting in more controlled VCO operation.
 
-        //FIXME: This confuses at least the S3TrioV264, so disable it for now
-        //mi->pll2.Denominator |= 0x80;  // Set bit 7 to indicate double clocking;
+        // FIXME: This confuses at least the S3TrioV264, so disable it for now
+        // mi->pll2.Denominator |= 0x80;  // Set bit 7 to indicate double clocking;
     }
 #endif
     return lower;  // Return the index into the PLL table
@@ -1203,18 +1202,16 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 
 #if !BUILD_VISION864
     /* Set S3 DCLK clock registers */
-    // Clock-Doubling will be enabled by SetGC
-    W_SR(0x13, mi->pll1.Numerator);    // write M
+    // Clock-Doubling will be enabled by SetGC, but is also encoded into Denominator Bit 7
     W_SR(0x12, mi->pll2.Denominator);  // write N and R
-
-    delayMicroSeconds(100);
+    W_SR(0x13, mi->pll1.Numerator);    // write M
 
     /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
     UBYTE sr15 = R_SR(0x15) & ~BIT(1);
     W_SR(0x15, sr15);
     W_SR(0x15, sr15 | BIT(1));
-    delayMicroSeconds(10);
-    // W_SR(0x15, sr15);
+
+//    testS3PLLClock(bi, TRUE);
 #else
     W_CR_MASK(0x55, 0x01, 0x01);
 
@@ -1553,7 +1550,7 @@ static INLINE void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
         return;
     }
 
-    DFUNC(20, "Waiting for %ld slots...", (ULONG)numSlots);
+    DFUNC(CHATTY, "Waiting for %ld slots...", (ULONG)numSlots);
     //  assert(numSlots <= 13);
 
     // The FIFO bits are split into two groups, 7-0 and 15-11
@@ -1563,7 +1560,7 @@ static INLINE void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
     BYTE testBit = 7 - (numSlots - 1);
     testBit &= 0xF;  // handle wrap-around
 
-    D(20, " testbit: %ld... ", (ULONG)testBit);
+    D(CHATTY, " testbit: %ld... ", (ULONG)testBit);
 
 #if BUILD_VISION864
     // On Vision864 the MMIO registers are write-only, thus reading the status through IO
@@ -1574,13 +1571,13 @@ static INLINE void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
     MMIOBASE();
     while (1) {
         UWORD gpStat = R_MMIO_W(GP_STAT);
-        D(20, " gpstat: %lx,", (ULONG)gpStat);
+        D(CHATTY, " gpstat: %lx,", (ULONG)gpStat);
         if (!(gpStat & (1 << testBit)))
             break;
     };
 #endif
 
-    D(20, "done\n");
+    D(CHATTY, "done\n");
 }
 
 #define MByte(x) ((x) * (1024 * 1024))
@@ -2790,12 +2787,9 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     }
 }
 
+
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
-    REGBASE();
-    MMIOBASE();
-    LOCAL_SYSBASE();
-
     DFUNC(ALWAYS, "\n");
 
     //  getChipData(bi)->DOSBase = (ULONG)OpenLibrary(DOSNAME, 0);
@@ -2912,29 +2906,54 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->MaxVerResolution[TRUEALPHA] = 1280;
 
     DFUNC(VERBOSE, "S3 chip wakeup\n");
-    if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
-        /* Chip wakeup Trio64+ */
-        W_REG(0x3C3, 0x01);
-    } else {
-        /* Chip wakeup Trio64/32 */
-        W_REG(0x3C3, 0x10);
-        W_REG(0x102, 0x01);
-        W_REG(0x3C3, 0x08);
 
-        // FIXME: The Vision864 BIOS seems to lookup a ROM adress to decide which register to use for chip wakeup
-        /* Also try 0x46E8 */
-        W_REG(0x46E8, 0x10);
-        W_REG(0x102, 0x01);
-        W_REG(0x46E8, 0x08);
+    {
+        REGBASE();
+        if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
+            /* Chip wakeup Trio64+ */
+            W_REG(0x3C3, 0x01);
+        } else {
+            /* Chip wakeup Trio64/32 */
+            W_REG(0x3C3, 0x10);
+            W_REG(0x102, 0x01);
+            W_REG(0x3C3, 0x08);
+
+            // FIXME: The Vision864 BIOS seems to lookup a ROM adress to decide which register to use for chip wakeup
+            /* Also try 0x46E8 */
+            W_REG(0x46E8, 0x10);
+            W_REG(0x102, 0x01);
+            W_REG(0x46E8, 0x08);
+        }
+        W_MISC_MASK(0x03, 0x03);  // Enable RAM access and Color-Emulation, 0x3D4/5 for CR_IDX/DATA
     }
+
+#if defined(MMIO_ONLY)
+    {
+        D(INFO, "Setting up MMIO only driver\n");
+        bi->RegisterBase = bi->MemoryIOBase + 0x8000;
+        // Disable IO Response
+        pci_write_config_word(PCI_COMMAND, PCI_COMMAND_MEMORY /*| PCI_COMMAND_IO*/, getCardData(bi)->board);
+    }
+#endif
+
+    REGBASE();
 
     W_REG(0x3C2, 0x0F);  // Enable clock via clock select CR42 on Vision864; Color-Emulation, 0x3D4/5 for CR_IDX/DATA
 
-    // Unlock S3 registers
+    // Unlock S3 CRTC registers
     W_CR(0x38, 0x48);
     W_CR(0x39, 0xa5);
 
-    DFUNC(VERBOSE, "check register response\n");
+#if defined(MMIO_ONLY)
+    // Move Video Subsystem Setup from 46E8H to 3C3H
+    // FIXME: seems to only exist on PRE Trio64+ chips
+    // W_CR_MASK(0x65, BIT(2), 0);
+#endif
+
+    // Unlock Extended Sequencer Registers SR9-SR1C
+    W_SR(0x08, 0x06);
+
+    DFUNC(VERBOSE, "Checking register response...");
     UBYTE deviceIdHi = R_CR(0x2D);
     UBYTE deviceIdLo = R_CR(0x2E);
 
@@ -2942,6 +2961,83 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         DFUNC(ERROR, "Chipset ID mismatch: expected 0x%04lx, got 0x%02lx%02lx\n", deviceId, deviceIdHi, deviceIdLo);
         return FALSE;
     }
+    D(VERBOSE, "good.\n");
+
+#if !BUILD_VISION864
+    W_SR(0x15, 0x00);
+    W_SR(0x18, 0x00);
+
+    // The power-on default value for SR13 in conjunction with the power-on default value for SR12
+    // generate a DCLK value of 25.175 MHz. The default value is automatically placed in this register
+    //  when bits 3-2 of 3C2H are programmed to OOb.
+    // FIXME: This doesn't seem do load SR11/SR12?!
+    W_MISC_MASK(0x0C, 0x00);  //
+
+    // Init PLL to a known state
+    W_MISC_MASK(0x0C, 0x0C);  // Enables loading of DCLK PLL parameters in SR12 and SR13
+
+    // When new DCLK PLL values are programmed, this bit can be set to 1 to load these
+    // values in the PLL. Bits 3-2 of 3C2H must also be set to 11b ifthey are not already at
+    // this value. The loading may be delayed a small but variable amount of time. This bit
+    // should be programmed to 1 at power-up to allow loading of the VGA DCLK value and
+    // then left at this setting. Use bit 5 of this register to produce an immediate load.
+    // W_SR_MASK(0x15, 0x02, 0x02);  // Enable new DCLK frequency load
+    // // W_SR_MASK(0x15, 0x02, 0x00);  // Enable new DCLK frequency load
+
+    // // When new MCLK PLL values are programmed, this bit can be set to 1 to load these
+    // // values in the PLL. The loading may be delayed a small but variable amount of time.
+    // // This bit should be cleared to 0 after loading to prevent repeated
+    // // loading. Alternately, use bit 5 of this register to produce an immediate load.
+    // W_SR_MASK(0x15, 0x01, 0x01);  // Enable new MCLK frequency load
+    // W_SR_MASK(0x15, 0x01, 0x00);  // Clear MCLK load bit
+
+    // testS3PLLClock(bi, FALSE);
+#endif
+
+#if BIGENDIAN_MMIO
+    if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
+        // Enable BYTE-Swapping for MMIO register reads/writes
+        // This allows us to write to WORD/DWORD MMIO registers without swapping
+        W_CR_MASK(0x54, 0x03, 0b11);
+    }
+#endif
+    // Enable 4MB Linear Address Window (LAW)
+    W_CR(0x58, 0x13);
+    if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
+        // Enable Trio64+ "New MMIO". This should be on by default on PCI cards.
+        D(5, "setup newstyle MMIO\n");
+        W_CR_MASK(0x53, 0x18, 0x08);
+    } else {
+        D(5, "setup compatible MMIO\n");
+        // Enable Trio64 old style MMIO. This hardcodes the MMIO range to 0xA8000
+        // physical address. Need to make sure, nothing else sits there
+        W_CR_MASK(0x53, 0x10, 0x10);
+
+        // Test, also enable MMIO and Linear addressing via the other register
+        // W_REG_MASK(ADVFUNC_CNTL, 0x30, 0x30);
+
+#if DBG
+        {
+            LOCAL_OPENPCIBASE();
+            // LAW start address
+            ULONG physAddress = (ULONG)pci_logic_to_physic_addr(bi->MemoryBase, getCardData(bi)->board);
+            if (physAddress & 0x3FFFFF) {
+                D(WARN, "WARNING: card's base address is not 4MB aligned!\n");
+            }
+        }
+#endif
+        // Setup the Linear Address Window (LAW)  position
+        // Beware: while bi->MemoryBase is a 'virtual' address, the register wants a physical address
+        // We basically achieve this translation by chopping off the topmost bits.
+        W_CR_MASK(0x5a, 0x40, (ULONG)bi->MemoryBase >> 16);
+        D(0, "CR59: 0x%lx CR5A: 0x%lx\n", (ULONG)R_CR(0x59), (ULONG)R_CR(0x5a));
+        // Upper address bits may  not be touched as they would result in shifting
+        // the PCI window
+        //    W_CR_MASK(0x59, physAddress >> 24);
+    }
+    D(0, "MMIO base address: 0x%lx\n", (ULONG)getMMIOBase(bi));
+
+    MMIOBASE();
 
     // Initialize PLL table for pixel clocks
     InitPixelClockPLLTable(bi);
@@ -2968,8 +3064,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     /* The Enhanced Graphics Command register group is unlocked
        by setting bit 0 of the System Configuration register (CR40) to 1.
        After that, bitO of4AE8H must be setto 1 to enable Enhanced mode functions.
-        */
-    W_CR_MASK(0x40, 0x1, 0x1);
+    */
+    W_CR_MASK(0x40, 0x01, 0x01);
 
     /* Now that we enabled enhanced mode register access;
      * Enable enhanced mode functions,  write lower byte of 0x4AE8
@@ -2978,15 +3074,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
      * "new MMIO only" mode on Trio64+. This is despite the docs claiming Bit 5 is
      * "reserved" on there.
      */
-    W_REG(ADVFUNC_CNTL, 0x01);
-
-#if BIGENDIAN_MMIO
-    if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
-        // Enable BYTE-Swapping for MMIO register reads/writes
-        // This allows us to write to WORD/DWORD MMIO registers without swapping
-        W_CR_MASK(0x54, 0x03, 0b11);
-    }
-#endif
+    W_IO_W(ADVFUNC_CNTL, BIT(2) | BIT(0));
 
     /* This field contains the upper 6 bits (19-14) of the CPU base address,
      allowing accessing of up to 4 MBytes of display memory via 64K pages.
@@ -2995,18 +3083,19 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
      Bit 0 of CR31 must be set to 1 to enable this field.  */
     W_CR(0x6a, 0x0);
 
-    W_SR(0x08, 0x06);  // Unlock Extended Sequencer Registers SR9-SR1C
     W_SR(0x00, 0x00);
     W_SR(0x01, 0x21);  // 8 DCLK per character clock, Display off
     W_SR(0x02, 0x0f);
     W_SR(0x03, 0x00);
     W_SR(0x04, 0x02);
+#ifdef MMIO_ONLY
+    // Bit 7 MMIO-ONLY - Memory-mapped I/O register access only
+    // 0 = When MMIO is enabled, both programmed I/O and memory-mapped I/O register accesses are allowed
+    // 1 = When MMIO is enabled, only memory-mapped I/O register accesses are allowed
+    W_SR(0x09, 0x80);
+#endif
     W_SR(0x0D, 0x00);
     W_SR(0x14, 0x00);
-#if !BUILD_VISION864
-    W_SR(0x15, 0x00);
-    W_SR(0x18, 0x00);
-#endif
 
     // FIXME: this has memory setting implications potentially only valid for the
     // Cybervision
@@ -3020,7 +3109,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #endif
 
     // RAMDAC Mask register
-    W_REG(0x3C6, 0xff);
+    W_REG(DAC_MASK, 0xff);
 
     ULONG clock = bi->MemoryClock;
 #if BUILD_VISION864
@@ -3146,44 +3235,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Extended System Control 2 Register (EX_SCTL_2) (CR51)
     W_CR(0x51, 0x00);
 
-    // Enable 4MB Linear Address Window (LAW)
-    W_CR(0x58, 0x13);
-    if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
-        // Enable Trio64+ "New MMIO" only and byte swapping in the Big Endian window
-        D(5, "setup newstyle MMIO\n");
-        W_CR_MASK(0x53, 0x3E, 0x0c);
-    } else {
-        D(5, "setup compatible MMIO\n");
-        // Enable Trio64 old style MMIO. This hardcodes the MMIO range to 0xA8000
-        // physical address. Need to make sure, nothing else sits there
-        W_CR_MASK(0x53, 0x10, 0x10);
-
-        // Test, also enable MMIO and Linear addressing via the other register
-        // W_REG_MASK(ADVFUNC_CNTL, 0x30, 0x30);
-
-#if DBG || 1
-        {
-            LOCAL_OPENPCIBASE();
-            // LAW start address
-            ULONG physAddress = (ULONG)pci_logic_to_physic_addr(bi->MemoryBase, getCardData(bi)->board);
-            if (physAddress & 0x3FFFFF) {
-                D(WARN, "WARNING: card's base address is not 4MB aligned!\n");
-            }
-        }
-#endif
-        // Setup the Linear Address Window (LAW)  position
-        // Beware: while bi->MemoryBase is a 'virtual' address, the register wants a physical address
-        // We basically achieve this translation by chopping off the topmost bits.
-        W_CR_MASK(0x5a, 0x40, (ULONG)bi->MemoryBase >> 16);
-        D(0, "CR59: 0x%lx CR5A: 0x%lx\n", (ULONG)R_CR(0x59), (ULONG)R_CR(0x5a));
-        // Upper address bits may  not be touched as they would result in shifting
-        // the PCI window
-        //    W_CR_MASK(0x59, physAddress >> 24);
-    }
-    D(0, "MMIO base address: 0x%lx\n", (ULONG)getMMIOBase(bi));
-
     // MCLK M Parameter
-    W_CR_MASK(0x54, 0xFC, 0x70);
+    // 6-bit Value = maximum number of MCLKs that the LPB, CPU and Graphics Engine can
+    // use to access memory before giving up control of the memory bus.
+    // Bit 2 is the high order bit of this value.
+    // W_CR_MASK(0x54, 0xF8, 0x70);
 
     W_CR(0x60, 0xff);
 
@@ -3231,11 +3287,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     R_REG(0x3DA);  // reset AFF
     W_REG(ATR_AD, 0x20);
 
-#if !BUILD_VISION864
-    /* Enable PLL load */
-    W_MISC_MASK(0x0c, 0x0c);
-#endif
-
     // Just some diagnostics; FIXME: this is different between various series of Vision/Trio chips
 #ifdef DBG
     UBYTE memType = (R_CR(0x36) >> 2) & 3;
@@ -3254,6 +3305,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
 #endif
 
+    LOCAL_SYSBASE();
     // Determine memory size of the card (typically 1-2MB, but can be up to 4MB)
     bi->MemorySize              = 0x400000;
     volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
@@ -3313,7 +3365,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     D(1, "MemorySize: %ldmb\n", bi->MemorySize / (1024 * 1024));
 
     // Input Status ? Register (STATUS_O)
-    D(1, "Monitor is %s present\n", (!(R_REG(0x3C2) & 0x10) ? "" : "NOT"));
+    D(1, "Monitor is %s present\n", ((R_REG(0x3C2) & 0x10) ? "" : "NOT"));
 
     // Two sprite images, each 64x64*2 bits
     const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
@@ -3344,11 +3396,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_BEE8(SCISSORS_L, 0x0000);
     W_BEE8(SCISSORS_B, 0x0fff);
     W_BEE8(SCISSORS_R, 0x0fff);
-
-    // Set MULT_MISC first so that
-    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
-    // Bit 9 CMR 32B - Select 32-Bit Command Registers
-    W_BEE8(MULT_MISC, (1 << 9));
 
     W_BEE8(MULT_MISC2, 0);
     // Init GE write/read masks. The use of IO instead of MMIO is deliberate.

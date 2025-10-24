@@ -5,6 +5,8 @@
 
 #include <exec/types.h>
 
+STATIC_ASSERT(REGISTER_OFFSET == MMIOREGISTER_OFFSET, check_register_offset);
+
 #define VENDOR_ID_S3 0x5333
 
 // Beware: if we ever add a new chip family, make sure to check the chip library loading code
