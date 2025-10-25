@@ -6,6 +6,15 @@
 
 struct BoardInfo;
 
+typedef enum ChipFamily
+{
+    UNKNOWN,
+    MACH64GX,
+    MACH64VT,  // 8mb aperture only
+    MACH64GT,
+    MACH64GM  // Rage 3 XL
+} ChipFamily_t;
+
 #define CFG_VGA_DIS            BIT(19)
 #define CFG_VGA_DIS_MASK       BIT(19)
 #define CFG_MEM_VGA_AP_EN      BIT(2)
@@ -198,8 +207,10 @@ extern ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYT
 extern ULONG computeFrequencyKhz10(UWORD RefFreq, UWORD FBDiv, UWORD RefDiv, UBYTE PostDiv);
 extern ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues, const UBYTE *multipliers);
 
-
 extern void ResetEngine(const BoardInfo_t *bi);
+
+extern ChipFamily_t getChipFamily(UWORD deviceId);
+extern const char *getChipFamilyName(ChipFamily_t family);
 
 static INLINE void waitFifo(const BoardInfo_t *bi, UBYTE entries)
 {

@@ -132,7 +132,7 @@ endef
 ###############################################################################
 # target 'all' (default target)
 
-all : S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip S3Trio64.card ATIMach64.chip TestMach64 TestS3Trio64Plus TestS3TrioCard
+all : S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip S3Trio64.card ATIMach64.chip ATIMach64.card TestMach64 TestMach64Card TestS3Trio64Plus TestS3TrioCard 
 
 openpci.h : openpci/openpci.fd openpci/clib/openpci_protos.h
 	@$(MKDIR) -p openpci/inline
@@ -204,6 +204,14 @@ ATIMach64.chip : CFLAGS+=-DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER
 ATIMach64.chip : LDFLAGS+=-lm
 $(eval $(call make_driver,ATIMach64.chip,$(BUILDDIR)mach64/, ${ATIMACH64_SRC}))
 
+ATIMACH64CARD_SRC = common.c \
+                    mach64/card_mach64.c \
+					mach64/mach64_common.c \
+                    card_library.c
+
+ATIMach64.card : CFLAGS+=-DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
+$(eval $(call make_driver,ATIMach64.card,$(BUILDDIR)mach64card/, ${ATIMACH64CARD_SRC}))
+
 ATIMACH64_TESTEXE_SRC = common.c \
                         mach64/mach64GT.c \
                         mach64/mach64VT.c \
@@ -213,6 +221,13 @@ ATIMACH64_TESTEXE_SRC = common.c \
 TestMach64 : CFLAGS+=-DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
 
 $(eval $(call make_exe,TestMach64,$(BUILDDIR)testmach64/, ${ATIMACH64_TESTEXE_SRC}))
+
+TestMach64Card : CFLAGS+=-DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
+TESTATIMACH64CARD_SRC = common.c \
+						mach64/card_mach64.c \
+						mach64/mach64_common.c
+					
+$(eval $(call make_exe,TestMach64Card,$(BUILDDIR)testmach64card/, ${TESTATIMACH64CARD_SRC}))
 
 
 # target 'clean'

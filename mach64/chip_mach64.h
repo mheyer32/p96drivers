@@ -7,15 +7,6 @@
 
 #include <assert.h>
 
-typedef enum ChipFamily
-{
-    UNKNOWN,
-    MACH64GX,
-    MACH64VT,  // 8mb aperture only
-    MACH64GT,
-    MACH64GM  // Rage 3 XL
-} ChipFamily_t;
-
 typedef struct ChipData
 {
     ULONG GEfgPen;
@@ -49,8 +40,9 @@ STATIC_ASSERT(sizeof(ChipData_t) < SIZEOF_MEMBER(BoardInfo_t, ChipData), check_c
 
 typedef struct CardData
 {
-    struct Library *PrometheusBase;
-    APTR board;
+    struct Library *OpenPciBase;
+    struct pci_dev *board;
+    struct Node boardNode;
 
     APTR ASM (*AllocCardMemDefault)(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force),
                                     __REGD2(BOOL system), __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi),

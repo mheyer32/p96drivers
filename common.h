@@ -61,10 +61,6 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
 #define ATR_DATA_W 0x3C0
 #define ATR_DATA_R 0x3C1
 
-#define DAC_MASK  0x3C6
-#define DAC_WR_AD 0x3C8
-#define DAC_DATA  0x3C9
-
 #define MISC_W 0x3C2
 #define MISC_R 0x3CC
 

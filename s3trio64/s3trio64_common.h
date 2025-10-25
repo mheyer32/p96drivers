@@ -9,6 +9,10 @@ STATIC_ASSERT(REGISTER_OFFSET == MMIOREGISTER_OFFSET, check_register_offset);
 
 #define VENDOR_ID_S3 0x5333
 
+#define DAC_MASK  0x3C6
+#define DAC_WR_AD 0x3C8
+#define DAC_DATA  0x3C9
+
 // Beware: if we ever add a new chip family, make sure to check the chip library loading code
 // in InitCard, because its using static arrays indexed by this enum!
 typedef enum ChipFamily

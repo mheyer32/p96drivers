@@ -4,8 +4,8 @@
 #include "mach64_common.h"
 
 #include <graphics/rastport.h>
-#include <libraries/prometheus.h>
-#include <proto/prometheus.h>
+#include <libraries/pcitags.h>
+#include <proto/openpci.h>
 
 #include <string.h>  // memcmp
 
@@ -50,38 +50,6 @@ static const UBYTE g_bitWidths[] = {
     COLOR_DEPTH_1,   // RGBFB_YUV422PA
     COLOR_DEPTH_1,   // RGBFB_YUV422PAPC
 };
-
-ChipFamily_t getChipFamily(UWORD deviceId)
-{
-    switch (deviceId) {
-    case 0x5654:  // mach64 VT
-        return MACH64VT;
-    case 0x4758:  // mach64 GX
-        return MACH64GX;
-    case 0x4750:  // mach64 Rage Pro
-        return MACH64GT;
-    case 0x4752:  // mach64 Rage 3 XL
-        return MACH64GM;
-    default:
-        return UNKNOWN;
-    }
-}
-
-const char *getChipFamilyName(ChipFamily_t family)
-{
-    switch (family) {
-    case MACH64VT:
-        return "Mach64 VT";
-    case MACH64GX:
-        return "Mach64 GX";
-    case MACH64GT:
-        return "Mach64 GT (Rage Pro)";
-    case MACH64GM:
-        return "Mach64 GR (Rage3 XL)";
-    default:
-        return "Unknown";
-    }
-}
 
 // FIXME: No good, need dynamic allocations. If the same chipdriver needs to talk to multiple
 //  cards, these tables will have different values for each card
@@ -149,10 +117,10 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
 #define ROM_BYTE(offset)              (*(romBase + (offset)))
 #define ROM_TABLE(name, type, offset) const type *name = (type *)(romBase + (offset))
 
-    LOCAL_PROMETHEUSBASE();
+    LOCAL_OPENPCIBASE();
 
     UBYTE *romBase = NULL;
-    Prm_GetBoardAttrsTags(getCardData(bi)->board, PRM_ROM_Address, (ULONG)&romBase, TAG_END);
+    GetBoardAttrs(getCardData(bi)->board, PRM_ROM_Address, (Tag)&romBase, TAG_END);
     if (!romBase) {
         DFUNC(ERROR, "Unable to get ROM address\n");
         return NULL;
@@ -344,62 +312,6 @@ void SetMemoryClock(BoardInfo_t *bi, USHORT kHz10)
     // } else {
     //     DFUNC(0, "Unable to compute PLL values for %ld0 KHz\n", (ULONG)kHz10);
     // }
-}
-
-void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultipliers)
-{
-    DFUNC(VERBOSE, "", bi);
-
-    LOCAL_SYSBASE();
-
-    ChipData_t *cd      = getChipData(bi);
-    UWORD maxNumEntries = (cd->maxPClock + 99) / 100 - (cd->minPClock + 99) / 100;
-
-    D(VERBOSE, "Number of Pixelclocks %ld\n", maxNumEntries);
-
-    // FIXME: there's no free... is there ever a time a chip driver gets expunged?
-    PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_PUBLIC);
-    cd->pllValues         = pllValues;
-
-    UWORD minFreq = cd->minPClock;
-    UWORD e       = 0;
-    for (; e < maxNumEntries; ++e) {
-        ULONG frequency = computePLLValues(bi, minFreq, multipliers, numMultipliers, &pllValues[e]);
-        if (!frequency) {
-            DFUNC(ERROR, "Unable to compute PLL values for %ld0 KHz\n", minFreq);
-            break;
-        } else {
-            DFUNC(CHATTY, "Pixelclock %03ld %09ldHz: \n", e, frequency * 10000);
-        }
-        minFreq += 100;
-    }
-    // See if we can squeeze the max frequency still in there
-    if (e < maxNumEntries - 1 && minFreq < cd->maxPClock) {
-        ULONG frequency = computePLLValues(bi, cd->maxPClock, multipliers, numMultipliers, &pllValues[e]);
-        if (frequency) {
-            ++e;
-        }
-    }
-
-    ULONG maxHiColorFreq = cd->chipFamily <= MACH64VT ? 8000 : cd->maxPClock;
-
-    for (int i = 0; i < 5; i++) {
-        bi->PixelClockCount[i] = 0;
-    }
-
-    // FIXME: Account for OVERCLOCK
-    for (UWORD i = 0; i < e; ++i) {
-        ULONG frequency = computeFrequencyKhz10FromPllValue(bi, &pllValues[i], multipliers);
-        D(CHATTY, "Pixelclock %03ld %09ldHz: \n", i, frequency * 10000);
-
-        bi->PixelClockCount[CHUNKY]++;
-
-        if (frequency <= maxHiColorFreq) {
-            bi->PixelClockCount[HICOLOR]++;
-            bi->PixelClockCount[TRUECOLOR]++;
-            bi->PixelClockCount[TRUEALPHA]++;
-        }
-    }
 }
 
 #define DAC_W_INDEX 0
@@ -2279,13 +2191,13 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     ChipData_t *cd = getChipData(bi);
     {
-        PCIBoard *board = (PCIBoard *)getCardData(bi)->board;
+        struct pci_dev *board = getCardData(bi)->board;
         DFUNC(INFO, "Determine Chip Family\n");
 
         ULONG revision;
         ULONG deviceId;
-        LOCAL_PROMETHEUSBASE();
-        Prm_GetBoardAttrsTags(board, PRM_Device, (ULONG)&deviceId, PRM_Revision, (ULONG)&revision, TAG_END);
+        LOCAL_OPENPCIBASE();
+        GetBoardAttrs(board, PRM_Device, (Tag)&deviceId, PRM_Revision, (Tag)&revision, TAG_END);
 
         cd->chipFamily = getChipFamily(deviceId);
 
@@ -2297,8 +2209,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         }
 
         // User-Defines configuration
-        UBYTE config    = Prm_ReadConfigByte(board, 0x40);
-        ULONG prmStatus = Prm_ReadConfigLong(board, 0x60);
+        UBYTE config    = pci_read_config_byte(0x40, board);
+        ULONG prmStatus = pci_read_config_long(0x60, board);
 
         UWORD ioBase = 0;
         switch (config & 0x03) {
@@ -2318,10 +2230,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // Try making it more compatible with other VGA cards down the line
         // By disabling all classic IO decoding
         config |= 0x08;  // Disable decoding GENENA (no response at IO 0x46E8)
-        Prm_WriteConfigByte(board, config, 0x40);
+        pci_write_config_byte(0x40, config, board);
     }
 
     // Test scratch register response
+    D(INFO, "MMIO base address: 0x%08lx\n", MMIOBase);
+    D(INFO, "Register base address: 0x%08lx\n", RegBase);
     ULONG saveScratchReg1 = R_MMIO_L(SCRATCH_REG1);
     W_BLKIO_L(SCRATCH_REG1, 0xAAAAAAAA);
     ULONG scratchA = R_MMIO_L(SCRATCH_REG1);
@@ -2466,11 +2380,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
 #include <boardinfo.h>
 #include <libraries/openpci.h>
-#include <libraries/prometheus.h>
 #include <proto/dos.h>
 #include <proto/expansion.h>
 #include <proto/openpci.h>
-#include <proto/prometheus.h>
 #include <proto/utility.h>
 #include <signal.h>
 #include <stdio.h>
@@ -2482,14 +2394,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #define DEVICE_FIRESTORM  200
 #define DEVICE_PROMETHEUS 1
 
-struct Library *PrometheusBase = NULL;
-struct Library *OpenPciBase    = NULL;
+struct Library *OpenPciBase = NULL;
 
 void intHandler(int dummy)
 {
-    if (PrometheusBase) {
-        CloseLibrary(PrometheusBase);
-    }
     if (OpenPciBase) {
         CloseLibrary(OpenPciBase);
     }
@@ -2504,10 +2412,6 @@ int main()
 
     if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
         D(0, "Unable to open openpci.library\n");
-    }
-
-    if (!(PrometheusBase = OpenLibrary(PROMETHEUSNAME, 0))) {
-        D(0, "Unable to open prometheus.library\n");
         goto exit;
     }
 
@@ -2518,17 +2422,17 @@ int main()
 
     ULONG dmaSize = 128 * 1024;
 
-    APTR board = NULL;
+    struct pci_dev *board = NULL;
 
     D(0, "Looking for Mach64 card\n");
 
-    while ((board = (APTR)Prm_FindBoardTags(board, PRM_Vendor, PCI_VENDOR, TAG_END)) != NULL) {
+    while ((board = FindBoard(board, PRM_Vendor, PCI_VENDOR, TAG_END)) != NULL) {
         ULONG Device, Revision, Memory0Size = 0, Memory2Size = 0;
         APTR Memory0 = 0, Memory1 = 0, Memory2 = 0;
 
-        Prm_GetBoardAttrsTags(board, PRM_Device, (ULONG)&Device, PRM_Revision, (ULONG)&Revision, PRM_MemoryAddr0,
-                              (ULONG)&Memory0, PRM_MemorySize0, (ULONG)&Memory0Size, PRM_MemoryAddr1, (ULONG)&Memory1,
-                              PRM_MemoryAddr2, (ULONG)&Memory2, PRM_MemorySize2, (ULONG)&Memory2Size, TAG_END);
+        GetBoardAttrs(board, PRM_Device, (Tag)&Device, PRM_Revision, (Tag)&Revision, PRM_MemoryAddr0, (Tag)&Memory0,
+                      PRM_MemorySize0, (Tag)&Memory0Size, PRM_MemoryAddr1, (Tag)&Memory1, PRM_MemoryAddr2,
+                      (Tag)&Memory2, PRM_MemorySize2, (Tag)&Memory2Size, TAG_END);
 
         D(0, "device %x revision %x\n", Device, Revision);
 
@@ -2538,11 +2442,11 @@ int main()
             D(ALWAYS, "ATI %s found\n", getChipFamilyName(family));
 
             // Write PCI COMMAND register to enable IO and Memory access
-            Prm_WriteConfigWord((PCIBoard *)board, 0x03, 0x04);
+            pci_write_config_word(PCI_COMMAND, PCI_COMMAND_MEMORY | PCI_COMMAND_IO, board);
 
             D(INFO, "MemoryBase 0x%x, MemorySize %u, IOBase 0x%x\n", Memory0, Memory0Size, Memory1);
 
-            APTR physicalAddress = Prm_GetPhysicalAddress(Memory0);
+            APTR physicalAddress = pci_logic_to_physic_addr(Memory0, board);
             D(INFO, "physicalAdress 0x%08lx\n", physicalAddress);
 
             struct ChipBase *ChipBase = NULL;
@@ -2551,11 +2455,11 @@ int main()
             memset(&boardInfo, 0, sizeof(boardInfo));
             struct BoardInfo *bi = &boardInfo;
 
-            bi->ExecBase                    = SysBase;
-            bi->UtilBase                    = UtilityBase;
-            bi->ChipBase                    = ChipBase;
-            getCardData(bi)->PrometheusBase = PrometheusBase;
-            getCardData(bi)->board          = board;
+            bi->ExecBase                 = SysBase;
+            bi->UtilBase                 = UtilityBase;
+            bi->ChipBase                 = ChipBase;
+            getCardData(bi)->OpenPciBase = OpenPciBase;
+            getCardData(bi)->board       = board;
 
             // Block IO is in BAR1
             if (!Memory1) {
@@ -2701,9 +2605,6 @@ int main()
     D(ERROR, "no Mach64 found.\n");
 
 exit:
-    if (PrometheusBase) {
-        CloseLibrary(PrometheusBase);
-    }
     if (OpenPciBase) {
         CloseLibrary(OpenPciBase);
     }
