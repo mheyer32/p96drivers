@@ -289,7 +289,7 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
         return clockHz;
     }
 
-    if (getChipData(bi)->chipFamily >= TRIO64) {
+    if (getChipData(bi)->chipFamily >= TRIO64 && getChipData(bi)->chipFamily != VISION968) {
         /* Set S3 clock registers */
         W_SR(0x10, (r << 5) | (n - 2));
         W_SR(0x11, m - 2);
@@ -2787,7 +2787,6 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     }
 }
 
-
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(ALWAYS, "\n");
@@ -2872,6 +2871,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         return FALSE;
     }
 
+    ChipFamily_t chipFamily = cd->chipFamily;
+
     // Informed by the largest X/Y coordinates the blitter can talk to
     bi->MaxBMWidth  = 2048;
     bi->MaxBMHeight = 2048;
@@ -2909,7 +2910,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     {
         REGBASE();
-        if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
+        if (chipFamily >= TRIO64PLUS) {
             /* Chip wakeup Trio64+ */
             W_REG(0x3C3, 0x01);
         } else {
@@ -2929,6 +2930,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
 #if defined(MMIO_ONLY)
     {
+        // FIXME: PCI cards should startup with New MMIO enabled. Thus, we should be able to just use MMIO directly.
         D(INFO, "Setting up MMIO only driver\n");
         bi->RegisterBase = bi->MemoryIOBase + 0x8000;
         // Disable IO Response
@@ -2953,15 +2955,19 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Unlock Extended Sequencer Registers SR9-SR1C
     W_SR(0x08, 0x06);
 
-    DFUNC(VERBOSE, "Checking register response...");
-    UBYTE deviceIdHi = R_CR(0x2D);
-    UBYTE deviceIdLo = R_CR(0x2E);
+    if (chipFamily >= VISION968) {
+        DFUNC(VERBOSE, "Checking register response...\n");
+        UBYTE deviceIdHi = R_CR(0x2D);
+        UBYTE deviceIdLo = R_CR(0x2E);
 
-    if ((deviceIdHi << 8 | deviceIdLo) != deviceId) {
-        DFUNC(ERROR, "Chipset ID mismatch: expected 0x%04lx, got 0x%02lx%02lx\n", deviceId, deviceIdHi, deviceIdLo);
-        return FALSE;
+        if ((deviceIdHi << 8 | deviceIdLo) != deviceId) {
+            DFUNC(ERROR, "Chipset ID mismatch: expected 0x%04lx, got 0x%02lx%02lx\n", deviceId, deviceIdHi, deviceIdLo);
+            return FALSE;
+        }
+        D(VERBOSE, "register response Good.\n");
+    } else {
+        // Test CR30 for the right id, which is probably not the PCI device ID
     }
-    D(VERBOSE, "good.\n");
 
 #if !BUILD_VISION864
     W_SR(0x15, 0x00);
@@ -2995,7 +3001,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #endif
 
 #if BIGENDIAN_MMIO
-    if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
+    if (chipFamily >= TRIO64PLUS) {
         // Enable BYTE-Swapping for MMIO register reads/writes
         // This allows us to write to WORD/DWORD MMIO registers without swapping
         W_CR_MASK(0x54, 0x03, 0b11);
@@ -3003,7 +3009,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #endif
     // Enable 4MB Linear Address Window (LAW)
     W_CR(0x58, 0x13);
-    if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
+    if (chipFamily >= VISION968) {
         // Enable Trio64+ "New MMIO". This should be on by default on PCI cards.
         D(5, "setup newstyle MMIO\n");
         W_CR_MASK(0x53, 0x18, 0x08);
@@ -3043,16 +3049,20 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     InitPixelClockPLLTable(bi);
 
     UBYTE chipRevision = R_CR(0x2F);
-    if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
-        BOOL LPBMode            = (R_CR(0x6F) & 0x01) == 0;
-        CONST_STRPTR modeString = (LPBMode ? "Local Peripheral Bus (LPB)" : "Compatibility");
-        D(INFO, "Chip is Trio64+/V2 (Rev %ld) in %s mode\n", (ULONG)chipRevision & 0x0f, modeString);
+    if (chipFamily >= VISION968) {
+        D(INFO, "Chip supports BigEndian aperture, enabling more formats\n");
 
         // We can support byte-swapped formats on this chip via the Big Linear
         // Adressing Window
         bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
+
+        if (chipFamily == VISION968) {
+            if (CheckForRGB524(bi)) {
+                InitRGB524(bi);
+            }
+        }
     } else {
-        D(INFO, "Chip is Visiona864/Trio64/32 (Rev %ld)\n", (ULONG)chipRevision);
+        D(INFO, "Chip does not support Big Endian aperture\n");
 #if BUILD_VISION864
         if (!CheckForSDAC(bi)) {
             DFUNC(ERROR, "Unsupported RAMDAC.\n");
@@ -3307,17 +3317,25 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     LOCAL_SYSBASE();
     // Determine memory size of the card (typically 1-2MB, but can be up to 4MB)
-    bi->MemorySize              = 0x400000;
+    bi->MemorySize              = (chipFamily == VISION968) ? 0x800000 : 0x400000;
     volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
     framebuffer[0]              = 0;
     while (bi->MemorySize) {
-        D(1, "Probing memory size %ld\n", bi->MemorySize);
+        D(1, "\nProbing memory size %ld\n", bi->MemorySize);
 
         // Enable Linear Addressing Window LAW
         {
             UBYTE LAWSize = 0;
             UBYTE MemSize = 0;
-            if (bi->MemorySize >= 0x400000) {
+            if (bi->MemorySize >= 0x800000) {
+                // Only Vision 968?
+                LAWSize = 0b11;
+                MemSize = 0b011;
+            } else if (bi->MemorySize >= 0x600000) {
+                // Only Vision 968? FIXME: current way of enumeration doesn't get to 6MB test
+                LAWSize = 0b11;
+                MemSize = 0b101;
+            } else if (bi->MemorySize >= 0x400000) {
                 LAWSize = 0b11;
                 MemSize = 0b000;
             } else if (bi->MemorySize >= 0x200000) {
@@ -3521,189 +3539,124 @@ int main()
     D(0, "Looking for S3 Trio64 card\n");
 
     while ((board = FindBoard(board, PRM_Vendor, VENDOR_ID_S3, TAG_END)) != NULL) {
-        ULONG Device, Revision, Memory0Size = 0;
-        APTR Memory0      = 0;
-        APTR legacyIOBase = 0;
+        struct BoardInfo boardInfo;
+        memset(&boardInfo, 0, sizeof(boardInfo));
+        struct BoardInfo *bi = &boardInfo;
 
-        ULONG count = GetBoardAttrs(board, PRM_Device, (ULONG)&Device, PRM_Revision, (ULONG)&Revision, PRM_MemoryAddr0,
-                                    (ULONG)&Memory0, PRM_MemorySize0, (ULONG)&Memory0Size, PRM_LegacyIOSpace,
-                                    (ULONG)&legacyIOBase, TAG_END);
+        CardData_t *card  = getCardData(bi);
+        bi->ExecBase      = SysBase;
+        bi->UtilBase      = UtilityBase;
+        bi->ChipBase      = NULL;
+        card->OpenPciBase = OpenPciBase;
+        card->board       = board;
+        bi->MemoryClock   = 54000000;
 
-        D(0, "device %x revision %x\n", Device, Revision);
+        if (!initRegisterAndMemoryBases(bi)) {
+            continue;
+        }
 
-        ChipFamily_t chipFamily = getChipFamily(Device, Revision);
+        D(ALWAYS, "S3: %s found\n", getChipFamilyName(getChipData(bi)->chipFamily));
 
-        if (chipFamily != UNKNOWN) {
-            D(ALWAYS, "S3: %s found\n", getChipFamilyName(chipFamily));
+        // Write PCI COMMAND register to enable IO and Memory access
+        //            pci_write_config_word(0x04, 0x0003, board);
 
-            // Write PCI COMMAND register to enable IO and Memory access
-            //            pci_write_config_word(0x04, 0x0003, board);
+        struct ChipBase *ChipBase = NULL;
 
-            D(ALWAYS, "MemoryBase 0x%x, MemorySize %u, IOBase 0x%x\n", Memory0, Memory0Size, legacyIOBase);
+        D(ALWAYS, "Trio64 init chip\n");
+        if (!InitChip(bi)) {
+            D(ERROR, "InitChip failed. Exit");
+            goto exit;
+        }
+        D(ALWAYS, "Trio64 has %ldkb usable memory\n", bi->MemorySize / 1024);
 
-            APTR physicalAddress = pci_logic_to_physic_addr(Memory0, board);
-            D(ALWAYS, "physicalAdress 0x%08lx\n", physicalAddress);
+        {
+            DFUNC(ALWAYS, "SetDisplay OFF\n");
+            SetDisplay(bi, FALSE);
+        }
 
-            struct ChipBase *ChipBase = NULL;
+        {
+            // test 640x480 screen
+            struct ModeInfo mi;
 
-            struct BoardInfo boardInfo;
-            memset(&boardInfo, 0, sizeof(boardInfo));
-            struct BoardInfo *bi = &boardInfo;
+            mi.Depth            = 8;
+            mi.Flags            = 0;
+            mi.Height           = 480;
+            mi.Width            = 680;
+            mi.HorBlankSize     = 0;
+            mi.HorEnableSkew    = 0;
+            mi.HorSyncSize      = 96;
+            mi.HorSyncStart     = 16;
+            mi.HorTotal         = 800;
+            mi.PixelClock       = 25175000;
+            mi.pll1.Numerator   = 0;
+            mi.pll2.Denominator = 0;
+            mi.VerBlankSize     = 0;
+            mi.VerSyncSize      = 2;
+            mi.VerSyncStart     = 10;
+            mi.VerTotal         = 525;
 
-            CardData_t *card = getCardData(bi);
-            bi->ExecBase      = SysBase;
-            bi->UtilBase      = UtilityBase;
-            bi->ChipBase      = ChipBase;
-            card->OpenPciBase = OpenPciBase;
-            card->board       = board;
-            bi->MemoryClock = 54000000;
+            bi->ModeInfo = &mi;
 
-            if (chipFamily >= TRIO64PLUS) {
-                // The Trio64
-                // S3Trio64.chip expects register base adress to be offset by 0x8000
-                // to be able to address all registers with just regular signed 16bit
-                // offsets
-                bi->RegisterBase = ((UBYTE *)legacyIOBase) + REGISTER_OFFSET;
-                // Use the Trio64+ MMIO range in the BE Address Window at BaseAddress +
-                // 0x3000000
-                bi->MemoryIOBase = Memory0 + 0x3000000 + MMIOREGISTER_OFFSET;
-                // No need to fudge with the base address here
-                bi->MemoryBase = Memory0;
-            } else {
-                bi->RegisterBase = ((UBYTE *)legacyIOBase) + REGISTER_OFFSET;
-                // This is how I understand Trio64/32 MMIO approach: 0xA0000 is
-                // hardcoded as the base of the enhanced registers I need to make
-                // sure, the first 1 MB of address space don't overlap with anything.
-                bi->MemoryIOBase = pci_physic_to_logic_addr((APTR)0xA0000, board);
+            // ResolvePixelClock(bi, &mi, 67000000, RGBFB_CLUT);
 
-                if (bi->MemoryIOBase == NULL) {
-                    D(ALWAYS, "VGA memory window at 0xA0000-BFFFF is not available. Aborting.\n");
-                    goto exit;
-                }
+            ULONG index = ResolvePixelClock(bi, &mi, mi.PixelClock, RGBFB_CLUT);
 
-                D(ALWAYS, "MMIO Base at physical address 0xA0000 virtual: 0x%lx.\n", bi->MemoryIOBase);
+            DFUNC(ALWAYS, "SetClock\n");
 
-                bi->MemoryIOBase += MMIOREGISTER_OFFSET;
+            SetClock(bi);
 
-                // I have to push out the card's Linear Address Window memory base
-                // address to not overlap with its own MMIO address range at
-                // 0xA8000-0xAFFFF On Trio64+ this is way easier with the "new MMIO"
-                // approach. Here we move the Linear Address Window up by 4MB. This
-                // gives us 4MB alignment and moves the LAW while not moving the PCI
-                // BAR of teh card. The assumption is that the gfx card is the first
-                // one to be initialized and thus sit at 0x00000000 in PCI address
-                // space. This way 0xA8000 is in the card's BAR and the LAW should be
-                // at 0x400000
-                bi->MemoryBase = Memory0;
-                if (pci_logic_to_physic_addr(bi->MemoryBase, board) <= (APTR)0xB0000) {
-                    // This shifts the memory base address by 4MB, which should be ok
-                    // since the S3Trio asks for 8MB PCI address space, typically only
-                    // utilizing the first 4MB
-                    bi->MemoryBase += 0x400000;
+            DFUNC(ALWAYS, "SetGC\n");
 
-                    D(ALWAYS,
-                      "WARNING: Trio64/32 memory base overlaps with MMIO address at "
-                      "0xA8000-0xAFFFF.\n"
-                      "Moving FB adress window out by 4mb to 0x%lx\n",
-                      bi->MemoryBase);
-                }
+            SetGC(bi, &mi, TRUE);
+        }
+        {
+            DFUNC(ALWAYS, "SetDAC\n");
+            SetDAC(bi, RGBFB_CLUT);
+        }
+        {
+            SetSprite(bi, FALSE, RGBFB_CLUT);
+        }
+
+        {
+            DFUNC(0, "SetColorArray\n");
+            UBYTE colors[256 * 3];
+            for (int c = 0; c < 256; c++) {
+                bi->CLUT[c].Red   = c;
+                bi->CLUT[c].Green = c;
+                bi->CLUT[c].Blue  = c;
             }
+            SetColorArray(bi, 0, 256);
+        }
+        {
+            SetPanning(bi, bi->MemoryBase, 640, 480, 0, 0, RGBFB_CLUT);
+        }
+        {
+            DFUNC(ALWAYS, "SetDisplay ON\n");
+            SetDisplay(bi, TRUE);
+        }
 
-            D(ALWAYS, "Trio64 init chip\n");
-            if (!InitChip(bi)) {
-                D(ERROR, "InitChip failed. Exit");
-                goto exit;
+        for (int y = 0; y < 480; y++) {
+            for (int x = 0; x < 640; x++) {
+                *(volatile UBYTE *)(bi->MemoryBase + y * 640 + x) = x;
             }
-            D(ALWAYS, "Trio64 has %ldkb usable memory\n", bi->MemorySize / 1024);
+        }
 
-            {
-                DFUNC(ALWAYS, "SetDisplay OFF\n");
-                SetDisplay(bi, FALSE);
-            }
+        struct RenderInfo ri;
+        ri.Memory      = bi->MemoryBase;
+        ri.BytesPerRow = 640;
+        ri.RGBFormat   = RGBFB_CLUT;
 
-            {
-                // test 640x480 screen
-                struct ModeInfo mi;
+        {
+            FillRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, 0xFF, RGBFB_CLUT);
+        }
 
-                mi.Depth            = 8;
-                mi.Flags            = 0;
-                mi.Height           = 480;
-                mi.Width            = 680;
-                mi.HorBlankSize     = 0;
-                mi.HorEnableSkew    = 0;
-                mi.HorSyncSize      = 96;
-                mi.HorSyncStart     = 16;
-                mi.HorTotal         = 800;
-                mi.PixelClock       = 25175000;
-                mi.pll1.Numerator   = 0;
-                mi.pll2.Denominator = 0;
-                mi.VerBlankSize     = 0;
-                mi.VerSyncSize      = 2;
-                mi.VerSyncStart     = 10;
-                mi.VerTotal         = 525;
+        {
+            FillRect(bi, &ri, 64, 64, 128, 128, 0xAA, 0xFF, RGBFB_CLUT);
+        }
 
-                bi->ModeInfo = &mi;
-
-                // ResolvePixelClock(bi, &mi, 67000000, RGBFB_CLUT);
-
-                ULONG index = ResolvePixelClock(bi, &mi, mi.PixelClock, RGBFB_CLUT);
-
-                DFUNC(ALWAYS, "SetClock\n");
-
-                SetClock(bi);
-
-                DFUNC(ALWAYS, "SetGC\n");
-
-                SetGC(bi, &mi, TRUE);
-            }
-            {
-                DFUNC(ALWAYS, "SetDAC\n");
-                SetDAC(bi, RGBFB_CLUT);
-            }
-            {
-                SetSprite(bi, FALSE, RGBFB_CLUT);
-            }
-
-            {
-                DFUNC(0, "SetColorArray\n");
-                UBYTE colors[256 * 3];
-                for (int c = 0; c < 256; c++) {
-                    bi->CLUT[c].Red   = c;
-                    bi->CLUT[c].Green = c;
-                    bi->CLUT[c].Blue  = c;
-                }
-                SetColorArray(bi, 0, 256);
-            }
-            {
-                SetPanning(bi, bi->MemoryBase, 640, 480, 0, 0, RGBFB_CLUT);
-            }
-            {
-                DFUNC(ALWAYS, "SetDisplay ON\n");
-                SetDisplay(bi, TRUE);
-            }
-
-            for (int y = 0; y < 480; y++) {
-                for (int x = 0; x < 640; x++) {
-                    *(volatile UBYTE *)(bi->MemoryBase + y * 640 + x) = x;
-                }
-            }
-
-            struct RenderInfo ri;
-            ri.Memory      = bi->MemoryBase;
-            ri.BytesPerRow = 640;
-            ri.RGBFormat   = RGBFB_CLUT;
-
-            {
-                FillRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, 0xFF, RGBFB_CLUT);
-            }
-
-            {
-                FillRect(bi, &ri, 64, 64, 128, 128, 0xAA, 0xFF, RGBFB_CLUT);
-            }
-
-            {
-                FillRect(bi, &ri, 256, 10, 128, 128, 0x33, 0xFF, RGBFB_CLUT);
-            }
+        {
+            FillRect(bi, &ri, 256, 10, 128, 128, 0x33, 0xFF, RGBFB_CLUT);
+        }
 
 #if 0
             for (int i = 0; i < 8; ++i) {
@@ -3756,20 +3709,19 @@ int main()
                 }
             }
 #endif
-            WaitBlitter(bi);
-            // RegisterOwner(cb, board, (struct Node *)ChipBase);
+        WaitBlitter(bi);
+        // RegisterOwner(cb, board, (struct Node *)ChipBase);
 
-            // if ((dmaSize > 0) && (dmaSize <= bi->MemorySize)) {
-            //     // Place DMA window at end of memory window 0 and page-align it
-            //     ULONG dmaOffset = (bi->MemorySize - dmaSize) & ~(4096 - 1);
-            //     InitDMAMemory(cb, bi->MemoryBase + dmaOffset, dmaSize);
-            //     bi->MemorySize = dmaOffset;
-            //     cb->cb_DMAMemGranted = TRUE;
-            // }
-            // no need to continue - we have found a match
-            rval = EXIT_SUCCESS;
-            goto exit;
-        }
+        // if ((dmaSize > 0) && (dmaSize <= bi->MemorySize)) {
+        //     // Place DMA window at end of memory window 0 and page-align it
+        //     ULONG dmaOffset = (bi->MemorySize - dmaSize) & ~(4096 - 1);
+        //     InitDMAMemory(cb, bi->MemoryBase + dmaOffset, dmaSize);
+        //     bi->MemorySize = dmaOffset;
+        //     cb->cb_DMAMemGranted = TRUE;
+        // }
+        // no need to continue - we have found a match
+        rval = EXIT_SUCCESS;
+        goto exit;
     }  // while
 
     D(ERROR, "no Trio64 found.\n");

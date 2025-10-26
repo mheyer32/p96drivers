@@ -1,5 +1,5 @@
 #include "s3ramdac.h"
-#include "chip_s3trio64.h"
+#include "s3trio64_common.h"
 
 BOOL CheckForSDAC(struct BoardInfo *bi)
 {
@@ -26,8 +26,8 @@ BOOL CheckForSDAC(struct BoardInfo *bi)
     W_CR_MASK(0x43, 0x20, 0);
 
     // ??
-//    saveCR45 = R_CR(0x45);
-//    W_CR_MASK(0x45, 0x20, 0);
+    //    saveCR45 = R_CR(0x45);
+    //    W_CR_MASK(0x45, 0x20, 0);
 
     saveCR55 = R_CR(0x55);
     // Extended RAMDAC Control Register (EX_DAC_CT) (CR55)
@@ -87,9 +87,89 @@ BOOL CheckForSDAC(struct BoardInfo *bi)
         DFUNC(0, "Unknown RAMDAC\n");
     }
 
-//    W_CR(0x45, saveCR45);
+    //    W_CR(0x45, saveCR45);
     W_CR(0x43, saveCR43);
 
     return found;
 }
 
+#define DAC_IDX_LO   0x3C8
+#define DAC_IDX_HI   0x3C9
+#define DAC_IDX_DATA 0x3C6
+#define DAC_IDX_CNTL 0x3C7
+
+BOOL CheckForRGB524(struct BoardInfo *bi)
+{
+    REGBASE();
+
+    /* probe for IBM RGB524 RAMDAC */
+    /*
+     * The IBM RGB524 RAMDAC has a dedicated Product Identification Code register
+     * at index 0x0001 that returns 0x02. This is the proper way to identify the chip.
+     * The RGB524 uses direct register access via RS[2:0] and D[7:0] data bus.
+     */
+    BOOL found = FALSE;
+
+    // Set up for RAMDAC direct register access
+    // The RGB524 uses RS[2:0] for register selection and D[7:0] for data
+    DAC_ENABLE_RS2();
+
+    // Access the Product Identification Code register (index 0x0001)
+    // According to the datasheet, this register should return 0x02 for RGB524
+    W_REG(DAC_IDX_HI, 0x00);
+    W_REG(DAC_IDX_LO, 0x00);                // Dac Register index 0x0000
+    UBYTE revision = R_REG(DAC_IDX_DATA);   // Read the Revision
+    W_REG(DAC_IDX_LO, 0x01);                // Dac register index 0x0001
+    UBYTE productId = R_REG(DAC_IDX_DATA);  // Read the Product ID value
+
+    if (productId == 0x02) {
+        DFUNC(0, "Found IBM RGB524 RAMDAC (Product ID: 0x%02x)\n", productId);
+        found = TRUE;
+    } else {
+        DFUNC(0, "RGB524 not detected, Product ID: 0x%02x (expected: 0x02)\n", productId);
+    }
+
+    DAC_DISABLE_RS2();
+
+    return found;
+}
+
+BOOL InitRGB524(struct BoardInfo *bi)
+{
+    REGBASE();
+
+    /* probe for IBM RGB524 RAMDAC */
+    /*
+     * The IBM RGB524 RAMDAC has a dedicated Product Identification Code register
+     * at index 0x0001 that returns 0x02. This is the proper way to identify the chip.
+     * The RGB524 uses direct register access via RS[2:0] and D[7:0] data bus.
+     */
+    BOOL found = FALSE;
+
+    // Set up for RAMDAC direct register access
+    // The RGB524 uses RS[2:0] for register selection and D[7:0] for data
+    DAC_ENABLE_RS2();
+
+    W_REG(DAC_IDX_CNTL, 0x01);  // auto-increment register indices
+    W_REG(DAC_IDX_HI, 0x00);
+
+    W_REG(DAC_IDX_LO, 0x06);  // DAC operation
+    W_REG(DAC_DATA, BIT(0));  // Blanking pedestal
+
+    W_REG(DAC_IDX_LO, 0x0a);  // Pixel Format
+    W_REG(DAC_DATA, 0xb011);  // 8Bit
+
+    W_REG(DAC_IDX_LO, 0x0b);  // 8 Bit Pixel Control
+    W_REG(DAC_DATA, 0);       // Indirect through Palette enabled
+
+    W_REG(DAC_IDX_LO, 0x0c);  // 16 Bit Pixel Control
+    W_REG(DAC_DATA, (0xb11 << 6) | BIT(2) | BIT(1));  // Fill low order 0 bits with high order bits and 565 mode
+
+    W_REG(DAC_IDX_LO, 0x0d);  // 24 Bit Pixel Control
+    W_REG(DAC_DATA, 0x01);  // Direct, palette bypass
+
+    W_REG(DAC_IDX_LO, 0x0e);  // 32 Bit Pixel Control
+    W_REG(DAC_DATA,  BIT(2) | (0xb11));  // Direct, Palette bypass
+
+
+}
