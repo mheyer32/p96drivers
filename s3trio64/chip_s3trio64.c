@@ -317,16 +317,14 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
             W_SR_MASK(0x15, BIT(7), 0x00);
         }
     } else {
-        /* set RS2 via CR55 - I believe this switches to a second "bank" of RAMDAC registers */
-        W_CR_MASK(0x55, 0x01, 0x01);
+        DAC_ENABLE_RS2();
+        // FIXME: 0x0A being fA makes sense, if the SDAC is actually a ICS 5340, not 5342
+        // From the specs, the 5342 uses 0x09/0x0A for CLK1 fA/fB, while the 5340 uses 0x0A/0x0B
+        W_REG(SDAC_WR_ADR, 0x0A);
+        W_REG(SDAC_PLL_PARAM, m - 2);
+        W_REG(SDAC_PLL_PARAM, (r << 5) | (n - 2));
 
-        // Clock 10 is apparently the clock used for MCLK, weirdly, though the docs say that clock fA(0x09)
-        // Is the one selected at power up
-        W_REG(DAC_WR_AD, 0x0A);
-        W_REG(DAC_DATA, m - 2);
-        W_REG(DAC_DATA, (r << 5) | (n - 2));
-
-        W_CR_MASK(0x55, 0x01, 0x00);
+        DAC_DISABLE_RS2();
     }
 
     // testS3PLLClock(bi, TRUE);
@@ -405,21 +403,21 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
 
 static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
-    DFUNC(VERBOSE, "\n");
+    DFUNC(INFO, "\n");
 
     REGBASE();
 #if BUILD_VISION864
     static const UBYTE SDAC_ColorModes[] = {
         0x00,  // RGBFB_NONE
         0x00,  // RGBFB_CLUT
-        0x90,  // RGBFB_R8G8B8
-        0x90,  // RGBFB_B8G8R8
+        0xE0,  // RGBFB_R8G8B8
+        0xE0,  // RGBFB_B8G8R8
         0x50,  // RGBFB_R5G6B5PC
         0x30,  // RGBFB_R5G5B5PC
-        0x70,  // RGBFB_A8R8G8B8
-        0x70,  // RGBFB_A8B8G8R8
-        0x70,  // RGBFB_R8G8B8A8
-        0x70,  // RGBFB_B8G8R8A8
+        0x90,  // RGBFB_A8R8G8B8
+        0x90,  // RGBFB_A8B8G8R8
+        0x90,  // RGBFB_R8G8B8A8
+        0x90,  // RGBFB_B8G8R8A8
         0x50,  // RGBFB_R5G6B5
         0x30,  // RGBFB_R5G5B5
         0x50,  // RGBFB_B5G6R5PC
@@ -432,20 +430,7 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
         0x00,  // RGBFB_YUV422PA
         0x00,  // RGBFB_YUV422PAPC
     };
-    if (format < RGBFB_MaxFormats) {
-        UBYTE sdacMode;
-        if ((format == RGBFB_CLUT) && ((bi->ModeInfo->Flags & GMF_DOUBLECLOCK) != 0)) {
-            D(5, "Setting 8bit multiplex SDAC mode\n");
-            sdacMode = 0x10;
-        } else {
-            sdacMode = SDAC_ColorModes[format];
-        }
-        W_CR_MASK(0x55, 0x01, 0x01);
-        W_REG(DAC_MASK, sdacMode);
-        W_CR_MASK(0x55, 0x01, 0x00);
-    }
-#endif
-#if BUILD_VISION864
+
     static const UBYTE DAC_ColorModes[] = {
         0x00,  // RGBFB_NONE
         0x00,  // RGBFB_CLUT
@@ -469,6 +454,20 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
         0x00,  // RGBFB_YUV422PA
         0x00,  // RGBFB_YUV422PAPC
     };
+
+    if (format < RGBFB_MaxFormats) {
+        UBYTE sdacMode;
+        if ((format == RGBFB_CLUT) && ((bi->ModeInfo->Flags & GMF_DOUBLECLOCK) != 0)) {
+            D(INFO, "Setting 8bit multiplex SDAC mode\n");
+            sdacMode = 0x10;
+        } else {
+            sdacMode = SDAC_ColorModes[format];
+        }
+        DAC_ENABLE_RS2();
+        W_REG(SDAC_COMMAND, sdacMode);
+        DAC_DISABLE_RS2();
+    }
+
 #else
     static const UBYTE DAC_ColorModes[] = {
         0x00,  // RGBFB_NONE
@@ -499,7 +498,7 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
         UBYTE dacMode;
 
         if ((format == RGBFB_CLUT) && ((bi->ModeInfo->Flags & GMF_DOUBLECLOCK) != 0)) {
-            D(5, "Setting 8bit multiplex DAC mode\n");
+            D(INFO, "Setting 8bit multiplex DAC mode\n");
             // pixel multiplex and invert DCLK; This way it results in double-inversion and thus VCLK/PCLK on the RAMDAC
             // are in-phase with its internal double-clocked ICLK
             // Bit 0 VCLK PHS - VCLK Phase With Respect to DCLK
@@ -563,6 +562,9 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     W_SR_MASK(0x18, BIT(7), 0);
 #else
     W_SR_MASK(0x01, 0x04, 0x00);
+    W_CR_MASK(0x66, 0x07, 0x00);
+    W_CR_MASK(0x33, BIT(3), 0x00);
+    W_CR_MASK(0x43, BIT(0), 0x00);
 #endif
 
     hTotal       = mi->HorTotal;
@@ -587,12 +589,38 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // Disable horizontal counter double mode used for 16/32bit modes
         W_CR_MASK(0x43, 0x80, 0x00);
 
+#if BUILD_VISION864 && 0
+        // FIXME: Do we ever overrun the max register size?
+        if (hTotal > (2 << 9) + 5) {
+            hTotal /= 2;
+            ScreenWidth /= 2;
+            W_CR_MASK(0x43, BIT(7), BIT(7));
+        }
+#endif
+
         if (modeFlags & GMF_DOUBLECLOCK) {
             DFUNC(INFO, "Double-Clock Mode\n");
 #if BUILD_VISION864
-            hTotal      = hTotal / 2;
-            ScreenWidth = ScreenWidth / 2;
-//      W_SR_MASK(0x01, 0x04, 0x04);
+            // Various experiments with the Vision864 to try get the 8bit multiplex mode going
+
+            // SR1, bit 3, is used for VGA modes. It selects
+            // between DCLK and DCLK/2. Its output is
+            // called the internal dot clock.
+            // W_SR_MASK(0x01, BIT(3), BIT(3));
+
+            // Double all horizontal parameters.
+            // W_CR_MASK(0x43, BIT(7), BIT(7));
+
+            // VCLK EDG - Video Clock Edge Mode Select
+            // 0 = PA[15:0] values change every VCLK rising edge
+            // 1 = PAI15:0] values change every VCLK rising and falling edge (15/16 bits/pixel only)
+            // I don't think this applies to the SDAC as it only transfers data on the rising edge
+            // W_CR_MASK(0x43, BIT(0), BIT(0));
+
+            // CR66 divide DCLK by 2 before it becomes VCLK. This _almost_ worked.
+            // No changes to DCLK programming needed. But the output doesn't look right.
+            // It looks as if a pair of pixels is being repeated
+            W_CR_MASK(0x66, 0x07, 0x01);
 #else
             // CLKSYN Control 2 Register (SR15)
             // Bit 4 DCLK/2 - Divide DCLK by 2
@@ -898,7 +926,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     REGBASE();
     LOCAL_SYSBASE();
 
-    DFUNC(VERBOSE,
+    DFUNC(INFO,
           "mem 0x%lx, width %ld, height %ld, xoffset %ld, yoffset %ld, "
           "format %ld\n",
           memory, (ULONG)width, (ULONG)height, (LONG)xoffset, (LONG)yoffset, (ULONG)format);
@@ -951,7 +979,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     pitch /= 8;
     panOffset = (panOffset + memOffset) / 4;
 
-    D(5, "panOffset 0x%lx, pitch %ld dwords\n", panOffset, (ULONG)pitch);
+    D(INFO, "panOffset 0x%lx, pitch %ld dwords\n", panOffset, (ULONG)pitch);
     // Start Address Low Register (STA(L)) (CRD)
     // Start Address High Register (STA(H)) (CRC)
     // Extended System Control 3 Register (EXT-SCTL-3)(CR69)
@@ -1079,9 +1107,10 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 
     // Figure out if we can/need to make use of double clocking
     mi->Flags &= ~GMF_DOUBLECLOCK;
-#if !BUILD_VISION864
+
     // Enable Double Clock for 8Bit modes when required pixelclock exceeds 80Mhz
     // I couldn't get this to work on the VISION864
+#if !BUILD_VISION864
     if (RGBFormat == RGBFB_CLUT || RGBFormat == RGBFB_NONE) {
         if (pixelClock > 67500000) {
             D(VERBOSE, "Applying pixel multiplex clocking\n")
@@ -1089,6 +1118,7 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
         }
     }
 #endif
+
 #if BUILD_VISION864
     if (getBPP(RGBFormat) >= 3) {
         // In 24/32bit modes, it takes 2 clock cycles to transfer one pixel to the RAMDAC,
@@ -1136,6 +1166,15 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 
     PLLValue_t pllValues = cd->pllValues[lower];
 
+#if BUILD_VISION864 && 0
+    // Another multiplex test test. CR66 seems to have the same effect and lets us run the PLL at a higher freuqncy,
+    // though
+    if (mi->Flags & GMF_DOUBLECLOCK) {
+        // divide by 2 the pixel clock by increasing R
+        pllValues.r += 1;
+    }
+#endif
+
     // FIXME: There's a note in the manual saying that fDCLK > fSCLK "to ensure proper PLL writes"
     //  I take SCLK as the 33Mhz PCI clock, thus DCLK must be greater than 16.5Mhz
 
@@ -1159,6 +1198,8 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
         // FIXME: This confuses at least the S3TrioV264, so disable it for now
         // mi->pll2.Denominator |= 0x80;  // Set bit 7 to indicate double clocking;
     }
+#else
+
 #endif
     return lower;  // Return the index into the PLL table
 }
@@ -1213,13 +1254,14 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 
 //    testS3PLLClock(bi, TRUE);
 #else
-    W_CR_MASK(0x55, 0x01, 0x01);
+    // S3 SDAC/GENDAC programming
+    DAC_ENABLE_RS2();
 
-    W_REG(DAC_WR_AD, 2);
-    W_REG(DAC_DATA, mi->pll1.Numerator);
-    W_REG(DAC_DATA, mi->pll2.Denominator);
+    W_REG(SDAC_WR_ADR, 0x02);  // CLK0 f2 parameters (f0/1 are not programmable on ICS5340)
+    W_REG(SDAC_PLL_PARAM, mi->pll1.Numerator);
+    W_REG(SDAC_PLL_PARAM, mi->pll2.Denominator);
 
-    W_CR_MASK(0x55, 0x01, 0x00);
+    DAC_DISABLE_RS2();
 #endif
 }
 
@@ -1592,8 +1634,8 @@ static INLINE void REGARGS getGESegmentAndOffset(ULONG memOffset, WORD bytesPerR
 
 #ifdef DBG
     if (*segment > 0) {
-        D(10, "segment %ld, xoff %ld, yoff %ld, memoffset 0x%08lx\n", (ULONG)*segment, (ULONG)*xoffset, (ULONG)*yoffset,
-          memOffset);
+        D(VERBOSE, "segment %ld, xoff %ld, yoff %ld, memoffset 0x%08lx\n", (ULONG)*segment, (ULONG)*xoffset,
+          (ULONG)*yoffset, memOffset);
     }
 #endif
 }
@@ -3011,10 +3053,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_CR(0x58, 0x13);
     if (chipFamily >= VISION968) {
         // Enable Trio64+ "New MMIO". This should be on by default on PCI cards.
-        D(5, "setup newstyle MMIO\n");
+        D(INFO, "setup newstyle MMIO\n");
         W_CR_MASK(0x53, 0x18, 0x08);
     } else {
-        D(5, "setup compatible MMIO\n");
+        D(INFO, "setup compatible MMIO\n");
         // Enable Trio64 old style MMIO. This hardcodes the MMIO range to 0xA8000
         // physical address. Need to make sure, nothing else sits there
         W_CR_MASK(0x53, 0x10, 0x10);
@@ -3036,12 +3078,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // Beware: while bi->MemoryBase is a 'virtual' address, the register wants a physical address
         // We basically achieve this translation by chopping off the topmost bits.
         W_CR_MASK(0x5a, 0x40, (ULONG)bi->MemoryBase >> 16);
-        D(0, "CR59: 0x%lx CR5A: 0x%lx\n", (ULONG)R_CR(0x59), (ULONG)R_CR(0x5a));
+        D(INFO, "CR59: 0x%lx CR5A: 0x%lx\n", (ULONG)R_CR(0x59), (ULONG)R_CR(0x5a));
         // Upper address bits may  not be touched as they would result in shifting
         // the PCI window
         //    W_CR_MASK(0x59, physAddress >> 24);
     }
-    D(0, "MMIO base address: 0x%lx\n", (ULONG)getMMIOBase(bi));
+    D(INFO, "MMIO base address: 0x%lx\n", (ULONG)getMMIOBase(bi));
 
     MMIOBASE();
 
@@ -3068,6 +3110,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             DFUNC(ERROR, "Unsupported RAMDAC.\n");
             return FALSE;
         }
+        InitSDAC(bi);
 #endif
     }
 
@@ -3083,8 +3126,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
      * This bit will be OR'd into CR53 and thus makes impossible to setup
      * "new MMIO only" mode on Trio64+. This is despite the docs claiming Bit 5 is
      * "reserved" on there.
+     * BEWARE: CR50 docs claim "00 = 1 byte. Bit 2 of 4AE8H selects between 4 (=0) and 8 (=1) bits/pixel "
+     * This is wrong. 4AE8H, Bit2 = 0 is 8 Bit, 1  is 4Bit.
      */
-    W_IO_W(ADVFUNC_CNTL, BIT(2) | BIT(0));
+    W_IO_W(ADVFUNC_CNTL, BIT(0));
 
     /* This field contains the upper 6 bits (19-14) of the CPU base address,
      allowing accessing of up to 4 MBytes of display memory via 64K pages.
@@ -3114,7 +3159,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     // Init RAMDAC
 #if BUILD_VISION864
-    W_CR(0x42, 0x02);  // Select clock 2 (see initialization of 0x3C2)
+    // Select clock 2 (see initialization of 0x3C2).
+    // This should actually have no effect as the SDAC is set to ignore the clock select and
+    // instead produce the clock programmed through its PLLs
+    W_CR(0x42, 0x02);
     W_CR(0x55, 0x00);  // RS2 = 0
 #endif
 
@@ -3385,6 +3433,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Input Status ? Register (STATUS_O)
     D(1, "Monitor is %s present\n", ((R_REG(0x3C2) & 0x10) ? "" : "NOT"));
 
+    // FIXME VISION968:
+    // The hardware graphics cursor requires the use of the pixel address bus. However this
+    // bus is not used for Enhanced mode operation since pixel data is transferred via the
+    // VRAM SID fines. Therefore, the hardware graphics cursor will normally not be used
+    // with the Vision964. FIXME: have to use the RAMDAC's cursor
     // Two sprite images, each 64x64*2 bits
     const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
 

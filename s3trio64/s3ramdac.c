@@ -37,21 +37,25 @@ BOOL CheckForSDAC(struct BoardInfo *bi)
     // This is done to restore the state of a RAMDAC, in case its not an SDAC
     // Read Index
     W_REG(0x3c7, 0);
-    for (int i = 0; i < 2 * 3; i++) /* save first two LUT entries */
+    for (int i = 0; i < 2 * 3; i++) { /* save first two LUT entries */
         savelut[i] = R_REG(0x3c9);
+    }
     W_REG(0x3c8, 0);
-    for (int i = 0; i < 2 * 3; i++) /* set first two LUT entries to zero */
+    for (int i = 0; i < 2 * 3; i++) { /* set first two LUT entries to zero */
         W_REG(0x3c9, 0);
+    }
 
     // Force RS2 = 1
     W_CR_MASK(0x55, 0x01, 0x01);
 
     // Read Index
     W_REG(0x3c7, 0);
-    for (int i = clock01 = 0; i < 4; i++)
+    for (int i = clock01 = 0; i < 4; i++) {
         clock01 = (clock01 << 8) | R_REG(0x3c9);
-    for (int i = clock23 = 0; i < 4; i++)
+    }
+    for (int i = clock23 = 0; i < 4; i++) {
         clock23 = (clock23 << 8) | R_REG(0x3c9);
+    }
 
     // Back to regular palette access?
     W_CR_MASK(0x55, 0x01, 0);
@@ -91,6 +95,22 @@ BOOL CheckForSDAC(struct BoardInfo *bi)
     W_CR(0x43, saveCR43);
 
     return found;
+}
+
+BOOL InitSDAC(struct BoardInfo *bi)
+{
+    REGBASE();
+
+    DAC_ENABLE_RS2();
+
+    W_REG(SDAC_WR_ADR, 0x0E);              // PLL Control register
+    // In the ICS 5430, f0 and f1 are fixed clocks and cannot be programmed
+    W_REG(SDAC_PLL_PARAM, BIT(5) | 0x02);  // Enable internal clock select. Select CLK0 = 2 and CLK1 = fA;
+    W_REG(SDAC_PLL_PARAM, 0);              // Pseudo 2nd byte write to realize the change
+
+    DAC_DISABLE_RS2();
+
+    return TRUE;
 }
 
 #define DAC_IDX_LO   0x3C8
@@ -157,19 +177,17 @@ BOOL InitRGB524(struct BoardInfo *bi)
     W_REG(DAC_DATA, BIT(0));  // Blanking pedestal
 
     W_REG(DAC_IDX_LO, 0x0a);  // Pixel Format
-    W_REG(DAC_DATA, 0xb011);  // 8Bit
+    W_REG(DAC_DATA, 0b011);   // 8Bit
 
     W_REG(DAC_IDX_LO, 0x0b);  // 8 Bit Pixel Control
     W_REG(DAC_DATA, 0);       // Indirect through Palette enabled
 
-    W_REG(DAC_IDX_LO, 0x0c);  // 16 Bit Pixel Control
-    W_REG(DAC_DATA, (0xb11 << 6) | BIT(2) | BIT(1));  // Fill low order 0 bits with high order bits and 565 mode
+    W_REG(DAC_IDX_LO, 0x0c);                         // 16 Bit Pixel Control
+    W_REG(DAC_DATA, (0b11 << 6) | BIT(2) | BIT(1));  // Fill low order 0 bits with high order bits and 565 mode
 
     W_REG(DAC_IDX_LO, 0x0d);  // 24 Bit Pixel Control
-    W_REG(DAC_DATA, 0x01);  // Direct, palette bypass
+    W_REG(DAC_DATA, 0x01);    // Direct, palette bypass
 
-    W_REG(DAC_IDX_LO, 0x0e);  // 32 Bit Pixel Control
-    W_REG(DAC_DATA,  BIT(2) | (0xb11));  // Direct, Palette bypass
-
-
+    W_REG(DAC_IDX_LO, 0x0e);           // 32 Bit Pixel Control
+    W_REG(DAC_DATA, BIT(2) | (0b11));  // Direct, Palette bypass
 }
