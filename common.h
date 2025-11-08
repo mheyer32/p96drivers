@@ -92,7 +92,7 @@ static inline UWORD swapw(UWORD value)
 #define SWAPL(x) swapl(x)
 #endif
 
-#ifdef BIGENDIAN_IO
+#if BIGENDIAN_IO
 #define SWAPW_IO(x) x
 #define SWAPL_IO(x) x
 #else

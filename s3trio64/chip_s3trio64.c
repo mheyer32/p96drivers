@@ -8,6 +8,8 @@
 #include <exec/types.h>
 #include <graphics/rastport.h>
 #include <hardware/cia.h>
+
+#define OPENPCI_SWAP  // don't make it define its own SWAP macros
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>
 #include <proto/exec.h>
@@ -16,19 +18,10 @@
 #include <SDI_stdarg.h>
 
 #ifdef DBG
-int debugLevel = CHATTY;
+int debugLevel = VERBOSE;
 #endif
 
-#if !BUILD_VISION864
-#define HAS_PACKED_MMIO 1
-#else
-#define HAS_PACKED_MMIO 0
-#ifdef MMIO_ONLY
-#pragma gcc error "Vision864 does not support newstyle MMIO"
-#endif
-#endif
-
-#ifndef MMIO_ONLY
+#if !MMIO_ONLY
 #define SUBSYS_STAT  0x42E8  // Read
 #define SUBSYS_CNTL  0x42E8  // Write
 #define ADVFUNC_CNTL 0x4AE8
@@ -140,12 +133,14 @@ int debugLevel = CHATTY;
 /*                                                                            */
 /******************************************************************************/
 
-#if BIGENDIAN_MMIO
+#if defined(CONFIG_S3TRIO64PLUS)
 const char LibName[] = "S3Trio64Plus.chip";
-#elif BUILD_VISION864
+#elif defined(CONFIG_VISION864)
 const char LibName[] = "S3Vision864.chip";
-#else
+#elif defined(CONFIG_S3TRIO3264)
 const char LibName[] = "S3Trio3264.chip";
+#elif defined(CONFIG_S3TRIO64V2)
+const char LibName[] = "S3Trio64V2.chip";
 #endif
 const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 chip driver version 1.0";
 
@@ -562,7 +557,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     W_SR_MASK(0x18, BIT(7), 0);
 #else
     W_SR_MASK(0x01, 0x04, 0x00);
-    W_CR_MASK(0x66, 0x07, 0x00);
+    // W_CR_MASK(0x66, 0x07, 0x00); // careful, CR66 has new meanings on later chips
     W_CR_MASK(0x33, BIT(3), 0x00);
     W_CR_MASK(0x43, BIT(0), 0x00);
 #endif
@@ -1685,8 +1680,9 @@ static INLINE BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
 
     getGESegmentAndOffset(getMemoryOffset(bi, cd->patternVideoBuffer), bytesPerRow, bpp, &cd->pattSegment, &cd->pattX,
                           &cd->pattY);
-    cd->pattX = (cd->pattX + 7) & ~7;  // Align to 8 pixel boundary
-    cd->pattY = (cd->pattY + 7) & ~7;
+    cd->pattX           = (cd->pattX + 7) & ~7;  // Align to 8 pixel boundary
+    cd->pattY           = (cd->pattY + 7) & ~7;
+    cd->patternCacheKey = ~0;  // invalidate cache as  the pattern address may have moved
     D(CHATTY, "pattSeg %ld, pattX %ld, pattY %ld, bytesPerRow %ld\n", (ULONG)cd->pattSegment, (ULONG)cd->pattX,
       (ULONG)cd->pattY, (ULONG)cd->GEbytesPerRow);
 #if DBG
@@ -1766,7 +1762,7 @@ static INLINE void REGARGS setMix(struct BoardInfo *bi, UWORD frgdMix, UWORD bkg
 
 static INLINE void setForegroundColor(struct BoardInfo *bi, ULONG fgPen)
 {
-#ifndef MMIO_ONLY
+#if !MMIO_ONLY
     REGBASE();
     W_IO_L(FRGD_COLOR, fgPen);
 #else
@@ -1778,7 +1774,7 @@ static INLINE void setForegroundColor(struct BoardInfo *bi, ULONG fgPen)
 
 static INLINE void setBackgroundColor(struct BoardInfo *bi, ULONG bgPen)
 {
-#ifndef MMIO_ONLY
+#if !MMIO_ONLY
     REGBASE();
     W_IO_L(BKGD_COLOR, bgPen);
 #else
@@ -1814,7 +1810,7 @@ static INLINE void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG 
 
 static INLINE void setWriteMask(const struct BoardInfo *bi, ULONG mask)
 {
-#ifndef MMIO_ONLY
+#if !MMIO_ONLY
     REGBASE();
     W_IO_L(WRT_MASK, mask);
 #else
@@ -2950,31 +2946,79 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     DFUNC(VERBOSE, "S3 chip wakeup\n");
 
+    pci_write_config_word(PCI_COMMAND, PCI_COMMAND_MEMORY | PCI_COMMAND_IO, getCardData(bi)->board);
+
     {
         REGBASE();
+        BOOL used3c3 = FALSE;
         if (chipFamily >= TRIO64PLUS) {
             /* Chip wakeup Trio64+ */
             W_REG(0x3C3, 0x01);
+            used3c3 = TRUE;
         } else {
             /* Chip wakeup Trio64/32 */
-            W_REG(0x3C3, 0x10);
-            W_REG(0x102, 0x01);
-            W_REG(0x3C3, 0x08);
-
-            // FIXME: The Vision864 BIOS seems to lookup a ROM adress to decide which register to use for chip wakeup
-            /* Also try 0x46E8 */
             W_REG(0x46E8, 0x10);
             W_REG(0x102, 0x01);
             W_REG(0x46E8, 0x08);
         }
-        W_MISC_MASK(0x03, 0x03);  // Enable RAM access and Color-Emulation, 0x3D4/5 for CR_IDX/DATA
+
+    retry:
+        W_MISC_MASK(0x0F, 0x0F);  // Enable RAM access and Color-Emulation, 0x3D4/5 for CR_IDX/DATA
+
+        // Unlock S3 CRTC registers CR30 and up
+        W_CR(0x38, 0x48);
+        W_CR(0x39, 0xa5);
+
+        if (chipFamily >= TRIO64) {
+            DFUNC(INFO, "Checking register response...\n");
+            UBYTE chipId = R_CR(0x30) >> 4;
+            if (chipId != 0xE) {
+                DFUNC(ERROR, "CR30 Chip ID: expected 0xE, got 0x%1lX\n", (ULONG)chipId);
+
+                if (used3c3 == FALSE) {
+                    R_REG(0x65);
+                    W_REG(0x3C3, 0x10);
+                    W_REG(0x102, 0x01);
+                    W_REG(0x3C3, 0x08);
+                    goto retry;
+                }
+
+                return FALSE;
+            }
+            UBYTE deviceIdHi = R_CR(0x2D);
+            UBYTE deviceIdLo = R_CR(0x2E);
+            if ((deviceIdHi << 8 | deviceIdLo) != deviceId) {
+                DFUNC(ERROR, "Chipset ID mismatch: expected 0x%04lX, got 0x%02lX%02lX\n", (ULONG)deviceId,
+                      (ULONG)deviceIdHi, (ULONG)deviceIdLo);
+                return FALSE;
+            }
+            D(INFO, "register response Good.\n");
+            if (chipFamily <= TRIO64) {
+                if (used3c3) {
+                    W_REG_MASK(0x65, BIT(2), 0);
+                } else {
+                    W_REG_MASK(0x65, BIT(2), BIT(2));
+                }
+            }
+        } else {
+            // Test CR30 for the right id, which is probably not the PCI device ID
+        }
     }
 
-#if defined(MMIO_ONLY)
+#if BIGENDIAN_MMIO
+    if (chipFamily >= VISION968) {
+        bi->MemoryIOBase += 0x2000000;
+    } else {
+        DFUNC(ERROR, "Big Endian MMIO requested, but not supported on this chipset.\n");
+        return FALSE;
+    }
+#endif
+
+#if MMIO_ONLY
     {
         // FIXME: PCI cards should startup with New MMIO enabled. Thus, we should be able to just use MMIO directly.
         D(INFO, "Setting up MMIO only driver\n");
-        bi->RegisterBase = bi->MemoryIOBase + 0x8000;
+        bi->RegisterBase = bi->MemoryIOBase + 0x8000;  // bi->MemoryIObase has MMIOREGISTER_OFFSET added already
         // Disable IO Response
         pci_write_config_word(PCI_COMMAND, PCI_COMMAND_MEMORY /*| PCI_COMMAND_IO*/, getCardData(bi)->board);
     }
@@ -2982,34 +3026,14 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     REGBASE();
 
-    W_REG(0x3C2, 0x0F);  // Enable clock via clock select CR42 on Vision864; Color-Emulation, 0x3D4/5 for CR_IDX/DATA
-
-    // Unlock S3 CRTC registers
-    W_CR(0x38, 0x48);
-    W_CR(0x39, 0xa5);
-
-#if defined(MMIO_ONLY)
-    // Move Video Subsystem Setup from 46E8H to 3C3H
-    // FIXME: seems to only exist on PRE Trio64+ chips
-    // W_CR_MASK(0x65, BIT(2), 0);
-#endif
+    if (chipFamily == VISION968) {
+        W_CR_MASK(0x36, 0x1e, 0x1e);
+        W_CR(0x37, 0xff);
+        W_CR(0x68, 0xec);
+    }
 
     // Unlock Extended Sequencer Registers SR9-SR1C
     W_SR(0x08, 0x06);
-
-    if (chipFamily >= VISION968) {
-        DFUNC(VERBOSE, "Checking register response...\n");
-        UBYTE deviceIdHi = R_CR(0x2D);
-        UBYTE deviceIdLo = R_CR(0x2E);
-
-        if ((deviceIdHi << 8 | deviceIdLo) != deviceId) {
-            DFUNC(ERROR, "Chipset ID mismatch: expected 0x%04lx, got 0x%02lx%02lx\n", deviceId, deviceIdHi, deviceIdLo);
-            return FALSE;
-        }
-        D(VERBOSE, "register response Good.\n");
-    } else {
-        // Test CR30 for the right id, which is probably not the PCI device ID
-    }
 
 #if !BUILD_VISION864
     W_SR(0x15, 0x00);
@@ -3043,10 +3067,13 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #endif
 
 #if BIGENDIAN_MMIO
-    if (chipFamily >= TRIO64PLUS) {
+    if (chipFamily >= VISION968) {
         // Enable BYTE-Swapping for MMIO register reads/writes
         // This allows us to write to WORD/DWORD MMIO registers without swapping
         W_CR_MASK(0x54, 0x03, 0b11);
+    } else {
+        D(ERROR, "architecture doesn't support bigendian MMIO\n");
+        return FALSE;
     }
 #endif
     // Enable 4MB Linear Address Window (LAW)
@@ -3056,6 +3083,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         D(INFO, "setup newstyle MMIO\n");
         W_CR_MASK(0x53, 0x18, 0x08);
     } else {
+        // FIXME: this code should not exist with MMIO_ONLY or BIGENDIAN_MMIO
         D(INFO, "setup compatible MMIO\n");
         // Enable Trio64 old style MMIO. This hardcodes the MMIO range to 0xA8000
         // physical address. Need to make sure, nothing else sits there
@@ -3083,7 +3111,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // the PCI window
         //    W_CR_MASK(0x59, physAddress >> 24);
     }
-    D(INFO, "MMIO base address: 0x%lx\n", (ULONG)getMMIOBase(bi));
+
+    D(INFO, "MMIO base address: 0x%08lx, IO base address: 0x%08lx \n", (ULONG)getMMIOBase(bi), (ULONG)getIOBase(bi));
 
     MMIOBASE();
 
@@ -3101,6 +3130,26 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         if (chipFamily == VISION968) {
             if (CheckForRGB524(bi)) {
                 InitRGB524(bi);
+
+                // Configure VRAM memory for 64 bit SID
+                // 00 = 64-bit serial (non-interleaved) SID bus operation
+                // 10 = 128-bit serial or 64-bit parallel (interleaved) SID bus operation
+                // Bit6 : Tristate PA[0..7], because we're using SID to feed the RAMDAC
+                W_CR_MASK(0x66, (3 << 5) | BIT(6), (0b00 << 5) | BIT(6));
+
+                // BitS PAR VRAM - Parallel VRAM addressing
+                // 0 = Serial VRAM addressing mode
+                // 1 = Parallel VRAM addressing mode
+                // This bit needs to be set to 1 to enable parallel addressing only when a 64-bit
+                // interleaved SID bus design is used (bits 5-4 of CR66 = 10b).
+                W_CR_MASK(0x53, BIT(5), 0);
+
+                // Bit 6 SAM 256 - Serial Access Mode 256 Words Control
+                // 0 = SAM control is 512 words
+                // 1 =SAM control is 256 words
+                // This setting is VRAM-dependent. A setting of 1 always works.
+                // If the VRAM can support a setting of 0, this can enhance performance.
+                W_CR_MASK(0x58, BIT(6), BIT(6));
             }
         }
     } else {
@@ -3127,9 +3176,22 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
      * "new MMIO only" mode on Trio64+. This is despite the docs claiming Bit 5 is
      * "reserved" on there.
      * BEWARE: CR50 docs claim "00 = 1 byte. Bit 2 of 4AE8H selects between 4 (=0) and 8 (=1) bits/pixel "
-     * This is wrong. 4AE8H, Bit2 = 0 is 8 Bit, 1  is 4Bit.
+     * This is wrong. 4AE8H, Bit2 = 0 is 8bits, 1  is 4bits.
      */
-    W_IO_W(ADVFUNC_CNTL, BIT(0));
+#if MMIO_ONLY
+    // In "new MMIO only" mode, don't enable enhanced functions via MMIO write to ADVFUNC_CNTL.
+    // Writing to ADVFUNC_CNTL just hung on Trio64+ cards.
+    // Instead, chose CR66 to enable it. CR66 Bit0 has different meanings on pre-Trio64Plus chips
+    W_CR_MASK(0x66, BIT(1) | BIT(0), BIT(1) | BIT(0));
+    W_CR_MASK(0x66, BIT(1), 0);
+#else
+    // Trio64+ and Trio64M writing to ADVFUNC_CNTL via MMIO hangs the machine
+    // USHORT sysCntl = R_IO_W(SUBSYS_STAT);
+    USHORT advCntl = R_IO_W(ADVFUNC_CNTL);
+    advCntl |= BIT(0);  // | BIT(4) | BIT(7);
+    W_IO_W(ADVFUNC_CNTL, advCntl);
+    // sysCntl = R_IO_W(SUBSYS_STAT);
+#endif
 
     /* This field contains the upper 6 bits (19-14) of the CPU base address,
      allowing accessing of up to 4 MBytes of display memory via 64K pages.
@@ -3143,7 +3205,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_SR(0x02, 0x0f);
     W_SR(0x03, 0x00);
     W_SR(0x04, 0x02);
-#ifdef MMIO_ONLY
+#if MMIO_ONLY
     // Bit 7 MMIO-ONLY - Memory-mapped I/O register access only
     // 0 = When MMIO is enabled, both programmed I/O and memory-mapped I/O register accesses are allowed
     // 1 = When MMIO is enabled, only memory-mapped I/O register accesses are allowed
@@ -3170,19 +3232,23 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_REG(DAC_MASK, 0xff);
 
     ULONG clock = bi->MemoryClock;
-#if BUILD_VISION864
     if (clock < 40000000) {
         clock = 40000000;
     }
+
+#if BUILD_VISION864
     if (60000000 < clock) {
         clock = 60000000;
     }
 #else
-    if (clock < 54000000) {
-        clock = 54000000;
-    }
-    if (65000000 < clock) {
-        clock = 65000000;
+    if (chipFamily >= TRIO64V2) {
+        if (clock > 70000000) {
+            clock = 70000000;
+        }
+    } else {
+        if (clock > 65000000) {
+            clock = 65000000;
+        }
     }
 #endif
 
@@ -3438,6 +3504,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // bus is not used for Enhanced mode operation since pixel data is transferred via the
     // VRAM SID fines. Therefore, the hardware graphics cursor will normally not be used
     // with the Vision964. FIXME: have to use the RAMDAC's cursor
+
     // Two sprite images, each 64x64*2 bits
     const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
 
@@ -3472,7 +3539,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Init GE write/read masks. The use of IO instead of MMIO is deliberate.
     // Apparently when we switch these registers to 32bit via MULT_MISC above,
     // Only the registers in the IO space become 32bit, but not in MMIO!
-#ifndef MMIO_ONLY
+#if !MMIO_ONLY
     // Set MULT_MISC first so that
     // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
     // Bit 9 CMR 32B - Select 32-Bit Command Registers
@@ -3627,12 +3694,12 @@ int main()
             SetDisplay(bi, FALSE);
         }
 
-        {
-            // test 640x480 screen
-            struct ModeInfo mi;
+        // test 640x480 screen
+        struct ModeInfo mi;
 
+        {
             mi.Depth            = 8;
-            mi.Flags            = 0;
+            mi.Flags            = GMF_HPOLARITY | GMF_VPOLARITY;
             mi.Height           = 480;
             mi.Width            = 680;
             mi.HorBlankSize     = 0;

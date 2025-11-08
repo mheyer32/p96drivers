@@ -1,5 +1,4 @@
 #include "s3trio64_common.h"
-#include "common.h"
 
 #define OPENPCI_SWAP  // don't make it define its own SWAP macros
 #include <proto/openpci.h>
@@ -99,9 +98,8 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
         // to be able to address all registers with just regular signed 16bit
         // offsets
         bi->RegisterBase = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
-        // Use the Trio64+ MMIO range in the BE Address Window at BaseAddress +
-        // 0x3000000
-        bi->MemoryIOBase = (UBYTE *)memory0 + 0x3000000 + MMIOREGISTER_OFFSET;
+        // Point to LE MMIO registers at offset 16MB. The chip driver will adjust to BE if BIGENDIAN_MMIO is enabled
+        bi->MemoryIOBase = (UBYTE *)memory0 + 0x1000000 + MMIOREGISTER_OFFSET;
         // No need to fudge with the base address here
         bi->MemoryBase = (UBYTE *)memory0;
     } else {

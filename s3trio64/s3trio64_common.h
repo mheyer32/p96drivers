@@ -84,8 +84,4 @@ extern ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision);
 extern const char *getChipFamilyName(ChipFamily_t family);
 extern BOOL initRegisterAndMemoryBases(BoardInfo_t *bi);
 
-#ifdef MMIO_ONLY  // On S3Trio there's a couple of 32bit registers accessed through I/O only
-#undef W_IO_L
-#endif
-
 #endif  // S3TRIO64_COMMON_H
