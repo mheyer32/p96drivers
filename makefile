@@ -144,7 +144,7 @@ openpci.h : openpci/openpci.fd openpci/clib/openpci_protos.h
 
 #@$(COPY) Picasso96_card.h Picasso96Develop/PrivateInclude/clib/picasso96_card_protos.h # SFDC generated a header including this name
 
-P96Headers : Picasso96_card.sfd Picasso96Develop/PrivateInclude/clib/Picasso96_card_protos.h Picasso96_chip.sfd Picasso96Develop/PrivateInclude/clib/Picasso96_chip_protos.h makefile
+P96Headers : Picasso96_card.sfd Picasso96_chip.sfd  makefile
 	sfdc --sdi --output=Picasso96Develop/PrivateInclude/inline/picasso96_card.h --target=m68k-amigaos --mode=macros Picasso96_card.sfd
 	sfdc --sdi --output=Picasso96Develop/PrivateInclude/proto/picasso96_card.h --target=m68k-amigaos --mode=proto Picasso96_card.sfd
 	sfdc --sdi --output=Picasso96Develop/PrivateInclude/clib/picasso96_card_protos.h --target=m68k-amigaos --mode=clib Picasso96_card.sfd

@@ -27,7 +27,7 @@ int debugLevel = VERBOSE;
 
 #define VENDOR_ID_ATI 0x1002
 
-BOOL FindCard(__REGA0(struct BoardInfo *bi))
+BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
     LOCAL_SYSBASE();
     CardData_t *cd = getCardData(bi);
@@ -88,7 +88,7 @@ exit:
     return TRUE;
 }
 
-BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes))
+BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
     CardData_t *cd = getCardData(bi);
     if (!cd->board || !cd->OpenPciBase) {
@@ -224,7 +224,7 @@ int main()
     bi->ExecBase = SysBase;
     bi->UtilBase = UtilityBase;
 
-    if (!FindCard(bi)) {
+    if (!FindCard(bi, NULL)) {
         goto exit;
     }
 

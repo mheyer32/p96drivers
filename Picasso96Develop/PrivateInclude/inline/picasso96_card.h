@@ -20,12 +20,12 @@ typedef ULONG _sfdc_vararg;
 #define PICASSO96_CARD_BASE_NAME CardBase
 #endif /* !PICASSO96_CARD_BASE_NAME */
 
-#define FindCard(___bi) \
-      LP1(0x1e, BOOL, FindCard , struct BoardInfo *, ___bi, a0,\
+#define FindCard(___bi, ___tooltypes) \
+      LP2(0x1e, BOOL, FindCard , struct BoardInfo *, ___bi, a0, CONST_STRPTR*, ___tooltypes, 1,\
       , PICASSO96_CARD_BASE_NAME)
 
 #define InitCard(___bi, ___tooltypes) \
-      LP2(0x24, BOOL, InitCard , struct BoardInfo *, ___bi, a0, STRPTR*, ___tooltypes, a1,\
+      LP2(0x24, BOOL, InitCard , struct BoardInfo *, ___bi, a0, CONST_STRPTR*, ___tooltypes, a1,\
       , PICASSO96_CARD_BASE_NAME)
 
 #endif /* !_INLINE_PICASSO96_CARD_H */
