@@ -17,8 +17,8 @@
 extern "C" {
 #endif /* __cplusplus */
 
-BOOL FindCard(struct BoardInfo * bi);
-BOOL InitCard(struct BoardInfo * bi, STRPTR* tooltypes);
+BOOL FindCard(struct BoardInfo * bi, CONST_STRPTR* tooltypes);
+BOOL InitCard(struct BoardInfo * bi, CONST_STRPTR* tooltypes);
 
 #ifdef __cplusplus
 }

@@ -4,8 +4,8 @@
 ==libname Picasso96_card
 ==bias 30
 ==public
-BOOL FindCard(struct BoardInfo *bi) (a0)
-BOOL InitCard(struct BoardInfo *bi, STRPTR* tooltypes) (a0,a1)
+BOOL FindCard(struct BoardInfo *bi, CONST_STRPTR* tooltypes) (a0, 1)
+BOOL InitCard(struct BoardInfo *bi, CONST_STRPTR* tooltypes) (a0,a1)
 ==end
 
 

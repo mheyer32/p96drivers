@@ -12,6 +12,7 @@
 #include <libraries/pcitags.h>
 #include <proto/openpci.h>
 #include <proto/timer.h>
+#include <utility/tagitem.h>
 
 #ifndef TESTEXE
 const char LibName[]     = "S3Trio64.card";
@@ -34,11 +35,13 @@ int debugLevel = VERBOSE;
  * Supports both "0x1234" (hex) and "1234" (decimal) formats
  * Uses manual parsing to avoid dependencies on library functions
  */
-static ULONG parseHexOrDecimal(const char *str)
+static ULONG parseHexOrDecimal(CONST_STRPTR str)
 {
     ULONG value = 0;
     if (!str || !*str)
         return 0;
+
+    DFUNC(INFO, "parsing %s\n", str);
 
     // Check for hex prefix
     if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) {
@@ -65,69 +68,53 @@ static ULONG parseHexOrDecimal(const char *str)
                 break;
         }
     }
+
+    DFUNC(INFO, "parsed to 0x%08lx (%lu)\n", value, value);
     return value;
 }
 
-/**
- * Parse tooltypes for card-specific settings
- * Parses DEVICEID, VENDORID, and SLOT tooltypes using Amiga's FindToolType function
- *
- * @param ToolTypes NULL-terminated array of "key=value" strings
- * @param deviceId  Output: parsed device ID (if DEVICEID tooltype found)
- * @param vendorId  Output: parsed vendor ID (if VENDORID tooltype found)
- * @param slot      Output: parsed slot number (if SLOT tooltype found)
- * @return TRUE if icon.library was opened successfully, FALSE otherwise
- */
-static BOOL parseToolTypes(struct BoardInfo *bi, char **ToolTypes, ULONG *deviceId, ULONG *vendorId, UBYTE *slot)
+static BOOL parseToolTypes(struct BoardInfo *bi, CONST_STRPTR *ToolTypes, ULONG *deviceId, ULONG *vendorId, ULONG *slot,
+                           ULONG *bus)
 {
     LOCAL_SYSBASE();
-    if (!ToolTypes)
-        return FALSE;
 
-    // Open icon.library to use FindToolType
     struct Library *IconBase = OpenLibrary("icon.library", 0);
     if (!IconBase) {
         DFUNC(ERROR, "Cannot open icon.library\n");
         return FALSE;
     }
 
-    // Initialize outputs
-    if (deviceId)
-        *deviceId = 0;
-    if (vendorId)
-        *vendorId = 0;
-    if (slot)
-        *slot = 0;
-
-    // Parse DEVICEID tooltype
     if (deviceId) {
-        STRPTR deviceStr = FindToolType(ToolTypes, "DEVICEID");
+        CONST_STRPTR deviceStr = (CONST_STRPTR)FindToolType(ToolTypes, "DEVICEID");
         if (deviceStr) {
             *deviceId = parseHexOrDecimal(deviceStr);
             D(INFO, "Tooltype DEVICEID=%s parsed to 0x%08lx\n", deviceStr, *deviceId);
         }
     }
 
-    // Parse VENDORID tooltype
     if (vendorId) {
-        STRPTR vendorStr = FindToolType(ToolTypes, "VENDORID");
+        CONST_STRPTR vendorStr = (CONST_STRPTR)FindToolType(ToolTypes, "VENDORID");
         if (vendorStr) {
             *vendorId = parseHexOrDecimal(vendorStr);
             D(INFO, "Tooltype VENDORID=%s parsed to 0x%08lx\n", vendorStr, *vendorId);
         }
     }
 
-    // Parse SLOT tooltype
     if (slot) {
-        STRPTR slotStr = FindToolType(ToolTypes, "SLOT");
+        CONST_STRPTR slotStr = (CONST_STRPTR)FindToolType(ToolTypes, "SLOT");
         if (slotStr) {
             ULONG slotValue = parseHexOrDecimal(slotStr);
-            if (slotValue <= 255) {
-                *slot = (UBYTE)slotValue;
-                D(INFO, "Tooltype SLOT=%s parsed to %d\n", slotStr, *slot);
-            } else {
-                D(WARN, "Tooltype SLOT=%s out of range, ignoring\n", slotStr);
-            }
+            *slot           = slotValue;
+            D(INFO, "Tooltype SLOT=%s parsed to %ld\n", slotStr, *slot);
+        }
+    }
+
+    if (bus) {
+        CONST_STRPTR busStr = (CONST_STRPTR)FindToolType(ToolTypes, "BUS");
+        if (busStr) {
+            ULONG busValue = parseHexOrDecimal(busStr);
+            *bus           = busValue;
+            D(INFO, "Tooltype BUS=%s parsed to %ld\n", busStr, *bus);
         }
     }
 
@@ -135,7 +122,7 @@ static BOOL parseToolTypes(struct BoardInfo *bi, char **ToolTypes, ULONG *device
     return TRUE;
 }
 
-BOOL FindCard(__REGA0(struct BoardInfo *bi))
+BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
     LOCAL_SYSBASE();
     CardData_t *cd = getCardData(bi);
@@ -146,8 +133,42 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi))
         goto exit;
     }
 
+    int numTags            = 0;
+    struct TagItem tags[5] = {{TAG_END, 0}};
+    // Parse tooltypes for card-specific settings (deviceId, vendorId, slot)
+    LONG deviceId = 0, vendorId = VENDOR_ID_S3, slot = -1, bus = -1;
+    if (ToolTypes) {
+        parseToolTypes(bi, ToolTypes, &deviceId, &vendorId, &slot, &bus);
+    }
+
+    if (vendorId) {
+        D(INFO, "Tooltype VENDORID override: 0x%08lx\n", vendorId);
+        tags[numTags].ti_Tag  = PRM_Vendor;
+        tags[numTags].ti_Data = vendorId;
+        numTags++;
+    }
+    if (deviceId) {
+        D(INFO, "Tooltype DEVICEID override: 0x%08lx\n", deviceId);
+        tags[numTags].ti_Tag  = PRM_Device;
+        tags[numTags].ti_Data = deviceId;
+        numTags++;
+    }
+    if (slot >= 0) {
+        D(INFO, "Tooltype SLOT override: %ld\n", slot);
+        tags[numTags].ti_Tag  = PRM_SlotNumber;
+        tags[numTags].ti_Data = slot;
+        numTags++;
+    }
+    if (bus >= 0) {
+        D(INFO, "Tooltype BUS override: %ld\n", bus);
+        tags[numTags].ti_Tag  = PRM_BusNumber;
+        tags[numTags].ti_Data = bus;
+        numTags++;
+    }
+    tags[numTags].ti_Tag = TAG_END;
+
     struct pci_dev *board = NULL;
-    while (board = FindBoard(board, PRM_Vendor, VENDOR_ID_S3, TAG_END)) {
+    while (board = FindBoardA(board, tags)) {
         D(INFO, "S3 board found\n");
 
         ULONG deviceId, revision;
@@ -207,7 +228,7 @@ exit:
     return TRUE;
 }
 
-BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes))
+BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
     CardData_t *cd = getCardData(bi);
     if (!cd->board || !cd->OpenPciBase) {
@@ -217,21 +238,6 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes))
 
     LOCAL_OPENPCIBASE();
     LOCAL_SYSBASE();
-
-    // Parse tooltypes for card-specific settings (deviceId, vendorId, slot)
-    ULONG tooltypeDeviceId = 0, tooltypeVendorId = 0;
-    UBYTE tooltypeSlot = 0;
-    if (ToolTypes) {
-        parseToolTypes(bi, ToolTypes, &tooltypeDeviceId, &tooltypeVendorId, &tooltypeSlot);
-        // Tooltype values can now be used to override or validate card settings
-        // For example: verify card matches tooltype specifications, or use slot to find specific card
-        if (tooltypeDeviceId)
-            D(INFO, "Tooltype DEVICEID override: 0x%08lx\n", tooltypeDeviceId);
-        if (tooltypeVendorId)
-            D(INFO, "Tooltype VENDORID override: 0x%08lx\n", tooltypeVendorId);
-        if (tooltypeSlot)
-            D(INFO, "Tooltype SLOT override: %d\n", tooltypeSlot);
-    }
 
     if (!initRegisterAndMemoryBases(bi)) {
         D(ERROR, "S3Trio.card: could not init card\n");
@@ -317,7 +323,7 @@ int main()
     bi->ExecBase = SysBase;
     bi->UtilBase = UtilityBase;
 
-    if (!FindCard(bi)) {
+    if (!FindCard(bi, NULL)) {
         goto exit;
     }
 

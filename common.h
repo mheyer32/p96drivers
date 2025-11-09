@@ -101,6 +101,7 @@ static inline UWORD swapw(UWORD value)
 #endif
 
 #define BIT(x) (1 << (x))
+#define TESTBIT(x, bit) (((x) & BIT(bit)) != 0)
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 

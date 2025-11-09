@@ -20,7 +20,7 @@ APTR LibExpunge(__REGA6(struct CardBase *cb));
 LONG LibReserved(void);
 struct CardBase *LibInit(__REGD0(struct CardBase *cb), __REGA0(APTR seglist), __REGA6(struct Library *sysb));
 
-BOOL FindCard(__REGA0(struct BoardInfo *bi));
+BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes));
 BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes));
 
 int USED _start(void)
