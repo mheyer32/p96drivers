@@ -474,7 +474,7 @@ BOOL InitMach64GT(struct BoardInfo *bi)
 
     InitVClockPLLTable(bi, g_VPLLPostDivider, ARRAY_SIZE(g_VPLLPostDivider));
 
-#if DBG
+#ifdef DBG
     ULONG x             = R_BLKIO_L(MEM_CNTL);
     MEM_CNTL_t mem_cntl = *(MEM_CNTL_t *)&x;
     print_MEM_CNTL(mem_cntl);
