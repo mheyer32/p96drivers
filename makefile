@@ -160,16 +160,16 @@ S3TRIO_SRC = common.c \
              s3trio64/s3ramdac.c \
              chip_library.c 
 
-S3Trio64Plus.chip : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DCONFIG_S3TRIO64PLUS
+S3Trio64Plus.chip : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DCONFIG_S3TRIO64PLUS -include s3trio64/s3config.h 
 $(eval $(call make_driver,S3Trio64Plus.chip,$(BUILDDIR)s3trio64plus/, ${S3TRIO_SRC}))
 
-S3Trio3264.chip : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DCONFIG_S3TRIO3264
+S3Trio3264.chip : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DCONFIG_S3TRIO3264 -include s3trio64/s3config.h 
 $(eval $(call make_driver,S3Trio3264.chip,$(BUILDDIR)s3trio3264/, ${S3TRIO_SRC}))
 
-S3Vision864.chip : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DCONFIG_VISION864
+S3Vision864.chip : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DCONFIG_VISION864 -include s3trio64/s3config.h
 $(eval $(call make_driver,S3Vision864.chip,$(BUILDDIR)s3vision864/, ${S3TRIO_SRC}))
 
-S3Trio64V2.chip : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DCONFIG_S3TRIO64V2
+S3Trio64V2.chip : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DCONFIG_S3TRIO64V2 -include s3trio64/s3config.h
 $(eval $(call make_driver,S3Trio64V2.chip,$(BUILDDIR)s3trio64v2/, ${S3TRIO_SRC}))
 
 S3TRIOCARD_SRC = common.c \
@@ -185,7 +185,7 @@ S3TRIO64PLUS_TESTEXE_SRC = common.c \
                            s3trio64/s3ramdac.c \
                            s3trio64/chip_s3trio64.c
 
-TestS3Trio64Plus : CFLAGS+=-DCONFIG_S3TRIO64PLUS -DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0
+TestS3Trio64Plus : CFLAGS+=-DCONFIG_S3TRIO64PLUS -DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include s3trio64/s3config.h 
 
 $(eval $(call make_exe,TestS3Trio64Plus,$(BUILDDIR)tests3trio64plus/, ${S3TRIO64PLUS_TESTEXE_SRC}))
 
@@ -205,7 +205,7 @@ ATIMACH64_SRC = common.c \
                 mach64/chip_mach64.c \
                 chip_library.c
 
-ATIMach64.chip : CFLAGS+=-DBIGENDIAN_IO=0 -DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
+ATIMach64.chip : CFLAGS+=-DBIGENDIAN_IO=0 -DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0 -include mach64/mach64config.h
 ATIMach64.chip : LDFLAGS+=-lm
 $(eval $(call make_driver,ATIMach64.chip,$(BUILDDIR)mach64/, ${ATIMACH64_SRC}))
 
@@ -214,7 +214,7 @@ ATIMACH64CARD_SRC = common.c \
 					mach64/mach64_common.c \
                     card_library.c
 
-ATIMach64.card : CFLAGS+=-DBIGENDIAN_IO=0 -DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
+ATIMach64.card : CFLAGS+=-DBIGENDIAN_IO=0 -DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0 -include mach64/mach64config.h
 $(eval $(call make_driver,ATIMach64.card,$(BUILDDIR)mach64card/, ${ATIMACH64CARD_SRC}))
 
 ATIMACH64_TESTEXE_SRC = common.c \
@@ -223,8 +223,8 @@ ATIMACH64_TESTEXE_SRC = common.c \
                         mach64/mach64_common.c \
                         mach64/chip_mach64.c
 
-TestMach64 : CFLAGS+=-DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
-
+TestMach64 : CFLAGS+=-DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0 -include mach64/mach64config.h
+ 
 $(eval $(call make_exe,TestMach64,$(BUILDDIR)testmach64/, ${ATIMACH64_TESTEXE_SRC}))
 
 TestMach64Card : CFLAGS+=-DBIGENDIAN_IO=0 -DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0

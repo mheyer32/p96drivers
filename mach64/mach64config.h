@@ -1,0 +1,7 @@
+#ifndef MACH64CONFIG_H
+#define MACH64CONFIG_H
+
+#define BIGENDIAN_MMIO  0
+#define BIGENDIAN_IO    0
+
+#endif  // MACH64CONFIG_H
