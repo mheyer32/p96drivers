@@ -1224,7 +1224,7 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 
     D(INFO, "SetClock: PixelClock %ldHz\n", mi->PixelClock);
 
-#if DBG
+#ifdef DBG
     const ChipData_t *cd         = getChipData(bi);
     const struct svga_pll *pll   = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
     const PLLValue_t selectedPll = {
@@ -1685,7 +1685,7 @@ static INLINE BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
     cd->patternCacheKey = ~0;  // invalidate cache as  the pattern address may have moved
     D(CHATTY, "pattSeg %ld, pattX %ld, pattY %ld, bytesPerRow %ld\n", (ULONG)cd->pattSegment, (ULONG)cd->pattX,
       (ULONG)cd->pattY, (ULONG)cd->GEbytesPerRow);
-#if DBG
+#ifdef DBG
     if (cd->pattX & 7 || cd->pattY & 7) {
         D(WARN, "pattern not on 8 pixel boundary %ld,%ld\n", (ULONG)cd->pattX, (ULONG)cd->pattY);
     }
@@ -3092,7 +3092,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // Test, also enable MMIO and Linear addressing via the other register
         // W_REG_MASK(ADVFUNC_CNTL, 0x30, 0x30);
 
-#if DBG
+#ifdef DBG
         {
             LOCAL_OPENPCIBASE();
             // LAW start address
@@ -3151,6 +3151,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
                 // If the VRAM can support a setting of 0, this can enhance performance.
                 W_CR_MASK(0x58, BIT(6), BIT(6));
             }
+        } else if (chipFamily == TRIO64PLUS) {
+            UBYTE cr6F = R_CR(0x6F);
+            D(INFO, "Trio64+ card is in %s mode \n", TESTBIT(cr6F, 0) ? "Trio64 compatibility" : "LPB");
         }
     } else {
         D(INFO, "Chip does not support Big Endian aperture\n");
