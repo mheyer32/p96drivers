@@ -65,6 +65,7 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
 #define MISC_R 0x3CC
 
 #define LOCAL_SYSBASE()        struct ExecBase *SysBase = bi->ExecBase
+#define LOCAL_UTILITYBASE()    struct Library *UtilityBase = bi->UtilBase
 #define LOCAL_PROMETHEUSBASE() struct Library *PrometheusBase = getCardData(bi)->PrometheusBase
 #define LOCAL_OPENPCIBASE()    struct Library *OpenPciBase = getCardData(bi)->OpenPciBase
 // #define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase

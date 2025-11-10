@@ -158,6 +158,8 @@ S3TRIO_SRC = common.c \
              s3trio64/s3trio64_common.c \
              s3trio64/chip_s3trio64.c \
              s3trio64/s3ramdac.c \
+             s3trio64/s3i2c.c \
+             s3trio64/s3edid.c \
              chip_library.c 
 
 S3Trio64Plus.chip : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DCONFIG_S3TRIO64PLUS -include s3trio64/s3config.h 
@@ -183,7 +185,9 @@ $(eval $(call make_driver,S3Trio64.card,$(BUILDDIR)s3triocard/, ${S3TRIOCARD_SRC
 S3TRIO64PLUS_TESTEXE_SRC = common.c \
                            s3trio64/s3trio64_common.c \
                            s3trio64/s3ramdac.c \
-                           s3trio64/chip_s3trio64.c
+                           s3trio64/chip_s3trio64.c \
+						   s3trio64/s3i2c.c \
+						   s3trio64/s3edid.c
 
 TestS3Trio64Plus : CFLAGS+=-DCONFIG_S3TRIO64PLUS -DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include s3trio64/s3config.h 
 
