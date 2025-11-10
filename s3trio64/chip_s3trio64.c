@@ -1,4 +1,6 @@
 #include "chip_s3trio64.h"
+#include "s3edid.h"
+#include "s3i2c.h"
 #include "s3ramdac.h"
 
 #define __NOLIBBASE__
@@ -3584,6 +3586,28 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     cd->patternCacheBuffer = AllocVec(patternSize, MEMF_PUBLIC);
 
     // setCacheMode(bi, bi->MemoryBase, bi->MemorySize & ~4095, MAPP_NONSERIALIZED | MAPP_IMPRECISE, CACHEFLAGS);
+
+    // Try to read EDID from monitor (only for chips that support serial port register)
+    // TRIO64PLUS and TRIO64V2 have the serial port register at MMIO offset 0xFF20
+    if (chipFamily >= TRIO64PLUS) {
+        UBYTE edid_data[EDID_BLOCK_SIZE];
+        if (readEDID(bi, edid_data)) {
+            char manufacturer[4];
+            char product_name[14];
+
+            getEDIDManufacturer(edid_data, manufacturer);
+            D(INFO, "EDID: Manufacturer: %s\n", manufacturer);
+
+            if (getEDIDProductName(edid_data, product_name)) {
+                D(INFO, "EDID: Product Name: %s\n", product_name);
+            }
+
+            D(INFO, "EDID: Version %d.%d, Year: %d, Week: %d\n", edid_data[18], edid_data[19], edid_data[17] + 1990,
+              edid_data[16]);
+        } else {
+            D(INFO, "EDID: Not available or read failed (monitor may not support EDID)\n");
+        }
+    }
 
     return TRUE;
 }
