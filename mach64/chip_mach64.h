@@ -43,6 +43,7 @@ typedef struct CardData
     struct Library *OpenPciBase;
     struct pci_dev *board;
     struct Node boardNode;
+    char boardName[16];
 
     APTR ASM (*AllocCardMemDefault)(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force),
                                     __REGD2(BOOL system), __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi),

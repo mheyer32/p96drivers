@@ -1,18 +1,20 @@
+#include "card_common.h"
 #include "s3trio64_common.h"
 
+#define __NOLIBBASE__
 #include <clib/debug_protos.h>
 #include <exec/nodes.h>
 #include <exec/types.h>
 #include <proto/exec.h>
-#include <proto/icon.h>
+#include <proto/openpci.h>
 #include <proto/picasso96_chip.h>
+#include <proto/timer.h>
+#include <proto/utility.h>
+#include <utility/tagitem.h>
 
 #define OPENPCI_SWAP  // don't make it define its own SWAP macros
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>
-#include <proto/openpci.h>
-#include <proto/timer.h>
-#include <utility/tagitem.h>
 
 #ifndef TESTEXE
 const char LibName[]     = "S3Trio64.card";
@@ -30,96 +32,21 @@ int debugLevel = VERBOSE;
 #define CHIP_NAME_TRIO64PLUS "picasso96/S3Trio64Plus.chip"
 #define CHIP_NAME_TRIO64V2   "picasso96/S3Trio64V2.chip"
 
-/**
- * Parse a hexadecimal or decimal string to ULONG value
- * Supports both "0x1234" (hex) and "1234" (decimal) formats
- * Uses manual parsing to avoid dependencies on library functions
- */
-static ULONG parseHexOrDecimal(CONST_STRPTR str)
+BOOL releaseCard(__REGA0(struct BoardInfo *bi))
 {
-    ULONG value = 0;
-    if (!str || !*str)
-        return 0;
+    CardData_t *cd = getCardData(bi);
 
-    DFUNC(INFO, "parsing %s\n", str);
-
-    // Check for hex prefix
-    if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) {
-        // Parse hexadecimal
-        str += 2;
-        while (*str) {
-            char c = *str++;
-            if (c >= '0' && c <= '9')
-                value = (value << 4) | (c - '0');
-            else if (c >= 'a' && c <= 'f')
-                value = (value << 4) | (c - 'a' + 10);
-            else if (c >= 'A' && c <= 'F')
-                value = (value << 4) | (c - 'A' + 10);
-            else
-                break;
+    if (cd->OpenPciBase) {
+        LOCAL_OPENPCIBASE();
+        if (cd->board) {
+            // release ownership
+            SetBoardAttrs(cd->board, PRM_BoardOwner, (Tag)NULL, TAG_END);
         }
-    } else {
-        // Parse decimal
-        while (*str) {
-            char c = *str++;
-            if (c >= '0' && c <= '9')
-                value = value * 10 + (c - '0');
-            else
-                break;
-        }
+
+        LOCAL_SYSBASE();
+        CloseLibrary(cd->OpenPciBase);
+        cd->OpenPciBase = NULL;
     }
-
-    DFUNC(INFO, "parsed to 0x%08lx (%lu)\n", value, value);
-    return value;
-}
-
-static BOOL parseToolTypes(struct BoardInfo *bi, CONST_STRPTR *ToolTypes, ULONG *deviceId, ULONG *vendorId, ULONG *slot,
-                           ULONG *bus)
-{
-    LOCAL_SYSBASE();
-
-    struct Library *IconBase = OpenLibrary("icon.library", 0);
-    if (!IconBase) {
-        DFUNC(ERROR, "Cannot open icon.library\n");
-        return FALSE;
-    }
-
-    if (deviceId) {
-        CONST_STRPTR deviceStr = (CONST_STRPTR)FindToolType(ToolTypes, "DEVICEID");
-        if (deviceStr) {
-            *deviceId = parseHexOrDecimal(deviceStr);
-            D(INFO, "Tooltype DEVICEID=%s parsed to 0x%08lx\n", deviceStr, *deviceId);
-        }
-    }
-
-    if (vendorId) {
-        CONST_STRPTR vendorStr = (CONST_STRPTR)FindToolType(ToolTypes, "VENDORID");
-        if (vendorStr) {
-            *vendorId = parseHexOrDecimal(vendorStr);
-            D(INFO, "Tooltype VENDORID=%s parsed to 0x%08lx\n", vendorStr, *vendorId);
-        }
-    }
-
-    if (slot) {
-        CONST_STRPTR slotStr = (CONST_STRPTR)FindToolType(ToolTypes, "SLOT");
-        if (slotStr) {
-            ULONG slotValue = parseHexOrDecimal(slotStr);
-            *slot           = slotValue;
-            D(INFO, "Tooltype SLOT=%s parsed to %ld\n", slotStr, *slot);
-        }
-    }
-
-    if (bus) {
-        CONST_STRPTR busStr = (CONST_STRPTR)FindToolType(ToolTypes, "BUS");
-        if (busStr) {
-            ULONG busValue = parseHexOrDecimal(busStr);
-            *bus           = busValue;
-            D(INFO, "Tooltype BUS=%s parsed to %ld\n", busStr, *bus);
-        }
-    }
-
-    CloseLibrary(IconBase);
-    return TRUE;
 }
 
 BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
@@ -133,34 +60,36 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         goto exit;
     }
 
-    int numTags            = 0;
-    struct TagItem tags[5] = {{TAG_END, 0}};
     // Parse tooltypes for card-specific settings (deviceId, vendorId, slot)
     LONG deviceId = 0, vendorId = VENDOR_ID_S3, slot = -1, bus = -1;
     if (ToolTypes) {
         parseToolTypes(bi, ToolTypes, &deviceId, &vendorId, &slot, &bus);
     }
 
+    // First loop: Find the first board matching tooltype criteria (if any)
+    // that is supported and unclaimed
+    int numTags            = 0;
+    struct TagItem tags[5] = {{TAG_END, 0}};
     if (vendorId) {
-        D(INFO, "Tooltype VENDORID override: 0x%08lx\n", vendorId);
+        D(INFO, "VENDORID: 0x%04lx\n", vendorId);
         tags[numTags].ti_Tag  = PRM_Vendor;
         tags[numTags].ti_Data = vendorId;
         numTags++;
     }
     if (deviceId) {
-        D(INFO, "Tooltype DEVICEID override: 0x%08lx\n", deviceId);
+        D(INFO, "DEVICEID: 0x%04lx\n", deviceId);
         tags[numTags].ti_Tag  = PRM_Device;
         tags[numTags].ti_Data = deviceId;
         numTags++;
     }
     if (slot >= 0) {
-        D(INFO, "Tooltype SLOT override: %ld\n", slot);
+        D(INFO, "SLOT: %ld\n", slot);
         tags[numTags].ti_Tag  = PRM_SlotNumber;
         tags[numTags].ti_Data = slot;
         numTags++;
     }
     if (bus >= 0) {
-        D(INFO, "Tooltype BUS override: %ld\n", bus);
+        D(INFO, "BUS: %ld\n", bus);
         tags[numTags].ti_Tag  = PRM_BusNumber;
         tags[numTags].ti_Data = bus;
         numTags++;
@@ -169,7 +98,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 
     struct pci_dev *board = NULL;
     while (board = FindBoardA(board, tags)) {
-        D(INFO, "S3 board found\n");
+        D(INFO, "S3 board found 0x%lx\n", board);
 
         ULONG deviceId, revision;
 
@@ -187,34 +116,68 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         D(INFO, "%s found\n", getChipFamilyName(chipFamily));
 
         struct Node *owner = NULL;
-        GetBoardAttrs(board, PRM_BoardOwner, (Tag)&owner, TAG_END);
+        ULONG slot = 0, bus = 0;
+        GetBoardAttrs(board, PRM_BoardOwner, (Tag)&owner, PRM_SlotNumber, (Tag)&slot, PRM_BusNumber, (Tag)&bus,
+                      TAG_END);
         if (owner) {
             D(INFO, "Board already owned by: %s\n", (owner && owner->ln_Name) ? owner->ln_Name : "Unknown");
             continue;
-        } else {
-            // Claim the first board that is not yet owned
-            if (!cd->board) {
-                cd->boardNode.ln_Name = "S3Trio64.card";
-                if (!SetBoardAttrs(board, PRM_BoardOwner, (Tag)&cd->boardNode, TAG_END)) {
-                    D(ERROR, "Could not claim board\n");
-                    continue;
-                }
-
-                cd->board       = board;
-                cd->OpenPciBase = OpenPciBase;
-
-                bi->BoardType              = BT_S3Trio64;
-                bi->GraphicsControllerType = GCT_S3Trio64;
-                bi->PaletteChipType        = PCT_S3Trio64;
-                bi->BoardName              = "S3Trio64";
-            } else {
-                D(INFO, "Turning off IO for board 0x%08lx\n", board);
-                // turn off IO response for all other unclaimed boards
-                UWORD command = pci_read_config_word(PCI_COMMAND, board);
-                command &= ~(PCI_COMMAND_IO | PCI_COMMAND_MEMORY);
-                pci_write_config_word(PCI_COMMAND, command, board);
-            }
         }
+
+        // Claim the first matching board
+        cd->boardNode.ln_Name = "S3Trio64.card";
+        if (!SetBoardAttrs(board, PRM_BoardOwner, (Tag)&cd->boardNode, TAG_END)) {
+            D(ERROR, "Could not claim board\n");
+            continue;
+        }
+
+        cd->board       = board;
+        cd->OpenPciBase = OpenPciBase;
+
+        bi->BoardType              = BT_S3Trio64;
+        bi->GraphicsControllerType = GCT_S3Trio64;
+        bi->PaletteChipType        = PCT_S3Trio64;
+
+        // generate unique board name based on bus/slot
+        generateBoardName(getCardData(bi)->boardName, "S3Trio64", bus, slot);
+        bi->BoardName = getCardData(bi)->boardName;
+
+        // Found and claimed the board, break out of first loop
+        break;
+    }
+
+    // Second loop: Find all other supported and unclaimed boards to turn off their IO
+    // Use only vendor filter (no device/slot/bus restrictions) to find all supported boards
+    board = NULL;
+    while (board = FindBoard(board, PRM_Vendor, vendorId)) {
+        // Skip the board we already claimed
+        if (board == cd->board) {
+            continue;
+        }
+
+        ULONG deviceId, revision;
+        struct Node *owner = NULL;
+        ULONG count = GetBoardAttrs(board, PRM_Device, (Tag)&deviceId, PRM_Revision, (Tag)&revision, PRM_BoardOwner,
+                                    (Tag)&owner, TAG_END);
+        if (count < 3) {
+            continue;
+        }
+
+        if (owner) {
+            // Already claimed by another driver
+            continue;
+        }
+
+        ChipFamily_t chipFamily = getChipFamily(deviceId, revision);
+        if (chipFamily == UNKNOWN) {
+            continue;
+        }
+
+        D(INFO, "Turning off IO for board 0x%08lx\n", board);
+        // turn off IO response for all other unclaimed boards
+        UWORD command = pci_read_config_word(PCI_COMMAND, board);
+        command &= ~(PCI_COMMAND_IO | PCI_COMMAND_MEMORY);
+        pci_write_config_word(PCI_COMMAND, command, board);
     }
 
 exit:
@@ -259,6 +222,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 
     D(INFO, "calling init chip...\n");
     if (!InitChip(bi)) {
+        releaseCard(bi);
         DFUNC(ERROR, "InitChip() failed\n");
         return FALSE;
     }
@@ -283,26 +247,9 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 #include <stdlib.h>
 #include <string.h>
 
-static struct UtilityBase *UtilityBase;
+extern struct UtilityBase *UtilityBase;
 
 static struct BoardInfo boardInfo = {0};
-
-BOOL releaseCard(__REGA0(struct BoardInfo *bi))
-{
-    CardData_t *cd = getCardData(bi);
-
-    if (cd->OpenPciBase) {
-        LOCAL_OPENPCIBASE();
-        if (cd->board) {
-            // release ownership
-            SetBoardAttrs(cd->board, PRM_BoardOwner, (Tag)NULL, TAG_END);
-        }
-
-        LOCAL_SYSBASE();
-        CloseLibrary(cd->OpenPciBase);
-        cd->OpenPciBase = NULL;
-    }
-}
 
 void sigIntHandler(int dummy)
 {
@@ -322,6 +269,8 @@ int main()
 
     bi->ExecBase = SysBase;
     bi->UtilBase = UtilityBase;
+
+    D(INFO, "UtilityBase 0x%lx\n", bi->UtilBase);
 
     if (!FindCard(bi, NULL)) {
         goto exit;
