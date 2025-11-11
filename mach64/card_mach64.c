@@ -1,15 +1,21 @@
+#include "card_common.h"
 #include "mach64_common.h"
+
+#define __NOLIBBASE__
 
 #include <clib/debug_protos.h>
 #include <exec/nodes.h>
 #include <exec/types.h>
 #include <proto/exec.h>
+#include <proto/picasso96_chip.h>
+#include <proto/timer.h>
+#include <proto/utility.h>
+#include <utility/tagitem.h>
 
 #define OPENPCI_SWAP  // don't make it define its own SWAP macros
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>
 #include <proto/openpci.h>
-#include <proto/timer.h>
 
 #ifndef TESTEXE
 const char LibName[]     = "ATIMach64.card";
@@ -17,7 +23,6 @@ const char LibIdString[] = "ATIMach64 Picasso96 card driver version 1.0";
 const UWORD LibVersion   = 1;
 const UWORD LibRevision  = 0;
 #endif
-#include <proto/picasso96_chip.h>
 
 #ifdef DBG
 int debugLevel = VERBOSE;
@@ -26,6 +31,23 @@ int debugLevel = VERBOSE;
 #define CHIP_NAME_MACH64 "picasso96/ATIMach64.chip"
 
 #define VENDOR_ID_ATI 0x1002
+
+BOOL releaseCard(__REGA0(struct BoardInfo *bi))
+{
+    CardData_t *cd = getCardData(bi);
+
+    if (cd->OpenPciBase) {
+        LOCAL_OPENPCIBASE();
+        if (cd->board) {
+            // release ownership
+            SetBoardAttrs(cd->board, PRM_BoardOwner, (Tag)NULL, TAG_END);
+        }
+
+        LOCAL_SYSBASE();
+        CloseLibrary(cd->OpenPciBase);
+        cd->OpenPciBase = NULL;
+    }
+}
 
 BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
@@ -38,8 +60,44 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         goto exit;
     }
 
+    // Parse tooltypes for card-specific settings (deviceId, vendorId, slot)
+    LONG deviceId = 0, vendorId = VENDOR_ID_ATI, slot = -1, bus = -1;
+    if (ToolTypes) {
+        parseToolTypes(bi, ToolTypes, &deviceId, &vendorId, &slot, &bus);
+    }
+
+    // First loop: Find the first board matching tooltype criteria (if any)
+    // that is supported and unclaimed
+    int numTags            = 0;
+    struct TagItem tags[5] = {{TAG_END, 0}};
+    if (vendorId) {
+        D(INFO, "VENDORID: 0x%04lx\n", vendorId);
+        tags[numTags].ti_Tag  = PRM_Vendor;
+        tags[numTags].ti_Data = vendorId;
+        numTags++;
+    }
+    if (deviceId) {
+        D(INFO, "DEVICEID: 0x%04lx\n", deviceId);
+        tags[numTags].ti_Tag  = PRM_Device;
+        tags[numTags].ti_Data = deviceId;
+        numTags++;
+    }
+    if (slot >= 0) {
+        D(INFO, "SLOT: %ld\n", slot);
+        tags[numTags].ti_Tag  = PRM_SlotNumber;
+        tags[numTags].ti_Data = slot;
+        numTags++;
+    }
+    if (bus >= 0) {
+        D(INFO, "BUS: %ld\n", bus);
+        tags[numTags].ti_Tag  = PRM_BusNumber;
+        tags[numTags].ti_Data = bus;
+        numTags++;
+    }
+    tags[numTags].ti_Tag = TAG_END;
+
     struct pci_dev *board = NULL;
-    while (board = FindBoard(board, PRM_Vendor, VENDOR_ID_ATI, TAG_END)) {
+    while (board = FindBoardA(board, tags)) {
         D(INFO, "ATI board found\n");
 
         ULONG deviceId, revision;
@@ -57,11 +115,19 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         }
         D(INFO, "%s found\n", getChipFamilyName(chipFamily));
 
+        struct Node *owner = NULL;
+        ULONG slot = 0, bus = 0;
+        GetBoardAttrs(board, PRM_BoardOwner, (Tag)&owner, PRM_SlotNumber, (Tag)&slot, PRM_BusNumber, (Tag)&bus,
+                      TAG_END);
+        if (owner) {
+            D(INFO, "Board already owned by: %s\n", (owner && owner->ln_Name) ? owner->ln_Name : "Unknown");
+            continue;
+        }
+
+        // Claim the first matching board
         cd->boardNode.ln_Name = "ATIMach64.card";
         if (!SetBoardAttrs(board, PRM_BoardOwner, (Tag)&cd->boardNode, TAG_END)) {
-            struct Node *owner = NULL;
-            GetBoardAttrs(board, PRM_BoardOwner, (Tag)&owner, TAG_END);
-            D(INFO, "Card already claimed by: %s\n", (owner && owner->ln_Name) ? owner->ln_Name : "Unknown");
+            D(ERROR, "Could not claim board\n");
             continue;
         }
 
@@ -71,10 +137,47 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         bi->BoardType              = BT_Mach64;
         bi->GraphicsControllerType = GCT_ATIRV100;
         bi->PaletteChipType        = PCT_ATT_20C492;
-        bi->BoardName              = "ATIMach64";
 
-        // success!
+        // generate unique board name based on bus/slot
+        generateBoardName(getCardData(bi)->boardName, "Mach64", bus, slot);
+        bi->BoardName = getCardData(bi)->boardName;
+
+        // Found and claimed the board, break out of first loop
         break;
+    }
+
+    // Second loop: Find all other supported and unclaimed boards to turn off their IO
+    // Use only vendor filter (no device/slot/bus restrictions) to find all supported boards
+    board = NULL;
+    while (board = FindBoard(board, PRM_Vendor, vendorId)) {
+        // Skip the board we already claimed
+        if (board == cd->board) {
+            continue;
+        }
+
+        ULONG deviceId, revision;
+        struct Node *owner = NULL;
+        ULONG count = GetBoardAttrs(board, PRM_Device, (Tag)&deviceId, PRM_Revision, (Tag)&revision, PRM_BoardOwner,
+                                    (Tag)&owner, TAG_END);
+        if (count < 3) {
+            continue;
+        }
+
+        if (owner) {
+            // Already claimed by another driver
+            continue;
+        }
+
+        ChipFamily_t chipFamily = getChipFamily(deviceId);
+        if (chipFamily == UNKNOWN) {
+            continue;
+        }
+
+        D(INFO, "Turning off IO for board 0x%08lx\n", board);
+        // turn off IO response for all other unclaimed boards
+        UWORD command = pci_read_config_word(PCI_COMMAND, board);
+        command &= ~(PCI_COMMAND_IO | PCI_COMMAND_MEMORY);
+        pci_write_config_word(PCI_COMMAND, command, board);
     }
 
 exit:
@@ -160,6 +263,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 
     D(INFO, "ATIMach64 calling init chip...\n");
     if (!InitChip(bi)) {
+        releaseCard(bi);
         DFUNC(ERROR, "InitChip() failed\n");
         return FALSE;
     }
@@ -184,26 +288,9 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 #include <stdlib.h>
 #include <string.h>
 
-static struct UtilityBase *UtilityBase;
+extern struct UtilityBase *UtilityBase;
 
 static struct BoardInfo boardInfo = {0};
-
-BOOL releaseCard(__REGA0(struct BoardInfo *bi))
-{
-    CardData_t *cd = getCardData(bi);
-
-    if (cd->OpenPciBase) {
-        LOCAL_OPENPCIBASE();
-        if (cd->board) {
-            // release ownership
-            SetBoardAttrs(cd->board, PRM_BoardOwner, (Tag)NULL, TAG_END);
-        }
-
-        LOCAL_SYSBASE();
-        CloseLibrary(cd->OpenPciBase);
-        cd->OpenPciBase = NULL;
-    }
-}
 
 void sigIntHandler(int dummy)
 {

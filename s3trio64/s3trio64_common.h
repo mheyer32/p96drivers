@@ -76,6 +76,7 @@ typedef struct CardData
     struct Library *OpenPciBase;
     struct pci_dev *board;
     struct Node boardNode;
+    char boardName[16];
 } CardData_t;
 
 STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);
