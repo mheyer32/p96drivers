@@ -1,7 +1,6 @@
 #include "mach64_common.h"
 #include "chip_mach64.h"
 
-
 ChipFamily_t getChipFamily(UWORD deviceId)
 {
     switch (deviceId) {
@@ -87,12 +86,12 @@ void WritePLL(BoardInfo_t *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllData)
     W_BLKIO_B(CLOCK_CNTL, CLOCK_CNTL_ADDR, pllAddr << 2);
     UBYTE oldValue = R_BLKIO_B(CLOCK_CNTL, CLOCK_CNTL_DATA);
     UBYTE newValue = (oldValue & ~pllDataMask) | (pllData & pllDataMask);
-    W_BLKIO_B(CLOCK_CNTL, CLOCK_CNTL_ADDR, (pllAddr << 2) | 0x02); // PLL_WR_EN
+    W_BLKIO_B(CLOCK_CNTL, CLOCK_CNTL_ADDR, (pllAddr << 2) | 0x02);  // PLL_WR_EN
     W_BLKIO_B(CLOCK_CNTL, CLOCK_CNTL_DATA, newValue);
     W_BLKIO_B(CLOCK_CNTL, CLOCK_CNTL_ADDR, 0x00);
 
-     DFUNC(VERBOSE, "pllAddr: %ld, pllDataMask: 0x%02lx & pllData: 0x%02lx --> pllValue: 0x%02lx\n", (ULONG)pllAddr,
-           (ULONG)pllDataMask, (ULONG)pllData, (ULONG)newValue);
+    DFUNC(VERBOSE, "pllAddr: %ld, pllDataMask: 0x%02lx & pllData: 0x%02lx --> pllValue: 0x%02lx\n", (ULONG)pllAddr,
+          (ULONG)pllDataMask, (ULONG)pllData, (ULONG)newValue);
 }
 
 ULONG computeFrequencyKhz10(UWORD RefFreq, UWORD FBDiv, UWORD RefDiv, UBYTE PostDiv)
@@ -122,7 +121,7 @@ ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *post
         freqKhz10  = 1475;
         postDivIdx = numPostDividers - 1;
     }
-
+    //FIXME: this is dependent on the PLL, thus chip dependent
     if (freqKhz10 > 23500) {
         freqKhz10 = 23500;
     }
@@ -142,11 +141,11 @@ ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *post
     D(CHATTY, "chose postDivIdx %ld\n", postDivIdx);
 
     const ChipSpecific_t *cs = getConstChipSpecific(bi);
-    UWORD M = cs->referenceDivider;
-    UWORD R = cs->referenceFrequency;
+    UWORD M                  = cs->referenceDivider;
+    UWORD R                  = cs->referenceFrequency;
 
-            // T = 2 * R * N / (M * P)
-            // N = T * M * P / (2 * R)
+    // T = 2 * R * N / (M * P)
+    // N = T * M * P / (2 * R)
 
     UWORD Ntimes2 = (freqKhz10 * M * postDividers[postDivIdx] + R - 1) / R;
 
@@ -167,15 +166,15 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
 
     LOCAL_SYSBASE();
 
-    ChipData_t *cd      = getChipData(bi);
-    ChipSpecific_t *cs = getChipSpecific(bi);
-    UWORD maxNumEntries = (cs->maxPClock + 99) / 100 - (cs->minPClock + 99) / 100;
+    const ChipData_t *cd = getConstChipData(bi);
+    ChipSpecific_t *cs   = getChipSpecific(bi);
+    UWORD maxNumEntries  = (cs->maxPClock + 99) / 100 - (cs->minPClock + 99) / 100;
 
     D(VERBOSE, "Number of Pixelclocks %ld\n", maxNumEntries);
 
-            // FIXME: there's no free... is there ever a time a chip driver gets expunged?
+    // FIXME: there's no free... is there ever a time a chip driver gets expunged?
     PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_PUBLIC);
-    cs->vclkPllValues         = pllValues;
+    cs->vclkPllValues     = pllValues;
 
     UWORD minFreq = cs->minPClock;
     UWORD e       = 0;
@@ -203,9 +202,9 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
         bi->PixelClockCount[i] = 0;
     }
 
-            // FIXME: Account for OVERCLOCK
+    // FIXME: Account for OVERCLOCK
     for (UWORD i = 0; i < e; ++i) {
-        ULONG frequency = computeFrequencyKhz10FromPllValue(bi, &pllValues[i], multipliers);
+        ULONG frequency = cs->computeFrequencyFromPllValue(bi, &pllValues[i]);
         D(CHATTY, "Pixelclock %03ld %09ldHz: \n", i, frequency * 10000);
 
         bi->PixelClockCount[CHUNKY]++;

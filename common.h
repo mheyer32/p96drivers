@@ -300,14 +300,14 @@ static INLINE ULONG REGARGS readRegLNoSwap(volatile UBYTE *regbase, LONG reg, co
     ULONG value = *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET));
     asm volatile("" ::"r"(value));
 
-    D(VERBOSE, "R %s -> 0x%08lx\n", regName, value);
+    D(VERBOSE, "R %s -> 0x%08lx\n", regName, SWAPL_IO(value));
 
     return value;
 }
 
 static INLINE void REGARGS writeRegLNoSwap(volatile UBYTE *regbase, LONG reg, ULONG value, const char *regName)
 {
-    D(VERBOSE, "W %s <- 0x%08lx\n", regName, (LONG)swapl(value));
+    D(VERBOSE, "W %s <- 0x%08lx\n", regName, SWAPL_IO(value));
     *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = value;
 }
 

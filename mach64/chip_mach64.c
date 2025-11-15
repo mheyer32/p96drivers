@@ -53,12 +53,10 @@ static const UBYTE g_bitWidths[] = {
 
 // FIXME: No good, need dynamic allocations. If the same chipdriver needs to talk to multiple
 //  cards, these tables will have different values for each card
-
 typedef struct PLLTable
 {
     USHORT pllValues[20];
 } PLLTable_t;
-
 static PLLTable_t g_pllTable;
 static MaxColorDepthTableEntry_t g_maxCDepthTable[50];
 static MaxColorDepthTableEntry_t g_maxCDepthSecondTable[50];
@@ -160,7 +158,7 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
     }
     printPLLTable(&g_pllTable);
 
-    ChipData_t *cd = getChipData(bi);
+    ChipData_t *cd     = getChipData(bi);
     ChipSpecific_t *cs = getChipSpecific(bi);
 
     cs->referenceFrequency = swapw(freqTable->ref_clock_freq);
@@ -253,42 +251,42 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
 // M = Reference Divider from BIOS
 //
 
-void printMemoryClock(BoardInfo_t *bi)
-{
-    UBYTE refDiv     = READ_PLL(PLL_REF_DIV);
-    UBYTE fbDiv      = READ_PLL(PLL_MCLK_FB_DIV);
-    UBYTE mClkSrcSel = (READ_PLL(PLL_GEN_CNTL) >> 4) & 7;
+// void printMemoryClock(BoardInfo_t *bi)
+// {
+//     UBYTE refDiv     = READ_PLL(PLL_REF_DIV);
+//     UBYTE fbDiv      = READ_PLL(PLL_MCLK_FB_DIV);
+//     UBYTE mClkSrcSel = (READ_PLL(PLL_GEN_CNTL) >> 4) & 7;
 
-    const char *mClockSrc = "PLLMCLK";
-    switch (mClkSrcSel) {
-    case 0b100:
-        mClockSrc = "CPUCLK";
-        break;
-    case 0b101:
-        mClockSrc = "DCLK";
-        break;
-    case 0b110:
-        mClockSrc = "PLLREFCLK";
-        break;
-    case 0b111:
-        mClockSrc = "XTALIN";
-        break;
-    default:
-        break;
-    }
+//     const char *mClockSrc = "PLLMCLK";
+//     switch (mClkSrcSel) {
+//     case 0b100:
+//         mClockSrc = "CPUCLK";
+//         break;
+//     case 0b101:
+//         mClockSrc = "DCLK";
+//         break;
+//     case 0b110:
+//         mClockSrc = "PLLREFCLK";
+//         break;
+//     case 0b111:
+//         mClockSrc = "XTALIN";
+//         break;
+//     default:
+//         break;
+//     }
 
-    mClkSrcSel &= 3;
+//     mClkSrcSel &= 3;
 
-    ULONG xclkCntl = READ_PLL(PLL_XCLK_CNTL);
-    if (xclkCntl & MFB_TIMES_4_2b) {
-        fbDiv <<= 1;
-    }
-    const ChipSpecific_t *cs = getConstChipSpecific(bi);
-    ULONG mClock = ComputeFrequencyKhz10(cs->referenceFrequency, fbDiv, refDiv, mClkSrcSel);
+//     ULONG xclkCntl = READ_PLL(PLL_XCLK_CNTL);
+//     if (xclkCntl & MFB_TIMES_4_2b) {
+//         fbDiv <<= 1;
+//     }
+//     const ChipSpecific_t *cs = getConstChipSpecific(bi);
+//     ULONG mClock             = ComputeFrequencyKhz10(cs->referenceFrequency, fbDiv, refDiv, mClkSrcSel);
 
-    DFUNC(5, "clock source: %s, PLL frequency: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %ld, N: %ld\n", mClockSrc, mClock,
-          (ULONG)cs->referenceFrequency, (ULONG)refDiv, (ULONG)1 << mClkSrcSel, (ULONG)fbDiv);
-}
+//     DFUNC(5, "clock source: %s, PLL frequency: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %ld, N: %ld\n", mClockSrc, mClock,
+//           (ULONG)cs->referenceFrequency, (ULONG)refDiv, (ULONG)1 << mClkSrcSel, (ULONG)fbDiv);
+// }
 
 void SetMemoryClock(BoardInfo_t *bi, USHORT kHz10)
 {
@@ -664,20 +662,20 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 {
     DFUNC(CHATTY, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
 
-    const ChipData_t *cd = getChipData(bi);
+    const ChipData_t *cd     = getChipData(bi);
     const ChipSpecific_t *cs = getConstChipSpecific(bi);
 
     UWORD targetFreq = pixelClock / 10000;
 
     // find pixel clock in pllValues via bisection
     UWORD upper     = bi->PixelClockCount[CHUNKY] - 1;
-    UWORD upperFreq = computeFrequencyKhz10FromPllValue(bi, &cs->vclkPllValues[upper], g_VPLLPostDivider);
+    UWORD upperFreq = cs->computeFrequencyFromPllValue(bi, &cs->vclkPllValues[upper]);
     UWORD lower     = 0;
-    UWORD lowerFreq = computeFrequencyKhz10FromPllValue(bi, &cs->vclkPllValues[lower], g_VPLLPostDivider);
+    UWORD lowerFreq = cs->computeFrequencyFromPllValue(bi, &cs->vclkPllValues[lower]);
 
     while (lower + 1 < upper) {
         UWORD middle     = (upper + lower) / 2;
-        UWORD middleFreq = computeFrequencyKhz10FromPllValue(bi, &cs->vclkPllValues[middle], g_VPLLPostDivider);
+        UWORD middleFreq = cs->computeFrequencyFromPllValue(bi, &cs->vclkPllValues[middle]);
         if (middleFreq < targetFreq) {
             lower     = middle;
             lowerFreq = middleFreq;
@@ -708,80 +706,9 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct Mod
     DFUNC(VERBOSE, "\n");
 
     const ChipSpecific_t *cs = getConstChipSpecific(bi);
-    UWORD freq           = computeFrequencyKhz10FromPllValue(bi, &cs->vclkPllValues[index], g_VPLLPostDivider);
+    UWORD freq               = cs->computeFrequencyFromPllValue(bi, &cs->vclkPllValues[index]);
 
     return freq * 10000;
-}
-
-#define VCLK_SRC_SEL(x)     ((x))
-#define VCLK_SRC_SEL_MASK   (0x3)
-#define PLL_PRESET          BIT(2)
-#define PLL_PRESET_MASK     BIT(2)
-#define VCLK0_POST_MASK     (0x3)
-#define VCLK0_POST(x)       ((x) & 3)
-#define VCLK1_POST_MASK     (0x3 << 2)
-#define VCLK1_POST(x)       (((x) & 3) << 2)
-#define VCLK2_POST_MASK     (0x3 << 4)
-#define VCLK2_POST(x)       (((x) & 3) << 4)
-#define VCLK3_POST_MASK     (0x3 << 6)
-#define VCLK3_POST(x)       (((x) & 3) << 6)
-#define DCLK_BY2_EN         BIT(7)
-#define DCLK_BY2_EN_MASK    BIT(7)
-#define ALT_VCLK0_POST      BIT(4)
-#define ALT_VCLK0_POST_MASK BIT(4)
-
-static void ASM SetClock(__REGA0(struct BoardInfo *bi))
-{
-    REGBASE();
-
-    DFUNC(VERBOSE, "\n");
-
-    struct ModeInfo *mi = bi->ModeInfo;
-    ULONG pixelClock    = mi->PixelClock;
-
-#ifdef DBG
-    const ChipSpecific_t *cs = getConstChipSpecific(bi);
-    ULONG minVClkKhz10 = 2 * cs->referenceFrequency * 128 / (cs->referenceDivider * 8);
-
-    D(CHATTY, "minimm VCLK %ldHz\n", minVClkKhz10 * 10000);
-    if (pixelClock < minVClkKhz10 * 10000) {
-        DFUNC(ERROR, "PixelClock %ldHz is too low, minimum is %ldHz\n", pixelClock, minVClkKhz10 * 100000);
-        return;
-    }
-
-    D(CHATTY, "SetClock: PixelClock %ldHz -> %ldHz \n", bi->ModeInfo->PixelClock, pixelClock);
-    if (mi->pll1.Numerator < 0x80 || mi->pll1.Numerator > 0xFF) {
-        DFUNC(ERROR, "Invalid PLL1 Numerator %d\n", mi->pll1.Numerator);
-        return;
-    }
-#endif
-
-    // Temporarily select CPUCLK as VCLK source, bring VPLL into reset
-    WRITE_PLL_MASK(PLL_VCLK_CNTL, VCLK_SRC_SEL_MASK, VCLK_SRC_SEL(0b00));
-    delayMilliSeconds(5);
-    WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, PLL_PRESET);
-
-    // FIXME: GT has no PLL_FCP_CNTL. There its DLL_CNTL
-    //    WRITE_PLL_MASK(PLL_FCP_CNTL, DCLK_BY2_EN_MASK, 0);
-
-    WRITE_PLL(PLL_VCLK0_FB_DIV, mi->pll1.Numerator);
-    BYTE postDivCode = g_VPLLPostDividerCodes[mi->pll2.Denominator];
-    WRITE_PLL_MASK(PLL_VCLK_POST_DIV, VCLK0_POST_MASK, VCLK0_POST(postDivCode));
-
-    if (getChipData(bi)->chipFamily >= MACH64GT) {
-        WRITE_PLL_MASK(PLL_EXT_CNTL, ALT_VCLK0_POST_MASK, (postDivCode & 0x4) ? ALT_VCLK0_POST : 0);
-
-        AdjustDSP(bi, mi->pll1.Numerator, g_VPLLPostDivider[mi->pll2.Denominator]);
-    }
-
-    WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, 0);
-    delayMilliSeconds(5);
-    WRITE_PLL_MASK(PLL_VCLK_CNTL, VCLK_SRC_SEL_MASK, VCLK_SRC_SEL(0b11));
-
-    delayMilliSeconds(5);
-
-    // Select VLK0 as VCLK source
-    W_BLKIO_MASK_L(CLOCK_CNTL, CLOCK_SEL_MASK | PLL_WR_ENABLE, CLOCK_SEL(0));
 }
 
 // FIXME: split out into family-specific functions
@@ -2128,7 +2055,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->SetClearMask         = SetClearMask;
     bi->ResolvePixelClock    = ResolvePixelClock;
     bi->GetPixelClock        = GetPixelClock;
-    bi->SetClock             = SetClock;
+    // SetClock is set up by chip-specific init functions (InitMach64GT, etc.)
 
     // // VSYNC
     bi->WaitVerticalSync = WaitVerticalSync;
@@ -2539,7 +2466,11 @@ int main()
 
                 DFUNC(ALWAYS, "SetClock\n");
 
-                SetClock(bi);
+                if (bi->SetClock) {
+                    bi->SetClock(bi);
+                } else {
+                    DFUNC(ERROR, "SetClock not implemented for this chip family\n");
+                }
 
                 DFUNC(ALWAYS, "SetGC\n");
 

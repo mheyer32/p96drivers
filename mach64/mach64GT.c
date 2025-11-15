@@ -3,6 +3,11 @@
 #include "common.h"
 #include "mach64_common.h"
 
+static ULONG computeFrequencyKhz10FromPllValue_GT(const struct BoardInfo *bi, const struct PLLValue *pllValues)
+{
+    return computeFrequencyKhz10FromPllValue(bi, pllValues, g_VPLLPostDivider);
+}
+
 static const UWORD defaultRegs_GT[] = {0x00a2, 0x7b33,   // BUS_CNTL upper
                                        0x00a0, 0x0000,   // BUS_CNTL lower
                                        0x0018, 0x0000,   // CRTC_INT_CNTL lower
@@ -163,7 +168,7 @@ void lockDLL(BoardInfo_t *bi)
 #define PLL_SLEEP      BIT(0)
 #define PLL_SLEEP_MASK BIT(0)
 
-void setMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
+static void setMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
 {
     DFUNC(VERBOSE, "Setting Memory Clock to %ld0 KHz\n", (ULONG)freqKhz10);
 
@@ -210,10 +215,10 @@ void setMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
     // XCLK = PLLMCLK / x
     WRITE_PLL_MASK(PLL_EXT_CNTL, XCLK_SRC_SEL_MASK, XCLK_SRC_SEL(g_MPLLPostDividerCodes[pllValues.Pidx]));
 
-    ChipData_t *cd  = getChipData(bi);
+    ChipData_t *cd     = getChipData(bi);
     ChipSpecific_t *cs = getChipSpecific(bi);
-    cs->mclkFBDiv   = pllValues.N;
-    cs->mclkPostDiv = g_MPLLPostDividers[pllValues.Pidx];
+    cs->mclkFBDiv      = pllValues.N;
+    cs->mclkPostDiv    = g_MPLLPostDividers[pllValues.Pidx];
 
     delayMilliSeconds(5);
 
@@ -232,7 +237,7 @@ void initClocks(struct BoardInfo *bi)
     WRITE_PLL(PLL_VCLK_CNTL, 0x00);  // VLCK_SRC_SEL = 0b00 : VCLK set to CPUCLK
     WRITE_PLL(PLL_VFC_CNTL, 0x1B);
     WRITE_PLL(PLL_REF_DIV, 0x1F);
-    ChipSpecific_t *cs = getChipSpecific(bi);
+    ChipSpecific_t *cs   = getChipSpecific(bi);
     cs->referenceDivider = 0x1F;
 
     WRITE_PLL(PLL_EXT_CNTL, 0x01);  // XCLK_SRC_SEL = 0b000 : XCLK set to MPLL/2
@@ -416,6 +421,57 @@ static void resetCRTC(BoardInfo_t *bi)
     W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_INT_CNTL, 0);
 }
 
+#define VCLK_SRC_SEL(x)     ((x))
+#define VCLK_SRC_SEL_MASK   (0x3)
+#define PLL_PRESET          BIT(2)
+#define PLL_PRESET_MASK     BIT(2)
+#define VCLK0_POST_MASK     (0x3)
+#define VCLK0_POST(x)       ((x) & 3)
+#define ALT_VCLK0_POST      BIT(4)
+#define ALT_VCLK0_POST_MASK BIT(4)
+
+void ASM SetClock_GT(__REGA0(struct BoardInfo *bi))
+{
+    REGBASE();
+
+    DFUNC(VERBOSE, "\n");
+
+    struct ModeInfo *mi = bi->ModeInfo;
+    ULONG pixelClock    = mi->PixelClock;
+
+#ifdef DBG
+    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    ULONG minVClkKhz10       = 2 * cs->referenceFrequency * 128 / (cs->referenceDivider * 8);
+
+    D(CHATTY, "minimm VCLK %ldHz\n", minVClkKhz10 * 10000);
+    if (pixelClock < minVClkKhz10 * 10000) {
+        DFUNC(ERROR, "PixelClock %ldHz is too low, minimum is %ldHz\n", pixelClock, minVClkKhz10 * 100000);
+        return;
+    }
+
+    D(CHATTY, "SetClock: PixelClock %ldHz -> %ldHz \n", bi->ModeInfo->PixelClock, pixelClock);
+#endif
+
+    // Temporarily select CPUCLK as VCLK source, bring VPLL into reset
+    WRITE_PLL_MASK(PLL_VCLK_CNTL, VCLK_SRC_SEL_MASK, VCLK_SRC_SEL(0b00));
+    delayMilliSeconds(5);
+    WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, PLL_PRESET);
+
+    WRITE_PLL(PLL_VCLK0_FB_DIV, mi->pll1.Numerator);
+    BYTE postDivCode = g_VPLLPostDividerCodes[mi->pll2.Denominator];
+    WRITE_PLL_MASK(PLL_VCLK_POST_DIV, VCLK0_POST_MASK, VCLK0_POST(postDivCode));
+
+    WRITE_PLL_MASK(PLL_EXT_CNTL, ALT_VCLK0_POST_MASK, (postDivCode & 0x4) ? ALT_VCLK0_POST : 0);
+
+    AdjustDSP(bi, mi->pll1.Numerator, g_VPLLPostDivider[mi->pll2.Denominator]);
+
+    WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, 0);
+    delayMilliSeconds(5);
+    WRITE_PLL_MASK(PLL_VCLK_CNTL, VCLK_SRC_SEL_MASK, VCLK_SRC_SEL(0b11));
+
+    delayMilliSeconds(5);
+}
+
 BOOL InitMach64GT(struct BoardInfo *bi)
 {
     DFUNC(VERBOSE, "ASIC Version: %ld\n", (ULONG)getAsicVersion(bi));
@@ -434,7 +490,8 @@ BOOL InitMach64GT(struct BoardInfo *bi)
 
     // Changes in settings to this register will not take affect until MEM_SDRAM_RESET is pulsed (from 0 –>1).
     // initClocks() will do that
-    W_BLKIO_MASK_L(EXT_MEM_CNTL, MEM_TILE_SELECT_MASK | MEM_ALL_PAGE_DIS_MASK | MEM_SDRAM_RESET_MASK, MEM_TILE_SELECT(0b1000) | MEM_ALL_PAGE_DIS);
+    W_BLKIO_MASK_L(EXT_MEM_CNTL, MEM_TILE_SELECT_MASK | MEM_ALL_PAGE_DIS_MASK | MEM_SDRAM_RESET_MASK,
+                   MEM_TILE_SELECT(0b1000) | MEM_ALL_PAGE_DIS);
 
     // Enable Auto-FastFill. ( block writes seem to cause corruption)
     W_BLKIO_MASK_L(HW_DEBUG, AUTO_FF_DIS_MASK /*| AUTO_BLKWRT_DIS_MASK | AUTO_BLKWRT_COLOR_DIS_MASK*/, 0);
@@ -444,7 +501,7 @@ BOOL InitMach64GT(struct BoardInfo *bi)
 
     // FIFO must be empty before changing its size. Assuming we only used BLKIO above, there should not have been
     // any FIFO writes yet
-    W_MMIO_MASK_L(GUI_CNTL, CMDFIFO_SIZE_MODE_MASK, CMDFIFO_SIZE_MODE(0b00)); // 196 entries
+    W_MMIO_MASK_L(GUI_CNTL, CMDFIFO_SIZE_MODE_MASK, CMDFIFO_SIZE_MODE(0b00));  // 196 entries
 
     waitFifo(bi, 4);
 
@@ -473,6 +530,10 @@ BOOL InitMach64GT(struct BoardInfo *bi)
     }
 
     resetCRTC(bi);
+
+    ChipSpecific_t *cs               = getChipSpecific(bi);
+    cs->computeFrequencyFromPllValue = computeFrequencyKhz10FromPllValue_GT;
+    bi->SetClock                     = SetClock_GT;
 
     InitVClockPLLTable(bi, g_VPLLPostDivider, ARRAY_SIZE(g_VPLLPostDivider));
 
@@ -517,7 +578,7 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     ULONG xNumerator   = xclkFBDiv * vclkPostDiv * w;
     ULONG xDenominator = vclkFBDiv * xclkPostDiv * bpp;
 
-    //float y = (float)xNumerator / (float)xDenominator;
+    // float y = (float)xNumerator / (float)xDenominator;
 
     while (!((xNumerator | xDenominator) & 1)) {
         xNumerator >>= 1;
@@ -527,7 +588,7 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     D(VERBOSE, "MCLK %ld0Khz, VCLK %ld0Khz, %ld numerator %ld denominator, x: %ld\n",
       computeFrequencyKhz10(cs->referenceFrequency, xclkFBDiv, cs->referenceDivider, xclkPostDiv),
       computeFrequencyKhz10(cs->referenceFrequency, vclkFBDiv, cs->referenceDivider, vclkPostDiv), xNumerator,
-      xDenominator, xNumerator/xDenominator);
+      xDenominator, xNumerator / xDenominator);
 
     // Minimum number of bits to hold integer portion of x
     int bx = numBits(xNumerator / xDenominator);
