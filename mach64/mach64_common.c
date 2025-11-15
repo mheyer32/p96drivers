@@ -9,6 +9,8 @@ ChipFamily_t getChipFamily(UWORD deviceId)
         return MACH64VT;
     case 0x4758:  // mach64 GX
         return MACH64GX;
+    case 0x4749:  // mach64 Rage Pro
+        return MACH64GT;
     case 0x4750:  // mach64 Rage Pro
         return MACH64GT;
     case 0x4752:  // mach64 Rage 3 XL
@@ -100,8 +102,8 @@ ULONG computeFrequencyKhz10(UWORD RefFreq, UWORD FBDiv, UWORD RefDiv, UBYTE Post
 
 ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues, const UBYTE *postDividers)
 {
-    const ChipData_t *cd = getConstChipData(bi);
-    return computeFrequencyKhz10(cd->referenceFrequency, pllValues->N, cd->referenceDivider,
+    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    return computeFrequencyKhz10(cs->referenceFrequency, pllValues->N, cs->referenceDivider,
                                  postDividers[pllValues->Pidx]);
 }
 
@@ -139,8 +141,9 @@ ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *post
     }
     D(CHATTY, "chose postDivIdx %ld\n", postDivIdx);
 
-    UWORD M = getConstChipData(bi)->referenceDivider;
-    UWORD R = getConstChipData(bi)->referenceFrequency;
+    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    UWORD M = cs->referenceDivider;
+    UWORD R = cs->referenceFrequency;
 
             // T = 2 * R * N / (M * P)
             // N = T * M * P / (2 * R)
@@ -165,15 +168,16 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
     LOCAL_SYSBASE();
 
     ChipData_t *cd      = getChipData(bi);
-    UWORD maxNumEntries = (cd->maxPClock + 99) / 100 - (cd->minPClock + 99) / 100;
+    ChipSpecific_t *cs = getChipSpecific(bi);
+    UWORD maxNumEntries = (cs->maxPClock + 99) / 100 - (cs->minPClock + 99) / 100;
 
     D(VERBOSE, "Number of Pixelclocks %ld\n", maxNumEntries);
 
             // FIXME: there's no free... is there ever a time a chip driver gets expunged?
     PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_PUBLIC);
-    cd->pllValues         = pllValues;
+    cs->vclkPllValues         = pllValues;
 
-    UWORD minFreq = cd->minPClock;
+    UWORD minFreq = cs->minPClock;
     UWORD e       = 0;
     for (; e < maxNumEntries; ++e) {
         ULONG frequency = computePLLValues(bi, minFreq, multipliers, numMultipliers, &pllValues[e]);
@@ -186,14 +190,14 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
         minFreq += 100;
     }
     // See if we can squeeze the max frequency still in there
-    if (e < maxNumEntries - 1 && minFreq < cd->maxPClock) {
-        ULONG frequency = computePLLValues(bi, cd->maxPClock, multipliers, numMultipliers, &pllValues[e]);
+    if (e < maxNumEntries - 1 && minFreq < cs->maxPClock) {
+        ULONG frequency = computePLLValues(bi, cs->maxPClock, multipliers, numMultipliers, &pllValues[e]);
         if (frequency) {
             ++e;
         }
     }
 
-    ULONG maxHiColorFreq = cd->chipFamily <= MACH64VT ? 8000 : cd->maxPClock;
+    ULONG maxHiColorFreq = cd->chipFamily <= MACH64VT ? 8000 : cs->maxPClock;
 
     for (int i = 0; i < 5; i++) {
         bi->PixelClockCount[i] = 0;

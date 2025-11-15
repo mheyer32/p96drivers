@@ -7,6 +7,21 @@
 
 #include <assert.h>
 
+typedef struct ChipSpecific
+{
+    UWORD referenceFrequency;
+    UWORD referenceDivider;
+    UWORD memClock;
+    UWORD minPClock;
+    UWORD maxPClock;
+    UWORD minMClock;
+    UWORD maxDRAMClock;
+    UWORD maxVRAMClock;
+    UBYTE mclkFBDiv;
+    UBYTE mclkPostDiv;
+    struct PLLValue *vclkPllValues;
+} ChipSpecific_t;
+
 typedef struct ChipData
 {
     ULONG GEfgPen;
@@ -23,20 +38,20 @@ typedef struct ChipData
     UWORD *patternCacheBuffer;  // points to system memory
 
     UWORD chipFamily;  // chip family
-    UWORD referenceFrequency;
-    UWORD referenceDivider;
-    UWORD memClock;
-    UWORD minPClock;
-    UWORD maxPClock;
-    UWORD minMClock;
-    UWORD maxDRAMClock;
-    UWORD maxVRAMClock;
-    UBYTE mclkFBDiv;
-    UBYTE mclkPostDiv;
-    struct PLLValue *pllValues;
+    ChipSpecific_t *chipSpecific;
 } ChipData_t;
 
 STATIC_ASSERT(sizeof(ChipData_t) < SIZEOF_MEMBER(BoardInfo_t, ChipData), check_chipdata_size);
+
+static INLINE ChipSpecific_t *getChipSpecific(struct BoardInfo *bi)
+{
+    return getChipData(bi)->chipSpecific;
+}
+
+static INLINE const ChipSpecific_t *getConstChipSpecific(const struct BoardInfo *bi)
+{
+    return getConstChipData(bi)->chipSpecific;
+}
 
 typedef struct CardData
 {

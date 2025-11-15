@@ -205,7 +205,7 @@ extern ULONG ComputeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLV
 extern ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *multipliers, WORD numMultipliers,
                               PLLValue_t *pllValues);
 extern ULONG computeFrequencyKhz10(UWORD RefFreq, UWORD FBDiv, UWORD RefDiv, UBYTE PostDiv);
-extern ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues, const UBYTE *multipliers);
+extern ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues, const UBYTE *postDivMultipliers);
 
 extern void ResetEngine(const BoardInfo_t *bi);
 

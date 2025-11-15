@@ -211,8 +211,9 @@ void setMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
     WRITE_PLL_MASK(PLL_EXT_CNTL, XCLK_SRC_SEL_MASK, XCLK_SRC_SEL(g_MPLLPostDividerCodes[pllValues.Pidx]));
 
     ChipData_t *cd  = getChipData(bi);
-    cd->mclkFBDiv   = pllValues.N;
-    cd->mclkPostDiv = g_MPLLPostDividers[pllValues.Pidx];
+    ChipSpecific_t *cs = getChipSpecific(bi);
+    cs->mclkFBDiv   = pllValues.N;
+    cs->mclkPostDiv = g_MPLLPostDividers[pllValues.Pidx];
 
     delayMilliSeconds(5);
 
@@ -231,7 +232,8 @@ void initClocks(struct BoardInfo *bi)
     WRITE_PLL(PLL_VCLK_CNTL, 0x00);  // VLCK_SRC_SEL = 0b00 : VCLK set to CPUCLK
     WRITE_PLL(PLL_VFC_CNTL, 0x1B);
     WRITE_PLL(PLL_REF_DIV, 0x1F);
-    getChipData(bi)->referenceDivider = 0x1F;
+    ChipSpecific_t *cs = getChipSpecific(bi);
+    cs->referenceDivider = 0x1F;
 
     WRITE_PLL(PLL_EXT_CNTL, 0x01);  // XCLK_SRC_SEL = 0b000 : XCLK set to MPLL/2
 
@@ -492,7 +494,7 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
           (ULONG)bi->ModeInfo->Depth);
 
     REGBASE();
-    const ChipData_t *cd = getConstChipData(bi);
+    const ChipSpecific_t *cs = getConstChipSpecific(bi);
 
     // Bits per pixel
     ULONG bpp = bi->ModeInfo->Depth;
@@ -510,8 +512,8 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     // FreqX = 2 * R * Nx / (M * Px)
     // Reference Freq. R and M are shared between XCLK and VCLCK, thus
     // Ratio x = XCLK / VCLK = (Nx/Px) / (Nv/Pv) = Nx * Pv / Px * Nv
-    ULONG xclkFBDiv    = cd->mclkFBDiv;
-    ULONG xclkPostDiv  = cd->mclkPostDiv;
+    ULONG xclkFBDiv    = cs->mclkFBDiv;
+    ULONG xclkPostDiv  = cs->mclkPostDiv;
     ULONG xNumerator   = xclkFBDiv * vclkPostDiv * w;
     ULONG xDenominator = vclkFBDiv * xclkPostDiv * bpp;
 
@@ -523,8 +525,8 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     }
 
     D(VERBOSE, "MCLK %ld0Khz, VCLK %ld0Khz, %ld numerator %ld denominator, x: %ld\n",
-      computeFrequencyKhz10(cd->referenceFrequency, xclkFBDiv, cd->referenceDivider, xclkPostDiv),
-      computeFrequencyKhz10(cd->referenceFrequency, vclkFBDiv, cd->referenceDivider, vclkPostDiv), xNumerator,
+      computeFrequencyKhz10(cs->referenceFrequency, xclkFBDiv, cs->referenceDivider, xclkPostDiv),
+      computeFrequencyKhz10(cs->referenceFrequency, vclkFBDiv, cs->referenceDivider, vclkPostDiv), xNumerator,
       xDenominator, xNumerator/xDenominator);
 
     // Minimum number of bits to hold integer portion of x

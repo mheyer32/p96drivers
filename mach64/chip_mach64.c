@@ -161,15 +161,16 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
     printPLLTable(&g_pllTable);
 
     ChipData_t *cd = getChipData(bi);
+    ChipSpecific_t *cs = getChipSpecific(bi);
 
-    cd->referenceFrequency = swapw(freqTable->ref_clock_freq);
-    cd->referenceDivider   = swapw(freqTable->ref_clock_divider);
-    cd->memClock           = swapw(freqTable->mclk_freq_normal_dram);
-    cd->minPClock          = swapw(freqTable->min_pclk_freq);
-    cd->maxPClock          = swapw(freqTable->max_pclk_freq);
-    cd->minMClock          = swapw(freqTable->mclk_freq_power_down);
-    cd->maxDRAMClock       = swapw(freqTable->mclk_freq_normal_dram);
-    cd->maxVRAMClock       = swapw(freqTable->mclk_freq_normal_vram);
+    cs->referenceFrequency = swapw(freqTable->ref_clock_freq);
+    cs->referenceDivider   = swapw(freqTable->ref_clock_divider);
+    cs->memClock           = swapw(freqTable->mclk_freq_normal_dram);
+    cs->minPClock          = swapw(freqTable->min_pclk_freq);
+    cs->maxPClock          = swapw(freqTable->max_pclk_freq);
+    cs->minMClock          = swapw(freqTable->mclk_freq_power_down);
+    cs->maxDRAMClock       = swapw(freqTable->mclk_freq_normal_dram);
+    cs->maxVRAMClock       = swapw(freqTable->mclk_freq_normal_vram);
 
     USHORT cdepthTableOffset = ROM_WORD(freqTableOffset - 6);
     ROM_TABLE(cdepthTable, MaxColorDepthTableEntry_t, cdepthTableOffset);
@@ -282,10 +283,11 @@ void printMemoryClock(BoardInfo_t *bi)
     if (xclkCntl & MFB_TIMES_4_2b) {
         fbDiv <<= 1;
     }
-    ULONG mClock = ComputeFrequencyKhz10(getChipData(bi)->referenceFrequency, fbDiv, refDiv, mClkSrcSel);
+    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    ULONG mClock = ComputeFrequencyKhz10(cs->referenceFrequency, fbDiv, refDiv, mClkSrcSel);
 
     DFUNC(5, "clock source: %s, PLL frequency: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %ld, N: %ld\n", mClockSrc, mClock,
-          (ULONG)getChipData(bi)->referenceFrequency, (ULONG)refDiv, (ULONG)1 << mClkSrcSel, (ULONG)fbDiv);
+          (ULONG)cs->referenceFrequency, (ULONG)refDiv, (ULONG)1 << mClkSrcSel, (ULONG)fbDiv);
 }
 
 void SetMemoryClock(BoardInfo_t *bi, USHORT kHz10)
@@ -663,18 +665,19 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
     DFUNC(CHATTY, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
 
     const ChipData_t *cd = getChipData(bi);
+    const ChipSpecific_t *cs = getConstChipSpecific(bi);
 
     UWORD targetFreq = pixelClock / 10000;
 
     // find pixel clock in pllValues via bisection
     UWORD upper     = bi->PixelClockCount[CHUNKY] - 1;
-    UWORD upperFreq = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[upper], g_VPLLPostDivider);
+    UWORD upperFreq = computeFrequencyKhz10FromPllValue(bi, &cs->vclkPllValues[upper], g_VPLLPostDivider);
     UWORD lower     = 0;
-    UWORD lowerFreq = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[lower], g_VPLLPostDivider);
+    UWORD lowerFreq = computeFrequencyKhz10FromPllValue(bi, &cs->vclkPllValues[lower], g_VPLLPostDivider);
 
     while (lower + 1 < upper) {
         UWORD middle     = (upper + lower) / 2;
-        UWORD middleFreq = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[middle], g_VPLLPostDivider);
+        UWORD middleFreq = computeFrequencyKhz10FromPllValue(bi, &cs->vclkPllValues[middle], g_VPLLPostDivider);
         if (middleFreq < targetFreq) {
             lower     = middle;
             lowerFreq = middleFreq;
@@ -693,8 +696,8 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 
     D(CHATTY, "Resulting pixelclock Hz: %ld\n\n", mi->PixelClock);
 
-    mi->pll1.Numerator   = cd->pllValues[lower].N;
-    mi->pll2.Denominator = cd->pllValues[lower].Pidx;
+    mi->pll1.Numerator   = cs->vclkPllValues[lower].N;
+    mi->pll2.Denominator = cs->vclkPllValues[lower].Pidx;
 
     return lower;
 }
@@ -704,8 +707,8 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct Mod
 {
     DFUNC(VERBOSE, "\n");
 
-    const ChipData_t *cd = getChipData(bi);
-    UWORD freq           = computeFrequencyKhz10FromPllValue(bi, &cd->pllValues[index], g_VPLLPostDivider);
+    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    UWORD freq           = computeFrequencyKhz10FromPllValue(bi, &cs->vclkPllValues[index], g_VPLLPostDivider);
 
     return freq * 10000;
 }
@@ -737,7 +740,8 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
     ULONG pixelClock    = mi->PixelClock;
 
 #ifdef DBG
-    ULONG minVClkKhz10 = 2 * getChipData(bi)->referenceFrequency * 128 / (getChipData(bi)->referenceDivider * 8);
+    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    ULONG minVClkKhz10 = 2 * cs->referenceFrequency * 128 / (cs->referenceDivider * 8);
 
     D(CHATTY, "minimm VCLK %ldHz\n", minVClkKhz10 * 10000);
     if (pixelClock < minVClkKhz10 * 10000) {
@@ -2194,6 +2198,15 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         struct pci_dev *board = getCardData(bi)->board;
         DFUNC(INFO, "Determine Chip Family\n");
 
+        // Allocate ChipSpecific structure
+        if (!cd->chipSpecific) {
+            cd->chipSpecific = AllocMem(sizeof(ChipSpecific_t), MEMF_PUBLIC | MEMF_CLEAR);
+            if (!cd->chipSpecific) {
+                DFUNC(ERROR, "Failed to allocate ChipSpecific\n");
+                return FALSE;
+            }
+        }
+
         ULONG revision;
         ULONG deviceId;
         LOCAL_OPENPCIBASE();
@@ -2277,16 +2290,17 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_BLKIO_MASK_L(CONFIG_STAT0, CFG_VGA_EN_MASK, 0);
 
     // ULONG clock = bi->MemoryClock;
+    // const ChipSpecific_t *cs = getConstChipSpecific(bi);
     // if (!clock) {
-    //     clock = getChipData(bi)->memClock;
+    //     clock = cs->memClock;
     // } else {
     //     clock /= 10000;
     // }
-    // if (clock < getChipData(bi)->minMClock) {
-    //     clock = getChipData(bi)->minMClock;
+    // if (clock < cs->minMClock) {
+    //     clock = cs->minMClock;
     // }
-    // if (clock > getChipData(bi)->maxDRAMClock) {
-    //     clock = getChipData(bi)->maxDRAMClock;
+    // if (clock > cs->maxDRAMClock) {
+    //     clock = cs->maxDRAMClock;
     // }
     // SetMemoryClock(bi, clock);
     // bi->MemoryClock = clock * 10000;

@@ -28,16 +28,17 @@ ULONG ComputeFrequencyKhz10(UWORD R, UWORD N, UWORD M, UBYTE Plog2)
 
 ULONG ComputeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues)
 {
-    const ChipData_t *cd = getConstChipData(bi);
-    return ComputeFrequencyKhz10(cd->referenceFrequency, pllValues->N, cd->referenceDivider, pllValues->Pidx);
+    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    return ComputeFrequencyKhz10(cs->referenceFrequency, pllValues->N, cs->referenceDivider, pllValues->Pidx);
 }
 
 ULONG ComputePLLValues(const BoardInfo_t *bi, ULONG targetFreqKhz10, PLLValue_t *pllValues)
 {
     DFUNC(VERBOSE, "targetFrequency: %ld0 KHz\n", targetFreqKhz10);
 
-    UWORD R = getConstChipData(bi)->referenceFrequency;
-    UWORD M = getConstChipData(bi)->referenceDivider;
+    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    UWORD R = cs->referenceFrequency;
+    UWORD M = cs->referenceDivider;
 
     ULONG Qtimes2 = (targetFreqKhz10 * M + R - 1) / R;
     if (Qtimes2 >= 511) {
@@ -146,7 +147,8 @@ BOOL InitMach64VT(struct BoardInfo *bi)
     // WRITE_PLL(PLL_VFC_CNTL, 0x1b);
     WRITE_PLL(PLL_VFC_CNTL, 0x03);
 
-    WRITE_PLL(PLL_REF_DIV, getChipData(bi)->referenceDivider);
+    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    WRITE_PLL(PLL_REF_DIV, cs->referenceDivider);
     WRITE_PLL(PLL_VCLK_CNTL, 0x00);
 
     // WRITE_PLL(PLL_FCP_CNTL, 0xc0);
