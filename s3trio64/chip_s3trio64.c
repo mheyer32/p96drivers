@@ -2989,6 +2989,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             }
             UBYTE deviceIdHi = R_CR(0x2D);
             UBYTE deviceIdLo = R_CR(0x2E);
+            if (chipFamily == TRIO64) {
+                deviceIdLo |= 0x01; // TRIO32 reports 0x10 in CR2E instead  of 0x11, so make it 0x11
+            }
             if ((deviceIdHi << 8 | deviceIdLo) != deviceId) {
                 DFUNC(ERROR, "Chipset ID mismatch: expected 0x%04lX, got 0x%02lX%02lX\n", (ULONG)deviceId,
                       (ULONG)deviceIdHi, (ULONG)deviceIdLo);
