@@ -23,7 +23,7 @@ typedef struct ChipSpecific
     UBYTE mclkFBDiv;
     UBYTE mclkPostDiv;
     struct PLLValue *vclkPllValues;
-    ComputeFrequencyFromPllValueFunc_t computeFrequencyFromPllValue;
+    ComputeFrequencyFromPllValueFunc_t computeVCLKFrequency;
 } ChipSpecific_t;
 
 typedef struct ChipData

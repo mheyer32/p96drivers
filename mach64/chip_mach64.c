@@ -669,13 +669,13 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 
     // find pixel clock in pllValues via bisection
     UWORD upper     = bi->PixelClockCount[CHUNKY] - 1;
-    UWORD upperFreq = cs->computeFrequencyFromPllValue(bi, &cs->vclkPllValues[upper]);
+    UWORD upperFreq = cs->computeVCLKFrequency(bi, &cs->vclkPllValues[upper]);
     UWORD lower     = 0;
-    UWORD lowerFreq = cs->computeFrequencyFromPllValue(bi, &cs->vclkPllValues[lower]);
+    UWORD lowerFreq = cs->computeVCLKFrequency(bi, &cs->vclkPllValues[lower]);
 
     while (lower + 1 < upper) {
         UWORD middle     = (upper + lower) / 2;
-        UWORD middleFreq = cs->computeFrequencyFromPllValue(bi, &cs->vclkPllValues[middle]);
+        UWORD middleFreq = cs->computeVCLKFrequency(bi, &cs->vclkPllValues[middle]);
         if (middleFreq < targetFreq) {
             lower     = middle;
             lowerFreq = middleFreq;
@@ -706,7 +706,7 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct Mod
     DFUNC(VERBOSE, "\n");
 
     const ChipSpecific_t *cs = getConstChipSpecific(bi);
-    UWORD freq               = cs->computeFrequencyFromPllValue(bi, &cs->vclkPllValues[index]);
+    UWORD freq               = cs->computeVCLKFrequency(bi, &cs->vclkPllValues[index]);
 
     return freq * 10000;
 }

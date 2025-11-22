@@ -16,6 +16,7 @@
 #define INFO    10      // Informational messages
 #define VERBOSE 15      // Verbose output
 #define CHATTY  20      // Very verbose output
+#define TELLALL 25      // Very verbose output
 
 #ifndef DBG
 #define D(...)

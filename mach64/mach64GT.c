@@ -3,7 +3,7 @@
 #include "common.h"
 #include "mach64_common.h"
 
-static ULONG computeFrequencyKhz10FromPllValue_GT(const struct BoardInfo *bi, const struct PLLValue *pllValues)
+static ULONG computeVCLKFrequencyKhz10_GT(const struct BoardInfo *bi, const struct PLLValue *pllValues)
 {
     return computeFrequencyKhz10FromPllValue(bi, pllValues, g_VPLLPostDivider);
 }
@@ -531,9 +531,9 @@ BOOL InitMach64GT(struct BoardInfo *bi)
 
     resetCRTC(bi);
 
-    ChipSpecific_t *cs               = getChipSpecific(bi);
-    cs->computeFrequencyFromPllValue = computeFrequencyKhz10FromPllValue_GT;
-    bi->SetClock                     = SetClock_GT;
+    ChipSpecific_t *cs       = getChipSpecific(bi);
+    cs->computeVCLKFrequency = computeVCLKFrequencyKhz10_GT;
+    bi->SetClock             = SetClock_GT;
 
     InitVClockPLLTable(bi, g_VPLLPostDivider, ARRAY_SIZE(g_VPLLPostDivider));
 

@@ -142,7 +142,7 @@ static void print_MEM_CNTL_Register(const MEM_CNTL_Register *reg)
     D(0, "  reserved2        : 0x%lx\n", reg->reserved2);
 }
 
-static ULONG computeFrequencyKhz10FromPllValue_VT(const struct BoardInfo *bi, const struct PLLValue *pllValues)
+static ULONG computeVCLKrequencyKhz10_VT(const struct BoardInfo *bi, const struct PLLValue *pllValues)
 {
     return computeFrequencyKhz10FromPllValue(bi, pllValues, g_VPLLPostDivider);
 }
@@ -312,8 +312,8 @@ BOOL InitMach64VT(struct BoardInfo *bi)
 
     W_BLKIO_MASK_L(BUS_CNTL, BUS_ROM_DIS_MASK, 0);
 
-    cs->computeFrequencyFromPllValue = computeFrequencyKhz10FromPllValue_VT;
-    bi->SetClock                     = SetClock_VT;
+    cs->computeVCLKFrequency = computeVCLKrequencyKhz10_VT;
+    bi->SetClock             = SetClock_VT;
 
     InitVClockPLLTable(bi, g_VPLLPostDivider, ARRAY_SIZE(g_VPLLPostDivider));
 
