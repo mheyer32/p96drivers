@@ -108,7 +108,8 @@ ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t 
 
 static BOOL inline isGoodVCOFrequency(ULONG freqKhz10)
 {
-    return freqKhz10 >= 11800 && freqKhz10 <= 23500;
+    // return freqKhz10 >= 11800 && freqKhz10 <= 23500;
+    return freqKhz10 >= 10000 && freqKhz10 <= 20000;
 }
 
 ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *postDividers, WORD numPostDividers,
@@ -116,29 +117,14 @@ ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *post
 {
     DFUNC(CHATTY, "targetFrequency: %ld0 KHz\n", freqKhz10);
 
-    UBYTE postDivIdx = 0xff;
+    // Clamp frequency to valid range
     if (freqKhz10 < 1475) {
-        freqKhz10  = 1475;
-        postDivIdx = numPostDividers - 1;
+        freqKhz10 = 1475;
     }
     //FIXME: this is dependent on the PLL, thus chip dependent
     if (freqKhz10 > 23500) {
         freqKhz10 = 23500;
     }
-
-    if (postDivIdx == 0xff) {
-        for (BYTE i = numPostDividers - 1; i >= 0; --i) {
-            if (isGoodVCOFrequency(freqKhz10 * postDividers[i])) {
-                postDivIdx = i;
-                break;
-            }
-        }
-        if (postDivIdx == 0xff) {
-            postDivIdx = 0;
-            DFUNC(WARN, "Failed to find a suitable post divider for freq %ld0 KHz\n", freqKhz10);
-        }
-    }
-    D(CHATTY, "chose postDivIdx %ld\n", postDivIdx);
 
     const ChipSpecific_t *cs = getConstChipSpecific(bi);
     UWORD M                  = cs->referenceDivider;
@@ -147,22 +133,69 @@ ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *post
     // T = 2 * R * N / (M * P)
     // N = T * M * P / (2 * R)
 
-    UWORD Ntimes2 = (freqKhz10 * M * postDividers[postDivIdx] + R - 1) / R;
+    UBYTE bestPostDivIdx = 0;
+    ULONG bestError      = ~0UL;  // Maximum error
+    UBYTE bestN          = 0;
+    BOOL foundValid      = FALSE;
 
-    pllValues->N    = Ntimes2 / 2;
-    pllValues->Pidx = postDivIdx;
+    // Try all post dividers to find the best match (largest index first)
+    for (WORD i = numPostDividers - 1; i >= 0; --i) {
+        UBYTE P = postDividers[i];
+
+        // Calculate N = (T * M * P) / (2 * R)
+        ULONG N = (freqKhz10 * M * P + R - 1) / (2 * R);
+
+        // Check if N is in valid range (128-255)
+        if (N < 128 || N > 255) {
+            D(TELLALL, "Post divider %ld: N=%ld out of range\n", (ULONG)i, N);
+            continue;  // Skip this post divider
+        }
+
+        // Check VCO frequency (before post divider)
+        ULONG vcoFreq = freqKhz10 * P;
+        if (!isGoodVCOFrequency(vcoFreq)) {
+            D(TELLALL, "Post divider %ld: VCO frequency %ld0 KHz out of range\n", (ULONG)i, vcoFreq);
+            continue;  // Skip if VCO out of range
+        }
+
+        // Calculate actual output frequency
+        ULONG actualFreq = computeFrequencyKhz10(R, (UBYTE)N, M, P);
+
+        // Calculate error (absolute difference)
+        ULONG error = (actualFreq > freqKhz10) ? (actualFreq - freqKhz10) : (freqKhz10 - actualFreq);
+
+        D(TELLALL, "Post divider %ld (P=%ld): N=%ld, actual=%ld0 KHz, error=%ld0 KHz\n", (ULONG)i, (ULONG)P, N,
+          actualFreq, error);
+
+        // Keep track of best match
+        if (error < bestError) {
+            bestError      = error;
+            bestPostDivIdx = i;
+            bestN          = (UBYTE)N;
+            foundValid     = TRUE;
+        }
+    }
+
+    if (!foundValid) {
+        DFUNC(ERROR, "No valid PLL combination found for %ld0 KHz\n", freqKhz10);
+        return 0;
+    }
+
+    pllValues->N    = bestN;
+    pllValues->Pidx = bestPostDivIdx;
 
     ULONG outputFreq = computeFrequencyKhz10(R, pllValues->N, M, postDividers[pllValues->Pidx]);
 
-    D(CHATTY, "target: %ld0 KHz, Output: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %ld, N: %ld\n", (ULONG)freqKhz10,
-      (ULONG)outputFreq, (ULONG)R, (ULONG)M, (ULONG)postDividers[postDivIdx], (ULONG)pllValues->N);
+    D(CHATTY, "target: %ld0 KHz, Output: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %ld, N: %ld, error: %ld0 KHz\n",
+      (ULONG)freqKhz10, (ULONG)outputFreq, (ULONG)R, (ULONG)M, (ULONG)postDividers[pllValues->Pidx],
+      (ULONG)pllValues->N, (ULONG)bestError);
 
     return outputFreq;
 }
 
 void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultipliers)
 {
-    DFUNC(VERBOSE, "", bi);
+    DFUNC(VERBOSE, "\n", bi);
 
     LOCAL_SYSBASE();
 
@@ -177,14 +210,15 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
     cs->vclkPllValues     = pllValues;
 
     UWORD minFreq = cs->minPClock;
+    UWORD maxFreq = cs->maxPClock;
     UWORD e       = 0;
-    for (; e < maxNumEntries; ++e) {
+    while(minFreq < maxFreq){
         ULONG frequency = computePLLValues(bi, minFreq, multipliers, numMultipliers, &pllValues[e]);
         if (!frequency) {
             DFUNC(ERROR, "Unable to compute PLL values for %ld0 KHz\n", minFreq);
-            break;
         } else {
-            DFUNC(CHATTY, "Pixelclock %03ld %09ldHz: \n", e, frequency * 10000);
+            DFUNC(CHATTY, "Pixelclock %03ld %09ldHz --> %09ldHz: \n\n", (ULONG)e,  minFreq * 10000, frequency * 10000);
+            ++e;
         }
         minFreq += 100;
     }
@@ -204,8 +238,8 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
 
     // FIXME: Account for OVERCLOCK
     for (UWORD i = 0; i < e; ++i) {
-        ULONG frequency = cs->computeFrequencyFromPllValue(bi, &pllValues[i]);
-        D(CHATTY, "Pixelclock %03ld %09ldHz: \n", i, frequency * 10000);
+        ULONG frequency = cs->computeVCLKFrequency(bi, &pllValues[i]);
+        D(CHATTY, "Pixelclock %03ld %09ldHz: \n\n", (ULONG)i, frequency * 10000);
 
         bi->PixelClockCount[CHUNKY]++;
 
