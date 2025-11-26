@@ -119,9 +119,9 @@ typedef struct
     ULONG mem_cyc_lnth_aux : 2;  // Bits 7-8: SDRAM Actv to Cmd cycle length
     ULONG mem_refresh : 4;       // Bits 3-6: Refresh Cycle Length
     ULONG mem_size : 3;          // Bits 0-2: Memory size
-} MEM_CNTL_Register;
+} MEM_CNTL_t;
 
-static void print_MEM_CNTL_Register(const MEM_CNTL_Register *reg)
+static void print_MEM_CNTL_Register(const MEM_CNTL_t *reg)
 {
     D(0, "MEM_CNTL_Register:\n");
     D(0, "  mem_size         : 0x%lx\n", reg->mem_size);
@@ -162,7 +162,7 @@ static void ASM SetClock_VT(__REGA0(struct BoardInfo *bi))
 
     D(CHATTY, "minimm VCLK %ldHz\n", minVClkKhz10 * 10000);
     if (pixelClock < minVClkKhz10 * 10000) {
-        DFUNC(ERROR, "PixelClock %ldHz is too low, minimum is %ldHz\n", pixelClock, minVClkKhz10 * 100000);
+        DFUNC(ERROR, "PixelClock %ldHz is too low, minimum is %ldHz\n", pixelClock, minVClkKhz10 * 10000);
         return;
     }
 
@@ -284,6 +284,9 @@ BOOL InitMach64VT(struct BoardInfo *bi)
     // WRITE_PLL(PLL_VFC_CNTL, 0x03);
 
     ChipSpecific_t *cs = getChipSpecific(bi);
+
+    cs->referenceDivider = 36;
+
     WRITE_PLL(PLL_REF_DIV, cs->referenceDivider);
     WRITE_PLL(PLL_VCLK_CNTL, 0x00);
 
@@ -310,14 +313,15 @@ BOOL InitMach64VT(struct BoardInfo *bi)
 
     // W_BLKIO_MASK_B(CONFIG_STAT0, 0, ~0xf8, 0x3b);
 
-    W_BLKIO_MASK_L(BUS_CNTL, BUS_ROM_DIS_MASK, 0);
+    W_BLKIO_MASK_L(BUS_CNTL, BUS_ROM_DIS_MASK | BUS_PCI_RETRY_EN_MASK | BUS_FIFO_WS_MASK,
+                   BUS_PCI_RETRY_EN | BUS_FIFO_WS(0xF));
 
     cs->computeVCLKFrequency = computeVCLKrequencyKhz10_VT;
     bi->SetClock             = SetClock_VT;
 
     InitVClockPLLTable(bi, g_VPLLPostDivider, ARRAY_SIZE(g_VPLLPostDivider));
 
-    MEM_CNTL_Register memCntl;
+    MEM_CNTL_t memCntl;
     *(ULONG *)&memCntl = R_BLKIO_L(MEM_CNTL);
     print_MEM_CNTL_Register(&memCntl);
 

@@ -22,6 +22,7 @@ typedef enum ChipFamily
 #define MEM_CNTL        (0x2C)
 #define GEN_TEST_CNTL   (0x34)
 #define CONFIG_CNTL     (0x37)
+#define CONFIG_CNTL_IO  (0x1A)
 #define CONFIG_CHIP_ID  (0x38)
 #define CONFIG_STAT0    (0x39)
 #define CLOCK_CNTL      (0x24)
@@ -225,6 +226,7 @@ typedef enum ChipFamily
 
 typedef struct CardData
 {
+    volatile UBYTE *legacyIOBase;
     struct Library *OpenPciBase;
     struct pci_dev *board;
     struct Node boardNode;
@@ -301,7 +303,6 @@ enum PLL_REGS
     PLL_PLL_YCLK_CNTL    = 41,  // GT
     PLL_PM_DYN_CLK_CNTL  = 42,  // GT
 };
-
 
 #define PLL_ADDR_MASK      (0x3F << 10)  // 6 bits on GT, used to be less on older chips
 #define PLL_ADDR(x)        ((x) << 10)
@@ -407,10 +408,10 @@ static INLINE void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, LONG
 // FIXME reusing the same function for IO and MMIO shouldn't work because MMIOREGISTER_OFFSET and REGISTER_OFFSET might
 // be different, but in practise they aren't. Refactor the code.
 #define CHECK_BLKIO(regIndex, X)                                        \
-do {                                                                \
+    do {                                                                \
         _Static_assert(regIndex < 0x40, "BLKIO only for regs < 0x040"); \
         X;                                                              \
-} while (0)
+    } while (0)
 #define R_BLKIO_B(regIndex, byteIndex)        readATIRegisterB(RegBase, regIndex, byteIndex, #regIndex)
 #define R_BLKIO_L(regIndex)                   readATIRegisterL(RegBase, regIndex, #regIndex)
 #define R_BLKIO_AND_L(regIndex, mask)         readATIRegisterAndMaskL(RegBase, regIndex, mask, #regIndex)
@@ -421,20 +422,40 @@ do {                                                                \
     do {                                                                \
         _Static_assert(regIndex < 0x40, "BLKIO only for regs < 0x040"); \
         writeATIRegisterL(RegBase, regIndex, value, #regIndex);         \
-} while (0)
+    } while (0)
 #define W_BLKIO_MASK_L(regIndex, mask, value) writeATIRegisterMaskL(RegBase, regIndex, mask, value, #regIndex)
 
 #undef R_MMIO_L
 #undef W_MMIO_L
+#undef R_MMIO_B
+#undef W_MMIO_B
 #undef W_MMIO_MASK_L
+
+#define R_MMIO_B(regIndex, byteIndex)        readATIRegisterB(MMIOBase, regIndex, byteIndex, #regIndex)
+#define W_MMIO_B(regIndex, byteIndex, value) writeATIRegisterB(MMIOBase, regIndex, byteIndex, value, #regIndex)
 #define R_MMIO_L(regIndex)                   readATIMMIOL(MMIOBase, regIndex, #regIndex)
 #define W_MMIO_L(regIndex, value)            writeATIRegisterL(MMIOBase, regIndex, value, #regIndex)
+#define R_MMIO_AND_L(regIndex, mask)         readATIRegisterAndMaskL(MMIOBase, regIndex, mask, #regIndex)
 #define W_MMIO_NOSWAP_L(regIndex, value)     writeATIRegisterNoSwapL(MMIOBase, regIndex, value, #regIndex)
 #define W_MMIO_MASK_L(regIndex, mask, value) writeATIRegisterMaskL(MMIOBase, regIndex, mask, value, #regIndex)
 
+#undef R_IO_L
+#undef W_IO_L
+#undef W_IO_MASK_L
+
+#define R_IO_L(regIndex) readATIRegisterL(RegBase, ((regIndex##_IO << 10) + getCardData()->ioSparseBase) / 4, #regIndex)
+#define W_IO_MASK_L(regIndex, mask, value) \
+    writeATIRegisterMaskL(RegBase, ((regIndex##_IO << 10) + getChipData(bi)->ioSparseBase) / 4, mask, value, #regIndex)
+#define W_IO_L(regIndex, value)                                                                        \
+    do {                                                                                               \
+        _Static_assert(regIndex < 0x40, "IO only for regs < 0x040");                                   \
+        writeATIRegisterL(RegBase, ((regIndex##_IO << 10) + getChipData(bi)->ioSparseBase) / 4, value, #regIndex); \
+    } while (0)
+
 static INLINE void waitFifo(const BoardInfo_t *bi, UBYTE entries)
 {
-    return;
+    return;  // Disables FIFO waits, relying on PCI_RETRY instead on VT/GT cards
+
     MMIOBASE();
 
     if (!entries)
@@ -446,15 +467,7 @@ static INLINE void waitFifo(const BoardInfo_t *bi, UBYTE entries)
         ;
 }
 
-static INLINE UBYTE getAsicVersion(const BoardInfo_t *bi)
-{
-    REGBASE();
-    return (R_BLKIO_B(CONFIG_CHIP_ID, 3) & 0x7);
-}
-
-static INLINE BOOL isAsiclessThanV4(const BoardInfo_t *bi)
-{
-    return getAsicVersion(bi) < 4;
-}
+UBYTE getAsicVersion(const BoardInfo_t *bi);
+BOOL isAsiclessThanV4(const BoardInfo_t *bi);
 
 #endif  // MACH64_COMMON_H

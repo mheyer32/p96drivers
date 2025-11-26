@@ -196,15 +196,16 @@ $(eval $(call make_exe,TestS3Trio64Plus,$(BUILDDIR)tests3trio64plus/, ${S3TRIO64
 
 
 S3TRIOCARD_TESTEXE_SRC = common.c \
-				 card_common.c \
-				 s3trio64/s3trio64_common.c \
-                 s3trio64/card_s3trio64.c 
-                 
+                         card_common.c \
+                         s3trio64/s3trio64_common.c \
+                         s3trio64/card_s3trio64.c 
+
 TestS3TrioCard : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000
 $(eval $(call make_exe,TestS3TrioCard,$(BUILDDIR)tests3triocard/, ${S3TRIOCARD_TESTEXE_SRC}))
 
 
 ATIMACH64_SRC = common.c \
+                mach64/mach64GX.c \
                 mach64/mach64GT.c \
                 mach64/mach64VT.c \
                 mach64/mach64_common.c \
@@ -225,6 +226,7 @@ ATIMach64.card : CFLAGS+=-DBIGENDIAN_IO=0 -DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0
 $(eval $(call make_driver,ATIMach64.card,$(BUILDDIR)mach64card/, ${ATIMACH64CARD_SRC}))
 
 ATIMACH64_TESTEXE_SRC = common.c \
+                        mach64/mach64GX.c \
                         mach64/mach64GT.c \
                         mach64/mach64VT.c \
                         mach64/mach64_common.c \

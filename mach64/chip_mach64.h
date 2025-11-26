@@ -42,6 +42,7 @@ typedef struct ChipData
     UWORD *patternCacheBuffer;  // points to system memory
 
     UWORD chipFamily;  // chip family
+    UWORD ioSparseBase;
     ChipSpecific_t *chipSpecific;
 } ChipData_t;
 

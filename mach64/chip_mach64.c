@@ -1,5 +1,6 @@
 #include "chip_mach64.h"
 #include "mach64GT.h"
+#include "mach64GX.h"
 #include "mach64VT.h"
 #include "mach64_common.h"
 
@@ -25,7 +26,7 @@ const UWORD LibRevision = 0;
 
 /*******************************************************************************/
 
-int debugLevel = VERBOSE;
+int debugLevel = TELLALL;
 
 static const UBYTE g_bitWidths[] = {
     COLOR_DEPTH_4,   // RGBFB_NONE 4bit
@@ -86,8 +87,8 @@ void printFrequencyTable(const FrequencyTable_t *ft)
 
 UBYTE getDACType(BoardInfo_t *bi)
 {
-    REGBASE();
-    return (R_BLKIO_B(DAC_CNTL, 2) & 0x7);
+    MMIOBASE();
+    return (R_MMIO_B(DAC_CNTL, 2) & 0x7);
 }
 
 void printPLLTable(const PLLTable_t *pllTable)
@@ -131,8 +132,10 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
     }
 
     ROM_TABLE(pciData, PciRomData_t, swapw(romHeader->pcir_offset));
-    if (memcmp(pciData->signature, "PCIR", 4) != 0)
+    if (memcmp(pciData->signature, "PCIR", 4) != 0) {
+        DFUNC(ERROR, "Unable find PCIR signature at 0x%lx\n", romHeader->pcir_offset);
         return NULL;
+    }
 
     WORD atiRomHeaderOffset = ROM_WORD(0x48);
 
@@ -142,10 +145,11 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
     // Doesn't seem to point to anything useful
     const char *configString = romBase + swapw(mach64RomHeader->config_string_ptr);
 
-    UWORD ioBase = swapw(mach64RomHeader->io_base_address);
+    UWORD ioBase       = swapw(mach64RomHeader->io_base_address);
+    UWORD ioSparseBase = swapw(mach64RomHeader->io_address_sparse);
 
-    D(0, "ATI Mach64 ROM header found at offset 0x%lx, Block IO Base Address 0x%lx, \n%s\n", (ULONG)atiRomHeaderOffset,
-      (ULONG)ioBase, logOnMessage);
+    D(0, "ATI Mach64 ROM header found at offset 0x%lx, Block IO Base Address 0x%lx, Sparse IO Base: 0x%lx\n%s\n",
+      (ULONG)atiRomHeaderOffset, (ULONG)ioBase, (ULONG)ioSparseBase, logOnMessage);
 
     USHORT freqTableOffset = swapw(mach64RomHeader->freq_table_ptr);
     ROM_TABLE(freqTable, FrequencyTable_t, freqTableOffset);
@@ -161,6 +165,7 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
     ChipData_t *cd     = getChipData(bi);
     ChipSpecific_t *cs = getChipSpecific(bi);
 
+    cd->ioSparseBase       = ioSparseBase;
     cs->referenceFrequency = swapw(freqTable->ref_clock_freq);
     cs->referenceDivider   = swapw(freqTable->ref_clock_divider);
     cs->memClock           = swapw(freqTable->mclk_freq_normal_dram);
@@ -347,16 +352,16 @@ static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD w
 static void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count),
                                       __REGA1(const struct CLUTEntry *colors))
 {
-    REGBASE();
+    MMIOBASE();
 
     const UBYTE bppDiff = 0;  // 8 - bi->BitsPerCannon;
 
-    W_BLKIO_B(DAC_REGS, DAC_W_INDEX, startIndex);
+    W_MMIO_B(DAC_REGS, DAC_W_INDEX, startIndex);
 
     for (UWORD c = startIndex; c < startIndex + count; ++c) {
-        writeReg(RegBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Red >> bppDiff);
-        writeReg(RegBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Green >> bppDiff);
-        writeReg(RegBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Blue >> bppDiff);
+        writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Red >> bppDiff);
+        writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Green >> bppDiff);
+        writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Blue >> bppDiff);
     }
 }
 
@@ -367,13 +372,13 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
     SetColorArrayInternal(bi, startIndex, count, bi->CLUT);
 }
 
-static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
+static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE format))
 {
-    REGBASE();
+    MMIOBASE();
 
     DFUNC(VERBOSE, "format %ld\n", (ULONG)format);
 
-    W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_PIX_WIDTH_MASK, CRTC_PIX_WIDTH(g_bitWidths[format]));
+    W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_PIX_WIDTH_MASK, CRTC_PIX_WIDTH(g_bitWidths[format]));
     if (format != RGBFB_CLUT) {
         // I think in Hi-Color modes, the palette acts as gamma ramp
         struct CLUTEntry colors[256];
@@ -471,7 +476,7 @@ static INLINE REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
 
 static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
 {
-    REGBASE();
+    MMIOBASE();
 
     BOOL isInterlaced;
     UBYTE modeFlags;
@@ -494,7 +499,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     D(VERBOSE, "Horizontal Total %ld\n", (ULONG)hTotalChars);
     UWORD hDisplay = TO_CHARS(mi->Width) - 1;
     D(VERBOSE, "Display %ld\n", (ULONG)hDisplay);
-    W_BLKIO_L(CRTC_H_TOTAL_DISP, CRTC_H_TOTAL(hTotalChars) | CRTC_H_DISP(hDisplay));
+    W_MMIO_L(CRTC_H_TOTAL_DISP, CRTC_H_TOTAL(hTotalChars) | CRTC_H_DISP(hDisplay));
 
     UWORD hSyncStart = TO_CHARS(mi->HorSyncStart + mi->Width) - 1;
     D(VERBOSE, "HSync start %ld\n", (ULONG)hSyncStart);
@@ -505,12 +510,12 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     if (modeFlags & GMF_HPOLARITY) {
         crtcHSyncStrtWid |= CRTC_H_SYNC_POL;
     }
-    W_BLKIO_L(CRTC_H_SYNC_STRT_WID, crtcHSyncStrtWid);
+    W_MMIO_L(CRTC_H_SYNC_STRT_WID, crtcHSyncStrtWid);
 
     UWORD vTotal = TO_SCANLINES(mi->VerTotal) - 1;
     D(VERBOSE, "VTotal %ld\n", (ULONG)vTotal) - 1;
     UWORD vDisp = TO_SCANLINES(mi->Height) - 1;
-    W_BLKIO_L(CRTC_V_TOTAL_DISP, CRTC_V_TOTAL(vTotal) | CRTC_V_DISP(vDisp));
+    W_MMIO_L(CRTC_V_TOTAL_DISP, CRTC_V_TOTAL(vTotal) | CRTC_V_DISP(vDisp));
 
     UWORD vSyncStart = TO_SCANLINES(mi->VerSyncStart + mi->Height) - 1;
     D(VERBOSE, "VSync Start %ld\n", (ULONG)vSyncStart);
@@ -519,19 +524,19 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     if (modeFlags & GMF_VPOLARITY) {
         crtcVSyncStrtWid |= CRTC_V_SYNC_POL;
     }
-    W_BLKIO_L(CRTC_V_SYNC_STRT_WID, crtcVSyncStrtWid);
+    W_MMIO_L(CRTC_V_SYNC_STRT_WID, crtcVSyncStrtWid);
 
     if (border) {
         UWORD hBorder = TO_CHARS(mi->HorBlankSize);
         UWORD vBorder = TO_SCANLINES(mi->VerBlankSize);
-        W_BLKIO_L(OVR_WID_LEFT_RIGHT, OVR_WID_LEFT(hBorder) | OVR_WID_RIGHT(hBorder));
-        W_BLKIO_L(OVR_WID_TOP_BOTTOM, OVR_WID_TOP(vBorder) | OVR_WID_BOT(vBorder));
+        W_MMIO_L(OVR_WID_LEFT_RIGHT, OVR_WID_LEFT(hBorder) | OVR_WID_RIGHT(hBorder));
+        W_MMIO_L(OVR_WID_TOP_BOTTOM, OVR_WID_TOP(vBorder) | OVR_WID_BOT(vBorder));
     } else {
-        W_BLKIO_L(OVR_WID_LEFT_RIGHT, 0);
-        W_BLKIO_L(OVR_WID_TOP_BOTTOM, 0);
+        W_MMIO_L(OVR_WID_LEFT_RIGHT, 0);
+        W_MMIO_L(OVR_WID_TOP_BOTTOM, 0);
     }
 
-    ULONG crtcGenCntl = R_BLKIO_L(CRTC_GEN_CNTL);
+    ULONG crtcGenCntl = R_MMIO_L(CRTC_GEN_CNTL);
     crtcGenCntl &= ~(CRTC_DBL_SCAN_EN | CRTC_INTERLACE_EN);
     if (isInterlaced) {
         crtcGenCntl |= CRTC_INTERLACE_EN;
@@ -539,7 +544,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     if (modeFlags & GMF_DOUBLESCAN) {
         crtcGenCntl |= CRTC_DBL_SCAN_EN;
     }
-    W_BLKIO_L(CRTC_GEN_CNTL, crtcGenCntl);
+    W_MMIO_L(CRTC_GEN_CNTL, crtcGenCntl);
 
     // FIXME: doesn't seem to exist on RagePro/LT?!
     if (getChipData(bi)->chipFamily < MACH64GT) {
@@ -568,7 +573,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
                            __REGD4(UWORD height), __REGD1(WORD xoffset), __REGD2(WORD yoffset),
                            __REGD7(RGBFTYPE format))
 {
-    REGBASE();
+    MMIOBASE();
 
     DFUNC(INFO,
           "mem 0x%lx, width %ld, height %ld, xoffset %ld, yoffset %ld, "
@@ -598,7 +603,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
 
     D(VERBOSE, "panOffset 0x%lx, pitch %ld qwords\n", panOffset, (ULONG)pitch);
 
-    W_BLKIO_L(CRTC_OFF_PITCH, CRTC_OFFSET(panOffset) | CRTC_PITCH(pitch));
+    W_MMIO_L(CRTC_OFF_PITCH, CRTC_OFFSET(panOffset) | CRTC_PITCH(pitch));
 
     return;
 }
@@ -650,11 +655,11 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGB
 static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 {
     // Clocking Mode Register (ClK_MODE) (SR1)
-    REGBASE();
+    MMIOBASE();
 
     DFUNC(VERBOSE, " state %ld\n", (ULONG)state);
 
-    W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_DISPLAY_DIS_MASK, state ? 0 : CRTC_DISPLAY_DIS);
+    W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_DISPLAY_DIS_MASK, state ? 0 : CRTC_DISPLAY_DIS);
 }
 
 static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
@@ -714,7 +719,7 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct Mod
 // FIXME: split out into family-specific functions
 static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
-    REGBASE();
+    MMIOBASE();
     DFUNC(VERBOSE, "format %ld\n", (ULONG)format);
 
     if (getChipData(bi)->chipFamily < MACH64GT) {
@@ -730,7 +735,7 @@ static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __RE
                 return;
             }
             getChipData(bi)->MemFormat = format;
-            W_BLKIO_MASK_L(MEM_CNTL, MEM_PIX_WIDTH_MASK, MEM_PIX_WIDTH(g_bitWidths[format]));
+            W_MMIO_MASK_L(MEM_CNTL, MEM_PIX_WIDTH_MASK, MEM_PIX_WIDTH(g_bitWidths[format]));
             break;
         }
     } else {
@@ -755,7 +760,7 @@ static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __RE
         }
         getChipData(bi)->MemFormat = format;
 
-        W_BLKIO_MASK_L(MEM_CNTL, UPPER_APER_ENDIAN_MASK, byteSwap);
+        W_MMIO_MASK_L(MEM_CNTL, UPPER_APER_ENDIAN_MASK, byteSwap);
     }
 }
 
@@ -795,9 +800,9 @@ static void ASM SetReadPlane(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
 
 static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expected))
 {
-    REGBASE();
+    MMIOBASE();
     DFUNC(VERBOSE, "\n");
-    return (R_BLKIO_B(CRTC_INT_CNTL, 0) & CRTC_VBLANK) != 0;
+    return (R_MMIO_B(CRTC_INT_CNTL, 0) & CRTC_VBLANK) != 0;
 }
 
 static void WaitVerticalSync(__REGA0(struct BoardInfo *bi)) {}
@@ -818,7 +823,7 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xp
                                   __REGD7(RGBFTYPE fmt))
 {
     DFUNC(VERBOSE, "\n");
-    REGBASE();
+    MMIOBASE();
 
     bi->MouseX = xpos;
     bi->MouseY = ypos;
@@ -851,10 +856,10 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xp
     D(CHATTY, "SpritePos X: %ld 0x%lx, Y: %ld 0x%lx\n", (LONG)spriteX, (ULONG)spriteX, (LONG)spriteY, (ULONG)spriteY);
 
     ULONG memOffset = (ULONG)bi->MouseImageBuffer - (ULONG)bi->MemoryBase;
-    W_BLKIO_L(CUR_OFFSET, memOffset / 8);
+    W_MMIO_L(CUR_OFFSET, memOffset / 8);
 
-    W_BLKIO_L(CUR_HORZ_VERT_POSN, CUR_HORZ_POSN(spriteX) | CUR_VERT_POSN(spriteY));
-    W_BLKIO_L(CUR_HORZ_VERT_OFF, CUR_HORZ_OFF(offsetX) | CUR_VERT_OFF(offsetY));
+    W_MMIO_L(CUR_HORZ_VERT_POSN, CUR_HORZ_POSN(spriteX) | CUR_VERT_POSN(spriteY));
+    W_MMIO_L(CUR_HORZ_VERT_OFF, CUR_HORZ_OFF(offsetX) | CUR_VERT_OFF(offsetY));
 }
 
 ULONG spreadBits(ULONG word)
@@ -913,13 +918,13 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE inde
                                __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE fmt))
 {
     DFUNC(VERBOSE, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
-    REGBASE();
+    MMIOBASE();
     switch (index) {
     case 0:
-        W_BLKIO_L(CUR_CLR0, CUR_CLR_R(red) | CUR_CLR_G(green) | CUR_CLR_B(blue) | CUR_CLR_8(17));
+        W_MMIO_L(CUR_CLR0, CUR_CLR_R(red) | CUR_CLR_G(green) | CUR_CLR_B(blue) | CUR_CLR_8(17));
         break;
     case 2:
-        W_BLKIO_L(CUR_CLR1, CUR_CLR_R(red) | CUR_CLR_G(green) | CUR_CLR_B(blue) | CUR_CLR_8(19));
+        W_MMIO_L(CUR_CLR1, CUR_CLR_R(red) | CUR_CLR_G(green) | CUR_CLR_B(blue) | CUR_CLR_8(19));
         break;
     default:
         break;
@@ -929,9 +934,9 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE inde
 static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate), __REGD7(RGBFTYPE RGBFormat))
 {
     DFUNC(VERBOSE, "\n");
-    REGBASE();
+    MMIOBASE();
 
-    W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_CUR_ENABLE_MASK, (activate ? GEN_CUR_ENABLE : 0));
+    W_MMIO_MASK_L(GEN_TEST_CNTL, GEN_CUR_ENABLE_MASK, (activate ? GEN_CUR_ENABLE : 0));
 
     if (activate) {
         SetSpriteColor(bi, 0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, bi->RGBFormat);
@@ -953,7 +958,7 @@ static INLINE void waitIdle(const BoardInfo_t *bi)
 #ifdef DBG
         if (cnt++ > 100) {
             REGBASE();
-            ULONG busCntl = R_BLKIO_L(BUS_CNTL);
+            ULONG busCntl = R_MMIO_L(BUS_CNTL);
             if (busCntl & (BUS_FIFO_ERR_INT | BUS_HOST_ERR_INT)) {
                 ResetEngine(bi);
             }
@@ -2173,30 +2178,52 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         pci_write_config_byte(0x40, config, board);
     }
 
-    // Test scratch register response
-    D(INFO, "MMIO base address: 0x%08lx\n", MMIOBase);
-    D(INFO, "Register base address: 0x%08lx\n", RegBase);
-    ULONG saveScratchReg1 = R_MMIO_L(SCRATCH_REG1);
-    W_BLKIO_L(SCRATCH_REG1, 0xAAAAAAAA);
-    ULONG scratchA = R_MMIO_L(SCRATCH_REG1);
-    W_BLKIO_L(SCRATCH_REG1, 0x55555555);
-    ULONG scratch5 = R_MMIO_L(SCRATCH_REG1);
-    W_BLKIO_L(SCRATCH_REG1, saveScratchReg1);
-    if (scratchA != 0xAAAAAAAA || scratch5 != 0x55555555) {
-        DFUNC(ERROR, "scratch register response broken.\n");
-        return FALSE;
-    }
-    D(INFO, "scratch register response good.\n");
-
     if (!parseRomHeader(bi)) {
         DFUNC(ERROR, "Failed to parse ROM header\n");
         return FALSE;
     }
 
-    ULONG configCntl = R_BLKIO_L(CONFIG_CNTL);
+    // Test scratch register response
+    D(INFO, "MMIO base address: 0x%08lx\n", MMIOBase);
+    D(INFO, "Register base address: 0x%08lx\n", RegBase);
+    if (cd->chipFamily > MACH64GX) {
+        ULONG saveScratchReg1 = R_MMIO_L(SCRATCH_REG1);
+        W_MMIO_L(SCRATCH_REG1, 0xAAAAAAAA);
+        ULONG scratchA = R_MMIO_L(SCRATCH_REG1);
+        W_MMIO_L(SCRATCH_REG1, 0x55555555);
+        ULONG scratch5 = R_MMIO_L(SCRATCH_REG1);
+        W_MMIO_L(SCRATCH_REG1, saveScratchReg1);
+        if (scratchA != 0xAAAAAAAA || scratch5 != 0x55555555) {
+            DFUNC(ERROR, "scratch register response broken.\n");
+            return FALSE;
+        }
+    } else {
+#define CFG_MEM_AP_SIZE(x)   (x)
+#define CFG_MEM_AP_SIZE_MASK (0x3)
+
+        LEGACYIOBASE();
+        W_IO_MASK_L(CONFIG_CNTL, CFG_MEM_AP_SIZE_MASK, CFG_MEM_AP_SIZE(2));
+
+        ULONG saveScratchReg1 = R_MMIO_L(SCRATCH_REG1);
+        W_MMIO_L(SCRATCH_REG1, 0xAAAAAAAA);
+        ULONG scratchA = R_MMIO_L(SCRATCH_REG1);
+        W_MMIO_L(SCRATCH_REG1, 0x55555555);
+        ULONG scratch5 = R_MMIO_L(SCRATCH_REG1);
+        W_MMIO_L(SCRATCH_REG1, saveScratchReg1);
+        if (scratchA != 0xAAAAAAAA || scratch5 != 0x55555555) {
+            DFUNC(ERROR, "scratch register response broken.\n");
+            return FALSE;
+        }
+    }
+
+    D(INFO, "scratch register response good.\n");
 
     switch (cd->chipFamily) {
     case MACH64GX:
+        if (!InitMach64GX(bi)) {
+            return FALSE;
+        }
+        break;
     case MACH64VT:
         if (!InitMach64VT(bi)) {
             return FALSE;
@@ -2213,8 +2240,14 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         return FALSE;
     }
 
-    W_BLKIO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
-    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_VGA_EN_MASK, 0);
+    if (cd->chipFamily > MACH64GX) {
+        W_MMIO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
+    } else {
+        DFUNC(VERBOSE, "XXXXX");
+        LEGACYIOBASE();
+        W_IO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
+    }
+    W_MMIO_MASK_L(CONFIG_STAT0, CFG_VGA_EN_MASK, 0);
 
     // ULONG clock = bi->MemoryClock;
     // const ChipSpecific_t *cs = getConstChipSpecific(bi);
@@ -2243,19 +2276,23 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         bi->MemorySize -= 2048;  // Upper 2kb are reserved for MMIO register blocks 0 and 1
     }
 
-    // Init DAC. Enable 8bit per gun, blanking pedestal and disable decoding DAC at legacy IO address
-    W_BLKIO_MASK_L(DAC_CNTL, DAC_8BIT_EN_MASK | DAC_BLANKING_MASK | DAC_VGA_ADR_EN, DAC_8BIT_EN | DAC_BLANKING);
-    W_BLKIO_B(DAC_REGS, DAC_MASK, 0xFF);
+    // Init DAC. For chips with integrated DAC (GT/GM), enable 8bit per gun, blanking pedestal
+    // and disable decoding DAC at legacy IO address. For GX (external DAC), this is handled
+    // in InitMach64GX.
+    if (cd->chipFamily != MACH64GX) {
+        W_MMIO_MASK_L(DAC_CNTL, DAC_8BIT_EN_MASK | DAC_BLANKING_MASK | DAC_VGA_ADR_EN, DAC_8BIT_EN | DAC_BLANKING);
+        W_MMIO_B(DAC_REGS, DAC_MASK, 0xFF);
+    }
 
     // Init CRTC, Display FIFO Low Water Mark
     // CRTC_DISP_REQ_ENB = 0 _enables_ display requests?!?!
-    W_BLKIO_MASK_L(CRTC_GEN_CNTL,
-                   CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_DISP_REQ_ENB_MASK | VGA_XCRT_CNT_EN_MASK |
-                       VGA_ATI_LINEAR_MASK | CRTC_LOCK_REGS_MASK,
-                   CRTC_ENABLE | CRTC_EXT_DISP_EN | VGA_XCRT_CNT_EN);
+    W_MMIO_MASK_L(CRTC_GEN_CNTL,
+                  CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_DISP_REQ_ENB_MASK | VGA_XCRT_CNT_EN_MASK |
+                      VGA_ATI_LINEAR_MASK | CRTC_LOCK_REGS_MASK,
+                  CRTC_ENABLE | CRTC_EXT_DISP_EN | VGA_XCRT_CNT_EN);
     if (cd->chipFamily <= MACH64VT) {
-        W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK | CRTC_FIFO_OVERFILL_MASK,
-                       CRTC_FIFO_LWM(0xF) | CRTC_FIFO_OVERFILL(3));
+        W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK | CRTC_FIFO_OVERFILL_MASK,
+                      CRTC_FIFO_LWM(0xF) | CRTC_FIFO_OVERFILL(3));
     }
 
     // Init Engine
@@ -2292,7 +2329,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_MMIO_L(CLR_CMP_CNTL, 0x0);
     W_MMIO_L(GUI_TRAJ_CNTL, DST_X_DIR | DST_Y_DIR | DST_LAST_PEL);
 
-    D(INFO, "Monitor is %s present\n", ((R_BLKIO_B(DAC_CNTL, 0) & 0x80) ? "NOT" : ""));
+    D(INFO, "Monitor is %s present\n", ((R_MMIO_B(DAC_CNTL, 0) & 0x80) ? "NOT" : ""));
 
     // Two sprite images, each 64x64*2 bits
     // BEWARE: softsprite data would use 4 byte per pixel
@@ -2365,17 +2402,17 @@ int main()
 
     struct pci_dev *board = NULL;
 
-    D(0, "Looking for Mach64 card\n");
+    D(0, "Looking for Mach64 card...\n");
 
     while ((board = FindBoard(board, PRM_Vendor, PCI_VENDOR, TAG_END)) != NULL) {
         ULONG Device, Revision, Memory0Size = 0, Memory2Size = 0;
-        APTR Memory0 = 0, Memory1 = 0, Memory2 = 0;
+        APTR Memory0 = 0, Memory1 = 0, Memory2 = 0, legacyIOBase = 0;
 
         GetBoardAttrs(board, PRM_Device, (Tag)&Device, PRM_Revision, (Tag)&Revision, PRM_MemoryAddr0, (Tag)&Memory0,
-                      PRM_MemorySize0, (Tag)&Memory0Size, PRM_MemoryAddr1, (Tag)&Memory1, PRM_MemoryAddr2,
-                      (Tag)&Memory2, PRM_MemorySize2, (Tag)&Memory2Size, TAG_END);
+                      PRM_MemorySize0, (Tag)&Memory0Size, PRM_LegacyIOSpace, (Tag)&legacyIOBase, PRM_MemoryAddr1,
+                      (Tag)&Memory1, PRM_MemoryAddr2, (Tag)&Memory2, PRM_MemorySize2, (Tag)&Memory2Size, TAG_END);
 
-        D(0, "device %x revision %x\n", Device, Revision);
+        D(0, "Found ATI device %x revision %x\n", Device, Revision);
 
         ChipFamily_t family = getChipFamily(Device);
 
@@ -2385,7 +2422,8 @@ int main()
             // Write PCI COMMAND register to enable IO and Memory access
             pci_write_config_word(PCI_COMMAND, PCI_COMMAND_MEMORY | PCI_COMMAND_IO, board);
 
-            D(INFO, "MemoryBase 0x%x, MemorySize %u, IOBase 0x%x\n", Memory0, Memory0Size, Memory1);
+            D(INFO, "MemoryBase 0x%08lx, MemorySize %lu, BlockIOBase 0x%08lx, Aux MMIO Base 0x%08lx\n", Memory0,
+              Memory0Size, Memory1, Memory2);
 
             APTR physicalAddress = pci_logic_to_physic_addr(Memory0, board);
             D(INFO, "physicalAdress 0x%08lx\n", physicalAddress);
@@ -2402,13 +2440,19 @@ int main()
             getCardData(bi)->OpenPciBase = OpenPciBase;
             getCardData(bi)->board       = board;
 
-            // Block IO is in BAR1
-            if (!Memory1) {
-                D(ERROR, "Cannot find block IO Aperture\n");
-                goto exit;
-            }
+            getCardData(bi)->legacyIOBase = legacyIOBase;
 
-            bi->RegisterBase = (BYTE *)Memory1 + REGISTER_OFFSET;
+            // Block IO is in BAR1
+            if (family >= MACH64VT) {
+                if (!Memory1) {
+                    D(ERROR, "Cannot find block IO Aperture\n");
+                    goto exit;
+                }
+                bi->RegisterBase = (BYTE *)Memory1 + REGISTER_OFFSET;
+            } else {
+                UBYTE userConfig = pci_read_config_byte(0x40, board);
+                D(INFO, "PCI 0x40: %02lx\n", (ULONG)userConfig);
+            }
 
             if (Memory2) {
                 // Use Auxiliary Aperture for MMIO if available
@@ -2417,6 +2461,7 @@ int main()
                 setCacheMode(bi, Memory2, Memory2Size, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
             } else {
                 // MMIO registers are in top 1kb of the first 8mb memory window
+                D(INFO, "Using regular MMIO aperture at 0x%08lx\n", (BYTE *)Memory0 + 0x800000 - 1024);
                 bi->MemoryIOBase = (BYTE *)Memory0 + 0x800000 - 1024 + MMIOREGISTER_OFFSET;
                 setCacheMode(bi, (BYTE *)Memory0 + 0x800000 - 1024, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
             }
@@ -2436,7 +2481,7 @@ int main()
 
             {
                 DFUNC(ALWAYS, "SetDisplay OFF\n");
-                SetDisplay(bi, FALSE);
+                bi->SetDisplay(bi, FALSE);
             }
 
             {
@@ -2462,7 +2507,7 @@ int main()
 
                 bi->ModeInfo = &mi;
 
-                ULONG index = ResolvePixelClock(bi, &mi, mi.PixelClock, RGBFB_CLUT);
+                ULONG index = bi->ResolvePixelClock(bi, &mi, mi.PixelClock, RGBFB_CLUT);
 
                 DFUNC(ALWAYS, "SetClock\n");
 
@@ -2474,14 +2519,14 @@ int main()
 
                 DFUNC(ALWAYS, "SetGC\n");
 
-                SetGC(bi, &mi, TRUE);
+                bi->SetGC(bi, &mi, TRUE);
             }
             {
                 DFUNC(ALWAYS, "SetDAC\n");
-                SetDAC(bi, RGBFB_CLUT);
+                bi->SetDAC(bi, 0, RGBFB_CLUT);
             }
             {
-                SetSprite(bi, FALSE, RGBFB_CLUT);
+                bi->SetSprite(bi, FALSE, RGBFB_CLUT);
             }
 
             {
@@ -2492,14 +2537,14 @@ int main()
                     bi->CLUT[c].Green = c;
                     bi->CLUT[c].Blue  = c;
                 }
-                SetColorArray(bi, 0, 256);
+                bi->SetColorArray(bi, 0, 256);
             }
             {
-                SetPanning(bi, bi->MemoryBase, 640, 480, 0, 0, RGBFB_CLUT);
+                bi->SetPanning(bi, bi->MemoryBase, 640, 480, 0, 0, RGBFB_CLUT);
             }
             {
                 DFUNC(ALWAYS, "SetDisplay ON\n");
-                SetDisplay(bi, TRUE);
+                bi->SetDisplay(bi, TRUE);
             }
 
             for (int y = 0; y < 480; y++) {
@@ -2514,7 +2559,7 @@ int main()
             ri.RGBFormat   = RGBFB_CLUT;
 
             {
-                FillRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, 0xFF, RGBFB_CLUT);
+                bi->FillRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, 0xFF, RGBFB_CLUT);
             }
 
             {
@@ -2528,10 +2573,10 @@ int main()
                 pattern.XOffset  = 0;
                 pattern.YOffset  = 0;
 
-                BlitPattern(bi, &ri, &pattern, 150, 150, 640 - 300, 480 - 300, 0xFF, RGBFB_CLUT);
+                bi->BlitPattern(bi, &ri, &pattern, 150, 150, 640 - 300, 480 - 300, 0xFF, RGBFB_CLUT);
             }
 
-            WaitBlitter(bi);
+            bi->WaitBlitter(bi);
             // RegisterOwner(cb, board, (struct Node *)ChipBase);
 
             // if ((dmaSize > 0) && (dmaSize <= bi->MemorySize)) {

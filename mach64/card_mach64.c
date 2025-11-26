@@ -203,13 +203,13 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     LOCAL_SYSBASE();
 
     ULONG deviceId = 0, revision = 0, memory0Size = 0, memory1Size = 0, memory2Size = 0;
-    APTR memory0 = 0, memory1 = 0, memory2 = 0;
+    APTR memory0 = 0, memory1 = 0, memory2 = 0, legacyIOBase = 0;
 
     ULONG count = GetBoardAttrs(cd->board, PRM_Device, (Tag)&deviceId, PRM_Revision, (Tag)&revision, PRM_MemoryAddr0,
-                                (Tag)&memory0, PRM_MemorySize0, (Tag)&memory0Size, PRM_MemoryAddr1, (Tag)&memory1,
-                                PRM_MemorySize1, (Tag)&memory1Size, PRM_MemoryAddr2, (Tag)&memory2, PRM_MemorySize2,
-                                (Tag)&memory2Size, TAG_END);
-    if (count < 8) {
+                                (Tag)&memory0, PRM_MemorySize0, (Tag)&memory0Size, PRM_LegacyIOSpace,
+                                (Tag)&legacyIOBase, PRM_MemoryAddr1, (Tag)&memory1, PRM_MemorySize1, (Tag)&memory1Size,
+                                PRM_MemoryAddr2, (Tag)&memory2, PRM_MemorySize2, (Tag)&memory2Size, TAG_END);
+    if (count < 5) {
         DFUNC(ERROR, "Could not retrieve all required board attributes\n");
         return FALSE;
     }
@@ -235,10 +235,11 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         return FALSE;
     }
 
-    bi->ChipBase = ChipBase;
+    bi->ChipBase                  = ChipBase;
+    getCardData(bi)->legacyIOBase = legacyIOBase;
 
     // Set up register and memory bases
-    if (!memory1) {
+    if (chipFamily > MACH64GX && !memory1) {
         DFUNC(ERROR, "Cannot find block IO aperture\n");
         return FALSE;
     }

@@ -65,10 +65,9 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
 #define MISC_W 0x3C2
 #define MISC_R 0x3CC
 
-#define LOCAL_SYSBASE()        struct ExecBase *SysBase = bi->ExecBase
-#define LOCAL_UTILITYBASE()    struct Library *UtilityBase = bi->UtilBase
-#define LOCAL_PROMETHEUSBASE() struct Library *PrometheusBase = getCardData(bi)->PrometheusBase
-#define LOCAL_OPENPCIBASE()    struct Library *OpenPciBase = getCardData(bi)->OpenPciBase
+#define LOCAL_SYSBASE()     struct ExecBase *SysBase = bi->ExecBase
+#define LOCAL_UTILITYBASE() struct Library *UtilityBase = bi->UtilBase
+#define LOCAL_OPENPCIBASE() struct Library *OpenPciBase = getCardData(bi)->OpenPciBase
 // #define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
 
 static inline ULONG swapl(ULONG value)
@@ -102,7 +101,7 @@ static inline UWORD swapw(UWORD value)
 #define SWAPL_IO(x) swapl(x)
 #endif
 
-#define BIT(x) (1 << (x))
+#define BIT(x)          (1 << (x))
 #define TESTBIT(x, bit) (((x) & BIT(bit)) != 0)
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
@@ -482,8 +481,9 @@ static INLINE void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
     writeRegister(regbase, 0x3C2, misc, "MISC_OUT_3C2");
 }
 
-#define REGBASE()  volatile UBYTE *RegBase = getIOBase(bi)
-#define MMIOBASE() volatile UBYTE *MMIOBase = getMMIOBase(bi)
+#define REGBASE()      volatile UBYTE *RegBase = getIOBase(bi)
+#define MMIOBASE()     volatile UBYTE *MMIOBase = getMMIOBase(bi)
+#define LEGACYIOBASE() volatile UBYTE *RegBase = getCardData(bi)->legacyIOBase
 
 #define R_CR(reg)                   readCRx(RegBase, reg)
 #define W_CR(reg, value)            writeCRx(RegBase, reg, value)

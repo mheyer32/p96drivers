@@ -1,5 +1,5 @@
-#ifndef MACH64VT_H
-#define MACH64VT_H
+#ifndef MACH64GX_H
+#define MACH64GX_H
 
 #include <boardinfo.h>
 
@@ -8,6 +8,8 @@
 #define BUS_FIFO_WS(x)        ((x) << 16)
 #define BUS_FIFO_WS_MASK      (0xF << 16)
 
-BOOL InitMach64VT(struct BoardInfo *bi);
+BOOL InitMach64GX(struct BoardInfo *bi);
 
-#endif  // MACH64VT_H
+#endif  // MACH64GX_H
+
+
