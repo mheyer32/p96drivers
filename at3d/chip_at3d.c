@@ -14,8 +14,6 @@
 #include <proto/exec.h>
 #include <proto/openpci.h>
 
-#define MIN_OPENPCI_VERSION 3  // Version 3 or more
-
 #include <SDI_stdarg.h>
 
 #ifdef DBG
@@ -175,6 +173,9 @@ static BOOL testMMIO(BoardInfo_t *bi)
 #define LDEV_MASK (0x3 << 4)
 #define LDEV(x)   ((x) << 4)
 
+// Forward declarations
+static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level));
+
 /**
  * Get I2C operations structure for EDID support
  * @param bi BoardInfo structure
@@ -270,6 +271,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->PaletteChipType        = 0;  // Will need to define AT3D type
     bi->Flags                  = 0;  // Minimal flags for now
 
+    // Set function pointers
+    bi->SetDPMSLevel = SetDPMSLevel;
+
     // Stub function pointers (minimal implementation)
     // These will be implemented in future phases
 
@@ -318,6 +322,48 @@ static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fo
 static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format)) {}
 
 static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count)) {}
+
+/**
+ * Set DPMS (Display Power Management Signaling) level
+ * @param bi BoardInfo structure
+ * @param level DPMS level: DPMS_ON (0), DPMS_STANDBY (1), DPMS_SUSPEND (2), DPMS_OFF (3)
+ */
+static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level))
+{
+    // DPMS levels per boardinfo.h:
+    //  DPMS_ON (0)      - Full operation
+    //  DPMS_STANDBY (1) - Optional state of minimal power reduction
+    //  DPMS_SUSPEND (2) - Significant reduction of power consumption
+    //  DPMS_OFF (3)     - Lowest level of power consumption
+    //
+    // AT3D register 0D0h (DPMS_SYNC_CTRL) bits:
+    //  [0] - DPMS HSYNC suspend (1=disabled, 0=enabled)
+    //  [1] - DPMS VSYNC suspend (1=disabled, 0=enabled)
+    //
+    // Mapping:
+    //  DPMS_ON:      Both bits clear (0x00) - HSYNC and VSYNC enabled
+    //  DPMS_STANDBY: VSYNC disabled (0x02) - bit [1] set
+    //  DPMS_SUSPEND: HSYNC disabled (0x01) - bit [0] set
+    //  DPMS_OFF:     Both bits set (0x03) - both HSYNC and VSYNC disabled
+
+    static const UBYTE DPMSLevels[4] = {0x00, 0x02, 0x01, 0x03};
+
+    if (level > 3) {
+        level = 3;  
+    }
+
+    MMIOBASE();
+    
+    // Read current register value and preserve bits [7:2] (I2C control bits, etc.)
+    UBYTE dpmsReg = R_MMIO_B(DPMS_SYNC_CTRL);
+    
+    // Clear bits [1:0] and set new DPMS level
+    dpmsReg = (dpmsReg & ~0x03) | DPMSLevels[level];
+    
+    W_MMIO_B(DPMS_SYNC_CTRL, dpmsReg);
+    
+    D(VERBOSE, "SetDPMSLevel: level=%ld, register=0x%02lx\n", level, (ULONG)dpmsReg);
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
