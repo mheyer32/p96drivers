@@ -1,0 +1,61 @@
+#ifndef AT3D_COMMON_H
+#define AT3D_COMMON_H
+
+#include "common.h"
+
+#include <exec/types.h>
+
+#define VENDOR_ID_ALLIANCE 0x1142
+
+typedef enum ChipFamily
+{
+    UNKNOWN,
+    AT6422,         // Alliance ProMotion 6422
+    AT6424,         // Alliance ProMotion 6424
+    AT24,           // Alliance ProMotion AT24
+    AT25,           // Alliance AT25
+    AT3D,           // Alliance ProMotion AT3D
+} ChipFamily_t;
+
+typedef struct ChipData
+{
+    ULONG GEfgPen;
+    ULONG GEbgPen;
+
+    UWORD GEbytesPerRow;  // programmed graphics engine bytes per row
+
+    UBYTE GEOp;  // programmed graphics engine setup
+    UBYTE GEFormat;
+
+    UBYTE GEbpp;   // programmed graphics engine bpp
+    UBYTE GEmask;  // programmed mask
+
+    UBYTE GEdrawMode;
+    UBYTE MemFormat;            // programmed memory layout/format
+    UBYTE chipFamily;           // chip family
+    UWORD pattX;                // x offset in pattern
+    UWORD pattY;                // y offset in pattern
+    ULONG *patternVideoBuffer;  // points to video memory
+    UWORD *patternCacheBuffer;  // points to system memory
+    ULONG patternCacheKey;
+
+} ChipData_t;
+
+STATIC_ASSERT(sizeof(ChipData_t) <= sizeof(((BoardInfo_t *)0)->ChipData), ChipData_t_too_large);
+
+typedef struct CardData
+{
+    BYTE *legacyIOBase;  // legacy I/O base address (not used for AT3D)
+    struct Library *OpenPciBase;
+    struct pci_dev *board;
+    struct Node boardNode;
+    char boardName[16];
+} CardData_t;
+
+STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);
+
+extern ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision);
+extern const char *getChipFamilyName(ChipFamily_t family);
+extern BOOL initRegisterAndMemoryBases(BoardInfo_t *bi);
+
+#endif  // AT3D_COMMON_H

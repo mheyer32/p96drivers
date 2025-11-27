@@ -47,7 +47,8 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
 #pragma GCC error "REGISTER_OFFSET or MMIOREGISTER_OFFSET not defined"
 #endif
 
-#define STRINGIFY(x) #x
+#define STRINGIFX(x) #x
+#define STRINGIFY(x) STRINGIFX(x)
 
 #define SEQX     0x3C4  // Access SRxx registers
 #define SEQ_DATA 0x3C5
@@ -321,6 +322,16 @@ static INLINE ULONG REGARGS readRegL(volatile UBYTE *regbase, LONG reg, const ch
     return value;
 }
 
+static INLINE UBYTE REGARGS readMMIO_B(volatile UBYTE *mmiobase, LONG regOffset, const char *regName)
+{
+    flushWrites();
+    UBYTE value = *(mmiobase + (regOffset - MMIOREGISTER_OFFSET));
+
+    D(VERBOSE, "R %s -> 0x%02lx\n", (ULONG)regName, (ULONG)value);
+
+    return value;
+}
+
 static INLINE UWORD REGARGS readMMIO_W(volatile UBYTE *mmiobase, LONG regOffset, const char *regName)
 {
     flushWrites();
@@ -349,10 +360,25 @@ static INLINE ULONG REGARGS readMMIO_L(volatile UBYTE *mmiobase, LONG regOffset,
     return value;
 }
 
+static INLINE void REGARGS writeMMIO_B(volatile UBYTE *mmiobase, LONG regOffset, UBYTE value, const char *regName)
+{
+    D(VERBOSE, "W %s <- 0x%02lx\n", regName, (LONG)value);
+    *(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = value;
+}
+
 static INLINE void REGARGS writeMMIO_W(volatile UBYTE *mmiobase, LONG regOffset, UWORD value, const char *regName)
 {
     D(VERBOSE, "W %s <- 0x%04lx\n", regName, (LONG)value);
     *(volatile UWORD *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPW(value);
+}
+
+static INLINE void REGARGS writeMMIOMask_W(volatile UBYTE *mmioBase, LONG regOffset, UWORD mask, UWORD value,
+                                           const char *regName)
+{
+    UWORD regValue = readMMIO_W(mmioBase, regOffset, regName);
+    regValue &= ~mask;
+    regValue |= value & mask;
+    writeReg(mmioBase, regOffset, regValue);
 }
 
 static INLINE void REGARGS writeMMIO_L(volatile UBYTE *mmiobase, LONG regOffset, ULONG value, const char *regName)
@@ -508,10 +534,13 @@ static INLINE void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
 #define W_IO_W(reg, value) writeRegW(RegBase, reg, value, #reg)
 #define W_IO_L(reg, value) writeRegL(RegBase, reg, value, #reg)
 
-#define R_MMIO_W(reg)        readMMIO_W(MMIOBase, reg, #reg)
-#define R_MMIO_L(reg)        readMMIO_L(MMIOBase, reg, #reg)
-#define W_MMIO_W(reg, value) writeMMIO_W(MMIOBase, reg, value, #reg)
-#define W_MMIO_L(reg, value) writeMMIO_L(MMIOBase, reg, value, #reg)
+#define W_MMIO_B(reg, value)            writeMMIO_B(MMIOBase, reg, value, #reg)
+#define R_MMIO_B(reg)                   readMMIO_B(MMIOBase, reg, #reg)
+#define W_MMIO_W(reg, value)            writeMMIO_W(MMIOBase, reg, value, #reg)
+#define W_MMIO_MASK_W(reg, mask, value) writeMMIOMask_W(MMIOBase, reg, mask, value, #reg)
+#define R_MMIO_W(reg)                   readMMIO_W(MMIOBase, reg, #reg)
+#define W_MMIO_L(reg, value)            writeMMIO_L(MMIOBase, reg, value, #reg)
+#define R_MMIO_L(reg)                   readMMIO_L(MMIOBase, reg, #reg)
 
 #define W_MISC_MASK(mask, value) writeMISC_OUT(RegBase, mask, value)
 

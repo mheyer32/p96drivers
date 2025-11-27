@@ -134,7 +134,7 @@ endef
 ###############################################################################
 # target 'all' (default target)
 
-all : S3Trio64V2.chip S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip S3Trio64.card ATIMach64.chip ATIMach64.card TestMach64 TestMach64Card TestS3Trio64Plus TestS3TrioCard 
+all : S3Trio64V2.chip S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip S3Trio64.card ATIMach64.chip ATIMach64.card AT3D.chip TestAT3D TestMach64 TestMach64Card TestS3Trio64Plus TestS3TrioCard 
 
 openpci.h : openpci/openpci.fd openpci/clib/openpci_protos.h
 	@$(MKDIR) -p openpci/inline
@@ -243,6 +243,22 @@ TESTATIMACH64CARD_SRC = common.c \
 						mach64/mach64_common.c
 					
 $(eval $(call make_exe,TestMach64Card,$(BUILDDIR)testmach64card/, ${TESTATIMACH64CARD_SRC}))
+
+
+AT3D_SRC = common.c \
+           at3d/at3d_common.c \
+           at3d/chip_at3d.c \
+           chip_library.c
+
+AT3D.chip : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -include at3d/at3dconfig.h
+$(eval $(call make_driver,AT3D.chip,$(BUILDDIR)at3d/, ${AT3D_SRC}))
+
+AT3D_TESTEXE_SRC = common.c \
+                   at3d/at3d_common.c \
+                   at3d/chip_at3d.c
+
+TestAT3D : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include at3d/at3dconfig.h
+$(eval $(call make_exe,TestAT3D,$(BUILDDIR)testat3d/, ${AT3D_TESTEXE_SRC}))
 
 
 # target 'clean'

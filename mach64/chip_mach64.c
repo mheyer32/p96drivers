@@ -2440,7 +2440,7 @@ int main()
             getCardData(bi)->OpenPciBase = OpenPciBase;
             getCardData(bi)->board       = board;
 
-            getCardData(bi)->legacyIOBase = legacyIOBase;
+            getCardData(bi)->legacyIOBase = legacyIOBase + REGISTER_OFFSET;
 
             // Block IO is in BAR1
             if (family >= MACH64VT) {

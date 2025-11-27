@@ -236,7 +236,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     }
 
     bi->ChipBase                  = ChipBase;
-    getCardData(bi)->legacyIOBase = legacyIOBase;
+    getCardData(bi)->legacyIOBase = legacyIOBase + REGISTER_OFFSET;
 
     // Set up register and memory bases
     if (chipFamily > MACH64GX && !memory1) {
