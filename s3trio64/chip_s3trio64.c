@@ -1,5 +1,5 @@
 #include "chip_s3trio64.h"
-#include "s3edid.h"
+#include "edid_common.h"
 #include "s3i2c.h"
 #include "s3ramdac.h"
 
@@ -2827,6 +2827,17 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     }
 }
 
+/**
+ * Get I2C operations structure for EDID support
+ * @param bi BoardInfo structure
+ * @return Pointer to I2COps_t structure, or NULL if not initialized
+ */
+I2COps_t *getI2COps(struct BoardInfo *bi)
+{
+    CardData_t *card = getCardData(bi);
+    return &card->i2cOps;
+}
+
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(ALWAYS, "\n");
@@ -2835,6 +2846,16 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     //  if (!getChipData(bi)->DOSBase) {
     //    return FALSE;
     //  }
+
+    // Initialize I2C operations for EDID support
+    CardData_t *card = getCardData(bi);
+    card->i2cOps.init     = s3I2cInit;
+    card->i2cOps.setScl   = s3I2cSetScl;
+    card->i2cOps.setSda   = s3I2cSetSda;
+    card->i2cOps.readScl  = s3I2cReadScl;
+    card->i2cOps.readSda  = s3I2cReadSda;
+    
+    D(INFO, "I2C operations initialized for EDID support\n");
 
     bi->GraphicsControllerType = GCT_S3Trio64;
     bi->PaletteChipType        = PCT_S3Trio64;

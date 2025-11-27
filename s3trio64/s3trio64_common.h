@@ -2,6 +2,7 @@
 #define S3TRIO64_COMMON_H
 
 #include "common.h"
+#include "edid_common.h"
 
 #include <exec/types.h>
 
@@ -77,6 +78,7 @@ typedef struct CardData
     struct pci_dev *board;
     struct Node boardNode;
     char boardName[16];
+    I2COps_t i2cOps;  // I2C operations for EDID support
 } CardData_t;
 
 STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);

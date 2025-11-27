@@ -1,4 +1,5 @@
 #include "s3trio64_common.h"
+#include "edid_common.h"
 
 // Serial Port Register (MMFF20) - MMIO offset 0xFF20
 #define SERIAL_PORT_REG 0xFF20
@@ -18,7 +19,7 @@
  * @param bi BoardInfo structure
  * @return TRUE if successful, FALSE otherwise
  */
-BOOL i2cInit(struct BoardInfo *bi)
+BOOL s3I2cInit(struct BoardInfo *bi)
 {
     MMIOBASE();
     
@@ -41,8 +42,9 @@ BOOL i2cInit(struct BoardInfo *bi)
  * Set SCL line state
  * @param bi BoardInfo structure
  * @param high TRUE to release (tri-state), FALSE to drive low
+ * @param checkClockStretching TRUE to check for clock stretching
  */
-static inline void i2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
+void s3I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
 {
     DFUNC(VERBOSE, " %s\n", high ? "HIGH" : "LOW");
     MMIOBASE();
@@ -134,7 +136,7 @@ static inline void i2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStr
  * @param bi BoardInfo structure
  * @param high TRUE to release (tri-state), FALSE to drive low
  */
-static inline void i2cSetSda(struct BoardInfo *bi, BOOL high)
+void s3I2cSetSda(struct BoardInfo *bi, BOOL high)
 {
    DFUNC(VERBOSE, " %s\n", high ? "HIGH" : "LOW");
     MMIOBASE();
@@ -173,7 +175,7 @@ static inline void i2cSetSda(struct BoardInfo *bi, BOOL high)
  * @param bi BoardInfo structure
  * @return TRUE if SCL is high, FALSE if low
  */
-static inline BOOL i2cReadScl(struct BoardInfo *bi)
+BOOL s3I2cReadScl(struct BoardInfo *bi)
 {
     MMIOBASE();
     ULONG serialReg = R_MMIO_L(SERIAL_PORT_REG);
@@ -185,141 +187,13 @@ static inline BOOL i2cReadScl(struct BoardInfo *bi)
  * @param bi BoardInfo structure
  * @return TRUE if SDA is high, FALSE if low
  */
-static inline BOOL i2cReadSda(struct BoardInfo *bi)
+BOOL s3I2cReadSda(struct BoardInfo *bi)
 {
     MMIOBASE();
     ULONG serialReg = R_MMIO_L(SERIAL_PORT_REG);
     return (serialReg & SERIAL_SDR) != 0;
 }
 
-/**
- * Generate I2C start condition
- * SDA goes from high to low while SCL is high
- * @param bi BoardInfo structure
- */
-void i2cStart(struct BoardInfo *bi)
-{
-    // Ensure SDA and SCL are released (high)
-    i2cSetSda(bi, TRUE);
-    i2cSetScl(bi, TRUE, FALSE);
-    delayMicroSeconds(I2C_DELAY_US);
-    
-    // Start condition: SDA goes low while SCL is high
-    i2cSetSda(bi, FALSE);
-    delayMicroSeconds(I2C_DELAY_US);
-    
-    // Pull SCL low to prepare for data transfer
-    i2cSetScl(bi, FALSE, FALSE);
-    delayMicroSeconds(I2C_DELAY_US);
-}
-
-/**
- * Generate I2C stop condition
- * SDA goes from low to high while SCL is high
- * @param bi BoardInfo structure
- */
-void i2cStop(struct BoardInfo *bi)
-{
-    // Ensure SDA is low and SCL is low
-    i2cSetSda(bi, FALSE);
-    i2cSetScl(bi, FALSE, FALSE);
-    delayMicroSeconds(I2C_DELAY_US);
-    
-    // Pull SCL high first (check for clock stretching)
-    i2cSetScl(bi, TRUE, TRUE);
-    delayMicroSeconds(I2C_DELAY_US);
-    
-    // Stop condition: SDA goes high while SCL is high
-    i2cSetSda(bi, TRUE);
-    delayMicroSeconds(I2C_DELAY_US);
-}
-
-/**
- * Write a single bit on I2C bus
- * @param bi BoardInfo structure
- * @param bit Bit value to write (0 or 1)
- * @return TRUE if successful
- */
-BOOL i2cWriteBit(struct BoardInfo *bi, UBYTE bit)
-{
-    // Set SDA to desired value while SCL is low
-    i2cSetSda(bi, bit != 0);
-    delayMicroSeconds(I2C_DELAY_US);
-    
-    // Clock the bit by pulling SCL high (check for clock stretching)
-    i2cSetScl(bi, TRUE, TRUE);
-    delayMicroSeconds(I2C_DELAY_US);
-    
-    // Pull SCL low to complete the bit transfer (no clock stretching check)
-    i2cSetScl(bi, FALSE, FALSE);
-    delayMicroSeconds(I2C_DELAY_US);
-    
-    return TRUE;
-}
-
-/**
- * Read a single bit from I2C bus
- * @param bi BoardInfo structure
- * @return Bit value (0 or 1)
- */
-UBYTE i2cReadBit(struct BoardInfo *bi)
-{
-    // Release SDA (set to input/tri-state)
-    i2cSetSda(bi, TRUE);
-    delayMicroSeconds(I2C_DELAY_US);
-    
-    // Clock the bit by pulling SCL high (check for clock stretching)
-    i2cSetScl(bi, TRUE, TRUE);
-    delayMicroSeconds(I2C_DELAY_US);
-    
-    // Read SDA value while SCL is high
-    UBYTE bit = i2cReadSda(bi) ? 1 : 0;
-    
-    // Pull SCL low to complete the bit transfer (no clock stretching check)
-    i2cSetScl(bi, FALSE, FALSE);
-    delayMicroSeconds(I2C_DELAY_US);
-    
-    return bit;
-}
-
-/**
- * Write a byte on I2C bus and check for ACK
- * @param bi BoardInfo structure
- * @param data Byte to write
- * @return TRUE if ACK received, FALSE if NACK
- */
-BOOL i2cWriteByte(struct BoardInfo *bi, UBYTE data)
-{
-    // Write 8 bits, MSB first
-    for (int i = 7; i >= 0; i--) {
-        i2cWriteBit(bi, (data >> i) & 1);
-    }
-    
-    // Read ACK bit (slave pulls SDA low for ACK)
-    UBYTE ack = i2cReadBit(bi);
-    
-    return (ack == 0);  // ACK is low (0), NACK is high (1)
-}
-
-/**
- * Read a byte from I2C bus
- * @param bi BoardInfo structure
- * @param ack TRUE to send ACK, FALSE to send NACK
- * @return Byte read from bus
- */
-UBYTE i2cReadByte(struct BoardInfo *bi, BOOL ack)
-{
-    UBYTE data = 0;
-    
-    // Read 8 bits, MSB first
-    for (int i = 7; i >= 0; i--) {
-        UBYTE bit = i2cReadBit(bi);
-        data |= (bit << i);
-    }
-    
-    // Send ACK or NACK
-    i2cWriteBit(bi, ack ? 0 : 1);  // 0 = ACK, 1 = NACK
-    
-    return data;
-}
+// I2C protocol functions (start, stop, bit/byte read/write) are now in edid_common.c
+// They use the I2COps interface provided by s3I2cInit, s3I2cSetScl, etc.
 

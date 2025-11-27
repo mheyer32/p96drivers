@@ -1,4 +1,6 @@
 #include "chip_at3d.h"
+#include "at3d_i2c.h"
+#include "edid_common.h"
 
 #define __NOLIBBASE__
 
@@ -173,6 +175,17 @@ static BOOL testMMIO(BoardInfo_t *bi)
 #define LDEV_MASK (0x3 << 4)
 #define LDEV(x)   ((x) << 4)
 
+/**
+ * Get I2C operations structure for EDID support
+ * @param bi BoardInfo structure
+ * @return Pointer to I2COps_t structure, or NULL if not initialized
+ */
+I2COps_t *getI2COps(struct BoardInfo *bi)
+{
+    CardData_t *card = getCardData(bi);
+    return &card->i2cOps;
+}
+
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(ALWAYS, "AT3D InitChip - Testing hardware access\n");
@@ -221,6 +234,36 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Probe framebuffer memory size
     ULONG memSize  = probeFramebufferSize(bi);
     bi->MemorySize = memSize;
+
+    // Initialize I2C operations for EDID support
+    CardData_t *card = getCardData(bi);
+    card->i2cOps.init     = at3dI2cInit;
+    card->i2cOps.setScl   = at3dI2cSetScl;
+    card->i2cOps.setSda   = at3dI2cSetSda;
+    card->i2cOps.readScl  = at3dI2cReadScl;
+    card->i2cOps.readSda  = at3dI2cReadSda;
+    
+    D(INFO, "I2C operations initialized for EDID support\n");
+
+            // Try to read EDID from monitor (only for chips that support serial port register)
+            // TRIO64PLUS and TRIO64V2 have the serial port register at MMIO offset 0xFF20
+    UBYTE edid_data[EDID_BLOCK_SIZE];
+    if (readEDID(bi, edid_data)) {
+        char manufacturer[4];
+        char product_name[14];
+
+        getEDIDManufacturer(edid_data, manufacturer);
+        D(INFO, "EDID: Manufacturer: %s\n", manufacturer);
+
+        if (getEDIDProductName(edid_data, product_name)) {
+            D(INFO, "EDID: Product Name: %s\n", product_name);
+        }
+
+        D(INFO, "EDID: Version %d.%d, Year: %d, Week: %d\n", edid_data[18], edid_data[19], edid_data[17] + 1990,
+          edid_data[16]);
+    } else {
+        D(INFO, "EDID: Not available or read failed (monitor may not support EDID)\n");
+    }
 
     // Set up basic BoardInfo structure
     bi->GraphicsControllerType = 0;  // Will need to define AT3D type

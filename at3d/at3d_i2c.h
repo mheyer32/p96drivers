@@ -1,18 +1,17 @@
-#ifndef S3I2C_H
-#define S3I2C_H
+#ifndef AT3D_I2C_H
+#define AT3D_I2C_H
 
-#include "chip_s3trio64.h"
-#include "edid_common.h"
+#include "chip_at3d.h"
 
-// I2C bit-banging function declarations for S3
+// I2C bit-banging function declarations for AT3D
 // These are low-level functions that manipulate the I2C registers
 
 /**
- * Initialize I2C bus by enabling the serial port
+ * Initialize I2C bus
  * @param bi BoardInfo structure
  * @return TRUE if successful, FALSE otherwise
  */
-BOOL s3I2cInit(struct BoardInfo *bi);
+BOOL at3dI2cInit(struct BoardInfo *bi);
 
 /**
  * Set SCL line state
@@ -20,29 +19,28 @@ BOOL s3I2cInit(struct BoardInfo *bi);
  * @param high TRUE to release (tri-state), FALSE to drive low
  * @param checkClockStretching TRUE to check for clock stretching
  */
-void s3I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching);
+void at3dI2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching);
 
 /**
  * Set SDA line state
  * @param bi BoardInfo structure
  * @param high TRUE to release (tri-state), FALSE to drive low
  */
-void s3I2cSetSda(struct BoardInfo *bi, BOOL high);
+void at3dI2cSetSda(struct BoardInfo *bi, BOOL high);
 
 /**
  * Read SCL line state
  * @param bi BoardInfo structure
  * @return TRUE if SCL is high, FALSE if low
  */
-BOOL s3I2cReadScl(struct BoardInfo *bi);
+BOOL at3dI2cReadScl(struct BoardInfo *bi);
 
 /**
  * Read SDA line state
  * @param bi BoardInfo structure
  * @return TRUE if SDA is high, FALSE if low
  */
-BOOL s3I2cReadSda(struct BoardInfo *bi);
+BOOL at3dI2cReadSda(struct BoardInfo *bi);
 
-#endif // S3I2C_H
-
+#endif // AT3D_I2C_H
 

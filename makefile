@@ -159,7 +159,7 @@ S3TRIO_SRC = common.c \
              s3trio64/chip_s3trio64.c \
              s3trio64/s3ramdac.c \
              s3trio64/s3i2c.c \
-             s3trio64/s3edid.c \
+             edid_common.c \
              chip_library.c 
 
 S3Trio64Plus.chip : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DCONFIG_S3TRIO64PLUS -include s3trio64/s3config.h 
@@ -188,7 +188,7 @@ S3TRIO64PLUS_TESTEXE_SRC = common.c \
                            s3trio64/s3ramdac.c \
                            s3trio64/chip_s3trio64.c \
 						   s3trio64/s3i2c.c \
-						   s3trio64/s3edid.c
+						   edid_common.c
 
 TestS3Trio64Plus : CFLAGS+=-DCONFIG_S3TRIO64PLUS -DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include s3trio64/s3config.h 
 
@@ -247,7 +247,9 @@ $(eval $(call make_exe,TestMach64Card,$(BUILDDIR)testmach64card/, ${TESTATIMACH6
 
 AT3D_SRC = common.c \
            at3d/at3d_common.c \
+           at3d/at3d_i2c.c \
            at3d/chip_at3d.c \
+           edid_common.c \
            chip_library.c
 
 AT3D.chip : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -include at3d/at3dconfig.h
@@ -255,7 +257,9 @@ $(eval $(call make_driver,AT3D.chip,$(BUILDDIR)at3d/, ${AT3D_SRC}))
 
 AT3D_TESTEXE_SRC = common.c \
                    at3d/at3d_common.c \
-                   at3d/chip_at3d.c
+                   at3d/at3d_i2c.c \
+                   at3d/chip_at3d.c \
+                   edid_common.c
 
 TestAT3D : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include at3d/at3dconfig.h
 $(eval $(call make_exe,TestAT3D,$(BUILDDIR)testat3d/, ${AT3D_TESTEXE_SRC}))
