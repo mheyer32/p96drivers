@@ -45,17 +45,17 @@ static ULONG probeFramebufferSize(BoardInfo_t *bi)
     ULONG maxSize           = 4 * 1024 * 1024;
 
     // Test pattern for memory probing
-    ULONG testOffset  = 0;
+    ULONG testOffset = 0;
 
     // Try to find memory boundary by testing at power-of-2 offsets
     for (ULONG size = 1 * 1024 * 1024; size <= maxSize; size *= 2) {
         testOffset = size - 32768 - 4;  // Test near the boundary
 
         // Save original values at test locations
-        ULONG original = *(volatile ULONG *)(memBase + testOffset);
+        ULONG original       = *(volatile ULONG *)(memBase + testOffset);
         ULONG originalAtHalf = *(volatile ULONG *)(memBase + size / 2);
-        ULONG prevSize = size / 2;
-        
+        ULONG prevSize       = size / 2;
+
         // Use a unique test pattern based on the test offset to detect wraparound
         // If memory wraps, writing at testOffset might appear at a different location
         ULONG uniquePattern = (ULONG)memBase + testOffset;  // Make pattern unique to this offset
@@ -68,12 +68,12 @@ static ULONG probeFramebufferSize(BoardInfo_t *bi)
         CacheClearU();
 
         // Read back from test offset
-        ULONG readback = *(volatile ULONG *)(memBase + testOffset);
+        ULONG readback  = *(volatile ULONG *)(memBase + testOffset);
         ULONG readback0 = *(volatile ULONG *)(memBase + size / 4);
 
         // Restore original values
         *(volatile ULONG *)(memBase + testOffset) = original;
-        *(volatile ULONG *)(memBase + size / 2) = originalAtHalf;
+        *(volatile ULONG *)(memBase + size / 2)   = originalAtHalf;
         CacheClearU();
 
         if (readback0 == uniquePattern) {
@@ -170,11 +170,142 @@ static BOOL testMMIO(BoardInfo_t *bi)
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// Clock computation and programming functions
+
+// AT3D clock formula: FOUT = (N+1)(FREF) / ((M+1)(2^L))
+// Where:
+//   FREF = 14.318 MHz (recommended reference frequency)
+//   N = 8-127 (numerator)
+//   M = 1-5 (denominator)
+//   L = 0-3 (postscaler, 2^L = 1, 2, 4, 8)
+
+// Postscaler values: 2^L where L = 0, 1, 2, 3
+static const UBYTE at3dPostScalers[] = {1, 2, 4, 8};
+
+/**
+ * Compute clock frequency from PLL values
+ * @param n Numerator (N, 8-127)
+ * @param m Denominator (M, 1-5)
+ * @param l Postscaler index (L, 0-3)
+ * @return Frequency in Hz
+ */
+static ULONG computeClockFrequency(UBYTE n, UBYTE m, UBYTE l)
+{
+    // FOUT = (N+1)(FREF) / ((M+1)(2^L))
+    // FREF = 14.318 MHz = 14318000 Hz
+    ULONG fref        = 14318000;
+    ULONG numerator   = (ULONG)(n + 1) * fref;
+    ULONG denominator = (ULONG)(m + 1) * at3dPostScalers[l];
+    return numerator / denominator;
+}
+
+static const struct svga_pll at3d_pll = {8, 127, 1, 5, 0, 3, 185000, 370000, 14318};
+
+/**
+ * Compute PLL values for a target frequency
+ * @param targetFreqHz Target frequency in Hz
+ * @param n Output: Numerator (N, 8-127)
+ * @param m Output: Denominator (M, 1-5)
+ * @param l Output: Postscaler index (L, 0-3)
+ * @return Actual frequency in Hz, or 0 if no valid combination found
+ */
+static ULONG computePLLValues(ULONG targetFreqHz, UBYTE *n, UBYTE *m, UBYTE *l)
+{
+    UWORD _m, _n, _r;
+    int freq = svga_compute_pll(&at3d_pll, targetFreqHz / 1000, &_n, &_m, &_r);
+    if (freq == -1) {
+        return 0;  // No valid combination found
+    }
+    *n         = _n;
+    *m         = _m;
+    *l         = _r;
+    return freq;  // No valid combination found
+}
+
+/**
+ * Program MCLK (Memory Clock)
+ * @param bi BoardInfo structure
+ * @param clockHz Target frequency in Hz
+ * @return Actual frequency set in Hz
+ */
+ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
+{
+    DFUNC(INFO, "Setting MCLK to %ld Hz\n", clockHz);
+
+    UBYTE n, m, l;
+    ULONG actualFreq = computePLLValues(clockHz, &n, &m, &l);
+
+    if (actualFreq == 0) {
+        DFUNC(ERROR, "Failed to compute MCLK PLL values for %ld Hz\n", clockHz);
+        return clockHz;  // Return requested frequency as fallback
+    }
+
+    DFUNC(INFO, "MCLK: N=%ld, M=%ld, L=%ld, actual=%ld Hz\n", (ULONG)n, (ULONG)m, (ULONG)l, actualFreq);
+
+    MMIOBASE();
+
+    // Set postscaler in control register and enable MCLK programming
+    W_MMIO_MASK_B(MCLK_CTRL, CLK_HIGH_SPEED | CLK_POWER_OFF | CLK_BYPASS | CLK_POSTSCALER_MASK,
+                  CLK_POSTSCALER(l) | CLK_HIGH_SPEED);
+
+    // Write numerator (N) - mask to ensure only valid bits are set
+    W_MMIO_MASK_B(MCLK_NUM, CLK_NUM_MASK, n);
+
+    // Write denominator (M) - mask to ensure only valid bits are set
+    W_MMIO_MASK_B(MCLK_DEN, CLK_DEN_MASK, m);
+
+    // Wait for PLL to stabilize
+    delayMilliSeconds(5);
+
+    return actualFreq;
+}
+
+/**
+ * Program VCLK (Pixel Clock)
+ * @param bi BoardInfo structure
+ * @param freqHz Target frequency in Hz
+ */
+static void setPixelClock(BoardInfo_t *bi, ULONG freqHz)
+{
+    DFUNC(INFO, "Setting VCLK to %ld Hz\n", freqHz);
+
+    UBYTE n, m, l;
+    ULONG actualFreq = computePLLValues(freqHz, &n, &m, &l);
+
+    if (actualFreq == 0) {
+        DFUNC(ERROR, "Failed to compute VCLK PLL values for %ld Hz\n", freqHz);
+        return;
+    }
+
+    DFUNC(INFO, "VCLK: N=%ld, M=%ld, L=%ld, actual=%ld Hz\n", (ULONG)n, (ULONG)m, (ULONG)l, actualFreq);
+
+    MMIOBASE();
+
+    // Set postscaler in control register
+    W_MMIO_MASK_B(VCLK_CTRL, CLK_POSTSCALER_MASK, CLK_POSTSCALER(l));
+
+    // Power on and disable bypass
+    W_MMIO_MASK_B(VCLK_CTRL, CLK_POWER_OFF | CLK_BYPASS, 0);
+
+    // Write numerator (N) - mask to ensure only valid bits are set
+    W_MMIO_MASK_B(VCLK_NUM, CLK_NUM_MASK, n & CLK_NUM_MASK);
+
+    // Write denominator (M) - mask to ensure only valid bits are set
+    W_MMIO_MASK_B(VCLK_DEN, CLK_DEN_MASK, m & CLK_DEN_MASK);
+
+    // Wait for PLL to stabilize
+    delayMilliSeconds(5);
+}
+
 #define LDEV_MASK (0x3 << 4)
 #define LDEV(x)   ((x) << 4)
 
 // Forward declarations
 static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level));
+static void ASM SetClock(__REGA0(struct BoardInfo *bi));
+static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
+                                   __REGD0(ULONG desiredPixelClock), __REGD1(RGBFTYPE rgbFormat));
+ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz);
 
 /**
  * Get I2C operations structure for EDID support
@@ -208,8 +339,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     MMIOBASE();
 
-    if (getChipData(bi)->chipFamily >= AT24)
-    {
+    if (getChipData(bi)->chipFamily >= AT24) {
         // Enable extended registers, disable classic VGA IO range,
         // enable coprocessor aperture, enable second linear aperture
         W_MMIO_B(ENABLE_EXT_REGS, 0x0E);
@@ -237,17 +367,17 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->MemorySize = memSize;
 
     // Initialize I2C operations for EDID support
-    CardData_t *card = getCardData(bi);
-    card->i2cOps.init     = at3dI2cInit;
-    card->i2cOps.setScl   = at3dI2cSetScl;
-    card->i2cOps.setSda   = at3dI2cSetSda;
-    card->i2cOps.readScl  = at3dI2cReadScl;
-    card->i2cOps.readSda  = at3dI2cReadSda;
-    
+    CardData_t *card     = getCardData(bi);
+    card->i2cOps.init    = at3dI2cInit;
+    card->i2cOps.setScl  = at3dI2cSetScl;
+    card->i2cOps.setSda  = at3dI2cSetSda;
+    card->i2cOps.readScl = at3dI2cReadScl;
+    card->i2cOps.readSda = at3dI2cReadSda;
+
     D(INFO, "I2C operations initialized for EDID support\n");
 
-            // Try to read EDID from monitor (only for chips that support serial port register)
-            // TRIO64PLUS and TRIO64V2 have the serial port register at MMIO offset 0xFF20
+    // Try to read EDID from monitor (only for chips that support serial port register)
+    // TRIO64PLUS and TRIO64V2 have the serial port register at MMIO offset 0xFF20
     UBYTE edid_data[EDID_BLOCK_SIZE];
     if (readEDID(bi, edid_data)) {
         char manufacturer[4];
@@ -272,7 +402,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->Flags                  = 0;  // Minimal flags for now
 
     // Set function pointers
-    bi->SetDPMSLevel = SetDPMSLevel;
+    bi->SetDPMSLevel      = SetDPMSLevel;
+    bi->SetClock          = SetClock;
+    bi->ResolvePixelClock = ResolvePixelClock;
+    SetMemoryClock(bi, 50000000);
 
     // Stub function pointers (minimal implementation)
     // These will be implemented in future phases
@@ -285,12 +418,49 @@ static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state)) {
 
 static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(BOOL border)) {}
 
-static void ASM SetClock(__REGA0(struct BoardInfo *bi)) {}
+static void ASM SetClock(__REGA0(struct BoardInfo *bi))
+{
+    DFUNC(INFO, "\n");
+
+    struct ModeInfo *mi = bi->ModeInfo;
+    if (!mi) {
+        DFUNC(ERROR, "ModeInfo is NULL\n");
+        return;
+    }
+
+    ULONG pixelClock = mi->PixelClock;
+    D(INFO, "SetClock: PixelClock %ld Hz\n", pixelClock);
+
+    // Program VCLK (pixel clock)
+    setPixelClock(bi, pixelClock);
+}
 
 static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
                                    __REGD0(ULONG desiredPixelClock), __REGD1(RGBFTYPE rgbFormat))
 {
-    return 0;
+    DFUNC(VERBOSE, "desiredPixelClock=%ld Hz, format=%ld\n", desiredPixelClock, (ULONG)rgbFormat);
+
+    if (!mi) {
+        return desiredPixelClock;
+    }
+
+    // Compute PLL values for the desired frequency
+    UBYTE n, m, l;
+    ULONG actualFreq = computePLLValues(desiredPixelClock, &n, &m, &l);
+
+    if (actualFreq == 0) {
+        DFUNC(ERROR, "Failed to resolve pixel clock for %ld Hz\n", desiredPixelClock);
+        return desiredPixelClock;  // Return desired frequency as fallback
+    }
+
+    // Store PLL values in ModeInfo for SetClock to use
+    // Note: AT3D uses different PLL structure than S3, so we'll store raw values
+    // For now, we'll just set the actual frequency
+    mi->PixelClock = actualFreq;
+
+    DFUNC(VERBOSE, "Resolved pixel clock: %ld Hz (desired: %ld Hz)\n", actualFreq, desiredPixelClock);
+
+    return actualFreq;
 }
 
 static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(ULONG index),
@@ -330,7 +500,9 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
  */
 static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level))
 {
-    // DPMS levels per boardinfo.h:
+    DFUNC(VERBOSE, "SetDPMSLevel: level=%ld", level);
+
+            // DPMS levels per boardinfo.h:
     //  DPMS_ON (0)      - Full operation
     //  DPMS_STANDBY (1) - Optional state of minimal power reduction
     //  DPMS_SUSPEND (2) - Significant reduction of power consumption
@@ -349,20 +521,13 @@ static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level)
     static const UBYTE DPMSLevels[4] = {0x00, 0x02, 0x01, 0x03};
 
     if (level > 3) {
-        level = 3;  
+        level = 3;
     }
 
     MMIOBASE();
-    
-    // Read current register value and preserve bits [7:2] (I2C control bits, etc.)
-    UBYTE dpmsReg = R_MMIO_B(DPMS_SYNC_CTRL);
-    
-    // Clear bits [1:0] and set new DPMS level
-    dpmsReg = (dpmsReg & ~0x03) | DPMSLevels[level];
-    
-    W_MMIO_B(DPMS_SYNC_CTRL, dpmsReg);
-    
-    D(VERBOSE, "SetDPMSLevel: level=%ld, register=0x%02lx\n", level, (ULONG)dpmsReg);
+
+    // Set DPMS level in bits [1:0], preserving other bits
+    W_MMIO_MASK_B(DPMS_SYNC_CTRL, 0x03, DPMSLevels[level]);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

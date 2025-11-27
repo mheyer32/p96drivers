@@ -372,13 +372,22 @@ static INLINE void REGARGS writeMMIO_W(volatile UBYTE *mmiobase, LONG regOffset,
     *(volatile UWORD *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPW(value);
 }
 
+static INLINE void REGARGS writeMMIOMask_B(volatile UBYTE *mmioBase, LONG regOffset, UBYTE mask, UBYTE value,
+                                           const char *regName)
+{
+    UBYTE regValue = readMMIO_B(mmioBase, regOffset, regName);
+    regValue &= ~mask;
+    regValue |= value & mask;
+    writeMMIO_B(mmioBase, regOffset, regValue, regName);
+}
+
 static INLINE void REGARGS writeMMIOMask_W(volatile UBYTE *mmioBase, LONG regOffset, UWORD mask, UWORD value,
                                            const char *regName)
 {
     UWORD regValue = readMMIO_W(mmioBase, regOffset, regName);
     regValue &= ~mask;
     regValue |= value & mask;
-    writeReg(mmioBase, regOffset, regValue);
+    writeMMIO_W(mmioBase, regOffset, regValue, regName);
 }
 
 static INLINE void REGARGS writeMMIO_L(volatile UBYTE *mmiobase, LONG regOffset, ULONG value, const char *regName)
@@ -536,6 +545,7 @@ static INLINE void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
 
 #define W_MMIO_B(reg, value)            writeMMIO_B(MMIOBase, reg, value, #reg)
 #define R_MMIO_B(reg)                   readMMIO_B(MMIOBase, reg, #reg)
+#define W_MMIO_MASK_B(reg, mask, value) writeMMIOMask_B(MMIOBase, reg, mask, value, #reg)
 #define W_MMIO_W(reg, value)            writeMMIO_W(MMIOBase, reg, value, #reg)
 #define W_MMIO_MASK_W(reg, mask, value) writeMMIOMask_W(MMIOBase, reg, mask, value, #reg)
 #define R_MMIO_W(reg)                   readMMIO_W(MMIOBase, reg, #reg)

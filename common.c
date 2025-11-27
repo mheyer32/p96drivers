@@ -54,7 +54,7 @@ int svga_compute_pll(const struct svga_pll *pll, ULONG f_wanted_khz, USHORT *m, 
 
     /* overflow check */
     if ((f_vco >> ar) != f_wanted_khz) {
-        DFUNC(0, "pixelclock overflow\n");
+        DFUNC(ERROR, "pixelclock overflow\n");
         return -1;
     }
 
@@ -68,7 +68,7 @@ int svga_compute_pll(const struct svga_pll *pll, ULONG f_wanted_khz, USHORT *m, 
 
     /* VCO bounds check */
     if ((f_vco < pll->f_vco_min) || (f_vco > pll->f_vco_max)) {
-        DFUNC(0, "pixelclock overflow\n");
+        DFUNC(ERROR, "VCO frequency out of range\n");
         return -1;
     }
 
