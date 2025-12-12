@@ -201,7 +201,7 @@ static ULONG computeKhzFromPllValue(const struct svga_pll *pll, const PLLValue_t
 }
 
 // Initialize PLL table for pixel clocks
-void InitPixelClockPLLTable(BoardInfo_t *bi)
+void initPixelClockPLLTable(BoardInfo_t *bi)
 {
     DFUNC(VERBOSE, "", bi);
 
@@ -398,7 +398,7 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
     return;
 }
 
-static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
+static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE format))
 {
     DFUNC(INFO, "\n");
 
@@ -1024,7 +1024,8 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     return;
 }
 
-static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REGD7(RGBFTYPE format))
+static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REGD0(struct RenderInfo *mi),
+                                __REGD7(RGBFTYPE format))
 {
 #if !BUILD_VISION864
     if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
@@ -1071,7 +1072,7 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGB
     return compatible;
 }
 
-static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
+static BOOL ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 {
     // Clocking Mode Register (ClK_MODE) (SR1)
     REGBASE();
@@ -1082,10 +1083,12 @@ static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
     //  R_REG(0x3DA);
     //  W_REG(ATR_AD, 0x20);
     //  R_REG(0x3DA);
+
+    return TRUE;
 }
 
-static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
-                                   __REGD0(ULONG pixelClock), __REGD7(RGBFTYPE RGBFormat))
+static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
+                                  __REGD0(ULONG pixelClock), __REGD7(RGBFTYPE RGBFormat))
 {
     DFUNC(VERBOSE, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
 
@@ -1339,7 +1342,8 @@ static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expect
     return (R_REG(0x3DA) & 0x08) != 0;
 }
 
-static void WaitVerticalSync(__REGA0(struct BoardInfo *bi)) {}
+// FIXME: implement, but make sure to coordinate with SetDPMSLevel
+static void WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL waitForEnd)) {}
 
 static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level))
 {
@@ -2848,13 +2852,13 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     //  }
 
     // Initialize I2C operations for EDID support
-    CardData_t *card = getCardData(bi);
-    card->i2cOps.init     = s3I2cInit;
-    card->i2cOps.setScl   = s3I2cSetScl;
-    card->i2cOps.setSda   = s3I2cSetSda;
-    card->i2cOps.readScl  = s3I2cReadScl;
-    card->i2cOps.readSda  = s3I2cReadSda;
-    
+    CardData_t *card     = getCardData(bi);
+    card->i2cOps.init    = s3I2cInit;
+    card->i2cOps.setScl  = s3I2cSetScl;
+    card->i2cOps.setSda  = s3I2cSetSda;
+    card->i2cOps.readScl = s3I2cReadScl;
+    card->i2cOps.readSda = s3I2cReadSda;
+
     D(INFO, "I2C operations initialized for EDID support\n");
 
     bi->GraphicsControllerType = GCT_S3Trio64;
@@ -2862,8 +2866,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->Flags = bi->Flags | BIF_NOMEMORYMODEMIX | BIF_BORDERBLANK | BIF_BLITTER | BIF_GRANTDIRECTACCESS |
                 BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
     // Trio64 supports BGR_8_8_8_X 24bit, R5G5B5 and R5G6B5 modes.
-    // Prometheus does byte-swapping for writes to memory, so if we're writing a
-    // 32bit register filled with XRGB, the written memory order will be BGRX
     bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
 
     // We don't support these modes, but if we did, they would not allow for a HW
@@ -3011,7 +3013,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             UBYTE deviceIdHi = R_CR(0x2D);
             UBYTE deviceIdLo = R_CR(0x2E);
             if (chipFamily == TRIO64) {
-                deviceIdLo |= 0x01; // TRIO32 reports 0x10 in CR2E instead  of 0x11, so make it 0x11
+                deviceIdLo |= 0x01;  // TRIO32 reports 0x10 in CR2E instead  of 0x11, so make it 0x11
             }
             if ((deviceIdHi << 8 | deviceIdLo) != deviceId) {
                 DFUNC(ERROR, "Chipset ID mismatch: expected 0x%04lX, got 0x%02lX%02lX\n", (ULONG)deviceId,
@@ -3143,7 +3145,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     MMIOBASE();
 
     // Initialize PLL table for pixel clocks
-    InitPixelClockPLLTable(bi);
+    initPixelClockPLLTable(bi);
 
     UBYTE chipRevision = R_CR(0x2F);
     if (chipFamily >= VISION968) {
@@ -3782,7 +3784,7 @@ int main()
         }
         {
             DFUNC(ALWAYS, "SetDAC\n");
-            SetDAC(bi, RGBFB_CLUT);
+            SetDAC(bi, 0, RGBFB_CLUT);
         }
         {
             SetSprite(bi, FALSE, RGBFB_CLUT);
