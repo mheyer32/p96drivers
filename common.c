@@ -68,7 +68,7 @@ int svga_compute_pll(const struct svga_pll *pll, ULONG f_wanted_khz, USHORT *m, 
 
     /* VCO bounds check */
     if ((f_vco < pll->f_vco_min) || (f_vco > pll->f_vco_max)) {
-        DFUNC(ERROR, "VCO frequency out of range\n");
+        DFUNC(ERROR, "VCO frequency out of range %ldkHz for desired frequency %ldkHz\n", f_vco, f_wanted_khz);
         return -1;
     }
 

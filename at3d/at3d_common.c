@@ -75,13 +75,14 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
 
     if (chip->chipFamily <= AT24)
     {
-        bi->RegisterBase = legacyIOBase;
+        bi->RegisterBase = legacyIOBase + REGISTER_OFFSET;
         bi->MemoryIOBase = bi->MemoryBase + 4*1024*1024 - 2048 + MMIOREGISTER_OFFSET;
     }
     else
     {
         bi->RegisterBase = bi->MemoryBase + 0xFFF000 + REGISTER_OFFSET;
         bi->MemoryIOBase = bi->MemoryBase + 0xFFEC00 + MMIOREGISTER_OFFSET;
+        setCacheMode(bi, bi->MemoryBase + 0xFFEC00, 2048, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
     }
 
     D(INFO, "AT3D: Framebuffer (BAR0) = 0x%lx\n", (ULONG)bi->MemoryBase);

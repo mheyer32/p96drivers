@@ -11,12 +11,19 @@
 typedef enum ChipFamily
 {
     UNKNOWN,
-    AT6422,         // Alliance ProMotion 6422
-    AT6424,         // Alliance ProMotion 6424
-    AT24,           // Alliance ProMotion AT24
-    AT25,           // Alliance AT25
-    AT3D,           // Alliance ProMotion AT3D
+    AT6422,  // Alliance ProMotion 6422
+    AT6424,  // Alliance ProMotion 6424
+    AT24,    // Alliance ProMotion AT24
+    AT25,    // Alliance AT25
+    AT3D,    // Alliance ProMotion AT3D
 } ChipFamily_t;
+
+typedef struct PLLValue
+{
+    UBYTE n;  // N numerator (8-127)
+    UBYTE m;  // M denominator (1-5)
+    UBYTE l;  // L postscaler log2 (0-3)
+} PLLValue_t;
 
 typedef struct ChipData
 {
@@ -39,6 +46,10 @@ typedef struct ChipData
     ULONG *patternVideoBuffer;  // points to video memory
     UWORD *patternCacheBuffer;  // points to system memory
     ULONG patternCacheKey;
+
+    // PLL table for pixel clocks
+    PLLValue_t *pllValues;
+    UWORD numPllValues;
 
 } ChipData_t;
 

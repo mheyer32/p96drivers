@@ -51,7 +51,7 @@ void at3dI2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
         BOOL scl_high = FALSE;
         while (settle_attempts-- > 0) {
             ULONG statusReg = R_MMIO_L(EXT_DAC_STATUS);
-            if (statusReg & BIT(I2C_SCL_IN_BIT)) {
+            if (statusReg & I2C_SCL_IN) {
                 scl_high = TRUE;
                 break;
             }
@@ -68,14 +68,14 @@ void at3dI2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
             delayMicroSeconds(I2C_DELAY_US);
             ULONG statusReg = R_MMIO_L(EXT_DAC_STATUS);
             
-            if (!(statusReg & BIT(I2C_SCL_IN_BIT))) {
+            if (!(statusReg & I2C_SCL_IN)) {
                 // SCL went high but then went low - slave is clock stretching
                 // Wait for SCL to go high again (slave releases it)
                 int timeout = 100;  // Maximum iterations (~1ms with 10us delay)
                 while (timeout-- > 0) {
                     delayMicroSeconds(I2C_DELAY_US);
                     statusReg = R_MMIO_L(EXT_DAC_STATUS);
-                    if (statusReg & BIT(I2C_SCL_IN_BIT)) {
+                    if (statusReg & I2C_SCL_IN) {
                         // SCL is high again, slave has released it
                         D(VERBOSE, "Clock stretching detected and released after %d iterations\n", 100 - timeout);
                         break;
@@ -94,7 +94,7 @@ void at3dI2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
 #ifdef DBG
         // Verify that SCL is actually low (we're driving it, so it should be)
         ULONG statusReg = R_MMIO_L(EXT_DAC_STATUS);
-        if (statusReg & BIT(I2C_SCL_IN_BIT)) {
+        if (statusReg & I2C_SCL_IN) {
             D(ERROR, "I2C SCL failed to go low when driven\n");
         }
 #endif
@@ -125,7 +125,7 @@ void at3dI2cSetSda(struct BoardInfo *bi, BOOL high)
         // Verify that SDA is actually low (we're driving it, so it should be)
         // Read from 1FC[16] which is the SDA input
         ULONG statusReg = R_MMIO_L(EXT_DAC_STATUS);
-        if (statusReg & BIT(I2C_SDA_IN_BIT)) {
+        if (statusReg & I2C_SDA_IN) {
             D(ERROR, "I2C SDA failed to go low when driven\n");
         }
 #endif
@@ -142,7 +142,7 @@ BOOL at3dI2cReadScl(struct BoardInfo *bi)
     MMIOBASE();
     // Read SCL input from 1FC[17] per AT3D documentation
     ULONG statusReg = R_MMIO_L(EXT_DAC_STATUS);
-    return (statusReg & BIT(I2C_SCL_IN_BIT)) != 0;
+    return (statusReg & I2C_SCL_IN) != 0;
 }
 
 /**
@@ -155,6 +155,6 @@ BOOL at3dI2cReadSda(struct BoardInfo *bi)
     MMIOBASE();
     // Read SDA input from 1FC[16] per AT3D documentation (equivalent to 0D0[4])
     ULONG statusReg = R_MMIO_L(EXT_DAC_STATUS);
-    return (statusReg & BIT(I2C_SDA_IN_BIT)) != 0;
+    return (statusReg & I2C_SDA_IN) != 0;
 }
 
