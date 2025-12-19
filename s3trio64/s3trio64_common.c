@@ -63,6 +63,7 @@ const char *getChipFamilyName(ChipFamily_t family)
     }
 }
 
+#if OPENPCI
 BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
 {
     LOCAL_OPENPCIBASE();
@@ -148,3 +149,5 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
 
     return TRUE;
 }
+
+#endif

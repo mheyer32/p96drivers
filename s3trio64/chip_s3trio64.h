@@ -31,7 +31,6 @@ static INLINE UWORD readBEE8(volatile UBYTE *RegBase, UBYTE idx)
     return R_IO_W(0xBEE8) & 0xFFF;
 }
 
-#define LEGACYIOBASE()     volatile UBYTE *RegBase = getCardData(bi)->legacyIOBase
 #define R_BEE8(idx)        readBEE8(RegBase, idx)
 #define W_BEE8(idx, value) W_MMIO_W(0xBEE8, ((idx << 12) | value))
 
