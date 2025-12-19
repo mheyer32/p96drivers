@@ -11,6 +11,7 @@
 #define BIGENDIAN_MMIO  0
 #define BIGENDIAN_IO    0
 #define HAS_PACKED_MMIO 0
+#define OPENPCI         1
 
 #elif defined(CONFIG_S3TRIO3264)
 
@@ -19,6 +20,7 @@
 #define BIGENDIAN_IO    0
 #define HAS_PACKED_MMIO 1
 #define BUILD_VISION864 0
+#define OPENPCI         1
 
 #elif defined(CONFIG_S3TRIO64PLUS)
 
@@ -27,6 +29,7 @@
 #define BIGENDIAN_IO    (BIGENDIAN_MMIO && MMIO_ONLY)
 #define HAS_PACKED_MMIO 1
 #define BUILD_VISION864 0
+#define OPENPCI         1
 
 #elif defined(CONFIG_S3TRIO64V2)
 
@@ -35,6 +38,16 @@
 #define BIGENDIAN_IO    (BIGENDIAN_MMIO && MMIO_ONLY)
 #define HAS_PACKED_MMIO 1
 #define BUILD_VISION864 0
+#define OPENPCI         1
+
+#elif defined(CONFIG_CYBERVISION64)
+
+#define MMIO_ONLY       0
+#define BIGENDIAN_MMIO  1
+#define BIGENDIAN_IO    1
+#define HAS_PACKED_MMIO 0 // Cybervision64 does not seem to map the MMIO region and thus can't expose packed IO(?)
+#define BUILD_VISION864 0
+#define OPENPCI         0
 
 #else
 #pragma GCC error "no CONFIG_xxx defined"

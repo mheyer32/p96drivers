@@ -1,8 +1,6 @@
 #!/bin/bash
 
 set -x
-
-
 SQUIRT_HOST=${SQUIRT_HOST:=192.168.0.110}
 SQUIRT_PATH=${SQUIRT_PATH:=~/squirt/build}
 SQUIRT=${SQUIRT:=${SQUIRT_PATH}/squirt}
@@ -13,6 +11,7 @@ ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/S3Trio64V2.chip
 ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/S3Trio3264.chip
 ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/S3Vision864.chip
 ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/S3Trio64.card
+${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/Cybervision64.card
 
 ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/ATIMach64.chip
 ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/ATIMach64.card
@@ -27,7 +26,7 @@ ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3Trio64Plus
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3TrioCard
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestAT3D
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestAT3DCard
-
+${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestCybervision64
 
 
 

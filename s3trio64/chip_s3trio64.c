@@ -11,16 +11,22 @@
 #include <graphics/rastport.h>
 #include <hardware/cia.h>
 
+#if OPENPCI
 #define OPENPCI_SWAP  // don't make it define its own SWAP macros
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>
-#include <proto/exec.h>
 #include <proto/openpci.h>
+#endif
+#include <proto/exec.h>
 
 #include <SDI_stdarg.h>
 
 #ifdef DBG
+#ifdef CONFIG_CYBERVISION64
+extern int debugLevel;
+#else
 int debugLevel = VERBOSE;
+#endif
 #endif
 
 #if !MMIO_ONLY
@@ -129,11 +135,19 @@ int debugLevel = VERBOSE;
 #define ALT_PAT    0x8168
 #endif
 
+#ifdef CONFIG_CYBERVISION64
+#define HAS_ROXXLER 1
+#else
+#define HAS_ROXXLER 0
+#endif
+
 /******************************************************************************/
 /*                                                                            */
 /* library exports                                                                    */
 /*                                                                            */
 /******************************************************************************/
+
+#if !defined(TESTEXE) && !defined(CONFIG_CYBERVISION64)
 
 #if defined(CONFIG_S3TRIO64PLUS)
 const char LibName[] = "S3Trio64Plus.chip";
@@ -148,6 +162,7 @@ const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 chip driver v
 
 const UWORD LibVersion  = 1;
 const UWORD LibRevision = 0;
+#endif
 
 // Wait For just the blitter to finish. No wait for FIFO queue empty.
 static void WaitForBlitter(__REGA0(struct BoardInfo *bi))
@@ -1024,9 +1039,12 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     return;
 }
 
-static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REGD0(struct RenderInfo *mi),
+static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REGD0(struct RenderInfo *ri),
                                 __REGD7(RGBFTYPE format))
 {
+#if HAS_ROXXLER
+    return mem;
+#else
 #if !BUILD_VISION864
     if (getChipData(bi)->chipFamily >= TRIO64PLUS) {
         switch (format) {
@@ -1042,14 +1060,34 @@ static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem)
         }
     }
 #endif
+#endif
     return mem;
 }
 
 static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
+    DFUNC(VERBOSE, "Format %ld\n", (ULONG)format);
+
     if (format == RGBFB_NONE)
         return (ULONG)0;
 
+#if HAS_ROXXLER
+    ULONG compatible = BIT(format);
+    switch (format) {
+    case RGBFB_A8R8G8B8:
+        // In Big Endian aperture, configured for byte swapping in long word
+        compatible |= RGBFF_A8R8G8B8;
+        break;
+    case RGBFB_R5G6B5:
+    case RGBFB_R5G5B5:
+        // In Big Endian aperture, configured for byte swapping in words only
+        compatible |= RGBFF_R5G6B5 | RGBFF_R5G5B5;
+        break;
+    default:
+        // all little-endian formats are compatible to each other
+        compatible |= RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
+    }
+#else
     // These formats can always reside in the Little Endian Window.
     // We never need to change any aperture setting for them
     ULONG compatible = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
@@ -1068,6 +1106,7 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGB
             break;
         }
     }
+#endif
 #endif
     return compatible;
 }
@@ -1267,6 +1306,31 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 
 static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
+    DFUNC(VERBOSE, "Format %ld\n", (LONG)format);
+#if HAS_ROXXLER
+    if (getChipData(bi)->MemFormat == format) {
+        return;
+    }
+    getChipData(bi)->MemFormat = format;
+
+    // Setup ROXXLER to either word-swap or doubleword-swap, depending on graphics format
+    switch (format) {
+    case RGBFB_A8R8G8B8:
+        // swap all the bytes within a double word
+        W_CV64_MASK(CV64_SWAP32_BIT | CV64_SWAP16_BIT, CV64_SWAP32_BIT);
+        break;
+    case RGBFB_R5G6B5:
+    case RGBFB_R5G5B5:
+        // Just swap the bytes within a word
+        W_CV64_MASK(CV64_SWAP32_BIT | CV64_SWAP16_BIT, CV64_SWAP16_BIT);
+        break;
+    default:
+        W_CV64_MASK(CV64_SWAP32_BIT | CV64_SWAP16_BIT, 0);
+        break;
+    }
+
+#else
+
 #if !BUILD_VISION864
     REGBASE();
 
@@ -1296,6 +1360,7 @@ static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __RE
             break;
         }
     }
+#endif
 #endif
     return;
 }
@@ -1427,10 +1492,15 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xp
 static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fmt))
 {
     DFUNC(VERBOSE, "\n");
-
+#if HAS_ROXXLER
+    // Temporarily switch to little endian
+    UBYTE cv64Reg = R_CV64();
+    W_CV64(cv64Reg & ~(CV64_SWAP32_BIT | CV64_SWAP16_BIT));
+#endif
+#if BUILD_VISION864 && 0
     // FIXME: need to set temporary memory format?
     // No, MouseImage should be in little endian window and not affected
-#if BUILD_VISION864 && 0
+
     // Weird, the Vision864 docs describe the layout as:
     //  "The AND and the XOR cursor image bitmaps are 512 bytes each. These are stored in consecutive bytes
     //  of off-screen display memory, 512 AND bytes followed by 512 XOR bytes. "
@@ -1490,6 +1560,10 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
 
     LOCAL_SYSBASE();
     CacheClearU();
+
+#if HAS_ROXXLER
+    W_CV64(cv64Reg);
+#endif
 }
 
 static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
@@ -2248,6 +2322,17 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
     }
 }
 
+static INLINE void writePIX_TRANS(const struct BoardInfo *bi, ULONG value)
+{
+    MMIOBASE();
+#if HAS_ROXXLER
+    // in a twist of luck, we need to write the swapped value here
+    W_MMIO_L(PIX_TRANS, swapl(value));
+#else
+    W_MMIO_L(PIX_TRANS, value);
+#endif
+}
+
 static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
                              __REGA2(struct Template *template), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
                              __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
@@ -2319,7 +2404,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     if (!rol) {
         for (UWORD y = 0; y < height; ++y) {
             for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                W_MMIO_L(PIX_TRANS, ((const ULONG *)bitmap)[x]);
+                writePIX_TRANS(bi, ((const ULONG *)bitmap)[x]);
             }
             bitmap += bitmapPitch;
         }
@@ -2329,7 +2414,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
                 ULONG left  = ((const ULONG *)bitmap)[x] << rol;
                 ULONG right = ((const ULONG *)bitmap)[x + 1] >> (32 - rol);
 
-                W_MMIO_L(PIX_TRANS, (left | right));
+                writePIX_TRANS(bi, left | right);
             }
             bitmap += bitmapPitch;
         }
@@ -2520,8 +2605,8 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
             W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
                               CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED);
 
-            W_MMIO_L(PIX_TRANS, pat0);
-            W_MMIO_L(PIX_TRANS, pat1);
+            writePIX_TRANS(bi, pat0);
+            writePIX_TRANS(bi, pat1);
 
             WaitFifo(bi, 1);
             W_BEE8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
@@ -2569,7 +2654,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
                 UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
                 ULONG bitsL = copyToUpper(bits);
                 for (WORD x = 0; x < dwordsPerLine; ++x) {
-                    W_MMIO_L(PIX_TRANS, bitsL);
+                    writePIX_TRANS(bi, bitsL);
                 }
             }
         } else {
@@ -2578,7 +2663,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
                 bits        = (bits << rol) | (bits >> (16 - rol));
                 ULONG bitsL = copyToUpper(bits);
                 for (WORD x = 0; x < dwordsPerLine; ++x) {
-                    W_MMIO_L(PIX_TRANS, bitsL);
+                    writePIX_TRANS(bi, bitsL);
                 }
             }
         }
@@ -2620,7 +2705,7 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
         if (!rol) {
             for (UWORD y = 0; y < height; ++y) {
                 for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                    W_MMIO_L(PIX_TRANS, ((ULONG *)bitmap)[x]);
+                    writePIX_TRANS(bi, ((ULONG *)bitmap)[x]);
                 }
                 bitmap += bmPitch;
             }
@@ -2629,7 +2714,7 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
                 for (UWORD x = 0; x < dwordsPerLine; ++x) {
                     ULONG left  = ((ULONG *)bitmap)[x] << rol;
                     ULONG right = ((ULONG *)bitmap)[x + 1] >> (32 - rol);
-                    W_MMIO_L(PIX_TRANS, (left | right));
+                    writePIX_TRANS(bi, (left | right));
                 }
                 bitmap += bmPitch;
             }
@@ -2826,7 +2911,7 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
         ULONG patternL = copyToUpper(pattern);
         WORD numDWords = (line->Length + 31) / 32;
         for (WORD i = 0; i < numDWords; ++i) {
-            W_MMIO_L(PIX_TRANS, patternL);
+            writePIX_TRANS(bi, patternL);
         }
     }
 }
@@ -2866,7 +2951,14 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->Flags = bi->Flags | BIF_NOMEMORYMODEMIX | BIF_BORDERBLANK | BIF_BLITTER | BIF_GRANTDIRECTACCESS |
                 BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
     // Trio64 supports BGR_8_8_8_X 24bit, R5G5B5 and R5G6B5 modes.
+    // From the perspective of our big endian machine, the following formats map to that:
+    // 32bit register filled with XRGB, the written memory order will be BGRX
     bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
+
+#if HAS_ROXXLER
+    // Cybervision has ROXXLER chip
+    bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
+#endif
 
     // We don't support these modes, but if we did, they would not allow for a HW
     // sprite
@@ -2925,6 +3017,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     ChipData_t *cd = getChipData(bi);
 
+#if OPENPCI
     ULONG revision;
     ULONG deviceId;
     LOCAL_OPENPCIBASE();
@@ -2933,6 +3026,14 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     if ((cd->chipFamily = getChipFamily(deviceId, revision)) == UNKNOWN) {
         return FALSE;
     }
+#else
+    // For non-PCI cards (e.g., Zorro), chipFamily should already be set by the card driver
+    if (cd->chipFamily == UNKNOWN) {
+        return FALSE;
+    }
+    ULONG deviceId = 0x8811;  // Trio64 chip on Cybervision64 card
+
+#endif
 
     ChipFamily_t chipFamily = cd->chipFamily;
 
@@ -2971,7 +3072,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     DFUNC(VERBOSE, "S3 chip wakeup\n");
 
+#if OPENPCI
     pci_write_config_word(PCI_COMMAND, PCI_COMMAND_MEMORY | PCI_COMMAND_IO, getCardData(bi)->board);
+#endif
 
     {
         REGBASE();
@@ -3035,7 +3138,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         }
     }
 
-#if BIGENDIAN_MMIO
+#if BIGENDIAN_MMIO && !defined(CONFIG_CYBERVISION64)
     if (chipFamily >= VISION968) {
         bi->MemoryIOBase += 0x2000000;
     } else {
@@ -3049,8 +3152,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // FIXME: PCI cards should startup with New MMIO enabled. Thus, we should be able to just use MMIO directly.
         D(INFO, "Setting up MMIO only driver\n");
         bi->RegisterBase = bi->MemoryIOBase + 0x8000;  // bi->MemoryIObase has MMIOREGISTER_OFFSET added already
-        // Disable IO Response
+                                                       // Disable IO Response
+#if OPENPCI
         pci_write_config_word(PCI_COMMAND, PCI_COMMAND_MEMORY /*| PCI_COMMAND_IO*/, getCardData(bi)->board);
+#endif
     }
 #endif
 
@@ -3096,7 +3201,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // testS3PLLClock(bi, FALSE);
 #endif
 
-#if BIGENDIAN_MMIO
+#if BIGENDIAN_MMIO && !defined(CONFIG_CYBERVISION64)
     if (chipFamily >= VISION968) {
         // Enable BYTE-Swapping for MMIO register reads/writes
         // This allows us to write to WORD/DWORD MMIO registers without swapping
@@ -3123,6 +3228,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // W_REG_MASK(ADVFUNC_CNTL, 0x30, 0x30);
 
 #ifdef DBG
+#if OPENPCI
         {
             LOCAL_OPENPCIBASE();
             // LAW start address
@@ -3132,6 +3238,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             }
         }
 #endif
+#endif
+#ifndef CONFIG_CYBERVISION64
         // Setup the Linear Address Window (LAW)  position
         // Beware: while bi->MemoryBase is a 'virtual' address, the register wants a physical address
         // We basically achieve this translation by chopping off the topmost bits.
@@ -3140,6 +3248,13 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // Upper address bits may  not be touched as they would result in shifting
         // the PCI window
         //    W_CR_MASK(0x59, physAddress >> 24);
+#else
+        // On the Cybervision the VRAM is mapped at a specific fixed address from the Trio's point of view.
+        // I guess, this is done such the LAW window is not at 0x0 (and thus would overlap withe legacy VGA Window at
+        // 0xA0000)
+        W_CR(0x59, 0x00);
+        W_CR(0x5a, 0x40);
+#endif
     }
 
     D(INFO, "MMIO base address: 0x%08lx, IO base address: 0x%08lx \n", (ULONG)getMMIOBase(bi), (ULONG)getIOBase(bi));
@@ -3244,6 +3359,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // 1 = When MMIO is enabled, only memory-mapped I/O register accesses are allowed
     W_SR(0x09, 0x80);
 #endif
+    R_SR(0x09);
     W_SR(0x0D, 0x00);
     W_SR(0x14, 0x00);
 
@@ -3646,6 +3762,159 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
 #ifdef TESTEXE
 
+BOOL testCard(BoardInfo_t *bi)
+{
+    struct ChipBase *ChipBase = NULL;
+
+    D(ALWAYS, "Trio64 has %ldkb usable memory\n", bi->MemorySize / 1024);
+
+    {
+        DFUNC(ALWAYS, "SetDisplay OFF\n");
+        SetDisplay(bi, FALSE);
+    }
+
+    // test 640x480 screen
+    struct ModeInfo mi;
+
+    {
+        mi.Depth            = 8;
+        mi.Flags            = GMF_HPOLARITY | GMF_VPOLARITY;
+        mi.Height           = 480;
+        mi.Width            = 680;
+        mi.HorBlankSize     = 0;
+        mi.HorEnableSkew    = 0;
+        mi.HorSyncSize      = 96;
+        mi.HorSyncStart     = 16;
+        mi.HorTotal         = 800;
+        mi.PixelClock       = 25175000;
+        mi.pll1.Numerator   = 0;
+        mi.pll2.Denominator = 0;
+        mi.VerBlankSize     = 0;
+        mi.VerSyncSize      = 2;
+        mi.VerSyncStart     = 10;
+        mi.VerTotal         = 525;
+
+        bi->ModeInfo = &mi;
+
+        // ResolvePixelClock(bi, &mi, 67000000, RGBFB_CLUT);
+
+        ULONG index = ResolvePixelClock(bi, &mi, mi.PixelClock, RGBFB_CLUT);
+
+        DFUNC(ALWAYS, "SetClock\n");
+
+        SetClock(bi);
+
+        DFUNC(ALWAYS, "SetGC\n");
+
+        SetGC(bi, &mi, TRUE);
+    }
+    {
+        DFUNC(ALWAYS, "SetDAC\n");
+        SetDAC(bi, 0, RGBFB_CLUT);
+    }
+    {
+        SetSprite(bi, FALSE, RGBFB_CLUT);
+    }
+
+    {
+        DFUNC(0, "SetColorArray\n");
+        UBYTE colors[256 * 3];
+        for (int c = 0; c < 256; c++) {
+            bi->CLUT[c].Red   = c;
+            bi->CLUT[c].Green = c;
+            bi->CLUT[c].Blue  = c;
+        }
+        SetColorArray(bi, 0, 256);
+    }
+    {
+        SetPanning(bi, bi->MemoryBase, 640, 480, 0, 0, RGBFB_CLUT);
+    }
+    {
+        DFUNC(ALWAYS, "SetDisplay ON\n");
+        SetDisplay(bi, TRUE);
+    }
+
+    for (int y = 0; y < 480; y++) {
+        for (int x = 0; x < 640; x++) {
+            *(volatile UBYTE *)(bi->MemoryBase + y * 640 + x) = x;
+        }
+    }
+
+    struct RenderInfo ri;
+    ri.Memory      = bi->MemoryBase;
+    ri.BytesPerRow = 640;
+    ri.RGBFormat   = RGBFB_CLUT;
+
+    {
+        FillRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, 0xFF, RGBFB_CLUT);
+    }
+
+    {
+        FillRect(bi, &ri, 64, 64, 128, 128, 0xAA, 0xFF, RGBFB_CLUT);
+    }
+
+    {
+        FillRect(bi, &ri, 256, 10, 128, 128, 0x33, 0xFF, RGBFB_CLUT);
+    }
+
+#if 0
+            for (int i = 0; i < 8; ++i) {
+                {
+                    UWORD patternData[] = {0x0101, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
+                    struct Pattern pattern;
+                    pattern.BgPen    = 127;
+                    pattern.FgPen    = 255;
+                    pattern.DrawMode = JAM2;
+                    pattern.Size     = 2;
+                    pattern.Memory   = patternData;
+                    pattern.XOffset  = i;
+                    pattern.YOffset  = i;
+
+                    BlitPattern(bi, &ri, &pattern, 100 + i * 32, 150 + i * 32, 24, 24, 0xFF, RGBFB_CLUT);
+                }
+            }
+
+            for (int i = 0; i < 8; ++i) {
+                {
+                    UWORD patternData[] = {0x0101, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
+                    struct Pattern pattern;
+                    pattern.BgPen    = 127;
+                    pattern.FgPen    = 255;
+                    pattern.DrawMode = JAM2;
+                    pattern.Size     = 2;
+                    pattern.Memory   = patternData;
+                    pattern.XOffset  = 0;
+                    pattern.YOffset  = 0;
+
+                    BlitPattern(bi, &ri, &pattern, 150 + i * 32 + i, 150 + i * 32 + i, 24, 24, 0xFF, RGBFB_CLUT);
+                }
+            }
+
+            for (int i = 0; i < 8; ++i) {
+                {
+                    UWORD patternData[] = {
+                        0xF0F0, 0xF0F0, 0x0F0F, 0x0F0F, 0x0, 0x0, 0x0,
+                    };
+                    struct Pattern pattern;
+                    pattern.BgPen    = 127;
+                    pattern.FgPen    = 255;
+                    pattern.DrawMode = JAM2;
+                    pattern.Size     = 2;
+                    pattern.Memory   = patternData;
+                    pattern.XOffset  = i;
+                    pattern.YOffset  = i;
+
+                    BlitPattern(bi, &ri, &pattern, 200 + i * 32 + i, 150 + i * 32 + i, 24, 24, 0xFF, RGBFB_CLUT);
+                }
+            }
+#endif
+    WaitBlitter(bi);
+
+    return TRUE;
+}
+
+#if !defined(CONFIG_CYBERVISION64)
+
 #include <boardinfo.h>
 #include <libraries/openpci.h>
 #include <proto/dos.h>
@@ -3683,9 +3952,11 @@ int main()
 
     int rval = EXIT_FAILURE;
 
+#if OPENPCI
     if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
         D(0, "Unable to open openpci.library\n");
     }
+#endif
 
     // if (!(DOSBase = OpenLibrary(DOSNAME, 0))) {
     //     D(0, "Unable to open dos.library\n");
@@ -3744,10 +4015,7 @@ int main()
         }
         D(ALWAYS, "Trio64 has %ldkb usable memory\n", bi->MemorySize / 1024);
 
-        {
-            DFUNC(ALWAYS, "SetDisplay OFF\n");
-            SetDisplay(bi, FALSE);
-        }
+        testCard(bi);
 
         // test 640x480 screen
         struct ModeInfo mi;
@@ -3908,4 +4176,5 @@ exit:
 
     return rval;
 }
+#endif  // !defined(CONFIG_CYBERVISION64)
 #endif  // TESTEXE

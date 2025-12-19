@@ -66,9 +66,11 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
 #define MISC_W 0x3C2
 #define MISC_R 0x3CC
 
-#define LOCAL_SYSBASE()     struct ExecBase *SysBase = bi->ExecBase
-#define LOCAL_UTILITYBASE() struct Library *UtilityBase = bi->UtilBase
-#define LOCAL_OPENPCIBASE() struct Library *OpenPciBase = getCardData(bi)->OpenPciBase
+#define LOCAL_SYSBASE()        struct ExecBase *SysBase = bi->ExecBase
+#define LOCAL_UTILITYBASE()    struct Library *UtilityBase = bi->UtilBase
+#if OPENPCI
+#define LOCAL_OPENPCIBASE()    struct Library *OpenPciBase = getCardData(bi)->OpenPciBase
+#endif
 // #define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
 
 static inline ULONG swapl(ULONG value)
