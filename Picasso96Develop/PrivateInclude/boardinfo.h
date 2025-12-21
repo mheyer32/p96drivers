@@ -118,24 +118,25 @@ typedef enum {
         BT_Prototype7,
         BT_Reserved,
         BT_Reserved2,
-	BT_MNT_VA2000,
-	BT_MNT_ZZ9000,
+        BT_MNT_VA2000,
+        BT_MNT_ZZ9000,
         BT_RetinaZ2,
-	BT_Visiona,
-	BT_GVP110,
-	BT_GBAPII,
-	BT_RainbowII,
-	BT_Voodoo,
-	BT_Matrox,
-	BT_S3Virge,
-	BT_IndiECS,
-	BT_RageXL,
-	BT_Radeon,
-	BT_PiStorm,
+        BT_Visiona,
+        BT_GVP110,
+        BT_GBAPII,
+        BT_RainbowII,
+        BT_Voodoo,
+        BT_Matrox,
+        BT_S3Virge,
+        BT_IndiECS,
+        BT_RageXL,
+        BT_Radeon,
+        BT_PiStorm,
         BT_S3Trio64,
         BT_Mach64,
         BT_VoodoRush,
-        BT_Mach32
+        BT_Mach32,
+        BT_ET4000W32p,
 } BTYPE;
 
 /************************************************************************/
@@ -173,6 +174,7 @@ typedef enum {
 	PCT_Radeon,
 	PCT_PiStorm,
         PCT_APM,
+        PCT_Chrontel8498,
     PCT_MaxPaletteChipTypes
 } PCTYPE;
 
@@ -181,7 +183,6 @@ typedef enum {
  */
 typedef enum {
         GCT_Unknown,
-        GCT_ET4000,
         GCT_ETW32,      
         GCT_CirrusGD542x,
         GCT_NCR77C32BLT,        
@@ -195,8 +196,8 @@ typedef enum {
         GCT_ATIRV100,
         GCT_reserved,
         GCT_reserved2,
-	GCT_MNT_VA2000,
-	GCT_MNT_ZZ9000,
+        GCT_MNT_VA2000,
+        GCT_MNT_ZZ9000,
         GCT_NCR77C22E,
 	GCT_IMSG300,
 	GCT_IMSG364,

@@ -20,6 +20,8 @@ ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/ATIMach64.card
 
 ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/AT3D.card
 
+${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/ET4000.card
+${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/ET4000.chip
 
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestMach32
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestMach32Card
@@ -35,6 +37,4 @@ ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/SetS3Clk
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestAT3D
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestAT3DCard
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestCybervision64
-
-
-
+${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestET4000

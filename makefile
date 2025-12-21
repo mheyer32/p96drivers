@@ -174,6 +174,8 @@ all : S3Trio64V2.chip \
       ATIMach64GX.chip \
       ATIMach64.chip \
       ATIMach64.card \
+      ET4000.chip \
+      ET4000.card \
       TestMach32 \
       TestMach32Card \
       TestMach64GX \
@@ -188,7 +190,8 @@ all : S3Trio64V2.chip \
       AT3D.card \
       TestAT3D \
       TestAT3DCard \
-      TestCybervision64
+      TestCybervision64 \
+      TestET4000
 
 openpci.h : openpci/openpci.fd openpci/clib/openpci_protos.h
 	@$(MKDIR) -p openpci/inline
@@ -439,6 +442,31 @@ AT3DCARD_TESTEXE_SRC = common.c \
 
 TestAT3DCard : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -DOPENPCI=1 -DAT3D_EMBEDDED_CHIP=1
 $(eval $(call make_exe,TestAT3DCard,$(BUILDDIR)testat3dcard/, ${AT3DCARD_TESTEXE_SRC}))
+
+ET4000_SRC = common.c \
+             et4000/et4000_common.c \
+             et4000/chip_et4000.c \
+             et4000/ch8398ramdac.c \
+             chip_library.c
+
+ET4000.chip : CFLAGS+=-DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
+$(eval $(call make_driver,ET4000.chip,$(BUILDDIR)et4000/, ${ET4000_SRC}))
+
+ET4000CARD_SRC = common.c \
+                 et4000/card_et4000.c \
+                 et4000/et4000_common.c \
+                 card_library.c
+
+ET4000.card : CFLAGS+=-DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
+$(eval $(call make_driver,ET4000.card,$(BUILDDIR)et4000card/, ${ET4000CARD_SRC}))
+
+ET4000_TESTEXE_SRC = common.c \
+                     et4000/et4000_common.c \
+                     et4000/chip_et4000.c \
+                     et4000/ch8398ramdac.c
+
+TestET4000 : CFLAGS+=-DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
+$(eval $(call make_exe,TestET4000,$(BUILDDIR)testet4000/, ${ET4000_TESTEXE_SRC}))
 
 
 # target 'clean'
