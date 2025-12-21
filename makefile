@@ -134,7 +134,7 @@ endef
 ###############################################################################
 # target 'all' (default target)
 
-all : S3Trio64V2.chip S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip S3Trio64.card ATIMach64.chip ATIMach64.card TestMach64 TestMach64Card TestS3Trio64Plus TestS3TrioCard 
+all : S3Trio64V2.chip S3Trio64Plus.chip S3Trio3264.chip S3Vision864.chip S3Trio64.card ATIMach64.chip ATIMach64.card ET4000.chip ET4000.card TestMach64 TestMach64Card TestS3Trio64Plus TestS3TrioCard TestET4000 
 
 openpci.h : openpci/openpci.fd openpci/clib/openpci_protos.h
 	@$(MKDIR) -p openpci/inline
@@ -233,6 +233,32 @@ TESTATIMACH64CARD_SRC = common.c \
 						mach64/mach64_common.c
 					
 $(eval $(call make_exe,TestMach64Card,$(BUILDDIR)testmach64card/, ${TESTATIMACH64CARD_SRC}))
+
+
+ET4000_SRC = common.c \
+             et4000/et4000_common.c \
+             et4000/chip_et4000.c \
+             et4000/ch8398ramdac.c \
+             chip_library.c
+
+ET4000.chip : CFLAGS+=-DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
+$(eval $(call make_driver,ET4000.chip,$(BUILDDIR)et4000/, ${ET4000_SRC}))
+
+ET4000CARD_SRC = common.c \
+                 et4000/card_et4000.c \
+                 et4000/et4000_common.c \
+                 card_library.c
+
+ET4000.card : CFLAGS+=-DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
+$(eval $(call make_driver,ET4000.card,$(BUILDDIR)et4000card/, ${ET4000CARD_SRC}))
+
+ET4000_TESTEXE_SRC = common.c \
+                     et4000/et4000_common.c \
+                     et4000/chip_et4000.c \
+                     et4000/ch8398ramdac.c
+
+TestET4000 : CFLAGS+=-DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
+$(eval $(call make_exe,TestET4000,$(BUILDDIR)testet4000/, ${ET4000_TESTEXE_SRC}))
 
 
 # target 'clean'

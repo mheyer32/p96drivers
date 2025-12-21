@@ -64,9 +64,16 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
 #define MISC_W 0x3C2
 #define MISC_R 0x3CC
 
+// standard VGA DAC registers
+#define DAC_WR_AD  0x3C8   // RS[1:0]  00
+#define DAC_DATA   0x3C9   // RS[1:0]  01
+#define DAC_MASK   0x3C6   // RS[1:0]  10
+#define DAC_RD_AD  0x3C7   // RS[1:0]  11
+
 #define LOCAL_SYSBASE()        struct ExecBase *SysBase = bi->ExecBase
 #define LOCAL_PROMETHEUSBASE() struct Library *PrometheusBase = getCardData(bi)->PrometheusBase
 #define LOCAL_OPENPCIBASE()    struct Library *OpenPciBase = getCardData(bi)->OpenPciBase
+#define LEGACYIOBASE()         volatile UBYTE *RegBase = getCardData(bi)->legacyIOBases
 // #define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
 
 static inline ULONG swapl(ULONG value)
