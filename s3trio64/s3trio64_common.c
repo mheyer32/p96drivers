@@ -38,6 +38,8 @@ ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision)
     case 0x890e:  // Trio 64V+ family
     case 0x890f:  // Trio 64V+ family
         return TRIO64PLUS;
+    case 0x8a01:
+        return VIRGE3D;
     default:
         DFUNC(WARN, "Unknown chip family, aborting\n");
         return UNKNOWN;
@@ -57,6 +59,8 @@ const char *getChipFamilyName(ChipFamily_t family)
         return "Trio64+";
     case TRIO64V2:
         return "Trio64V2";
+    case VIRGE3D:
+        return "Virge3D";
     case UNKNOWN:
     default:
         return "Unknown";

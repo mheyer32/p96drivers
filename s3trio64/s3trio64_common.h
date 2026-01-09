@@ -29,6 +29,7 @@ typedef enum ChipFamily
     VISION968,   // pre-Trio64(?), separate RAMDAC, newstyle MMIO, packed MMIO, ROPBLT
     TRIO64PLUS,  // integrated 135Mhz RAMDAC, newstyle+packed MMIO
     TRIO64V2,    // integrated 170Mhz RAMDAC, newstyle+packed MMIO 60-66Mhz RAM
+    VIRGE3D
 } ChipFamily_t;
 
 typedef struct PLLValue
