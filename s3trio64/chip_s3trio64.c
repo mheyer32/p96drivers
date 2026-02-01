@@ -780,7 +780,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         W_CR(0x16, vBlankEnd);
     }
 
-    UWORD vRetraceStart = TO_SCANLINES(mi->Height + mi->VerSyncStart);
+    UWORD vRetraceStart = TO_SCANLINES(mi->Height + mi->VerSyncStart) - 1;
     {
         // Vertical Retrace Start Register (VRS) (CR10)
         // FIXME: here VsyncStart is in lines, not scanlines, while mi->VerBlankSize
@@ -796,7 +796,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // width in scan line units to the CR10 value, also in scan line units. The
         // 4 1east significant bits of this sum are programmed into this field.
         // This allows a maximum VSYNC pulse width of 15 scan line units.
-        UWORD vRetraceEnd = vRetraceStart + TO_SCANLINES(mi->VerSyncSize);
+        UWORD vRetraceEnd = TO_SCANLINES(mi->Height + mi->VerSyncStart + mi->VerSyncSize) -1;
         D(INFO, "VRetrace End %ld\n", (ULONG)vRetraceEnd);
         W_CR_MASK(0x11, 0x0F, vRetraceEnd);
     }
@@ -2977,7 +2977,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         REGBASE();
         BOOL used3c3 = FALSE;
         if (chipFamily >= TRIO64PLUS) {
-            /* Chip wakeup Trio64+ */
+            /* Chip wakeup Trio64+ and up*/
             W_REG(0x3C3, 0x01);
             used3c3 = TRUE;
         } else {
@@ -3005,6 +3005,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
                     W_REG(0x3C3, 0x10);
                     W_REG(0x102, 0x01);
                     W_REG(0x3C3, 0x08);
+
+                    used3c3 = TRUE;
                     goto retry;
                 }
 
@@ -3754,7 +3756,7 @@ int main()
             mi.Depth            = 8;
             mi.Flags            = GMF_HPOLARITY | GMF_VPOLARITY;
             mi.Height           = 480;
-            mi.Width            = 680;
+            mi.Width            = 640;
             mi.HorBlankSize     = 0;
             mi.HorEnableSkew    = 0;
             mi.HorSyncSize      = 96;
