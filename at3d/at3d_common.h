@@ -18,12 +18,14 @@ typedef enum ChipFamily
     AT3D,    // Alliance ProMotion AT3D
 } ChipFamily_t;
 
-typedef struct PLLValue
+typedef struct AT3DPLLValue
 {
-    UBYTE n;  // N numerator (8-127)
+    UWORD freq10khz;  // frequency in 10 kHz units (e.g. 2517 = 25.17 MHz), fits up to ~17500
+    UBYTE n;          // N numerator (8-127)
     UBYTE m;  // M denominator (1-5)
     UBYTE l;  // L postscaler log2 (0-3)
-} PLLValue_t;
+    UBYTE f;  // frequency range setting
+} AT3DPLLValue_t;
 
 typedef struct ChipData
 {
@@ -48,7 +50,7 @@ typedef struct ChipData
     ULONG patternCacheKey;
 
     // PLL table for pixel clocks
-    PLLValue_t *pllValues;
+    AT3DPLLValue_t *pllValues;
     UWORD numPllValues;
 
 } ChipData_t;

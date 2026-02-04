@@ -18,7 +18,7 @@
 #include <SDI_stdarg.h>
 
 #ifdef DBG
-int debugLevel = VERBOSE;
+int debugLevel = CHATTY;
 #endif
 
 /******************************************************************************/
@@ -34,6 +34,9 @@ const char LibIdString[] = "Alliance ProMotion AT3D Picasso96 chip driver versio
 const UWORD LibVersion  = 1;
 const UWORD LibRevision = 0;
 #endif
+
+#define MIN_PLLCLOCK_KHZ 24000
+#define MIN_PLLCLOCK_HZ  (MIN_PLLCLOCK_KHZ * 1000)
 
 // Helper function to probe framebuffer memory size
 static ULONG probeFramebufferSize(BoardInfo_t *bi)
@@ -183,7 +186,7 @@ static BOOL testMMIO(BoardInfo_t *bi)
 static const struct svga_pll at3d_pll = {9, 128, 2, 6, 0, 3, 185000, 370000, 14318};
 
 // Helper function to compute frequency from PLL values (in kHz)
-static ULONG computeKhzFromPllValue(const PLLValue_t *pllValue)
+static ULONG computeKhzFromPllValue(const AT3DPLLValue_t *pllValue)
 {
     // FOUT = (N+1)(FREF) / ((M+1)(2^L))
     // FREF = 14.318 MHz = 14318 kHz
@@ -195,26 +198,33 @@ static ULONG computeKhzFromPllValue(const PLLValue_t *pllValue)
     return (numerator / denominator) >> pllValue->l;
 }
 
-/**
- * Compute PLL values for a target frequency (used for MCLK only)
- * @param targetFreqHz Target frequency in Hz
- * @param n Output: Numerator (N, 8-127)
- * @param m Output: Denominator (M, 1-5)
- * @param l Output: Postscaler index (L, 0-3)
- * @return Actual frequency in Hz, or 0 if no valid combination found
- */
-static ULONG computePLLValues(ULONG targetFreqHz, UBYTE *n, UBYTE *m, UBYTE *l)
+static ULONG computePLLValues(ULONG targetFreqKhz, AT3DPLLValue_t *pllValues)
 {
     UWORD _m, _n, _r;
-    int freq = svga_compute_pll(&at3d_pll, targetFreqHz / 1000, &_m, &_n, &_r);
+    int freq = svga_compute_pll(&at3d_pll, targetFreqKhz, &_m, &_n, &_r);
     if (freq == -1) {
         return 0;  // No valid combination found
     }
     // the AT manual defines M and N in the opposite way to how S3 did it
-    *n = _m;
-    *m = _n;
-    *l = _r;
-    return freq * 1000;  // Convert kHz to Hz
+    pllValues->n = _m;
+    pllValues->m = _n;
+    pllValues->l = _r;
+
+    ULONG fref = 14318;                                 // Reference frequency in kHz
+    ULONG fvco = (pllValues->n * fref) / pllValues->m;  // VCO frequency in kHz
+
+    // Compute frequency range F based on VCO frequency (from apm.c formula)
+    // Formula: f = (c + 500 - 34*fvco/1000)/1000, where c = 1000*(380*7)/(380-175)
+    int c = 1000 * (380 * 7) / (380 - 175);  // ≈ 12976
+    int f = (c + 500 - 34 * fvco / 1000) / 1000;
+    if (f > 7)
+        f = 7;  // Clamp to 3-bit field (0-7)
+    if (f < 0)
+        f = 0;
+
+    pllValues->f = f;
+
+    return freq;
 }
 
 // Initialize PLL table for pixel clocks
@@ -231,7 +241,7 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
     UWORD minFreq    = 12;   // 12MHz min
     UWORD numEntries = (maxFreq - minFreq + 1) * 2;
 
-    PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * numEntries, MEMF_PUBLIC);
+    AT3DPLLValue_t *pllValues = AllocVec(sizeof(AT3DPLLValue_t) * numEntries, MEMF_PUBLIC);
     if (!pllValues) {
         DFUNC(ERROR, "Failed to allocate PLL table\n");
         return;
@@ -256,19 +266,22 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
     int lastValue = 0;
     for (UWORD i = 0; i < numEntries; ++i) {
         ULONG freq = minFreq * 1000 + i * 500;  // Frequency in kHz
-        UWORD m, n, r;
-        int currentKhz = svga_compute_pll(&at3d_pll, freq, &m, &n, &r);
 
-        if (currentKhz >= 0 && currentKhz != lastValue) {
-            lastValue                     = currentKhz;
-            pllValues[cd->numPllValues].n = m;
-            pllValues[cd->numPllValues].m = n;
-            pllValues[cd->numPllValues].l = r;
+        BOOL doubleClocking = (freq <= MIN_PLLCLOCK_KHZ);
+        if (doubleClocking) {
+            freq *= 2;  // Use DCLK = VCLK/2 for low frequencies
+        }
 
-            DFUNC(CHATTY, "Pixelclock %03ld %09ldHz: n=%ld m=%ld l=%ld\n", (ULONG)cd->numPllValues - 1,
-                  (ULONG)currentKhz * 1000, (ULONG)pllValues[cd->numPllValues].n, (ULONG)pllValues[cd->numPllValues].m,
-                  (ULONG)pllValues[cd->numPllValues].l);
+        AT3DPLLValue_t *entry = &cd->pllValues[cd->numPllValues];
+        ULONG currentKhz      = computePLLValues(freq, entry);
 
+        if (doubleClocking) {
+            currentKhz /= 2;  // Return to original frequency
+        }
+
+        if (currentKhz > 0 && currentKhz != lastValue) {
+            lastValue = currentKhz;
+            entry->freq10khz = (UWORD)((currentKhz + 5) / 10);  // store in 10 kHz units
             cd->numPllValues++;
 
             bi->PixelClockCount[CHUNKY]++;
@@ -279,6 +292,9 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
                     bi->PixelClockCount[TRUEALPHA]++;
                 }
             }
+
+            DFUNC(CHATTY, "Pixelclock %03ld %09ldHz: n=%ld m=%ld l=%ld\n", (ULONG)cd->numPllValues - 1,
+                  (ULONG)currentKhz * 1000, (ULONG)entry->n, (ULONG)entry->m, (ULONG)entry->l);
         }
     }
 
@@ -299,41 +315,39 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 {
     DFUNC(INFO, "Setting MCLK to %ld Hz\n", clockHz);
 
-    UBYTE n, m, l;
-    ULONG actualFreq = computePLLValues(clockHz, &n, &m, &l);
+    AT3DPLLValue_t pllValues;
+    ULONG actualFreqKhz = computePLLValues(clockHz / 1000, &pllValues);
 
-    if (actualFreq == 0) {
+    if (actualFreqKhz == 0) {
         DFUNC(ERROR, "Failed to compute MCLK PLL values for %ld Hz\n", clockHz);
         return clockHz;  // Return requested frequency as fallback
     }
 
-    DFUNC(INFO, "MCLK: N=%ld, M=%ld, L=%ld, actual=%ld Hz\n", (ULONG)n, (ULONG)m, (ULONG)l, actualFreq);
+    DFUNC(INFO, "MCLK: N=%ld, M=%ld, L=%ld, actual=%ld kHz\n", (ULONG)pllValues.n, (ULONG)pllValues.m,
+          (ULONG)pllValues.l, actualFreqKhz);
 
     MMIOBASE();
 
     W_MMIO_B(MCLK_CTRL, CLK_POSTSCALER(3));
 
     // Write denominator (M) - mask to ensure only valid bits are set
-    W_MMIO_MASK_B(MCLK_DEN, CLK_DEN_MASK, m - 1);
+    W_MMIO_MASK_B(MCLK_DEN, CLK_DEN_MASK, pllValues.m - 1);
 
     // Write numerator (N) - mask to ensure only valid bits are set
-    W_MMIO_MASK_B(MCLK_NUM, CLK_NUM_MASK, n - 1);
+    W_MMIO_MASK_B(MCLK_NUM, CLK_NUM_MASK, pllValues.n - 1);
 
     // Wait for PLL to stabilize
     delayMilliSeconds(5);
 
     // Set postscaler in control register and enable MCLK programming
-    W_MMIO_B(MCLK_CTRL, CLK_FREQ_RANGE(0b100) | CLK_POSTSCALER(l) | CLK_HIGH_SPEED);
+    W_MMIO_B(MCLK_CTRL, CLK_FREQ_RANGE(0b100) | CLK_POSTSCALER(pllValues.l) | CLK_HIGH_SPEED);
 
     if (clockHz > 50000000) {
         W_MMIO_MASK_W(DISP_MEM_CFG, FAST_RAS_DISABLE_MASK, FAST_RAS_DISABLE);
     }
 
-    return actualFreq;
+    return actualFreqKhz * 1000;  // convert to hz
 }
-
-ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz);
-void initPixelClockPLLTable(BoardInfo_t *bi);
 
 /**
  * Get I2C operations structure for EDID support
@@ -428,21 +442,26 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         return desiredPixelClock;
     }
 
-    const ChipData_t *cd = getChipData(bi);
+    const ChipData_t *cd = getConstChipData(bi);
+    if (!cd->pllValues || cd->numPllValues == 0) {
+        DFUNC(ERROR, "PLL table not initialized (pllValues=%lx numPllValues=%ld)\n", (ULONG)cd->pllValues,
+              (ULONG)cd->numPllValues);
+        return desiredPixelClock;
+    }
 
-    ULONG targetFreqKhz = desiredPixelClock / 1000;
+    UWORD targetFreq10khz = (UWORD)(desiredPixelClock / 10000);  // target in 10 kHz units
 
     // Find the best matching PLL entry using binary search
     UWORD upper     = cd->numPllValues - 1;
-    ULONG upperFreq = computeKhzFromPllValue(&cd->pllValues[upper]);
+    UWORD upperFreq = cd->pllValues[upper].freq10khz;
     UWORD lower     = 0;
-    ULONG lowerFreq = computeKhzFromPllValue(&cd->pllValues[lower]);
+    UWORD lowerFreq = cd->pllValues[lower].freq10khz;
 
     while (lower + 1 < upper) {
         UWORD middle     = (upper + lower) / 2;
-        ULONG middleFreq = computeKhzFromPllValue(&cd->pllValues[middle]);
+        UWORD middleFreq = cd->pllValues[middle].freq10khz;
 
-        if (targetFreqKhz > middleFreq) {
+        if (targetFreq10khz > middleFreq) {
             lower     = middle;
             lowerFreq = middleFreq;
         } else {
@@ -452,30 +471,21 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     }
 
     // Return the best match between upper and lower
-    if (targetFreqKhz - lowerFreq > upperFreq - targetFreqKhz) {
+    if ((ULONG)targetFreq10khz - (ULONG)lowerFreq > (ULONG)upperFreq - (ULONG)targetFreq10khz) {
         lower     = upper;
         lowerFreq = upperFreq;
     }
 
-    mi->PixelClock = lowerFreq * 1000;
+    mi->PixelClock = (ULONG)lowerFreq * 10000;  // 10 kHz -> Hz
 
-    PLLValue_t pllValues = cd->pllValues[lower];
+    mi->Flags &= ~GMF_DOUBLECLOCK;
+    if ((ULONG)lowerFreq * 10 <= MIN_PLLCLOCK_KHZ) {
+        // FIXME: I'm still not sure if GMF_DOUBLECLOCK is meant "we're running at twice the desired pixel frequency"
+        //  or "RAMDAC double indexed" mode
+        mi->Flags |= GMF_DOUBLECLOCK;
+    }
 
-    // Calculate VCO frequency: FVCO = (N+1) * FREF / (M+1)
-    // FREF = 14.318 MHz = 14318 kHz
-    ULONG fref = 14318;                               // Reference frequency in kHz
-    ULONG fvco = (pllValues.n * fref) / pllValues.m;  // VCO frequency in kHz
-
-    // Compute frequency range F based on VCO frequency (from apm.c formula)
-    // Formula: f = (c + 500 - 34*fvco/1000)/1000, where c = 1000*(380*7)/(380-175)
-    int c = 1000 * (380 * 7) / (380 - 175);  // ≈ 12976
-    int f = (c + 500 - 34 * fvco / 1000) / 1000;
-    if (f > 7)
-        f = 7;  // Clamp to 3-bit field (0-7)
-    if (f < 0)
-        f = 0;
-
-    DFUNC(CHATTY, "VCO frequency: %ld kHz, Frequency range F: %ld\n", fvco, (ULONG)f);
+    const AT3DPLLValue_t *pllValues = &cd->pllValues[lower];
 
     // Store PLL values in the format expected by SetClock
     // AT3D registers store N-1 and M-1 (the chip uses register_value + 1 in calculations)
@@ -484,11 +494,11 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     //   Bits [6:7] = L (postscaler, 0-3)
     //   Bits [3:5] = F (frequency range, 0-7)
     //   Bits [0:2] = M-1 (denominator, 0-4)
-    mi->pll1.Numerator   = pllValues.n - 1;
-    mi->pll2.Denominator = (pllValues.l << 6) | (f << 3) | (pllValues.m - 1);
+    mi->pll1.Numerator   = pllValues->n - 1;
+    mi->pll2.Denominator = (pllValues->l << 6) | (pllValues->f << 3) | (pllValues->m - 1);
 
     DFUNC(CHATTY, "Reporting pixelclock Hz: %ld, index: %ld,  N:%ld M:%ld L:%ld \n\n", mi->PixelClock, (ULONG)lower,
-          (ULONG)pllValues.n, (ULONG)pllValues.m, (ULONG)pllValues.l);
+          (ULONG)pllValues->n, (ULONG)pllValues->m, (ULONG)pllValues->l);
 
     return lower;  // Return the index into the PLL table
 }
@@ -513,6 +523,16 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 
     D(INFO, "SetClock: PixelClock %ld Hz\n", mi->PixelClock);
 
+    {
+        REGBASE();
+        if (bi->ModeInfo->Flags & GMF_DOUBLECLOCK) {
+            DFUNC(INFO, "SetClock: Clocking halving enabled\n");
+            W_SR_MASK(0x01, BIT(3), BIT(3));  // Enable DCLK = VCLK/2
+        } else {
+            W_SR_MASK(0x01, BIT(3), BIT(0));  // Enable DCLK = VCLK/2
+        }
+    }
+
     // Extract N, M, L, F from ModeInfo
     // ModeInfo stores register values: N-1 (7-126 for actual N=8-127) and M-1 (0-4 for actual M=1-5)
     // pll1.Numerator = N-1 (register value)
@@ -532,7 +552,6 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
           (ULONG)mActual, (ULONG)mReg, (ULONG)l, (ULONG)f);
 
     MMIOBASE();
-    REGBASE();
 
     // Set postscaler to 8x
     W_MMIO_MASK_B(VCLK_CTRL, CLK_POSTSCALER_MASK, CLK_POSTSCALER(3));
@@ -566,8 +585,7 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct Mod
         return 0;
     }
 
-    ULONG frequency = computeKhzFromPllValue(&cd->pllValues[index]);
-    return frequency * 1000;  // Convert kHz to Hz
+    return (ULONG)cd->pllValues[index].freq10khz * 10000;  // 10 kHz -> Hz
 }
 
 static UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
@@ -974,11 +992,12 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __R
 
     // Handle double index for CLUT with double clock (if needed)
     // Note: Double index requires specific conditions per documentation
-    if ((format == RGBFB_CLUT) && (bi->ModeInfo && (bi->ModeInfo->Flags & GMF_DOUBLECLOCK))) {
-        regValue |= BIT(5);  // Enable double index
-    } else {
-        regValue &= ~BIT(5);  // Disable double index
-    }
+    // FIXME: currently GMF_DOUBLECLOCK is used to indicate halved pixel clock
+    // if ((format == RGBFB_CLUT) && (bi->ModeInfo && (bi->ModeInfo->Flags & GMF_DOUBLECLOCK))) {
+    //     regValue |= BIT(5);  // Enable double index
+    // } else {
+    //     regValue &= ~BIT(5);  // Disable double index
+    // }
 
     // Write the register
     W_MMIO_B(SERIAL_CTRL, regValue);
@@ -1249,7 +1268,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         W_SR(i, 0x00);
     }
     W_MMIO_B(ABORT, 0);
-    W_MMIO_B(COLOR_CORRECTION, BIT(4));  // 8bit per gun palette write
+    W_MMIO_B(COLOR_CORRECTION, BIT(4));  // 8bit per gun palette write (Does not seem to work?!)
     W_MMIO_B(DAC_CTRL, BIT(0));          // DAC Powered, Blanking pedesta, no overcurrent boost
     W_MMIO_B(SIGANALYSER_CTRL, 0);       // Disable signal analyser
     W_MMIO_B(FEATURE_CTRL, 0);
@@ -1278,6 +1297,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_MMIO_B(VCLK_CTRL, 0x5C);
     W_MMIO_B(VCLK_DEN, 0x01);
     W_MMIO_B(VCLK_NUM, 0x1b);
+
+    R_MMIO_B(COLOR_CORRECTION);  // 8bit per gun palette write (Does not seem to work?!)
 
     W_MISC_MASK(0xF, 0b1111);  // enable Host Memory Access, programmable VCLK, Color Mode (3DA, 3D4 and 3D5 enabled))
 
@@ -1336,6 +1357,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_CR(0x0E, 0x00);
     W_CR(0x0F, 0x00);
 
+    R_MMIO_B(COLOR_CORRECTION);  // 8bit per gun palette write (Does not seem to work?!)
+
     W_CR(0x11, 0x20);  // Disable Vertical Interrupt, ack. Interrupt
     W_CR(0x11, 0x30);  // Normal retrace
 
@@ -1349,6 +1372,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     UBYTE miscOut = R_REG(MISC_R);
     D(INFO, "Monitor is %s present (may be inaccurate)\n", (miscOut & 0x10) ? "" : "not");
+
+    R_MMIO_B(COLOR_CORRECTION);  // 8bit per gun palette write (Does not seem to work?!)
 
     // Initialize I2C operations for EDID support
     CardData_t *card     = getCardData(bi);
@@ -1608,6 +1633,10 @@ int main()
                 *(volatile UBYTE *)(bi->MemoryBase + y * 640 + x) = x;
             }
         }
+
+        MMIOBASE();
+        R_MMIO_B(COLOR_CORRECTION);  // 8bit per gun palette write (Does not seem to work?!)
+
         D(INFO, "Alliance Promotion test completed\n");
         D(INFO, "Screen should now be displaying a test pattern\n");
         rval = EXIT_SUCCESS;
