@@ -264,6 +264,7 @@ static inline void flushWrites()
 
 static INLINE UBYTE REGARGS readReg(volatile UBYTE *regbase, LONG reg)
 {
+    flushWrites();
     return regbase[reg - REGISTER_OFFSET];
 }
 
@@ -274,6 +275,7 @@ static INLINE void REGARGS writeReg(volatile UBYTE *regbase, LONG reg, UBYTE val
 
 static INLINE UWORD REGARGS readRegW(volatile UBYTE *regbase, LONG reg, const char *regName)
 {
+    flushWrites();
     UWORD value = SWAPW_IO(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
     asm volatile("" ::"r"(value));
 
@@ -298,6 +300,7 @@ static INLINE void REGARGS writeRegL(volatile UBYTE *regbase, LONG reg, ULONG va
 
 static INLINE ULONG REGARGS readRegLNoSwap(volatile UBYTE *regbase, LONG reg, const char *regName)
 {
+    flushWrites();
     ULONG value = *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET));
     asm volatile("" ::"r"(value));
 
@@ -314,6 +317,7 @@ static INLINE void REGARGS writeRegLNoSwap(volatile UBYTE *regbase, LONG reg, UL
 
 static INLINE ULONG REGARGS readRegL(volatile UBYTE *regbase, LONG reg, const char *regName)
 {
+    flushWrites();
     ULONG value = SWAPL_IO(*(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)));
     asm volatile("" ::"r"(value));
 
