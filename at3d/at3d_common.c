@@ -80,8 +80,8 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
     }
     else
     {
-        bi->RegisterBase = bi->MemoryBase + 0xFFF000 + REGISTER_OFFSET;
         bi->MemoryIOBase = bi->MemoryBase + 0xFFEC00 + MMIOREGISTER_OFFSET;
+        bi->RegisterBase = bi->MemoryBase + 0xFFF000 + REGISTER_OFFSET;
         setCacheMode(bi, bi->MemoryBase + 0xFFEC00, 2048, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
     }
 
@@ -90,7 +90,7 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
     D(INFO, "AT3D: Extended Registers 0x%lx\n", bi->MemoryIOBase - MMIOREGISTER_OFFSET);
 
     // enable special cache mode settings
-    bi->Flags |= BIF_CACHEMODECHANGE;
+    //bi->Flags |= BIF_CACHEMODECHANGE;
 
     return TRUE;
 }

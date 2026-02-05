@@ -862,23 +862,6 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xp
     W_MMIO_L(CUR_HORZ_VERT_OFF, CUR_HORZ_OFF(offsetX) | CUR_VERT_OFF(offsetY));
 }
 
-ULONG spreadBits(ULONG word)
-{
-    // reverse the bits in the word
-    word = ((word & 0xFF00) >> 8) | ((word & 0x00FF) << 8);
-    word = ((word & 0xF0F0) >> 4) | ((word & 0x0F0F) << 4);
-    word = ((word & 0xCCCC) >> 2) | ((word & 0x3333) << 2);
-    word = ((word & 0xAAAA) >> 1) | ((word & 0x5555) << 1);
-
-    // spread out the bits ( could probably be done more efficiently in combination with above)
-    word = (word | (word << 8)) & 0x00FF00FF;
-    word = (word | (word << 4)) & 0x0F0F0F0F;
-    word = (word | (word << 2)) & 0x33333333;
-    word = (word | (word << 1)) & 0x55555555;
-
-    return word;
-}
-
 static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fmt))
 {
     DFUNC(VERBOSE, "\n");

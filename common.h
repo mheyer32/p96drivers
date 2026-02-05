@@ -674,6 +674,25 @@ static inline UBYTE getBPPLog2(RGBFTYPE format)
     return 0;
 }
 
+static inline ULONG spreadBits(ULONG word)
+{
+    // Convert sprite data to "LSB are leftmost"
+    // reverse the bits in the word
+    word = ((word & 0xFF00) >> 8) | ((word & 0x00FF) << 8);
+    word = ((word & 0xF0F0) >> 4) | ((word & 0x0F0F) << 4);
+    word = ((word & 0xCCCC) >> 2) | ((word & 0x3333) << 2);
+    word = ((word & 0xAAAA) >> 1) | ((word & 0x5555) << 1);
+
+    // Sprite data is "2 bit chunky" mode
+    // spread out the bits ( could probably be done more efficiently in combination with above)
+    word = (word | (word << 8)) & 0x00FF00FF;
+    word = (word | (word << 4)) & 0x0F0F0F0F;
+    word = (word | (word << 2)) & 0x33333333;
+    word = (word | (word << 1)) & 0x55555555;
+
+    return word;
+}
+
 // Apparently the mix modes can be shared between S3 cards and ATI Mach64
 #define MIX_NOT_CURRENT             0b0000
 #define MIX_ZERO                    0b0001

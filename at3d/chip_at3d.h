@@ -35,15 +35,16 @@
 #define THP_CTRL      0x110  // THP control register
 #define VMI_PORT_CTRL 0x120  //
 
+// Writes to registers -x140-0x1FF do not pass through the command FIFO
 #define HW_CURSOR_CTRL  0x140
 #define HW_CURSOR_COL1  0x141
-#define HW_CUROSR_COL2  0x142
-#define HW_CUROSR_COL3  0x143
+#define HW_CURSOR_COL2  0x142
+#define HW_CURSOR_COL3  0x143
 #define HW_CURSOR_BASE  0x144  // Hardware cursor base address register (16-bit at 144-145h)
 #define HW_CURSOR_X     0x148  // Hardware cursor X position register (16-bit at 148-149h)
 #define HW_CURSOR_Y     0x14A  // Hardware cursor Y position register (16-bit at 14A-14Bh)
-#define HW_CURSOR_OFF_X 0x14C  // Hardware cursor X offset register
-#define HW_CURSOR_OFF_Y 0x14D  // Hardware cursor Y offset register
+#define HW_CURSOR_OFF_X 0x14C  // Hardware cursor X offset register (6 bits)
+#define HW_CURSOR_OFF_Y 0x14D  // Hardware cursor Y offset register (6 bits), doc table 4.7
 
 #define DEVICE_ID      0x182  // Device ID register at memory offset 182-183h
 #define GPIO_CTRL      0x1F0
@@ -181,11 +182,10 @@
 // Extended CRTC registers
 // Per AT3D documentation pages 183-184:
 // CR1D: Character clock adjust (bits [2:0])
-// CR1E: Extended CRTC autoreset (bit 0 = disable automatic CRTC reset)
 #define CR_CHAR_CLOCK_ADJUST 0x1d  // Character clock adjust register
-#define CR_EXT_AUTORESET     0x1e  // Extended CRTC autoreset register
 
-// Extended CRTC autoreset register bit
+// CR1E: Extended CRTC autoreset (bit 0 = disable automatic CRTC reset)
+#define CR_EXT_AUTORESET     0x1e  // Extended CRTC autoreset register
 #define CR_EXT_AUTORESET_DISABLE BIT(0)  // Disable automatic CRTC reset
 
 // Sequencer register 1 (SR1) - Clocking mode

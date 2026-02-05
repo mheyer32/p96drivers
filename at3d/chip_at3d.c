@@ -18,7 +18,7 @@
 #include <SDI_stdarg.h>
 
 #ifdef DBG
-int debugLevel = CHATTY;
+int debugLevel = VERBOSE;
 #endif
 
 /******************************************************************************/
@@ -280,7 +280,7 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
         }
 
         if (currentKhz > 0 && currentKhz != lastValue) {
-            lastValue = currentKhz;
+            lastValue        = currentKhz;
             entry->freq10khz = (UWORD)((currentKhz + 5) / 10);  // store in 10 kHz units
             cd->numPllValues++;
 
@@ -750,8 +750,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     bi->ModeInfo = mi;
     bi->Border   = border;
 
-    WaitBlitter(bi);
-
     UWORD hTotal      = mi->HorTotal;
     UWORD ScreenWidth = mi->Width;
     UBYTE modeFlags   = mi->Flags;
@@ -765,6 +763,9 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 
     REGBASE();
 
+    // For some reason, the auto-reset-disable sometimes gets lost
+    W_CR(CR_EXT_AUTORESET, CR_EXT_AUTORESET_DISABLE);
+
     // VGA CRTC registers
     // All VGA CRTC registers are supported. In addition, the horizontal and vertical timing, start, and
     // offset have been extended at 3D5.19–1D, which are described starting on page 181.
@@ -774,7 +775,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     // order to load extended values into these registers, the VGA portions of all CRTC registers must
     // be loaded first. Writing any VGA CRTC register (assumed to be a mode-switch) also disables
     // cursor enable and motion video enable.
-
     {
         // Horizontal Total (CR0)
         // AT3D uses CR1B[0] for horizontal total overflow
@@ -782,6 +782,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         D(INFO, "Horizontal Total %ld\n", (ULONG)hTotalClk);
         W_CR_OVERFLOW1(hTotalClk, 0x00, 0, 8, 0x1B, 0, 1);
     }
+
     {
         // Horizontal Display End Register (CR1)
         // One less than the total number of displayed characters
@@ -1010,12 +1011,12 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
 {
     DFUNC(VERBOSE, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
 
-    REGBASE();
     LOCAL_SYSBASE();
 
     // This may not be interrupted, so DAC_WR_AD remains set throughout the function
     Disable();
 
+    REGBASE();
     W_REG(DAC_WR_AD, startIndex);
 
     struct CLUTEntry *entry = &bi->CLUT[startIndex];
@@ -1027,6 +1028,14 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
         writeReg(RegBase, DAC_DATA, entry->Green);
         writeReg(RegBase, DAC_DATA, entry->Blue);
         ++entry;
+    }
+
+    if (startIndex == 0) {
+        R_REG(0x3DA);  // Reset AFF
+        // Background color 0 also sets the border color
+        /* 3:3:2 RGB: R[7:5], G[4:2], B[1:0] */
+        W_AR(0x11, (UBYTE)((bi->CLUT[0].Red & 0xE0) | ((bi->CLUT[0].Green >> 3) & 0x1C) | (bi->CLUT[0].Blue >> 6)));
+        W_REG(ATR_AD, 0x20);  // re-enable normal screen output
     }
 
     Enable();
@@ -1172,6 +1181,118 @@ static void ASM SetSplitPosition(__REGA0(struct BoardInfo *bi), __REGD0(SHORT sp
     W_CR_OVERFLOW3((UWORD)splitPos, 0x18, 0, 8, 0x7, 4, 1, 0x9, 6, 1, 0x1a, 4, 1);
 }
 
+/* Hardware cursor: 64x64 at 2 bpp, 16 bytes per row, stored at KB-aligned address.
+ * Pattern base register is in kilobytes. Position/offset in pixels (12-bit X/Y, 6-bit offsets). */
+
+static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xpos), __REGD1(WORD ypos),
+                                  __REGD7(RGBFTYPE fmt))
+{
+    (void)fmt;
+    MMIOBASE();
+
+    bi->MouseX = xpos;
+    bi->MouseY = ypos;
+
+    WORD spriteX = xpos - bi->XOffset;
+    WORD spriteY = ypos - bi->YOffset + bi->YSplit;
+
+    if (bi->ModeInfo->Flags & GMF_DOUBLESCAN) {
+        spriteY *= 2;
+    }
+
+    WORD offsetX = 0;
+    if (spriteX < 0) {
+        offsetX = (spriteX > -64) ? -spriteX : 63;
+        spriteX = 0;
+    }
+    WORD offsetY = 0;
+    if (spriteY < 0) {
+        offsetY = (spriteY > -64) ? -spriteY : 63;
+        spriteY = 0;
+    }
+
+    W_MMIO_W(HW_CURSOR_X, spriteX & 0xFFF);
+    W_MMIO_W(HW_CURSOR_Y, spriteY & 0xFFF);
+    W_MMIO_B(HW_CURSOR_OFF_X, offsetX & 63);
+    W_MMIO_B(HW_CURSOR_OFF_Y, offsetY & 63);
+}
+
+static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE, "fmt=%ld\n", (ULONG)fmt);
+    (void)fmt;
+    /* AT3D: first 16 bytes = top row; 2 bpp, bit0=XOR bit1=AND per pixel; 16 bytes/row * 64 rows = 1024 bytes */
+    const UWORD *image = bi->MouseImage + 2;
+    ULONG *cursor      = (ULONG *)bi->MouseImageBuffer;
+    for (UWORD y = 0; y < bi->MouseHeight; ++y) {
+        // first 16 bit
+        ULONG plane0 = *image++;
+        ULONG plane1 = *image++;
+
+        plane0 = ~plane0;
+
+        *cursor++ = swapl((spreadBits(plane0) << 1) | spreadBits((plane1)));
+        *cursor++ = 0xAAAAAAAA;  // encodes 0b10 per cursor pixel (transparent)
+        *cursor++ = 0xAAAAAAAA;
+        *cursor++ = 0xAAAAAAAA;
+    }
+    // Pad the rest of the cursor image
+    for (UWORD y = bi->MouseHeight; y < 64; ++y) {
+        for (UWORD p = 0; p < 4; ++p) {
+            *cursor++ = 0xAAAAAAAA;
+        }
+    }
+
+    LOCAL_SYSBASE();
+    CacheClearU();
+}
+
+static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
+                               __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE, "index=%ld, R=%ld, G=%ld, B=%ld, fmt=%ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue,
+          (ULONG)fmt);
+
+    MMIOBASE();
+    if (index > 2)
+        return;
+    // Luckily this bit of index rotation was enough to match the P96 sprite color indices to the AT3D ones
+    LONG reg = HW_CURSOR_COL1 + (index + 1) % 3;
+
+    switch (fmt) {
+    case RGBFB_NONE:
+    case RGBFB_CLUT: {
+        UBYTE paletteEntry = (UBYTE)(17 + index);
+        W_MMIO_B(reg, paletteEntry);
+        // W_MMIO_MASK_B(HW_CURSOR_CTRL, BIT(2), 0x00);  // Disable "Full Color" mode
+        break;
+    }
+    default:
+        /* 3:3:2 RGB: R[7:5], G[4:2], B[1:0] */
+        W_MMIO_B(reg, (UBYTE)((red & 0xE0) | ((green >> 3) & 0x1C) | (blue >> 6)));
+        // W_MMIO_MASK_B(HW_CURSOR_CTRL, BIT(2), BIT(2));  // Enable "Full Color" mode
+        break;
+    }
+}
+
+static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate), __REGD7(RGBFTYPE RGBFormat))
+{
+    DFUNC(VERBOSE, "activate=%ld, format=%ld\n", (ULONG)activate, (ULONG)RGBFormat);
+
+    MMIOBASE();
+
+    UBYTE cursorCtrl = BIT(1) | (activate ? BIT(0) : 0);  // 3-color + Enable
+
+    W_MMIO_B(HW_CURSOR_CTRL, cursorCtrl);
+
+    if (activate) {
+        SetSpriteColor(bi, 0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, bi->RGBFormat);
+        SetSpriteColor(bi, 1, bi->CLUT[18].Red, bi->CLUT[18].Green, bi->CLUT[18].Blue, bi->RGBFormat);
+        SetSpriteColor(bi, 2, bi->CLUT[19].Red, bi->CLUT[19].Green, bi->CLUT[19].Blue, bi->RGBFormat);
+    }
+    return TRUE;
+}
+
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(ALWAYS, "AT3D InitChip - Testing hardware access\n");
@@ -1200,7 +1321,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // Map ProMotion registers to  last 2K of flat space.
         W_SR_MASK(0x1b, 0x3F, (0b100 << 3) | (0b100));
         // Enable flat memory access, set aperture to 4MB and disable VGA memory (A000:0–BFFF:F) access
-        W_SR_MASK(0x1c, 0x3F, 0b101101);
+        W_SR_MASK(0x1c, 0x3F, 0b1111101);
     }
 
     MMIOBASE();
@@ -1248,9 +1369,14 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     // invoke auto-reset of many non-VGA registers
     {
-        W_CR_MASK(CR_EXT_AUTORESET, CR_EXT_AUTORESET_DISABLE, 0);
+        W_CR(CR_EXT_AUTORESET, 0x00);
         W_CR(0x00, 0x00);
-        W_CR_MASK(CR_EXT_AUTORESET, CR_EXT_AUTORESET_DISABLE, CR_EXT_AUTORESET_DISABLE);
+        W_CR(CR_EXT_AUTORESET, CR_EXT_AUTORESET_DISABLE);
+        // FIXME: something is off with this register. Th readback sometimes returns 0x01, sometimes 0xff
+        // and sometimes it seems to get reset to 0 later.
+        while ((R_CR(CR_EXT_AUTORESET) & CR_EXT_AUTORESET_DISABLE) != CR_EXT_AUTORESET_DISABLE) {
+            W_CR(CR_EXT_AUTORESET, CR_EXT_AUTORESET_DISABLE);
+        }
     }
 
     setDefaultClocks(bi);
@@ -1297,8 +1423,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_MMIO_B(VCLK_CTRL, 0x5C);
     W_MMIO_B(VCLK_DEN, 0x01);
     W_MMIO_B(VCLK_NUM, 0x1b);
-
-    R_MMIO_B(COLOR_CORRECTION);  // 8bit per gun palette write (Does not seem to work?!)
 
     W_MISC_MASK(0xF, 0b1111);  // enable Host Memory Access, programmable VCLK, Color Mode (3DA, 3D4 and 3D5 enabled))
 
@@ -1348,6 +1472,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_GR(0x07, 0x0F);
     W_GR(0x08, 0xFF);
 
+    R_CR(CR_EXT_AUTORESET);
+
     W_CR(0x08, 0x00);
     W_CR(0x09, 0x00);
     W_CR(0x0A, 0x00);
@@ -1356,8 +1482,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_CR(0x0D, 0x00);
     W_CR(0x0E, 0x00);
     W_CR(0x0F, 0x00);
-
-    R_MMIO_B(COLOR_CORRECTION);  // 8bit per gun palette write (Does not seem to work?!)
 
     W_CR(0x11, 0x20);  // Disable Vertical Interrupt, ack. Interrupt
     W_CR(0x11, 0x30);  // Normal retrace
@@ -1368,12 +1492,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_CR(0x17, BIT(7) | BIT(6) | BIT(5) | BIT(0));  // CRTC  Mode Control Register, enable HSYNC and VSYNC
     W_CR(0x18, 0xff);                               // Line compare register
 
+    R_CR(CR_EXT_AUTORESET);
+
     W_REG(DAC_MASK, 0xFF);
 
     UBYTE miscOut = R_REG(MISC_R);
     D(INFO, "Monitor is %s present (may be inaccurate)\n", (miscOut & 0x10) ? "" : "not");
-
-    R_MMIO_B(COLOR_CORRECTION);  // 8bit per gun palette write (Does not seem to work?!)
 
     // Initialize I2C operations for EDID support
     CardData_t *card     = getCardData(bi);
@@ -1405,7 +1529,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Set up basic BoardInfo structure
     bi->GraphicsControllerType = GCT_APM;  // Will need to define AT3D type
     bi->PaletteChipType        = PCT_APM;  // Will need to define AT3D type
-    bi->Flags                  = 0;        // Minimal flags for now
+    bi->Flags = bi->Flags | BIF_GRANTDIRECTACCESS | BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
 
     // AT3D supports CLUT (8-bit palette), hicolor (15/16-bit), and truecolor (24/32-bit)
     // Per AT3D specifications: "Optimized 24- and 32-bit truecolor", "hi-color, and 256-color GUI"
@@ -1488,7 +1612,28 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->SetDPMSLevel     = SetDPMSLevel;
     bi->SetSplitPosition = SetSplitPosition;
 
+    bi->SetSprite         = SetSprite;
+    bi->SetSpritePosition = SetSpritePosition;
+    bi->SetSpriteImage    = SetSpriteImage;
+    bi->SetSpriteColor    = SetSpriteColor;
+
     SetSplitPosition(bi, 0);
+
+    /* Hardware cursor: take cursor image data off the top of the memory; cursor at 1 KB segment boundary */
+    {
+        const ULONG maxCursorBufferSize = (64 * 64 * 2 / 8); /* 64x64 at 2 bpp = 1024 bytes */
+        MMIOBASE();
+
+        bi->MemorySize       = (bi->MemorySize - maxCursorBufferSize) & ~(1024 - 1);
+        bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
+
+        W_MMIO_W(HW_CURSOR_BASE, (UWORD)(bi->MemorySize >> 10));
+        W_MMIO_B(HW_CURSOR_CTRL, 0);
+        W_MMIO_W(HW_CURSOR_X, 0);
+        W_MMIO_W(HW_CURSOR_Y, 0);
+        W_MMIO_B(HW_CURSOR_OFF_X, 0);
+        W_MMIO_B(HW_CURSOR_OFF_Y, 0);
+    }
 
     SetMemoryClock(bi, 50000000);
 
@@ -1633,9 +1778,6 @@ int main()
                 *(volatile UBYTE *)(bi->MemoryBase + y * 640 + x) = x;
             }
         }
-
-        MMIOBASE();
-        R_MMIO_B(COLOR_CORRECTION);  // 8bit per gun palette write (Does not seem to work?!)
 
         D(INFO, "Alliance Promotion test completed\n");
         D(INFO, "Screen should now be displaying a test pattern\n");
