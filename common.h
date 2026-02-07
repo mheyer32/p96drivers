@@ -401,6 +401,12 @@ static INLINE void REGARGS writeMMIO_L(volatile UBYTE *mmiobase, LONG regOffset,
     *(volatile ULONG *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPL(value);
 }
 
+static INLINE void REGARGS writeMMIO_NoSwap_L(volatile UBYTE *regbase, LONG reg, ULONG value, const char *regName)
+{
+    D(VERBOSE, "W %s <- 0x%08lx\n", regName, SWAPL(value));
+    *(volatile ULONG *)(regbase + (reg - MMIOREGISTER_OFFSET)) = value;
+}
+
 static INLINE UBYTE REGARGS readRegister(volatile UBYTE *regbase, LONG reg, const char *regName)
 {
     UBYTE value = readReg(regbase, reg);
@@ -506,9 +512,7 @@ static INLINE UBYTE REGARGS readARx(volatile UBYTE *regbase, UBYTE regIndex)
 
 static INLINE void REGARGS writeARx(volatile UBYTE *regbase, UBYTE regIndex, UBYTE value)
 {
-    // This disables the "Enable video display" bit, but only when it is disabled,
-    // the Attribute Controller registers may be accessed
-    writeReg(regbase, ATR_AD, regIndex);
+    writeReg(regbase, ATR_AD, regIndex | 0x20);
     writeReg(regbase, ATR_DATA_W, value);
 
     D(VERBOSE, "W AR%lX <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
@@ -554,6 +558,7 @@ static INLINE void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
 #define W_MMIO_MASK_W(reg, mask, value) writeMMIOMask_W(MMIOBase, reg, mask, value, #reg)
 #define R_MMIO_W(reg)                   readMMIO_W(MMIOBase, reg, #reg)
 #define W_MMIO_L(reg, value)            writeMMIO_L(MMIOBase, reg, value, #reg)
+#define W_MMIO_NOSWAP_L(reg, value)     writeMMIO_NoSwap_L(MMIOBase, reg, value, #reg)
 #define R_MMIO_L(reg)                   readMMIO_L(MMIOBase, reg, #reg)
 
 #define W_MISC_MASK(mask, value) writeMISC_OUT(RegBase, mask, value)

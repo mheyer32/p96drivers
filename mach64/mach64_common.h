@@ -430,6 +430,7 @@ static INLINE void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, LONG
 #undef R_MMIO_B
 #undef W_MMIO_B
 #undef W_MMIO_MASK_L
+#undef W_MMIO_NOSWAP_L
 
 #define R_MMIO_B(regIndex, byteIndex)        readATIRegisterB(MMIOBase, regIndex, byteIndex, #regIndex)
 #define W_MMIO_B(regIndex, byteIndex, value) writeATIRegisterB(MMIOBase, regIndex, byteIndex, value, #regIndex)

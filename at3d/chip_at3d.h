@@ -4,7 +4,77 @@
 #include "at3d_common.h"
 #include "at3dconfig.h"
 
-#define SR_SCRATCH_PAD         0x21  // Scratch pad register in sequencer registers 0x20-0x27
+#define SR_SCRATCH_PAD 0x21  // Scratch pad register in sequencer registers 0x20-0x27
+
+// Drawing engine control (register 040h). AT3D-only; per AT3D Table 4.3 / "Drawing engine control" p.188.
+#define DRAW_CMD 0x040
+
+#define DRAW_ENGINE_START        BIT(31)
+#define DRAW_QUICK_START(x)      ((x) << 29)
+#define DRAW_QUICK_START_MASK    (0x3 << 29)
+#define DRAW_DST_UPDATE(x)       ((x) << 27)
+#define DRAW_DST_UPDATE_MASK     (0x3 << 27)
+#define DRAW_ADDRESS_MODEL(x)    ((x) << 24)
+#define DRAW_ADDRESS_MODEL_MASK  (0x7 << 24)
+#define DRAW_PATTERN_FORMAT      ((x) << 22)
+#define DRAW_PATTERN_FORMAT_MASK (0x3 << 22)
+#define DRAW_DST_TRANS_POLARITY  BIT(21)
+#define DRAW_DST_TRANSPARENT     BIT(20)
+#define DRAW_DST_CONTIGUOUS      BIT(19)
+#define DRAW_DST_ADDR_LINEAR     BIT(18)
+#define DRAW_EZ_LINEAR           BIT(17)
+#define DRAW_PIXEL_DEPTH_MASK    (0x7 << 14)
+#define DRAW_PIXEL_DEPTH(x)      ((x) << 14)
+#define DRAW_SRC_TRANSPARENT     BIT(13)
+#define DRAW_SRC_MONOCHROME      BIT(12)
+#define DRAW_SRC_CONTIGUOUS      BIT(11)
+#define DRAW_SRC_ADDR_LINEAR     BIT(9)
+#define DRAW_MAJOR_AXIS_X        BIT(8)
+#define DRAW_DIR_Y_NEGATIVE      BIT(7)
+#define DRAW_DIR_X_NEGATIVE      BIT(6)
+#define DRAW_CMD_OP(x)           (x)
+#define DRAW_CMD_OP_MASK         (0xF)
+
+#define DRAW_CMD_NOP                0b0000
+#define DRAW_CMD_BLT                0b0001  // screen-screen BLT
+#define DRAW_CMD_RECT               0b0010  // rectangle
+#define DRAW_CMD_STRIP              0b0100  // strip draw, Draws a single-pixel wide rectangular strip.
+#define DRAW_CMD_HOST_BLT_WRITE     0b1000  // host BLT write, write memory to screen
+#define DRAW_CMD_HOST_BLT_READ      0b1001  // host BLT read,  read screen to memory
+#define DRAW_CMD_VECTOR_ENDPOINT    0b1100  // vector, draw endpoint
+#define DRAW_CMD_VECTOR_NO_ENDPOINT 0b1101  // vector, don't draw endpoint
+
+#define DST_UPDATE_LAST              0b11
+#define DST_UPDATE_BELOW_BOTTOM_LEFT 0b10
+#define DST_UPDATE_TOP_RIGHT         0b01
+#define DST_UPDATE_DISABLED          0b00
+
+#define QUICKSTART_NONE      0b00
+#define QUICKSTART_DIM_WIDTH 0b01
+#define QUICKSTART_SRC       0b10
+#define QUICKSTART_DST       0b11
+
+#define RASTEROP            0x046
+#define BYTE_MASK           0x047
+
+#define PATTERN             0x048
+#define SRC_LOCATION_X_LOW  0x050
+#define SRC_LOCATION_Y_HIGH 0x052
+#define DST_LOCATION_X_LOW  0x054
+#define DST_LOCATION_Y_HIGH 0x056
+#define SRC_SIZE_X          0x058  // FIXME: rename?
+#define SRC_SIZE_Y          0x05A
+// FIXE: this limits 32bit modes to 1024 pixels in width?
+#define DST_PITCH              0x05C  // On AT25/3D byte pitch between rows. AT24 and earlier, applies only to 24bit mode
+#define SRC_PITCH              0x05E  // On AT25/3D byte pitch between rows. AT24 and earlier, applies only to 24bit mode
+#define FRGD_COLOR             0x060
+#define BKGD_COLOR             0x064
+#define DST_TRANSPARENCY_COLOR 0x06C
+#define DST_TRANSPARENCY_MASK  0x06F
+#define DDA_AXIAL_STEP         0x070
+#define DDA_DIAGONAL_STEP      0x072
+#define DDA_ERROR_TERM         0x074
+
 #define SIGANALYSER_CTRL       0x0B4
 #define DPMS_SYNC_CTRL         0x0D0  // DPMS/sync control register at memory offset 0D0h
 #define MONITOR_INTERLACE_CTRL 0x0D2  // Monitor interlace control register at memory offset 0D2h
@@ -185,7 +255,7 @@
 #define CR_CHAR_CLOCK_ADJUST 0x1d  // Character clock adjust register
 
 // CR1E: Extended CRTC autoreset (bit 0 = disable automatic CRTC reset)
-#define CR_EXT_AUTORESET     0x1e  // Extended CRTC autoreset register
+#define CR_EXT_AUTORESET         0x1e    // Extended CRTC autoreset register
 #define CR_EXT_AUTORESET_DISABLE BIT(0)  // Disable automatic CRTC reset
 
 // Sequencer register 1 (SR1) - Clocking mode

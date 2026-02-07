@@ -93,7 +93,7 @@ static ULONG probeFramebufferSize(BoardInfo_t *bi)
     }
 
     // If we got here, use the maximum size we tested
-    DFUNC(INFO, "Using maximum tested size: %ld KB\n", maxSize / 1024);
+    DFUNC(INFO, "Returning size: %ld KB\n", maxSize / 1024);
     return maxSize;
 }
 
@@ -591,8 +591,40 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct Mod
 static UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
                                       __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE rgbFormat))
 {
-    // FIXME: extend getBPP for 24bit and YUV formats
-    return (width * getBPP(rgbFormat) + 7) & ~7;
+    if (mi) {
+        // Bitmap supposed to show on screen.
+        // We expect blits to and from on-screen subrectangles, so make the pitch Blitter-compatible
+        // Use X/Y addressing for these
+        if (width <= 320) {
+            // We allow only small resolutions to have a non-Graphics Engine size.
+            // These resolutions (notably 320xY) are often used in games and these games
+            // assume a pitch of 320 bytes (not 640 which expansion to 640 would
+            // require). Nevertheless, align to 8 bytes. We constrain all other
+            // resolutions to Graphics Engine supported pitch.
+            width = (width + 7) & ~7;
+        } else if (width <= 512) {
+            width = 512;
+        } else if (width <= 640) {
+            width = 640;
+        } else if (width <= 800) {
+            width = 800;
+        } else if (width <= 1024) {
+            width = 1024;
+        } else if (width <= 1152) {
+            width = 1152;
+        } else if (width <= 1280) {
+            width = 1280;
+        } else if (width <= 1600) {
+            width = 1600;
+        } else {
+            return 0;
+        }
+        // FIXME: extend getBPP for 24bit and YUV formats
+        return (width * getBPP(rgbFormat) + 7) & ~7;
+    } else {
+        // Offscreen bitmaps can be stored in a tightly packed format to support "Linear Addressing"
+        return width * getBPP(rgbFormat);
+    }
 }
 
 static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REGD0(struct RenderInfo *ri),
@@ -756,6 +788,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     BOOL isInterlaced = (modeFlags & GMF_INTERLACE) ? 1 : 0;
     UBYTE depth       = mi->Depth;
 
+// 8 pixels default border size = 1 character clock
 #define ADJUST_HBORDER(x) AdjustBorder(x, border, 8)
 #define ADJUST_VBORDER(y) AdjustBorder(y, border, 1);
 #define TO_CLKS(x)        ((x) >> 3)
@@ -777,7 +810,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     // cursor enable and motion video enable.
     {
         // Horizontal Total (CR0)
-        // AT3D uses CR1B[0] for horizontal total overflow
         UWORD hTotalClk = TO_CLKS(hTotal) - 5;
         D(INFO, "Horizontal Total %ld\n", (ULONG)hTotalClk);
         W_CR_OVERFLOW1(hTotalClk, 0x00, 0, 8, 0x1B, 0, 1);
@@ -1034,7 +1066,11 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
         R_REG(0x3DA);  // Reset AFF
         // Background color 0 also sets the border color
         /* 3:3:2 RGB: R[7:5], G[4:2], B[1:0] */
-        W_AR(0x11, (UBYTE)((bi->CLUT[0].Red & 0xE0) | ((bi->CLUT[0].Green >> 3) & 0x1C) | (bi->CLUT[0].Blue >> 6)));
+        if (bi->ModeInfo->Depth <= 8) {
+            W_AR(0x11, 0);
+        } else {
+            W_AR(0x11, (UBYTE)((bi->CLUT[0].Red & 0xE0) | ((bi->CLUT[0].Green >> 3) & 0x1C) | (bi->CLUT[0].Blue >> 6)));
+        }
         W_REG(ATR_AD, 0x20);  // re-enable normal screen output
     }
 
@@ -1125,6 +1161,10 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     // Offset is in units of 8 bytes
     W_CR_OVERFLOW1(pitch, 0x13, 0, 8, 0x1c, 4, 4);
 
+    // This has weird effects on the lines the cursor image shows
+    // R_REG(0x3DA);  // Reset AFF to latch new start address
+    // W_AR(0x13, xoffset & 7);  // Update border color to match new background color (in case it changed)
+
     return;
 }
 
@@ -1154,8 +1194,26 @@ static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level)
     W_MMIO_MASK_B(DPMS_SYNC_CTRL, 0x03, DPMSLevels[level]);
 }
 
-// FIXME: implement, but make sure to coordinate with SetDPMSLevel
-static void WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL waitForEnd)) {}
+// FIXME: Make sure to coordinate with SetDPMSLevel, does the register signals still get produced?
+static void WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL waitForEnd))
+{
+    REGBASE();
+    if (waitForEnd) {
+        // wait for verticel retrace
+        // Use readReg() so in debug mode slow serial output doesn't make us miss the signals
+        while (!(readReg(RegBase, 0x3DA) & 0x08)) {
+        };
+        // For pixel display (should now be top of frame, i.e. end of retrace)
+        while (!(readReg(RegBase, 0x3DA) & 0x01)) {
+        };
+    } else {  // For pixel display first
+        while (!(readReg(RegBase, 0x3DA) & 0x01)) {
+        };
+        // wait for verticel retrace starting
+        while (!(readReg(RegBase, 0x3DA) & 0x08)) {
+        };
+    }
+}
 
 static void ASM SetWriteMask(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask)) {}
 
@@ -1293,6 +1351,252 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
     return TRUE;
 }
 
+static INLINE ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
+{
+    ULONG offset = (ULONG)memory - (ULONG)bi->MemoryBase;
+    return offset;
+}
+
+static INLINE ULONG REGARGS getLinearPixelOffset(struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y,
+                                                 UBYTE bppLog2)
+{
+    // Note: not suited for 3-bytes-per-pixel modes
+    ULONG offset = getMemoryOffset(bi, ri->Memory);
+    offset += y * ri->BytesPerRow;
+    offset >>= bppLog2;  // convert line offset to units of pixels
+    offset += x;         // final offset
+    return offset;
+}
+
+static INLINE void setDestinationLocation(struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y,
+                                          UBYTE bppLog2, BOOL useLinearAddressing)
+{
+    MMIOBASE();
+    if (useLinearAddressing) {
+        ULONG pixelOffset = getLinearPixelOffset(bi, ri, x, y, bppLog2);
+        pixelOffset       = makeDWORD(swapw(pixelOffset & 0xFFF), swapw(pixelOffset >> 12));
+        W_MMIO_NOSWAP_L(DST_LOCATION_X_LOW, pixelOffset);
+    } else {
+        // Memory offset is essentially pixel 0,0
+        ULONG offset   = getMemoryOffset(bi, ri->Memory);
+        UWORD offX     = (offset % ri->BytesPerRow) >> bppLog2;
+        UWORD offY     = (offset / ri->BytesPerRow);
+        ULONG location = makeDWORD(swapw(x + offX), swapw(y + offY));
+        W_MMIO_NOSWAP_L(DST_LOCATION_X_LOW, location);
+    }
+}
+
+static INLINE void setDstPitch(struct BoardInfo *bi, UWORD bytesPerRow)
+{
+    MMIOBASE();
+    W_MMIO_W(DST_PITCH, bytesPerRow);
+}
+
+static INLINE void setDrawSize(struct BoardInfo *bi, UWORD width, UWORD height)
+{
+    MMIOBASE();
+    W_MMIO_W(SRC_SIZE_Y, height);
+    // write width last as it may start the drawing operation
+    W_MMIO_W(SRC_SIZE_X, width);
+}
+
+static INLINE ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
+{
+    switch (fmt) {
+    case RGBFB_B8G8R8A8:
+        pen = swapl(pen);
+        break;
+    case RGBFB_R5G6B5PC:
+    case RGBFB_R5G5B5PC:
+        pen = swapw(pen);
+        // Fallthrough
+    default:
+        break;
+    }
+    return pen;
+}
+
+static INLINE void setForegroundColor(const struct BoardInfo *bi, ULONG fgPen)
+{
+    MMIOBASE();
+    W_MMIO_L(FRGD_COLOR, fgPen);
+}
+
+static INLINE void setBackgroundColor(const struct BoardInfo *bi, ULONG bgPen)
+{
+    MMIOBASE();
+    W_MMIO_L(BKGD_COLOR, bgPen);
+}
+
+static INLINE void setByteMask(const struct BoardInfo *bi, UBYTE mask, RGBFTYPE fmt)
+{
+    MMIOBASE();
+
+    // // FIXME: is this even the right mask register?!
+    // if (fmt < RGBFB_CLUT) {
+    //     W_MMIO_B(BYTE_MASK, mask);
+    // } else {
+    //     W_MMIO_B(BYTE_MASK, 0xFF);  //
+    // }
+}
+
+static INLINE ULONG getAdressModelBits(struct BoardInfo *bi, struct RenderInfo *ri, UBYTE bppLog2)
+{
+    switch (ri->BytesPerRow >> bppLog2) {
+    case 512:
+        return DRAW_ADDRESS_MODEL(0b011);
+    case 640:
+        return DRAW_ADDRESS_MODEL(0b001);
+    case 800:
+        return DRAW_ADDRESS_MODEL(0b010);
+    case 1024:
+        return DRAW_ADDRESS_MODEL(0b100);
+    case 1152:
+        return DRAW_ADDRESS_MODEL(0b101);
+    case 1280:
+        return DRAW_ADDRESS_MODEL(0b110);
+    case 1600:
+        return DRAW_ADDRESS_MODEL(0b111);
+    default:
+        return 0;  // interpreted as "linear addressing mode"
+    }
+}
+
+#define ROP_SOURCE              0xCC
+#define ROP_PATTERN             0xF0
+#define ROP_SRC_XOR_DST         0x66
+#define ROP_SRC_AND_PAT_AND_DST 0x80
+#define ROP_NOT_DST             0x55  /* result = ~D (invert destination) */
+
+/* Amiga minterm (A=src, B=dst, C=mask, index 4*A+2*B+C) -> AT3D/Windows ROP3 (P,S,D, index 4*P+2*S+D). Map A->S, B->D,
+ * C->P. */
+static INLINE UBYTE mintermToRop3(UBYTE minterm)
+{
+    return (UBYTE)((minterm & 0x99U) | ((minterm & 0x22U) << 1) | ((minterm & 0x44U) >> 1));
+}
+
+static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
+                         __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(ULONG pen),
+                         __REGD5(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE,
+          "\nx %ld, y %ld, w %ld, h %ld\npen %08lx, mask 0x%lx fmt %ld\n"
+          "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+          (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)pen, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
+          (ULONG)ri->Memory);
+
+    // AT3D doesn't support bit masking for CLUT modes, so we require a full mask in that case.
+    // True color modes can ignore the mask
+    if (fmt <= RGBFB_CLUT && mask != 0xFF) {
+        D(WARN, "FillRect fallback\n");
+        bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
+        return;
+    }
+
+    MMIOBASE();
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != FILLRECT) {
+        cd->GEOp = FILLRECT;
+        W_MMIO_B(RASTEROP, ROP_SOURCE);
+    }
+
+    if (cd->GEFormat != fmt) {
+        cd->GEbppLog2 = getBPPLog2(fmt);
+    }
+
+    UBYTE bppLog2 = cd->GEbppLog2;
+
+    BOOL isLinear = (width << bppLog2) == ri->BytesPerRow;
+
+    if (isLinear != cd->GElinear || cd->GEbytesPerRow != ri->BytesPerRow || cd->GEFormat != fmt) {
+        cd->GEbytesPerRow = ri->BytesPerRow;
+        cd->GEFormat      = fmt;
+        cd->GEfgPen       = pen;
+        cd->GElinear      = isLinear;
+        // Pixel depth:
+        // 0b000 = determined by screen (6422 behavior)
+        // 0bX01 = 8bpp
+        // 0bX10 = 16bpp
+        // 0bX11 = 32bpp
+        // 0b100 = 24bpp
+        UBYTE pixelDepth   = bppLog2 + 1;  // matches bit encoding for pixel depth, but doesn't cover 24 bits
+        ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS)
+                                                                     : getAdressModelBits(bi, ri, bppLog2);
+        ULONG cmd = DRAW_CMD_OP(DRAW_CMD_RECT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(pixelDepth) |
+                    addressModel;
+        cd->GEdrawCmd = cmd;
+
+        W_MMIO_L(DRAW_CMD, cmd);
+        setForegroundColor(bi, PenToColor(pen, fmt));
+    } else if (cd->GEfgPen != pen) {
+        cd->GEfgPen = pen;
+        setForegroundColor(bi, PenToColor(pen, fmt));
+    }
+
+    setDestinationLocation(bi, ri, x, y, bppLog2, !!(cd->GEdrawCmd & DRAW_DST_ADDR_LINEAR));
+
+    // Kick off the fill by writing the size registers
+    setDrawSize(bi, width, height);
+}
+
+static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
+                           __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask),
+                           __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE,
+          "\nx %ld, y %ld, w %ld, h %ld\nmask 0x%lx fmt %ld\n"
+          "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+          (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
+          (ULONG)ri->Memory);
+
+    if (!getBPP(fmt) || !width || !height) {
+        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
+        return;
+    }
+    if (fmt <= RGBFB_CLUT && mask != 0xFF) {
+        D(WARN, "InvertRect fallback (mask)\n");
+        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
+        return;
+    }
+
+    MMIOBASE();
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != INVERTRECT) {
+        cd->GEOp = INVERTRECT;
+        W_MMIO_B(RASTEROP, ROP_NOT_DST);
+    }
+
+    if (cd->GEFormat != fmt) {
+        cd->GEbppLog2 = getBPPLog2(fmt);
+    }
+
+    UBYTE bppLog2 = cd->GEbppLog2;
+
+    BOOL isLinear = (width << bppLog2) == ri->BytesPerRow;
+
+    if (isLinear != cd->GElinear || cd->GEbytesPerRow != ri->BytesPerRow || cd->GEFormat != fmt) {
+        cd->GEbytesPerRow = ri->BytesPerRow;
+        cd->GEFormat      = fmt;
+        cd->GElinear      = isLinear;
+        UBYTE pixelDepth   = bppLog2 + 1;
+        ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS)
+                                      : getAdressModelBits(bi, ri, bppLog2);
+        ULONG cmd = DRAW_CMD_OP(DRAW_CMD_RECT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(pixelDepth) |
+                    addressModel;
+        cd->GEdrawCmd = cmd;
+
+        W_MMIO_L(DRAW_CMD, cmd);
+    }
+
+    setDestinationLocation(bi, ri, x, y, bppLog2, !!(cd->GEdrawCmd & DRAW_DST_ADDR_LINEAR));
+
+    setDrawSize(bi, width, height);
+}
+
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(ALWAYS, "AT3D InitChip - Testing hardware access\n");
@@ -1310,6 +1614,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             W_REG(0x102, 0x01);
             W_REG(0x46E8, 0x08);
         }
+
         // Unlock extended registers
         W_SR(0x10, 0x12);
         // R_SR(0x10);  // Debug read
@@ -1317,11 +1622,15 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         W_SR(0x1B, 0x00);
         W_SR(0x1C, 0x00);
 
+        // Remap Control
         // Map HOST BLT port to last 32K of flat space less final 2K
         // Map ProMotion registers to  last 2K of flat space.
         W_SR_MASK(0x1b, 0x3F, (0b100 << 3) | (0b100));
+
+        // Flat Model Control
         // Enable flat memory access, set aperture to 4MB and disable VGA memory (A000:0–BFFF:F) access
         W_SR_MASK(0x1c, 0x3F, 0b1111101);
+        R_SR(0x1c);  // Dummy read to force flush of FIFO( is this the right way?)
     }
 
     MMIOBASE();
@@ -1372,7 +1681,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         W_CR(CR_EXT_AUTORESET, 0x00);
         W_CR(0x00, 0x00);
         W_CR(CR_EXT_AUTORESET, CR_EXT_AUTORESET_DISABLE);
-        // FIXME: something is off with this register. Th readback sometimes returns 0x01, sometimes 0xff
+        // FIXME: something is off with this register. The readback sometimes returns 0x01, sometimes 0xff
         // and sometimes it seems to get reset to 0 later.
         while ((R_CR(CR_EXT_AUTORESET) & CR_EXT_AUTORESET_DISABLE) != CR_EXT_AUTORESET_DISABLE) {
             W_CR(CR_EXT_AUTORESET, CR_EXT_AUTORESET_DISABLE);
@@ -1416,7 +1725,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_MMIO_B(PIXEL_FIFO_REQ_POINT + 1, 0x16);
     W_MMIO_B(PIXEL_FIFO_REQ_POINT + 2, 0x16);
 
-    W_MMIO_B(0xDA, 0x00);  // This used to be an "Internal Register" on older 6210 cards(?)
+    // W_MMIO_B(0xDA, 0x00);  // This used to be an "Internal Register" on older 6210 cards(?)
 
     W_MMIO_W(DISP_MEM_CFG, 0x0520);  // Single Cycle Page Mode, mem64, 128bit gfx access
 
@@ -1450,7 +1759,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             W_AR(p, p);
         }
 
-        W_AR(0x10, 0x41);  // 256color mode, graphics
+        W_AR(0x10, 0x61);  // 256color mode, separate pixel panning, graphics mode
 
         // Enable video
         R_REG(0x3DA);         // reset AFF
@@ -1533,7 +1842,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     // AT3D supports CLUT (8-bit palette), hicolor (15/16-bit), and truecolor (24/32-bit)
     // Per AT3D specifications: "Optimized 24- and 32-bit truecolor", "hi-color, and 256-color GUI"
-    bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8 | RGBFF_B8G8R8A8;
+    bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
 
     // AT24 and up can support non-packed formats via big-endian aperture
     if (getChipData(bi)->chipFamily >= AT24) {
@@ -1617,6 +1926,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->SetSpriteImage    = SetSpriteImage;
     bi->SetSpriteColor    = SetSpriteColor;
 
+    bi->FillRect   = FillRect;
+    bi->InvertRect = InvertRect;
+
     SetSplitPosition(bi, 0);
 
     /* Hardware cursor: take cursor image data off the top of the memory; cursor at 1 KB segment boundary */
@@ -1627,8 +1939,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         bi->MemorySize       = (bi->MemorySize - maxCursorBufferSize) & ~(1024 - 1);
         bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
 
-        W_MMIO_W(HW_CURSOR_BASE, (UWORD)(bi->MemorySize >> 10));
+        // DFUNC(INFO, "Cursor offset %ld\n", bi->MemorySize);
+
         W_MMIO_B(HW_CURSOR_CTRL, 0);
+        W_MMIO_W(HW_CURSOR_BASE, (UWORD)(bi->MemorySize >> 10));
         W_MMIO_W(HW_CURSOR_X, 0);
         W_MMIO_W(HW_CURSOR_Y, 0);
         W_MMIO_B(HW_CURSOR_OFF_X, 0);
@@ -1636,6 +1950,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
 
     SetMemoryClock(bi, 50000000);
+
+    W_MMIO_B(BYTE_MASK, 0xFF);
 
     return TRUE;
 }
@@ -1778,6 +2094,28 @@ int main()
                 *(volatile UBYTE *)(bi->MemoryBase + y * 640 + x) = x;
             }
         }
+
+        struct RenderInfo ri;
+        ri.Memory      = bi->MemoryBase;
+        ri.BytesPerRow = 640;
+        ri.RGBFormat   = RGBFB_CLUT;
+
+        {
+            FillRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, 0xFF, RGBFB_CLUT);
+        }
+
+        {
+            FillRect(bi, &ri, 64, 64, 128, 128, 0xAA, 0xFF, RGBFB_CLUT);
+        }
+
+        {
+            FillRect(bi, &ri, 256, 10, 128, 128, 0x33, 0xFF, RGBFB_CLUT);
+        }
+
+        {
+            InvertRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, RGBFB_CLUT);
+        }
+
 
         D(INFO, "Alliance Promotion test completed\n");
         D(INFO, "Screen should now be displaying a test pattern\n");

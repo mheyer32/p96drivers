@@ -22,27 +22,24 @@ typedef struct AT3DPLLValue
 {
     UWORD freq10khz;  // frequency in 10 kHz units (e.g. 2517 = 25.17 MHz), fits up to ~17500
     UBYTE n;          // N numerator (8-127)
-    UBYTE m;  // M denominator (1-5)
-    UBYTE l;  // L postscaler log2 (0-3)
-    UBYTE f;  // frequency range setting
+    UBYTE m;          // M denominator (1-5)
+    UBYTE l;          // L postscaler log2 (0-3)
+    UBYTE f;          // frequency range setting
 } AT3DPLLValue_t;
 
 typedef struct ChipData
 {
-    ULONG GEfgPen;
-    ULONG GEbgPen;
-
-    UWORD GEbytesPerRow;  // programmed graphics engine bytes per row
-
     UBYTE GEOp;  // programmed graphics engine setup
     UBYTE GEFormat;
+    UWORD GEbytesPerRow;  // programmed graphics engine bytes per row
+    ULONG GEfgPen;
+    ULONG GEdrawCmd;
+    ULONG GEbgPen;
+    UBYTE GEbppLog2;   // programmed graphics engine bpp
+    UBYTE GElinear;   // programmed graphics engine linear/xy address model
+    UBYTE MemFormat;   // programmed memory layout/format
+    UBYTE chipFamily;  // chip family
 
-    UBYTE GEbpp;   // programmed graphics engine bpp
-    UBYTE GEmask;  // programmed mask
-
-    UBYTE GEdrawMode;
-    UBYTE MemFormat;            // programmed memory layout/format
-    UBYTE chipFamily;           // chip family
     UWORD pattX;                // x offset in pattern
     UWORD pattY;                // y offset in pattern
     ULONG *patternVideoBuffer;  // points to video memory
