@@ -37,9 +37,10 @@ typedef struct ChipData
     ULONG GEbgPen;
     UBYTE GEbppLog2;   // programmed graphics engine bpp
     UBYTE GElinear;   // programmed graphics engine linear/xy address model
-    UBYTE MemFormat;   // programmed memory layout/format
+    UBYTE GEopCode;   // programmed minTerm
+    UBYTE memFormat;   // programmed memory layout/format
     UBYTE chipFamily;  // chip family
-
+    UBYTE pad;
     UWORD pattX;                // x offset in pattern
     UWORD pattY;                // y offset in pattern
     ULONG *patternVideoBuffer;  // points to video memory
