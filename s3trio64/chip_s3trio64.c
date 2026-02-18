@@ -1717,11 +1717,11 @@ static INLINE ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
         // Fallthrough
     case RGBFB_R5G6B5:
     case RGBFB_R5G5B5:
-        pen = makeDWORD(pen, pen);
+        pen = copyToUpper(pen);
         break;
     case RGBFB_CLUT:
         pen |= (pen << 8);
-        pen = makeDWORD(pen, pen);
+        pen = copyToUpper(pen);
         break;
     default:
         break;
@@ -1844,7 +1844,7 @@ static INLINE void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask, RGBF
 
             UWORD wmask = mask;
             wmask |= (wmask << 8);
-            setWriteMask(bi, makeDWORD(wmask, wmask));
+            setWriteMask(bi, copyToUpper(wmask));
         } else {
             WaitFifo(bi, waitFifoSlots);
         }
@@ -2567,7 +2567,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         if (!rol) {
             for (WORD y = 0; y < height; ++y) {
                 UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
-                ULONG bitsL = makeDWORD(bits, bits);
+                ULONG bitsL = copyToUpper(bits);
                 for (WORD x = 0; x < dwordsPerLine; ++x) {
                     W_MMIO_L(PIX_TRANS, bitsL);
                 }
@@ -2576,7 +2576,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
             for (WORD y = 0; y < height; ++y) {
                 UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
                 bits        = (bits << rol) | (bits >> (16 - rol));
-                ULONG bitsL = makeDWORD(bits, bits);
+                ULONG bitsL = copyToUpper(bits);
                 for (WORD x = 0; x < dwordsPerLine; ++x) {
                     W_MMIO_L(PIX_TRANS, bitsL);
                 }
@@ -2823,7 +2823,7 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
         // segment to be drawn.
         UWORD rol      = line->PatternShift;
         UWORD pattern  = (line->LinePtrn << rol) | (line->LinePtrn >> (16u - rol));
-        ULONG patternL = makeDWORD(pattern, pattern);
+        ULONG patternL = copyToUpper(pattern);
         WORD numDWords = (line->Length + 31) / 32;
         for (WORD i = 0; i < numDWords; ++i) {
             W_MMIO_L(PIX_TRANS, patternL);

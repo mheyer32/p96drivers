@@ -970,7 +970,7 @@ static INLINE void REGARGS setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fm
 
             UWORD wordMask = (mask << 8) | mask;
 
-            W_MMIO_L(DP_WRITE_MSK, makeDWORD(wordMask, wordMask));
+            W_MMIO_L(DP_WRITE_MSK, copyToUpper(wordMask));
         } else {
             waitFifo(bi, waitFifoSlots);
         }
@@ -1972,7 +1972,7 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     //             // segment to be drawn.
     //     UWORD rol = line->PatternShift;
     //     UWORD pattern = (line->LinePtrn << rol) | (line->LinePtrn >> (16u - rol));
-    //     ULONG patternL = makeDWORD(pattern, pattern);
+    //     ULONG patternL = copyToUpper(pattern);
     //     WORD numDWords = (line->Length + 31) / 32;
     //     for (WORD i = 0; i < numDWords; ++i) {
     //         W_MMIO_L(PIX_TRANS, patternL);

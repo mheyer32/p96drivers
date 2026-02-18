@@ -613,18 +613,32 @@ static INLINE void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
         _W_CR_OF(val_W_CR_OVERFLOW3, extOverflowReg2, bitPos4, numBits4);                                      \
     } while (0);
 
+// make a DWORD from two shorts. Make sure, hi and lo are not the same variable!
 static INLINE int makeDWORD(short hi, short lo)
 {
     int res;
     __asm __volatile(
-        "swap %0 \n"
+        "swap %0\n\t"
         "move.w %2,%0"
         : "=&d"(res)
         : "0"(hi), "g"(lo)
         : "cc");
     return res;
-
     //    return hi << 16 | lo;
+}
+
+static INLINE int copyToUpper(short hilo)
+{
+    int res, tmp;
+    __asm __volatile(
+        "move.w %0,%1\n\t"
+        "swap %0\n\t"
+        "move.w %1,%0\n\t"
+        : "=&d"(res), "=r"(tmp)
+        : "0"(hilo)
+        : "cc");
+    return res;
+    //    return hilo << 16 | hilo;
 }
 
 static inline UBYTE getBPP(RGBFTYPE format)
