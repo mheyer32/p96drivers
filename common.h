@@ -350,17 +350,30 @@ static INLINE UWORD REGARGS readMMIO_W(volatile UBYTE *mmiobase, LONG regOffset,
     return value;
 }
 
-static INLINE ULONG REGARGS readMMIO_L(volatile UBYTE *mmiobase, LONG regOffset, const char *regName)
+static INLINE ULONG read_L(volatile UBYTE *addr)
 {
     flushWrites();
     // This construct makes sure, the compiler doesn't take shortcuts
     // performing a byte access (for instance via btst) when the hardware really
-    // requires register access as words
-    ULONG value = SWAPL(*(volatile ULONG *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)));
+    // requires register access as long words
+    ULONG value = *(volatile ULONG *)addr;
     asm volatile("" ::"r"(value));
+    return value;
+}
 
+static INLINE ULONG REGARGS readMMIO_L(volatile UBYTE *mmiobase, LONG regOffset, const char *regName)
+{
+    ULONG value = read_L(mmiobase + (regOffset - MMIOREGISTER_OFFSET));
+    value       = SWAPL(value);
     D(VERBOSE, "R %s -> 0x%08lx\n", (ULONG)regName, value);
 
+    return value;
+}
+
+static INLINE ULONG REGARGS readMMIO_NoSwap_L(volatile UBYTE *mmiobase, LONG regOffset, const char *regName)
+{
+    ULONG value = read_L(mmiobase + (regOffset - MMIOREGISTER_OFFSET));
+    D(VERBOSE, "R %s -> 0x%08lx\n", (ULONG)regName, SWAPL(value));
     return value;
 }
 
@@ -560,6 +573,7 @@ static INLINE void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
 #define W_MMIO_L(reg, value)            writeMMIO_L(MMIOBase, reg, value, #reg)
 #define W_MMIO_NOSWAP_L(reg, value)     writeMMIO_NoSwap_L(MMIOBase, reg, value, #reg)
 #define R_MMIO_L(reg)                   readMMIO_L(MMIOBase, reg, #reg)
+#define TST_MMIO_L(reg, mask)           ((readMMIO_NoSwap_L(MMIOBase, reg, #reg) & SWAPL(mask)) != 0)
 
 #define W_MISC_MASK(mask, value) writeMISC_OUT(RegBase, mask, value)
 
@@ -641,6 +655,23 @@ static INLINE int copyToUpper(short hilo)
     //    return hilo << 16 | hilo;
 }
 
+
+// Move lowest byte of a into lowest byte of b
+static INLINE unsigned int moveb(unsigned char a, unsigned int b)
+{
+    unsigned int res;
+    __asm __volatile("move.b %2,%0" : "=d"(res) : "0"(b), "dmi"(a) : "cc");
+    return res;
+}
+
+// Move lowest byte of a into lowest byte of b
+static INLINE unsigned int movew(unsigned short a, unsigned int b)
+{
+    unsigned int res;
+    __asm __volatile("move.w %2,%0" : "=d"(res) : "0"(b), "dmi"(a) : "cc");
+    return res;
+}
+
 static inline UBYTE getBPP(RGBFTYPE format)
 {
     // FIXME: replace with fixed table?
@@ -692,6 +723,18 @@ static inline UBYTE getBPPLog2(RGBFTYPE format)
     }
     return 0;
 }
+
+static inline UWORD revertBitsW(UWORD word)
+{
+    // Convert sprite data to "LSB are leftmost"
+    // reverse the bits in the word
+    word = ((word & 0xFF00) >> 8) | ((word & 0x00FF) << 8);
+    word = ((word & 0xF0F0) >> 4) | ((word & 0x0F0F) << 4);
+    word = ((word & 0xCCCC) >> 2) | ((word & 0x3333) << 2);
+    word = ((word & 0xAAAA) >> 1) | ((word & 0x5555) << 1);
+    return word;
+}
+
 
 static inline ULONG spreadBits(ULONG word)
 {

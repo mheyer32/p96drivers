@@ -687,9 +687,9 @@ static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
     MMIOBASE();
 
-    waitFifo(bi, 0xF);
-    while (R_MMIO_L(EXT_DAC_STATUS) & EXT_DAC_DRAWING_ENGINE_BUSY)
-        ;
+    waitFifo(bi, 8);  // make sure FIFO is flushed
+    while (TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_DRAWING_ENGINE_BUSY)) {
+    }
 }
 
 static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
