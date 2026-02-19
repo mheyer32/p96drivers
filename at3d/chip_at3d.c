@@ -7,6 +7,7 @@
 #include <clib/debug_protos.h>
 #include <debuglib.h>
 #include <exec/types.h>
+#include <graphics/rastport.h>
 
 #define OPENPCI_SWAP  // don't make it define its own SWAP macros
 #include <exec/interrupts.h>
@@ -18,7 +19,7 @@
 #include <SDI_stdarg.h>
 
 #ifdef DBG
-#ifndef TESTEXE
+#ifdef TESTEXE
 int debugLevel = VERBOSE;
 #else
 int debugLevel = VERBOSE;
@@ -1350,15 +1351,15 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
     return TRUE;
 }
 
-static INLINE ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
+static INLINE ULONG REGARGS getMemoryOffset(const struct BoardInfo *bi, APTR memory)
 {
     ULONG offset = (ULONG)memory - (ULONG)bi->MemoryBase;
     offset &= ~0x800000;  // map addresses from (BE) linear window2 back to regular framebuffer address
     return offset;
 }
 
-static INLINE ULONG REGARGS getLinearPixelOffset(struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y,
-                                                 UBYTE bppLog2)
+static INLINE ULONG REGARGS getLinearPixelOffset(const struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x,
+                                                 UWORD y, UBYTE bppLog2)
 {
     // Note: not suited for 3-bytes-per-pixel modes
     ULONG offset = getMemoryOffset(bi, ri->Memory);
@@ -1368,23 +1369,32 @@ static INLINE ULONG REGARGS getLinearPixelOffset(struct BoardInfo *bi, const str
     return offset;
 }
 
-static INLINE void setLocationRegister(struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y,
+static INLINE void getStartCoordinates(const struct BoardInfo *bi, const struct RenderInfo *ri, UBYTE bppLog2,
+                                       UWORD *originX, UWORD *originY)
+{
+    // Memory offset is essentially pixel 0,0
+    ULONG offset = getMemoryOffset(bi, ri->Memory);
+    *originX     = (offset % ri->BytesPerRow) >> bppLog2;
+    *originY     = (offset / ri->BytesPerRow);
+}
+
+static INLINE void setLocationRegister(const struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y,
                                        UBYTE bppLog2, BOOL useLinearAddressing, UBYTE reg)
 {
     ULONG location;
     if (useLinearAddressing) {
         ULONG pixelOffset = getLinearPixelOffset(bi, ri, x, y, bppLog2);
-        DFUNC(VERBOSE, "Linear addressing: pixel offset for %ld,%ld: %ld (0x%lx)\n", (ULONG)x, (ULONG)y, pixelOffset,
+        DFUNC(VERBOSE, "linear pixel offset for (%ld,%ld): %ld (0x%lx)\n", (ULONG)x, (ULONG)y, pixelOffset,
               pixelOffset);
         location = makeDWORD(swapw(pixelOffset & 0xFFF), swapw(pixelOffset >> 12));
     } else {
         // Memory offset is essentially pixel 0,0
         ULONG offset = getMemoryOffset(bi, ri->Memory);
-        UWORD offX   = (offset % ri->BytesPerRow) >> bppLog2;
-        UWORD offY   = (offset / ri->BytesPerRow);
-        location     = makeDWORD(swapw(x + offX), swapw(y + offY));
-        DFUNC(VERBOSE, "Offset addressing: base offset %ld (0x%lx), offX %ld, offY %ld, final location 0x%08lx\n",
-              offset, offset, (ULONG)offX, (ULONG)offY, location);
+        UWORD originX, originY;
+        getStartCoordinates(bi, ri, bppLog2, &originX, &originY);
+        location = makeDWORD(swapw(x + originX), swapw(y + originY));
+        DFUNC(VERBOSE, "base offset %ld (0x%lx), offX %ld, offY %ld, final location 0x%08lx\n", offset, offset,
+              (ULONG)originX, (ULONG)originY, swapl(location));
     }
     MMIOBASE();
     W_MMIO_NOSWAP_L(reg, location);
@@ -1416,47 +1426,53 @@ static INLINE void setDrawSize(struct BoardInfo *bi, UWORD width, UWORD height)
     W_MMIO_W(SRC_SIZE_X, width);
 }
 
-static INLINE ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
+ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
 {
     switch (fmt) {
     case RGBFB_B8G8R8A8:
         pen = swapl(pen);
+        // fallthrough
         break;
     case RGBFB_R5G6B5PC:
     case RGBFB_R5G5B5PC:
         pen = swapw(pen);
-        // Fallthrough
+        // fallthrough
+    case RGBFB_R5G6B5:
+    case RGBFB_R5G5B5:
+        pen = copyToUpper(pen);
+        break;
+    case RGBFB_CLUT:
+        pen = (pen << 8) | pen;
+        pen = copyToUpper(pen);
     default:
         break;
     }
     return pen;
 }
 
-static INLINE void setForegroundColor(const struct BoardInfo *bi, ULONG fgPen)
+static INLINE void setForegroundPen(struct BoardInfo *bi, ULONG fgPen, RGBFTYPE fmt)
 {
-    MMIOBASE();
-    W_MMIO_L(FRGD_COLOR, fgPen);
+    ChipData_t *cd = getChipData(bi);
+    if (cd->GEfgPen != fgPen) {
+        cd->GEfgPen = fgPen;
+        fgPen       = PenToColor(fgPen, fmt);
+        MMIOBASE();
+        W_MMIO_L(FRGD_COLOR, fgPen);
+    }
 }
 
-static INLINE void setBackgroundColor(const struct BoardInfo *bi, ULONG bgPen)
+static INLINE void setBackgroundPen(struct BoardInfo *bi, ULONG bgPen, RGBFTYPE fmt)
 {
-    MMIOBASE();
-    W_MMIO_L(BKGD_COLOR, bgPen);
+    ChipData_t *cd = getChipData(bi);
+    if (cd->GEbgPen != bgPen) {
+        cd->GEbgPen = bgPen;
+        bgPen       = PenToColor(bgPen, fmt);
+        MMIOBASE();
+        W_MMIO_L(BKGD_COLOR, bgPen);
+    }
 }
 
-static INLINE void setByteMask(const struct BoardInfo *bi, UBYTE mask, RGBFTYPE fmt)
-{
-    MMIOBASE();
-
-    // // FIXME: is this even the right mask register?!
-    // if (fmt < RGBFB_CLUT) {
-    //     W_MMIO_B(BYTE_MASK, mask);
-    // } else {
-    //     W_MMIO_B(BYTE_MASK, 0xFF);  //
-    // }
-}
-
-static INLINE ULONG getAdressModelBits(struct RenderInfo *ri, UBYTE bppLog2)
+static ULONG getAdressModelBits(struct RenderInfo *ri, UBYTE bppLog2)
 {
     switch (ri->BytesPerRow >> bppLog2) {
     case 512:
@@ -1483,6 +1499,9 @@ static INLINE ULONG getAdressModelBits(struct RenderInfo *ri, UBYTE bppLog2)
 #define ROP_SRC_XOR_DST         0x66
 #define ROP_SRC_AND_PAT_AND_DST 0x80
 #define ROP_NOT_DST             0x55
+#define ROP_JAM1                0xCA  // (P and S) or (not P and D): use S (fg) where P (pattern) is 1, else D
+#define ROP_JAM2                ROP_SOURCE
+#define ROP_COMPLEMENT          0x5A  // Flip destination where pattern is 1
 
 /* BlitRectNoMaskComplete OpCode: P96 passes a 4-bit minterm only (B=source, C=destination); see
  * wiki.icomp.de P96_Driver_Development#BlitRectNoMaskComplete. Bits: 3=B∧C, 2=B∧¬C, 1=¬B∧C, 0=¬B∧¬C.
@@ -1517,9 +1536,12 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEOp != FILLRECT) {
-        cd->GEOp     = FILLRECT;
-        cd->GElinear = 0x55;  // Force update of addressing mode and format
-        cd->GEFormat = ~0;
+        cd->GEOp          = FILLRECT;
+        cd->GElinear      = 0x55;  // Force update of addressing mode and format
+        cd->GEFormat      = ~0;
+        cd->GEdrawCmd     = 0;
+        cd->GEbytesPerRow = 0;
+        WaitBlitter(bi);
         W_MMIO_B(RASTEROP, ROP_SOURCE);
     }
 
@@ -1550,14 +1572,9 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
             W_MMIO_L(DRAW_CMD, cmd);
         }
 
-        if (cd->GEFormat != fmt || cd->GEfgPen != pen) {
-            cd->GEFormat = fmt;
-            cd->GEfgPen  = pen;
-            setForegroundColor(bi, PenToColor(pen, fmt));
-        }
-    } else if (cd->GEfgPen != pen) {
-        cd->GEfgPen = pen;
-        setForegroundColor(bi, PenToColor(pen, fmt));
+        setForegroundPen(bi, pen, fmt);
+    } else {
+        setForegroundPen(bi, pen, fmt);
     }
 
     setDstLocation(bi, ri, x, y, bppLog2, isLinear);
@@ -1591,9 +1608,10 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEOp != INVERTRECT) {
-        cd->GEOp     = INVERTRECT;
-        cd->GElinear = 0x55;  // Force update of addressing mode and format
-        cd->GEFormat = ~0;
+        cd->GEOp      = INVERTRECT;
+        cd->GElinear  = 0x55;  // Force update of addressing mode and format
+        cd->GEFormat  = ~0;
+        cd->GEdrawCmd = 0;
 
         W_MMIO_B(RASTEROP, ROP_NOT_DST);
     }
@@ -1740,6 +1758,281 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
     setDrawSize(bi, width, height);
 }
 
+static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri), __REGD0(WORD srcX),
+                         __REGD1(WORD srcY), __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
+                         __REGD5(WORD height), __REGD6(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(INFO,
+          "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
+          "h %ld\nmask 0x%lx fmt %ld\n"
+          "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+          (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt,
+          (ULONG)sri->BytesPerRow, (ULONG)sri->Memory);
+
+    MMIOBASE();
+
+    if (mask != 0xFF) {
+        D(WARN, "BlitRect fallback (mask != 0xFF)\n");
+        bi->BlitRectDefault(bi, sri, srcX, srcY, dstX, dstY, width, height, mask, fmt);
+        return;
+    };
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != BLITRECT) {
+        cd->GEOp      = BLITRECT;
+        cd->GEdrawCmd = 0;
+        cd->GEopCode  = 0;
+        cd->GEFormat  = ~0;
+
+        W_MMIO_B(RASTEROP, ROP_SOURCE);
+    }
+
+    if (cd->GEFormat != fmt) {
+        cd->GEFormat  = fmt;
+        cd->GEbppLog2 = getBPPLog2(fmt);
+    }
+
+    UBYTE bppLog2 = cd->GEbppLog2;
+    // FIXME: cache src and dst render info
+    UWORD widthBytes = width << bppLog2;
+
+    ULONG addrModel = getAdressModelBits(sri, bppLog2);
+    BOOL isLinear   = (widthBytes == sri->BytesPerRow);
+
+    if (!addrModel && !isLinear) {
+        D(WARN, "BlitRectNoMaskComplete Fallback. src needs linear but blitsize prevents it\n");
+        bi->BlitRectDefault(bi, sri, srcX, srcY, dstX, dstY, width, height, mask, fmt);
+        return;
+    }
+
+    ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_BLT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(bppLog2 + 1);
+    drawCmd |= addrModel;
+
+    if (!addrModel) {
+        drawCmd |= DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS;
+    } else {
+        if (dstX > srcX) {
+            drawCmd |= DRAW_DIR_X_NEGATIVE;
+            srcX = srcX + width - 1;
+            dstX = dstX + width - 1;
+        }
+        if (dstY > srcY) {
+            drawCmd |= DRAW_DIR_Y_NEGATIVE;
+            srcY = srcY + height - 1;
+            dstY = dstY + height - 1;
+        }
+    }
+    if (drawCmd != cd->GEdrawCmd) {
+        cd->GEdrawCmd = drawCmd;
+        D(VERBOSE, "drawCmd 0x%08lx\n", drawCmd);
+
+        W_MMIO_L(DRAW_CMD, drawCmd);
+    }
+    // FIXME: this can be optimized into a single function
+    setSrcLocation(bi, sri, srcX, srcY, bppLog2, isLinear);
+    setDstLocation(bi, sri, dstX, dstY, bppLog2, isLinear);
+    setDrawSize(bi, width, height);
+}
+
+// Host BLT port in flat memory (last 32K). Poll EXT_DAC_HOST_BLT_IN_PROGRESS until high before writing.
+static INLINE volatile ULONG *getHostBltPort(struct BoardInfo *bi)
+{
+    return (volatile ULONG *)((UBYTE *)bi->MemoryBase + HOST_BLT_OFFSET);
+}
+
+static BOOL setDrawMode(BoardInfo_t *bi, UBYTE drawMode, ULONG fgPen, ULONG bgPen, RGBFTYPE fmt)
+{
+    UBYTE rop = 0;
+    switch (drawMode & (JAM1 | JAM2 | COMPLEMENT)) {
+    case JAM1:
+        rop = ROP_JAM2;  // ROP_JAM1;
+        break;
+    case JAM2:
+        rop = ROP_JAM2;
+        break;
+    case COMPLEMENT:
+    // case COMPLEMENT | JAM1:
+    // fallthrough
+    case COMPLEMENT | JAM2:
+        rop = ROP_NOT_DST;  // ROP_NOT_DST; //ROP_SRC_XOR_DST; //ROP_COMPLEMENT;
+        break;
+    default:
+        rop = ROP_SOURCE;
+        break;
+    }
+    setForegroundPen(bi, fgPen, fmt);
+    setBackgroundPen(bi, bgPen, fmt);
+
+    {
+        MMIOBASE();
+        // Documentation says that PCI burst writes break writing to ROP right after DRAW_CMD.
+        // Thus, make sure there's enough other writes between writing to ROP and DRAW_CMD
+        // Thus, make sure there's enough other writes between writing to ROP and DRAW_CMD
+        // W_MMIO_B(RASTEROP, 0);
+        W_MMIO_B(RASTEROP, rop);
+    }
+}
+
+static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
+                             __REGA2(struct Template *template), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
+                             __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(INFO, "x %ld, y %ld, w %ld, h %ld mask 0x%02lx fmt %ld\n", (LONG)x, (LONG)y, (LONG)width, (LONG)height,
+          (ULONG)mask, (ULONG)fmt);
+
+    if (fmt <= RGBFB_CLUT && mask != 0xFF) {
+        D(WARN, "BlitTemplate fallback (CLUT and mask)\n");
+        bi->BlitTemplateDefault(bi, ri, template, x, y, width, height, mask, fmt);
+        return;
+    }
+
+    MMIOBASE();
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != BLITTEMPLATE) {
+        cd->GEOp      = BLITTEMPLATE;
+        cd->GEdrawCmd = 0;
+        cd->GEFormat  = ~0;
+
+        //    setDstPitch(bi, ri->BytesPerRow);
+        /* 11.7.6: Source Location X must be 0 for mono-to-color. Monochrome source must be 64-bit aligned. */
+        W_MMIO_W(SRC_LOCATION_X_LOW, 0);
+    }
+
+    setDrawMode(bi, template->DrawMode, template->FgPen, template->BgPen, fmt);
+
+
+    UBYTE bppLog2      = getBPPLog2(fmt);
+    UWORD widthBytes   = width << bppLog2;
+    BOOL isLinear      = (widthBytes == ri->BytesPerRow);
+    ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
+    ULONG drawCmd      = DRAW_CMD_OP(DRAW_CMD_HOST_BLT_WRITE) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) |
+                    DRAW_SRC_MONOCHROME | DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS | DRAW_PIXEL_DEPTH(bppLog2 + 1) |
+                    addressModel;
+
+    if (!(template->DrawMode & JAM2)) {
+        drawCmd |= DRAW_SRC_TRANSPARENT;
+    }
+
+    // if (drawCmd != cd->GEdrawCmd)
+    {
+        cd->GEdrawCmd = drawCmd;
+        W_MMIO_L(DRAW_CMD, drawCmd);
+    }
+
+    setDstLocation(bi, ri, (UWORD)x, (UWORD)y, bppLog2, isLinear);
+
+    ULONG invert = (template->DrawMode & INVERSVID) ? ~0 : 0;
+
+    /* 11.7.6: Host BLT mono data is a byte stream: width rounded up to next 8 bits (bytesPerLine bytes per row).
+     * Bytes are packed into 32-bit words; words are written at 8-byte offsets (0, 8, 16, ...).
+     * So one 32-bit word can span a row boundary (e.g. last bytes of line 0 + first bytes of line 1). */
+    UWORD byteWidth = (width + 7) / 8;
+
+    volatile ULONG *hostBlt = getHostBltPort(bi);
+
+    BOOL srcLinear = (byteWidth == template->BytesPerRow);
+    if (srcLinear) {
+        setDrawSize(bi, width, height);
+
+        // Template data is already tightly 8-bit packed
+        ASSERT(template->XOffset == 0);  // if the width is the same as the pitch, we can't really have an X offset
+        D(INFO, "Template data is already in suitable format for direct host BLT\n");
+        const ULONG *src = (const ULONG *)template->Memory;
+
+        while (!TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS)) {
+        };
+
+        for (ULONG i = 0; i < ((width * height + 31) / 32); i++) {
+            ULONG pattern = src[i];
+            hostBlt[i]    = pattern ^ invert;
+        }
+    } else {
+        // // more generic functions
+        // const UBYTE *bitmap = (const UBYTE *)template->Memory;
+        // UWORD bitmapPitch   = (UWORD) template->BytesPerRow;
+
+        // UBYTE rol = (UBYTE) template->XOffset;
+        // if (template->XOffset >= 8) {
+        //     bitmap++;
+        //     rol -= 8;
+        // }
+
+        // ULONG dwords          = ((byteWidth * height) + 3) / 4;
+        // UWORD currentLineByte = 0;
+
+        // D(INFO, "byteWidth %ld, bitmapPitch %ld, rol %ld, dwords %ld\n", (ULONG)byteWidth, (ULONG)bitmapPitch,
+        //   (ULONG)rol, dwords);
+        // while (!TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS)) {
+        // };
+        // for (ULONG k = 0; k < dwords; k++) {
+        //     ULONG w = 0;
+        //     for (unsigned j = 0; j < 4; j++) {
+        //         UWORD t = *(UWORD *)(bitmap + currentLineByte);
+        //         t <<= rol;
+        //         t = swapw(t);
+        //         w <<= 8;
+        //         w = moveb(t, w);
+        //         // w |= t & 0xFF;
+
+        //         ++currentLineByte;
+        //         if (currentLineByte >= byteWidth) {
+        //             currentLineByte = 0;
+        //             bitmap += bitmapPitch;
+        //         }
+        //     }
+        //     *hostBlt = w;
+        // }
+
+        const UBYTE *bitmap = (const UBYTE *)template->Memory;
+        UWORD bitmapPitch   = (UWORD) template->BytesPerRow;
+        UWORD originX, originY;
+        getStartCoordinates(bi, ri, bppLog2, &originX, &originY);
+        W_MMIO_W(CLIP_RIGHT, originX + x + width - 1);
+        width = (width + 31) & ~31;
+
+        setDrawSize(bi, width, height);
+        UWORD dwordsPerLine = (width + 31) / 32;
+        UBYTE rol           = template->XOffset;
+        while (!TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS)) {
+        };
+        if (!rol) {
+            for (UWORD y = 0; y < height; ++y) {
+                for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                    *hostBlt = invert ^ (((const ULONG *)bitmap)[x]);
+                }
+                bitmap += bitmapPitch;
+            }
+        } else {
+            for (UWORD y = 0; y < height; ++y) {
+                for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                    ULONG left  = ((const ULONG *)bitmap)[x] << rol;
+                    ULONG right = ((const ULONG *)bitmap)[x + 1] >> (32 - rol);
+
+                    *hostBlt = invert ^ (left | right);
+                }
+                bitmap += bitmapPitch;
+            }
+        }
+    }
+    int count = 100;
+
+    while (TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS) && --count) {
+        *hostBlt = 0xFF00AACC;
+    };
+
+    /* 11.7.6: write to M040 (DRAW_CMD) with arbitrary data to complete the write to last line(s). */
+    // W_MMIO_L(DRAW_CMD, DRAW_CMD_OP(DRAW_CMD_NOP));
+
+    if (count < 100) {
+        if (!count)
+            W_MMIO_B(0x1FF, 0x00);  // Byte counting gone wrong, abort host write blit
+        D(WARN, "Host BLT completion wait loop iterated %d times\n", 100 - count);
+    }
+
+    W_MMIO_W(CLIP_RIGHT, 0xFFF);
+}
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(ALWAYS, "AT3D InitChip - Testing hardware access\n");
@@ -2073,6 +2366,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->FillRect               = FillRect;
     bi->InvertRect             = InvertRect;
     bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
+    bi->BlitRect               = BlitRect;
+    bi->BlitTemplate           = BlitTemplate;
+
+
+    cd->GEfgPen = 0x12345678;
+    cd->GEbgPen = 0x12345678;
 
     SetSplitPosition(bi, 0);
 
@@ -2094,9 +2393,15 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         W_MMIO_B(HW_CURSOR_OFF_Y, 0);
     }
 
-    SetMemoryClock(bi, 50000000);
-
     W_MMIO_B(BYTE_MASK, 0xFF);
+
+    W_MMIO_W(CLIP_CTRL, BIT(0));
+    W_MMIO_W(CLIP_LEFT, 0);
+    W_MMIO_W(CLIP_TOP, 0);
+    W_MMIO_W(CLIP_RIGHT, 0xFFF);
+    W_MMIO_W(CLIP_BOTTOM, 0xFFF);
+
+    SetMemoryClock(bi, 50000000);
 
     return TRUE;
 }
@@ -2221,6 +2526,13 @@ int main()
             bi->CLUT[c].Green = c;
             bi->CLUT[c].Blue  = c;
         }
+        /* Two colors for BlitTemplate DrawMode tests: index 0 = blue, index 1 = red */
+        bi->CLUT[0].Red   = 0;
+        bi->CLUT[0].Green = 0;
+        bi->CLUT[0].Blue  = 255;
+        bi->CLUT[1].Red   = 255;
+        bi->CLUT[1].Green = 0;
+        bi->CLUT[1].Blue  = 0;
         SetColorArray(bi, 0, 256);
 
         DFUNC(ALWAYS, "SetPanning\n");
@@ -2279,6 +2591,194 @@ int main()
         }
 
         BlitRectNoMaskComplete(bi, &ri, &ri, 0, 0, 0, 240, 640, 100, 0xc, RGBFB_CLUT);
+        // clang-format off
+        /* BlitTemplate: 32x32 pattern = circle (center 15.5, radius 12) in 0b notation. MSB = left. */
+        static ULONG template32[32] = {
+            (ULONG)0b00000000000000100000000000000000,
+            (ULONG)0b00000000000000100000000000000000,
+            (ULONG)0b00000000000000100000000000000000,
+            (ULONG)0b00000000000000100000000000000000,
+            (ULONG)0b00000000001111011000000000000000,
+            (ULONG)0b00000011111111111110000000000000,
+            (ULONG)0b00001111111111111111110000000000,
+            (ULONG)0b00011111111111111111111100000000,
+            (ULONG)0b00111111111111111111111111000000,
+            (ULONG)0b01111110000111111100001111110000,
+            (ULONG)0b01111110000111111100001111110000,
+            (ULONG)0b00011111111111111111111111100000,
+            (ULONG)0b00001111111111111111111111100000,
+            (ULONG)0b00000111111111111111111111100000,
+            (ULONG)0b00000111111111111111111111100000,
+            (ULONG)0b00000111111111111111111111100000,
+            (ULONG)0b00000111110011111111100111100000,
+            (ULONG)0b00000111111100000000011111100000,
+            (ULONG)0b00000111111111111111111111100000,
+            (ULONG)0b00000111111111111111111111100000,
+            (ULONG)0b00111111111111111111111111000000,
+            (ULONG)0b00111111111111111111111111000000,
+            (ULONG)0b00000001111111111111111110000000,
+            (ULONG)0b00000000111111111111111100000000,
+            (ULONG)0b00000011111111111100000000000000,
+            (ULONG)0b10101010101010101010101010101010,
+            (ULONG)0b01010101010101010101010101010101,
+            (ULONG)0b11111111111111111111111111111111,
+            (ULONG)0b00000000000000000000000000000000,
+            (ULONG)0b11001100110011001100110011001100,
+            (ULONG)0b00110011001100110011001100110011,
+        };
+// clang-format on
+/* FgPen = 1 (red), BgPen = 0 (blue) for all DrawMode tests. */
+#define BLIT_TMPL_PEN_FG 1
+#define BLIT_TMPL_PEN_BG 0
+
+        for (int i = 7; i < 16; i++) {
+            WORD y = i * 33;
+            /* BlitTemplate JAM1: pattern 1 -> FgPen (red), pattern 0 -> keep D (blue). */
+            {
+                struct Template tmpl;
+                tmpl.Memory      = template32;
+                tmpl.BytesPerRow = 4;
+                tmpl.XOffset     = 0;
+                tmpl.DrawMode    = JAM2;
+                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                FillRect(bi, &ri, i * 32 + i, 0, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                BlitTemplate(bi, &ri, &tmpl, i * 32 + i, 0, 32, 32, 0xFF, RGBFB_CLUT);
+            }
+        }
+#if 1
+        for (int i = 0; i < 4; i++) {
+            WORD y    = 200 + i * 40;
+            WORD xoff = 5;
+
+            /* BlitTemplate JAM1: pattern 1 -> FgPen (red), pattern 0 -> keep D (blue). */
+            {
+                struct Template tmpl;
+                tmpl.Memory      = template32;
+                tmpl.BytesPerRow = 4;
+                tmpl.XOffset     = i * 2;
+                tmpl.DrawMode    = JAM1;
+                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                FillRect(bi, &ri, 32 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                BlitTemplate(bi, &ri, &tmpl, 32 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
+            }
+            /* BlitTemplate JAM2: pattern 1 -> FgPen (red), pattern 0 -> BgPen (blue). */
+            {
+                struct Template tmpl;
+                tmpl.Memory      = template32;
+                tmpl.BytesPerRow = 4;
+                tmpl.XOffset     = i * 2;
+                tmpl.DrawMode    = JAM2;
+                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                FillRect(bi, &ri, 96 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                BlitTemplate(bi, &ri, &tmpl, 96 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
+            }
+            /* BlitTemplate COMPLEMENT: flip destination where pattern is 1 (blue<->red on checker). */
+            {
+                struct Template tmpl;
+                tmpl.Memory      = template32;
+                tmpl.BytesPerRow = 4;
+                tmpl.XOffset     = i * 2;
+                tmpl.DrawMode    = COMPLEMENT;
+                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                FillRect(bi, &ri, 144 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                BlitTemplate(bi, &ri, &tmpl, 144 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
+            }
+            /* BlitTemplate JAM1 | INVERSVID: pens swapped -> pattern 1 -> BgPen (blue), 0 -> D. */
+            {
+                struct Template tmpl;
+                tmpl.Memory      = template32;
+                tmpl.BytesPerRow = 4;
+                tmpl.XOffset     = i * 2;
+                tmpl.DrawMode    = JAM1 | INVERSVID;
+                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                FillRect(bi, &ri, 192 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                BlitTemplate(bi, &ri, &tmpl, 192 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
+            }
+            /* BlitTemplate JAM2 | INVERSVID: pattern 1 -> BgPen (blue), pattern 0 -> FgPen (red). */
+            {
+                struct Template tmpl;
+                tmpl.Memory      = template32;
+                tmpl.BytesPerRow = 4;
+                tmpl.XOffset     = i * 2;
+                tmpl.DrawMode    = JAM2 | INVERSVID;
+                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                FillRect(bi, &ri, 240 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                BlitTemplate(bi, &ri, &tmpl, 240 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
+            }
+            /* BlitTemplate COMPLEMENT: flip destination where pattern is 1 (blue<->red on checker). */
+            {
+                struct Template tmpl;
+                tmpl.Memory      = template32;
+                tmpl.BytesPerRow = 4;
+                tmpl.XOffset     = i * 2;
+                tmpl.DrawMode    = COMPLEMENT | INVERSVID;
+                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                FillRect(bi, &ri, 288 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                BlitTemplate(bi, &ri, &tmpl, 288 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
+            }
+        }
+
+#undef BLIT_TMPL_PEN_FG
+#undef BLIT_TMPL_PEN_BG
+
+        /* BlitTemplate: original small frame (JAM2) at (422,262) for regression. */
+        {
+            static ULONG templateFrame[32];
+            for (int row = 0; row < 32; row++) {
+                if (row == 0 || row == 31)
+                    templateFrame[row] = 0xFFFFFFFFUL;
+                else
+                    templateFrame[row] = 0x80000001UL;
+            }
+            struct Template tmpl;
+            tmpl.Memory      = templateFrame;
+            tmpl.BytesPerRow = 4;
+            tmpl.XOffset     = 0;
+            tmpl.DrawMode    = JAM2;
+            tmpl.FgPen       = 0x00;
+            tmpl.BgPen       = 0xFF;
+            FillRect(bi, &ri, 422, 262, 32, 32, 0xFF, 0xFF, RGBFB_CLUT);
+            BlitTemplate(bi, &ri, &tmpl, 422, 262, 32, 32, 0xFF, RGBFB_CLUT);
+        }
+
+        /* BlitTemplate 46x11: exercise non-32 width (byteWidth 6, totalBytes 66, dwords 18). */
+        {
+            static UBYTE template46x11[11][8]; /* 6 bytes per row used, 8 for alignment */
+            for (int row = 0; row < 11; row++) {
+                if (row == 0 || row == 10) {
+                    template46x11[row][0] = 0xFF;
+                    template46x11[row][1] = 0xFF;
+                    template46x11[row][2] = 0xFF;
+                    template46x11[row][3] = 0xFF;
+                    template46x11[row][4] = 0xFF;
+                    template46x11[row][5] = 0x3F; /* 46 bits: low 6 bits of byte 5 */
+                } else {
+                    template46x11[row][0] = 0x01;
+                    template46x11[row][1] = 0x00;
+                    template46x11[row][2] = 0x00;
+                    template46x11[row][3] = 0x00;
+                    template46x11[row][4] = 0x00;
+                    template46x11[row][5] = 0x20; /* bit 45 = last column */
+                }
+            }
+            struct Template tmpl46;
+            tmpl46.Memory      = template46x11;
+            tmpl46.BytesPerRow = 6;
+            tmpl46.XOffset     = 0;
+            tmpl46.DrawMode    = JAM2;
+            tmpl46.FgPen       = 0x00;
+            tmpl46.BgPen       = 0xFF;
+            FillRect(bi, &ri, 94, 57, 46, 11, 0xFF, 0xFF, RGBFB_CLUT);
+            BlitTemplate(bi, &ri, &tmpl46, 94, 57, 46, 11, 0xFF, RGBFB_CLUT);
+        }
+#endif
 
         D(INFO, "Alliance Promotion test completed\n");
         D(INFO, "Screen should now be displaying a test pattern\n");

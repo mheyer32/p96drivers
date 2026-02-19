@@ -16,7 +16,7 @@
 #define DRAW_DST_UPDATE_MASK     (0x3 << 27)
 #define DRAW_ADDRESS_MODEL(x)    ((x) << 24)
 #define DRAW_ADDRESS_MODEL_MASK  (0x7 << 24)
-#define DRAW_PATTERN_FORMAT      ((x) << 22)
+#define DRAW_PATTERN_FORMAT(x)   ((x) << 22)
 #define DRAW_PATTERN_FORMAT_MASK (0x3 << 22)
 #define DRAW_DST_TRANS_POLARITY  BIT(21)
 #define DRAW_DST_TRANSPARENT     BIT(20)
@@ -28,6 +28,7 @@
 #define DRAW_SRC_TRANSPARENT     BIT(13)
 #define DRAW_SRC_MONOCHROME      BIT(12)
 #define DRAW_SRC_CONTIGUOUS      BIT(11)
+#define DRAW_6422_PATTERN        BIT(10)
 #define DRAW_SRC_ADDR_LINEAR     BIT(9)
 #define DRAW_MAJOR_AXIS_X        BIT(8)
 #define DRAW_DIR_Y_NEGATIVE      BIT(7)
@@ -38,7 +39,7 @@
 #define DRAW_CMD_NOP                0b0000
 #define DRAW_CMD_BLT                0b0001  // screen-screen BLT
 #define DRAW_CMD_RECT               0b0010  // rectangle
-#define DRAW_CMD_STRIP              0b0100  // strip draw, Draws a single-pixel wide rectangular strip.
+#define DRAW_CMD_STRIP              0b0100  // strip draw is similar to rectangle, but with a height of one pixel.
 #define DRAW_CMD_HOST_BLT_WRITE     0b1000  // host BLT write, write memory to screen
 #define DRAW_CMD_HOST_BLT_READ      0b1001  // host BLT read,  read screen to memory
 #define DRAW_CMD_VECTOR_ENDPOINT    0b1100  // vector, draw endpoint
@@ -54,8 +55,14 @@
 #define QUICKSTART_SRC       0b10
 #define QUICKSTART_DST       0b11
 
-#define RASTEROP            0x046
-#define BYTE_MASK           0x047
+#define CLIP_CTRL   0x030
+#define CLIP_LEFT   0x038
+#define CLIP_TOP    0x03A
+#define CLIP_RIGHT  0x03C
+#define CLIP_BOTTOM 0x03E
+
+#define RASTEROP  0x046
+#define BYTE_MASK 0x047
 
 #define PATTERN             0x048
 #define SRC_LOCATION_X_LOW  0x050
@@ -163,6 +170,9 @@
 // [9] - drawing engine busy
 #define EXT_DAC_HOST_BLT_IN_PROGRESS BIT(8)   // Host BLT in progress
 #define EXT_DAC_DRAWING_ENGINE_BUSY  BIT(10)  // Drawing engine busy
+
+// Host BLT port: last 32K of flat space (Remap Control maps it here)
+#define HOST_BLT_OFFSET 0x3F8000
 
 // Clock registers (MMVGA window - BAR0)
 // Per AT3D documentation pages 257-261:
