@@ -1137,8 +1137,6 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
         break;
     }
 
-    WaitBlitter(bi);
-
     // AT3D Serial offset register (CR13) is in units of 8 bytes
     // Serial offset [7:0] in CR13, [11:8] in CR1C[7:4]
     pitch = (pitch + 7) / 8;  // Convert to units of 8 bytes
@@ -1541,7 +1539,6 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         cd->GEFormat      = ~0;
         cd->GEdrawCmd     = 0;
         cd->GEbytesPerRow = 0;
-        WaitBlitter(bi);
         W_MMIO_B(RASTEROP, ROP_SOURCE);
     }
 
@@ -2363,6 +2360,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->SetSpriteImage    = SetSpriteImage;
     bi->SetSpriteColor    = SetSpriteColor;
 
+    bi->WaitBlitter            = WaitBlitter;
     bi->FillRect               = FillRect;
     bi->InvertRect             = InvertRect;
     bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
