@@ -2472,8 +2472,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Set up basic BoardInfo structure
     bi->GraphicsControllerType = GCT_APM;  // Will need to define AT3D type
     bi->PaletteChipType        = PCT_APM;  // Will need to define AT3D type
-    bi->Flags =
-        bi->Flags | BIF_GRANTDIRECTACCESS | BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE | BIF_BLITTER;
+    bi->Flags = bi->Flags | BIF_GRANTDIRECTACCESS | BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE |
+                BIF_BLITTER | BIF_DBLSCANDBLSPRITEY;
 
     // AT3D supports CLUT (8-bit palette), hicolor (15/16-bit), and truecolor (24/32-bit)
     // Per AT3D specifications: "Optimized 24- and 32-bit truecolor", "hi-color, and 256-color GUI"
