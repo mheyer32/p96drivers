@@ -35,17 +35,19 @@ typedef struct ChipData
     ULONG GEfgPen;
     ULONG GEdrawCmd;
     ULONG GEbgPen;
+
     UBYTE GEbppLog2;   // programmed graphics engine bpp
     UBYTE GElinear;   // programmed graphics engine linear/xy address model
+
     UBYTE GEopCode;   // programmed minTerm
     UBYTE memFormat;   // programmed memory layout/format
+
     UBYTE chipFamily;  // chip family
     UBYTE pad;
-    UWORD pattX;                // x offset in pattern
-    UWORD pattY;                // y offset in pattern
-    ULONG *patternVideoBuffer;  // points to video memory
+
     UWORD *patternCacheBuffer;  // points to system memory
     ULONG patternCacheKey;
+    ULONG pat0, pat1; // cached value for pattern registers (for pattern cache)
 
     // PLL table for pixel clocks
     AT3DPLLValue_t *pllValues;

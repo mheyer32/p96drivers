@@ -2060,6 +2060,177 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
 
     W_MMIO_W(CLIP_RIGHT, 0xFFF);
 }
+
+static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
+                            __REGA2(struct Pattern *pattern), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
+                            __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(INFO, "x %ld, y %ld, w %ld, h %ld mask 0x%02lx fmt %ld\n", (LONG)x, (LONG)y, (LONG)width, (LONG)height,
+          (ULONG)mask, (ULONG)fmt);
+
+    if (fmt <= RGBFB_CLUT && mask != 0xFF) {
+        D(WARN, "BlitPattern fallback (CLUT mask)\n");
+        goto fallback;
+        return;
+    }
+
+    ChipData_t *cd = getChipData(bi);
+
+    UBYTE bppLog2      = cd->GEbppLog2;
+    BOOL isLinear      =FALSE;  ((width << bppLog2) == ri->BytesPerRow);
+    ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
+    if (!addressModel) {
+        goto fallback;
+    }
+
+    if (cd->GEOp != BLITPATTERN) {
+        cd->GEOp      = BLITPATTERN;
+        cd->GEdrawCmd = 0;
+        cd->GEFormat  = ~0;
+        cd->patternCacheKey &= ~0x80000000;
+    }
+
+    UWORD invert = (pattern->DrawMode & INVERSVID) ? ~0 : 0;
+
+    UWORD patternHeight        = 1 << pattern->Size;
+    const UWORD *sysMemPattern = (const UWORD *)pattern->Memory;
+    UWORD *cachedPattern       = cd->patternCacheBuffer;
+
+    BOOL patternChanged = FALSE;
+    BOOL is8x8          = (patternHeight <= 8);
+
+    if (is8x8) {
+        for (UWORD i = 0; i < patternHeight; ++i) {
+            UWORD row = sysMemPattern[i] ^ invert;
+            if (row != cachedPattern[i]) {
+                cachedPattern[i] = row;
+                patternChanged   = TRUE;
+            }
+            if ((UBYTE)(row >> 8) != (UBYTE)row) {
+                is8x8 = FALSE;
+            }
+        }
+    }
+
+    if (!is8x8) {
+        // FIMXE: implement fallback using repeating HOST blit mono pattern
+        goto fallback;
+    }
+
+    if (cd->GEFormat != fmt || cd->GEdrawCmd == 0) {
+        cd->GEFormat  = fmt;
+        cd->GEbppLog2 = getBPPLog2(fmt);
+    }
+
+    UWORD originX, originY;
+    if (!getStartCoordinates(bi, ri, bppLog2, &originX, &originY))
+    {
+        goto fallback;
+    }
+
+    /* Screen-space aligned 8x8: offset pattern by (x - XOffset) & 7 and (y - YOffset) & 7 via pre-rotation. */
+    UBYTE pattOffX = (UBYTE)((originX + x - pattern->XOffset) & 7);
+    UBYTE pattOffY = (UBYTE)((originY + y - pattern->YOffset) & 7);
+
+    D(INFO, "pattern offset in screen space: (%ld, %ld)\n", (ULONG)pattOffX, (ULONG)pattOffY);
+
+    ULONG pattCacheKey = (pattOffX << 16) | (pattOffY << 8) | pattern->Size | 0x80000000;
+    if (patternChanged || pattCacheKey != cd->patternCacheKey) {
+        cd->patternCacheKey = pattCacheKey;
+
+        // Duplicate pattern vertically if needed
+        ULONG pat0, pat1;
+        switch (pattern->Size) {
+        case 0:
+            pat0 = cachedPattern[0] | (cachedPattern[0] << 16);
+            pat1 = pat0;
+            break;
+        case 1:
+            pat0 = (cachedPattern[0] & 0xFF00) | ((cachedPattern[1] & 0xFF));
+            pat0 |= (pat0 << 16);
+            pat1 = pat0;
+            break;
+        case 2:
+            pat0 = ((cachedPattern[0] & 0xFF00) << 16) | ((cachedPattern[1] & 0xFF00) << 8) |
+                   (cachedPattern[2] & 0xFF00) | (cachedPattern[3] & 0xFF);
+            pat1 = pat0;
+            break;
+        case 3:
+            pat0 = ((cachedPattern[0] & 0xFF00) << 16) | ((cachedPattern[1] & 0xFF00) << 8) |
+                   (cachedPattern[2] & 0xFF00) | (cachedPattern[3] & 0xFF);
+            pat1 = ((cachedPattern[4] & 0xFF00) << 16) | ((cachedPattern[5] & 0xFF00) << 8) |
+                   (cachedPattern[6] & 0xFF00) | (cachedPattern[7] & 0xFF);
+            break;
+        default:
+            pat0 = pat1 = 0;
+            break;
+        }
+
+        // Pre-rotate horizontally
+        if (pattOffX) {
+            ULONG maskLower = (1 << pattOffX) - 1;
+            maskLower |= (maskLower << 8) | (maskLower << 16) | (maskLower << 24);
+            ULONG maskUpper = ~maskLower;
+            pat0            = ((pat0 & maskUpper) >> pattOffX) | ((pat0 & maskLower) << (8 - pattOffX));
+            pat1            = ((pat1 & maskUpper) >> pattOffX) | ((pat1 & maskLower) << (8 - pattOffX));
+        }
+
+        // Pre-rotate vertically
+        if (pattOffY) {
+            ULONG temp;
+            if (pattOffY & 1) {
+                temp = pat0;
+                pat0 = (pat0 >> 8) | (pat1 << 24);
+                pat1 = (pat1 >> 8) | (temp << 24);
+            }
+            if (pattOffY & 2) {
+                temp = pat0;
+                pat0 = (pat0 >> 16) | (pat1 << 16);
+                pat1 = (pat1 >> 16) | (temp << 16);
+            }
+            if (pattOffY & 4) {
+                temp = pat0;
+                pat0 = pat1;
+                pat1 = temp;
+            }
+        }
+
+        cd->pat0 = pat0;
+        cd->pat1 = pat1;
+    }
+
+    MMIOBASE();
+
+    /* Upload pre-rotated 8x8 pattern to PATTERN register (0x048: two DWORDs).
+     * Documentation says: "Write to this register prior to each use.
+     * The contents of M048–04F are not sustained across all operations." So no caching.
+     */
+    W_MMIO_NOSWAP_L(PATTERN, cd->pat0);
+    W_MMIO_NOSWAP_L(PATTERN + 4, cd->pat1);
+
+    setDrawMode(bi, pattern->DrawMode, pattern->FgPen, pattern->BgPen, fmt);
+
+    ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_RECT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PATTERN_FORMAT(0b10) |
+                    DRAW_PIXEL_DEPTH(bppLog2 + 1) | addressModel;
+
+    if (!(pattern->DrawMode & (JAM2 | COMPLEMENT))) {
+        drawCmd |= DRAW_SRC_TRANSPARENT;
+    }
+
+    // if (drawCmd != cd->GEdrawCmd)
+    {
+        cd->GEdrawCmd = drawCmd;
+        W_MMIO_L(DRAW_CMD, drawCmd);
+    }
+
+    setDstLocation(bi, ri, (UWORD)x, (UWORD)y, bppLog2, isLinear);
+    setDrawSize(bi, (UWORD)width, (UWORD)height);
+    return;
+
+fallback:
+    bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, fmt);
+}
+
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(ALWAYS, "AT3D InitChip - Testing hardware access\n");
@@ -2396,6 +2567,16 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->BlitRect               = BlitRect;
     bi->BlitTemplate           = BlitTemplate;
 
+    /* 8x8 pattern cache for BlitPattern (screen-space aligned, pre-rotated upload).
+     * Allocate 8 lines of 16bit (Amiga patterns are 16bit wide). At runtime we compare the
+     * incoming pattern to the one we
+     */
+    cd->patternCacheBuffer = AllocVec(8 * sizeof(UWORD), MEMF_PUBLIC);
+    if (cd->patternCacheBuffer) {
+        cd->patternCacheKey = ~0UL;
+
+        bi->BlitPattern = BlitPattern;
+    }
 
     cd->GEfgPen = 0x12345678;
     cd->GEbgPen = 0x12345678;
@@ -2804,6 +2985,72 @@ int main()
             tmpl46.BgPen       = 0xFF;
             FillRect(bi, &ri, 94, 57, 46, 11, 0xFF, 0xFF, RGBFB_CLUT);
             BlitTemplate(bi, &ri, &tmpl46, 94, 57, 46, 11, 0xFF, RGBFB_CLUT);
+        }
+#endif
+
+#if 1
+        /* BlitPattern: 8x8 mono pattern (PATTERN register). Red/blue checkerboard; one test per DrawMode. */
+        if (bi->BlitPattern) {
+            /* 8x8 pattern: checkerboard. Each row 8 bits repeated in low and high byte (0xXXXX) for 8x8 path. */
+            static const UWORD pattern8x8[8] = {
+                (UWORD)0x3333, (UWORD)0x5555, (UWORD)0xAAAA, (UWORD)0xCCCC,
+                (UWORD)0xAAAA, (UWORD)0x5555, (UWORD)0xAAAA, (UWORD)0x5555,
+            };
+            struct Pattern pat;
+            pat.Memory  = (APTR)pattern8x8;
+            pat.XOffset = 0;
+            pat.YOffset = 0;
+            pat.FgPen   = 1; /* red */
+            pat.BgPen   = 0; /* blue */
+            pat.Size    = 3; /* 2^3 = 8 rows */
+/* Base position for DrawMode row: (20, 400), each cell 48x48, gap 4 -> next at +52 */
+#define PAT_CELL_W 48
+#define PAT_CELL_H 48
+#define PAT_STRIDE 52
+#define PAT_LEFT   20
+#define PAT_TOP    400
+
+            /* JAM1: pattern 1 -> FgPen (red), pattern 0 -> keep D (blue). */
+            pat.DrawMode = JAM1;
+            FillRect(bi, &ri, PAT_LEFT, PAT_TOP, PAT_CELL_W * 5, PAT_CELL_H, 0, 0xFF, RGBFB_CLUT);
+            bi->BlitPattern(bi, &ri, &pat, PAT_LEFT, PAT_TOP, PAT_CELL_W, PAT_CELL_H, 0xFF, RGBFB_CLUT);
+
+            /* JAM2: pattern 1 -> FgPen (red), pattern 0 -> BgPen (blue). */
+            pat.DrawMode = JAM2;
+            bi->BlitPattern(bi, &ri, &pat, PAT_LEFT + PAT_STRIDE, PAT_TOP, PAT_CELL_W, PAT_CELL_H, 0xFF, RGBFB_CLUT);
+
+            /* COMPLEMENT: flip destination where pattern is 1 (blue<->red). */
+            pat.DrawMode = COMPLEMENT;
+            bi->BlitPattern(bi, &ri, &pat, PAT_LEFT + PAT_STRIDE * 2, PAT_TOP, PAT_CELL_W, PAT_CELL_H, 0xFF,
+                            RGBFB_CLUT);
+
+            /* JAM1 | INVERSVID: pens swapped -> pattern 1 -> BgPen (blue), 0 -> keep D. */
+            pat.DrawMode = JAM1 | INVERSVID;
+            bi->BlitPattern(bi, &ri, &pat, PAT_LEFT + PAT_STRIDE * 3, PAT_TOP, PAT_CELL_W, PAT_CELL_H, 0xFF,
+                            RGBFB_CLUT);
+
+            /* JAM2 | INVERSVID: pattern 1 -> BgPen (blue), pattern 0 -> FgPen (red). */
+            pat.DrawMode = JAM2 | INVERSVID;
+            bi->BlitPattern(bi, &ri, &pat, PAT_LEFT + PAT_STRIDE * 4, PAT_TOP, PAT_CELL_W, PAT_CELL_H, 0xFF,
+                            RGBFB_CLUT);
+
+            /* COMPLEMENT | INVERSVID: invert where pattern is 1 (same as COMPLEMENT on blue bg). */
+            pat.DrawMode = COMPLEMENT | INVERSVID;
+            bi->BlitPattern(bi, &ri, &pat, PAT_LEFT + PAT_STRIDE * 5, PAT_TOP, PAT_CELL_W, PAT_CELL_H, 0xFF,
+                            RGBFB_CLUT);
+
+#undef PAT_CELL_W
+#undef PAT_CELL_H
+#undef PAT_STRIDE
+#undef PAT_LEFT
+#undef PAT_TOP
+
+            /* Offset test: pattern at (123, 403) so pattOffX=3, pattOffY=3. */
+            FillRect(bi, &ri, 120, 455, 48, 48, 0, 0xFF, RGBFB_CLUT);
+            pat.DrawMode = JAM2;
+            pat.XOffset  = 0;
+            pat.YOffset  = 0;
+            bi->BlitPattern(bi, &ri, &pat, 123, 458, 48, 48, 0xFF, RGBFB_CLUT);
         }
 #endif
 
