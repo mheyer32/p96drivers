@@ -600,15 +600,14 @@ static UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWO
         // Bitmap supposed to show on screen.
         // We expect blits to and from on-screen subrectangles, so make the pitch Blitter-compatible
         // Use X/Y addressing for these
-        if (width <= 320) {
+        if (width <= 512) {
             // We allow only small resolutions to have a non-Graphics Engine size.
             // These resolutions (notably 320xY) are often used in games and these games
             // assume a pitch of 320 bytes (not 640 which expansion to 640 would
             // require). Nevertheless, align to 8 bytes. We constrain all other
             // resolutions to Graphics Engine supported pitch.
             width = (width + 7) & ~7;
-        } else if (width <= 512) {
-            width = 512;
+            // width == 512 uses width as-is and is blitter-supported
         } else if (width <= 640) {
             width = 640;
         } else if (width <= 800) {
@@ -1149,14 +1148,11 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
 
     // Set Serial start address: CR0C-0D (low 16 bits), CR1C[3:0] (bits 19:16)
     // Start address is in doublewords (4 bytes)
-    // FIXME: 0x0c and 0x0d are again swapped from what the S3Trio does
-    // W_CR_OVERFLOW2_ULONG(panOffset, 0x0c, 0, 8, 0x0d, 0, 8, 0x1c, 0, 4);
-
-    // test s3trio order
     W_CR_OVERFLOW2_ULONG(panOffset, 0x0d, 0, 8, 0x0c, 0, 8, 0x1c, 0, 4);
 
     // Set Serial offset: CR13 (low 8 bits), CR1C[7:4] (bits 11:8)
     // Offset is in units of 8 bytes
+    // Thus max pitch is 4095*8 =  32760 bytes
     W_CR_OVERFLOW1(pitch, 0x13, 0, 8, 0x1c, 4, 4);
 
     // This has weird effects on the lines the cursor image shows
@@ -1529,9 +1525,23 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         return;
     }
 
-    MMIOBASE();
-
     ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEFormat != fmt) {
+        cd->GEbppLog2 = getBPPLog2(fmt);
+    }
+
+    UBYTE bppLog2 = cd->GEbppLog2;
+    BOOL isLinear = ((width << bppLog2) == ri->BytesPerRow);
+
+    ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
+    if (!addressModel) {
+        // Pitch can't be expressed in addressing mode bits, fallback to CPU fill
+        bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
+        return;
+    }
+
+    MMIOBASE();
 
     if (cd->GEOp != FILLRECT) {
         cd->GEOp          = FILLRECT;
@@ -1542,14 +1552,6 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         W_MMIO_B(RASTEROP, ROP_SOURCE);
     }
 
-    if (cd->GEFormat != fmt) {
-        cd->GEbppLog2 = getBPPLog2(fmt);
-    }
-
-    UBYTE bppLog2 = cd->GEbppLog2;
-
-    BOOL isLinear = ((width << bppLog2) == ri->BytesPerRow);
-
     if (isLinear != cd->GElinear || cd->GEbytesPerRow != ri->BytesPerRow || cd->GEFormat != fmt) {
         cd->GEbytesPerRow = ri->BytesPerRow;
         cd->GElinear      = isLinear;
@@ -1559,8 +1561,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         // 0bX10 = 16bpp
         // 0bX11 = 32bpp
         // 0b100 = 24bpp
-        UBYTE pixelDepth   = bppLog2 + 1;  // matches bit encoding for pixel depth, but doesn't cover 24 bits
-        ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
+        UBYTE pixelDepth = bppLog2 + 1;  // matches bit encoding for pixel depth, but doesn't cover 24 bits
         ULONG cmd = DRAW_CMD_OP(DRAW_CMD_RECT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(pixelDepth) |
                     addressModel;
 
@@ -1590,19 +1591,29 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
           (ULONG)ri->Memory);
 
-    if (!getBPP(fmt) || !width || !height) {
-        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
-        return;
-    }
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "InvertRect fallback (mask)\n");
         bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
         return;
     }
 
-    MMIOBASE();
-
     ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEFormat != fmt) {
+        cd->GEbppLog2 = getBPPLog2(fmt);
+    }
+
+    UBYTE bppLog2 = cd->GEbppLog2;
+    BOOL isLinear = ((width << bppLog2) == ri->BytesPerRow);
+
+    ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
+    if (!addressModel) {
+        // Pitch can't be expressed in addressing mode bits, fallback to CPU fill
+        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
+        return;
+    }
+
+    MMIOBASE();
 
     if (cd->GEOp != INVERTRECT) {
         cd->GEOp      = INVERTRECT;
@@ -1617,18 +1628,12 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
         cd->GEbppLog2 = getBPPLog2(fmt);
     }
 
-    UBYTE bppLog2 = cd->GEbppLog2;
-
-    BOOL isLinear = ((width << bppLog2) == ri->BytesPerRow);
-    D(INFO, "isLinear %ld\n", (ULONG)isLinear);
-
     if (isLinear != cd->GElinear || cd->GEbytesPerRow != ri->BytesPerRow || cd->GEFormat != fmt) {
         cd->GEbytesPerRow = ri->BytesPerRow;
         cd->GEFormat      = fmt;
         cd->GElinear      = isLinear;
 
-        UBYTE pixelDepth   = bppLog2 + 1;
-        ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
+        UBYTE pixelDepth = bppLog2 + 1;
         ULONG cmd = DRAW_CMD_OP(DRAW_CMD_RECT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(pixelDepth) |
                     addressModel;
 
@@ -1887,6 +1892,16 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     MMIOBASE();
     ChipData_t *cd = getChipData(bi);
 
+    UBYTE bppLog2    = getBPPLog2(fmt);
+    UWORD widthBytes = width << bppLog2;
+
+    BOOL isLinear      = (widthBytes == ri->BytesPerRow);
+    ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
+    if (!addressModel) {
+        bi->BlitTemplateDefault(bi, ri, template, x, y, width, height, mask, fmt);
+        return;
+    }
+
     if (cd->GEOp != BLITTEMPLATE) {
         cd->GEOp      = BLITTEMPLATE;
         cd->GEdrawCmd = 0;
@@ -1899,12 +1914,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
 
     setDrawMode(bi, template->DrawMode, template->FgPen, template->BgPen, fmt);
 
-
-    UBYTE bppLog2      = getBPPLog2(fmt);
-    UWORD widthBytes   = width << bppLog2;
-    BOOL isLinear      = (widthBytes == ri->BytesPerRow);
-    ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
-    ULONG drawCmd      = DRAW_CMD_OP(DRAW_CMD_HOST_BLT_WRITE) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) |
+    ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_HOST_BLT_WRITE) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) |
                     DRAW_SRC_MONOCHROME | DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS | DRAW_PIXEL_DEPTH(bppLog2 + 1) |
                     addressModel;
 
@@ -2299,17 +2309,15 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     // Maximum horizontal/vertical values per format type
     // These are based on the coordinate addressing limits
-    // For 8-bit modes: 4096 pixels max (511 * 8 dclks)
-    bi->MaxHorValue[PLANAR] = 4088;  // 511 * 8 dclks
-    bi->MaxHorValue[CHUNKY] = 4088;
-    // For 16-bit modes: 8192 pixels max (511 * 8 * 2)
-    bi->MaxHorValue[HICOLOR] = 8176;  // 511 * 8 * 2
-    // For 32-bit modes: 16384 pixels max (511 * 8 * 4)
-    bi->MaxHorValue[TRUECOLOR] = 16352;  // 511 * 8 * 4
-    bi->MaxHorValue[TRUEALPHA] = 16352;
+    // All modes: 4096 pixels max in "Horizontal Total" register (511 * 8 dclks)
+    bi->MaxHorValue[PLANAR]    = 4093;  // 511 * 8 + 5 dclks
+    bi->MaxHorValue[CHUNKY]    = 4093;
+    bi->MaxHorValue[HICOLOR]   = 4093;
+    bi->MaxHorValue[TRUECOLOR] = 4093;
+    bi->MaxHorValue[TRUEALPHA] = 4093;
 
-    // Maximum vertical values (2047 scanlines, 11-bit coordinate)
-    // FIXME: since the CTC "serial offset" register is in units of 8 bytes, this should be dependent on the screen mode
+    // Maximum vertical values (11 Bit "Vertical Total", 2047 scanlines)
+    // This _could_ be stretched to * 2 via vertical doubling, but its not implemented
     bi->MaxVerValue[PLANAR]    = 2047;
     bi->MaxVerValue[CHUNKY]    = 2047;
     bi->MaxVerValue[HICOLOR]   = 2047;
@@ -2317,21 +2325,22 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->MaxVerValue[TRUEALPHA] = 2047;
 
     // Maximum resolution per format type
-    // Determined by 10-bit value divided by bpp and practical limits
-    bi->MaxHorResolution[PLANAR] = 1600;
-    bi->MaxVerResolution[PLANAR] = 1600;
+    // 12 Bit * 8 Serial Offset = max 32760byte pitch
+    // 12 Bit Blitter coordinates and Clip coordinates: 4095
+    bi->MaxHorResolution[PLANAR] = 4096;
+    bi->MaxVerResolution[PLANAR] = 4096;
 
-    bi->MaxHorResolution[CHUNKY] = 1600;
-    bi->MaxVerResolution[CHUNKY] = 1600;
+    bi->MaxHorResolution[CHUNKY] = 4096;
+    bi->MaxVerResolution[CHUNKY] = 4096;
 
-    bi->MaxHorResolution[HICOLOR] = 1280;
-    bi->MaxVerResolution[HICOLOR] = 1280;
+    bi->MaxHorResolution[HICOLOR] = 4096;
+    bi->MaxVerResolution[HICOLOR] = 4096;
 
-    bi->MaxHorResolution[TRUECOLOR] = 1280;
-    bi->MaxVerResolution[TRUECOLOR] = 1280;
+    bi->MaxHorResolution[TRUECOLOR] = 4096;
+    bi->MaxVerResolution[TRUECOLOR] = 4096;
 
-    bi->MaxHorResolution[TRUEALPHA] = 1280;
-    bi->MaxVerResolution[TRUEALPHA] = 1280;
+    bi->MaxHorResolution[TRUEALPHA] = 4096;
+    bi->MaxVerResolution[TRUEALPHA] = 4096;
 
     // Set function pointers
     bi->SetGC                = SetGC;
