@@ -281,4 +281,6 @@
 #define DAC_WR_AD 0x3C8  // Palette RAM write address
 #define DAC_DATA  0x3C9  // Palette RAM data
 
+
+#define BLIT_MAX_SIZE 4095
 #endif  // CHIP_AT3D_H

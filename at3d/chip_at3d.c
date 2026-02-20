@@ -1363,41 +1363,57 @@ static INLINE ULONG REGARGS getLinearPixelOffset(const struct BoardInfo *bi, con
     return offset;
 }
 
-static INLINE void getStartCoordinates(const struct BoardInfo *bi, const struct RenderInfo *ri, UBYTE bppLog2,
+static INLINE BOOL getStartCoordinates(const struct BoardInfo *bi, const struct RenderInfo *ri, UBYTE bppLog2,
                                        UWORD *originX, UWORD *originY)
 {
     // Memory offset is essentially pixel 0,0
     ULONG offset = getMemoryOffset(bi, ri->Memory);
-    *originX     = (offset % ri->BytesPerRow) >> bppLog2;
-    *originY     = (offset / ri->BytesPerRow);
+    UWORD y      = (offset / ri->BytesPerRow);
+    UWORD x      = (offset % ri->BytesPerRow) >> bppLog2;
+    // P96 might store a bitmap relatively far up in memory.  Since the blitter is using
+    // coordinates relative to offset 0x0 in memory, we might end up with addresses outside
+    // the reach of the blitter. Try to shift the surplus bits into the start X coordinate and
+    // hope for the best.
+    if (y > BLIT_MAX_SIZE) {
+        return FALSE;
+    }
+
+    *originX = x;
+    *originY = y;
+
+    return TRUE;
 }
 
-static INLINE void setLocationRegister(const struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y,
+static INLINE BOOL setLocationRegister(const struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y,
                                        UBYTE bppLog2, BOOL useLinearAddressing, UBYTE reg)
 {
     ULONG location;
     if (useLinearAddressing) {
         ULONG pixelOffset = getLinearPixelOffset(bi, ri, x, y, bppLog2);
-        DFUNC(VERBOSE, "linear pixel offset for (%ld,%ld): %ld (0x%lx)\n", (ULONG)x, (ULONG)y, pixelOffset,
-              pixelOffset);
+        DFUNC(INFO, "linear pixel offset for (%ld,%ld): %ld (0x%lx)\n", (ULONG)x, (ULONG)y, pixelOffset, pixelOffset);
         location = makeDWORD(swapw(pixelOffset & 0xFFF), swapw(pixelOffset >> 12));
     } else {
         // Memory offset is essentially pixel 0,0
-        ULONG offset = getMemoryOffset(bi, ri->Memory);
         UWORD originX, originY;
-        getStartCoordinates(bi, ri, bppLog2, &originX, &originY);
+        BOOL reachable = getStartCoordinates(bi, ri, bppLog2, &originX, &originY);
+        if (!reachable)
+            return FALSE;
         location = makeDWORD(swapw(x + originX), swapw(y + originY));
-        DFUNC(VERBOSE, "base offset %ld (0x%lx), offX %ld, offY %ld, final location 0x%08lx\n", offset, offset,
+#if DBG
+        ULONG offset = getMemoryOffset(bi, ri->Memory);
+        DFUNC(INFO, "base offset %ld (0x%lx), offX %ld, offY %ld, final location 0x%08lx\n", offset, offset,
               (ULONG)originX, (ULONG)originY, swapl(location));
+#endif
     }
     MMIOBASE();
     W_MMIO_NOSWAP_L(reg, location);
+    return TRUE;
 }
 
-static INLINE void setDstLocation(struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2,
+static INLINE BOOL setDstLocation(struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2,
                                   BOOL useLinearAddressing)
 {
-    setLocationRegister(bi, ri, x, y, bppLog2, useLinearAddressing, DST_LOCATION_X_LOW);
+    return setLocationRegister(bi, ri, x, y, bppLog2, useLinearAddressing, DST_LOCATION_X_LOW);
 }
 
 static INLINE void setSrcLocation(struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2,
@@ -1575,7 +1591,9 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         setForegroundPen(bi, pen, fmt);
     }
 
-    setDstLocation(bi, ri, x, y, bppLog2, isLinear);
+    if (!setDstLocation(bi, ri, x, y, bppLog2, isLinear)) {
+        bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
+    }
 
     // Kick off the fill by writing the size registers
     setDrawSize(bi, width, height);
@@ -1643,7 +1661,9 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
         }
     }
 
-    setDstLocation(bi, ri, x, y, bppLog2, isLinear);
+    if (!setDstLocation(bi, ri, x, y, bppLog2, isLinear)) {
+        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
+    }
 
     setDrawSize(bi, width, height);
 }
