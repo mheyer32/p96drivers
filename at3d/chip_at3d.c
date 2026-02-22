@@ -387,6 +387,12 @@ static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expect
     return (R_REG(0x3DA) & 0x08) != 0;
 }
 
+static ULONG ASM GetVBeamPos(__REGA0(struct BoardInfo *bi))
+{
+    MMIOBASE();
+    return R_MMIO_W(VERTICAL_CURRENT_POS) & 0x7FF;
+}
+
 static void setDefaultClocks(struct BoardInfo *bi)
 {
     DFUNC(INFO, "\n");
@@ -2550,6 +2556,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->SetReadPlane         = SetReadPlane;
     bi->SetClearMask         = SetClearMask;
     bi->GetVSyncState        = GetVSyncState;
+    bi->GetVBeamPos          = GetVBeamPos;
     bi->WaitVerticalSync     = WaitVerticalSync;
 
     bi->SetDPMSLevel     = SetDPMSLevel;

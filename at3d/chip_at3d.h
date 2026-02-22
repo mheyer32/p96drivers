@@ -125,6 +125,7 @@
 
 #define DEVICE_ID      0x182  // Device ID register at memory offset 182-183h
 #define GPIO_CTRL      0x1F0
+#define VERTICAL_CURRENT_POS 0x1FA
 #define EXT_DAC_STATUS 0x1FC  // Extended/DAC status register at memory offset 1FC-1FFh
 #define ABORT          0x1FF  //
 
