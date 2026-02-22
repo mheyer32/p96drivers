@@ -1390,8 +1390,8 @@ static INLINE BOOL getStartCoordinates(const struct BoardInfo *bi, const struct 
     return TRUE;
 }
 
-static INLINE BOOL setLocationRegister(const struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y,
-                                       UBYTE bppLog2, BOOL useLinearAddressing, UBYTE reg)
+static INLINE ULONG getLocationRegisterValue(const struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y,
+                                             UBYTE bppLog2, BOOL useLinearAddressing)
 {
     ULONG location;
     if (useLinearAddressing) {
@@ -1403,14 +1403,25 @@ static INLINE BOOL setLocationRegister(const struct BoardInfo *bi, const struct 
         UWORD originX, originY;
         BOOL reachable = getStartCoordinates(bi, ri, bppLog2, &originX, &originY);
         if (!reachable)
-            return FALSE;
+            return ~0;
         location = makeDWORD(swapw(x + originX), swapw(y + originY));
-#if DBG
+#ifdef DBG
         ULONG offset = getMemoryOffset(bi, ri->Memory);
-        DFUNC(INFO, "base offset %ld (0x%lx), offX %ld, offY %ld, final location 0x%08lx\n", offset, offset,
-              (ULONG)originX, (ULONG)originY, swapl(location));
+        DFUNC(INFO, "rect offset: base %ld (0x%lx) -> offX %ld, offY %ld, final register value 0x%08lx\n", offset,
+              offset, (ULONG)originX, (ULONG)originY, swapl(location));
 #endif
     }
+
+    return location;
+}
+
+static INLINE BOOL setLocationRegister(const struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y,
+                                       UBYTE bppLog2, BOOL useLinearAddressing, WORD reg)
+{
+    ULONG location = getLocationRegisterValue(bi, ri, x, y, bppLog2, useLinearAddressing);
+    if (location == ~0)
+        return FALSE;
+
     MMIOBASE();
     W_MMIO_NOSWAP_L(reg, location);
     return TRUE;
@@ -1422,10 +1433,10 @@ static INLINE BOOL setDstLocation(struct BoardInfo *bi, const struct RenderInfo 
     return setLocationRegister(bi, ri, x, y, bppLog2, useLinearAddressing, DST_LOCATION_X_LOW);
 }
 
-static INLINE void setSrcLocation(struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2,
+static INLINE BOOL setSrcLocation(struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2,
                                   BOOL useLinearAddressing)
 {
-    setLocationRegister(bi, ri, x, y, bppLog2, useLinearAddressing, SRC_LOCATION_X_LOW);
+    return setLocationRegister(bi, ri, x, y, bppLog2, useLinearAddressing, SRC_LOCATION_X_LOW);
 }
 
 static INLINE void setDstPitch(struct BoardInfo *bi, UWORD bytesPerRow)
@@ -1935,7 +1946,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
 
         //    setDstPitch(bi, ri->BytesPerRow);
         /* 11.7.6: Source Location X must be 0 for mono-to-color. Monochrome source must be 64-bit aligned. */
-        W_MMIO_W(SRC_LOCATION_X_LOW, 0);
+        W_MMIO_L(SRC_LOCATION_X_LOW, 0);
     }
 
     setDrawMode(bi, template->DrawMode, template->FgPen, template->BgPen, fmt);
@@ -2022,7 +2033,17 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         UWORD bitmapPitch   = (UWORD) template->BytesPerRow;
         UWORD originX, originY;
         getStartCoordinates(bi, ri, bppLog2, &originX, &originY);
-        W_MMIO_W(CLIP_RIGHT, originX + x + width - 1);
+
+        if (!isLinear) {
+            UWORD maxWidth = ri->BytesPerRow >> bppLog2;
+            UWORD clipR    = originX + x + width - 1;
+            if (clipR >= maxWidth) {
+                clipR = maxWidth - 1;
+            }
+            W_MMIO_W(CLIP_RIGHT, clipR);
+        }
+
+        // Now Round up to the next multiple of 32
         width = (width + 31) & ~31;
 
         setDrawSize(bi, width, height);
@@ -2056,7 +2077,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     };
 
     /* 11.7.6: write to M040 (DRAW_CMD) with arbitrary data to complete the write to last line(s). */
-    // W_MMIO_L(DRAW_CMD, DRAW_CMD_OP(DRAW_CMD_NOP));
+    // W_MMIO_L(DRAW_CMD, DRAW_CMD_OP(DRAW_CMD_NOP)| DRAW_ENGINE_START);
 
     if (count < 100) {
         if (!count)
@@ -2082,8 +2103,8 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 
     ChipData_t *cd = getChipData(bi);
 
-    UBYTE bppLog2      = cd->GEbppLog2;
-    BOOL isLinear      =FALSE;  ((width << bppLog2) == ri->BytesPerRow);
+    UBYTE bppLog2 = cd->GEbppLog2;
+    BOOL isLinear = FALSE; // ((width << bppLog2) == ri->BytesPerRow);
     ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
     if (!addressModel) {
         goto fallback;
@@ -2129,8 +2150,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     }
 
     UWORD originX, originY;
-    if (!getStartCoordinates(bi, ri, bppLog2, &originX, &originY))
-    {
+    if (!getStartCoordinates(bi, ri, bppLog2, &originX, &originY)) {
         goto fallback;
     }
 
@@ -2961,6 +2981,11 @@ int main()
             tmpl.BgPen       = 0xFF;
             FillRect(bi, &ri, 422, 262, 32, 32, 0xFF, 0xFF, RGBFB_CLUT);
             BlitTemplate(bi, &ri, &tmpl, 422, 262, 32, 32, 0xFF, RGBFB_CLUT);
+
+            // Edge case: while the blit itself is inside the640x480 rectangle, artificially increasing the
+            // blit width to 32 pixels (617+32 = 649).
+            FillRect(bi, &ri, 627, 262, 20, 32, 0xFF, 0xFF, RGBFB_CLUT);
+            BlitTemplate(bi, &ri, &tmpl, 627, 262, 20, 32, 0xFF, RGBFB_CLUT);
         }
 
         /* BlitTemplate 46x11: exercise non-32 width (byteWidth 6, totalBytes 66, dwords 18). */
