@@ -517,7 +517,7 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
 static INLINE void waitFifo(const BoardInfo_t *bi, UBYTE numSlots)
 {
     MMIOBASE();
-    while ((R_MMIO_B(EXT_DAC_STATUS) & 0x0F) < numSlots) {
+    while ((R_MMIO_L(EXT_DAC_STATUS) & 0x0F) < numSlots) {
         // Busy wait
     }
 }
@@ -1521,14 +1521,16 @@ static ULONG getAdressModelBits(struct RenderInfo *ri, UBYTE bppLog2)
     }
 }
 
-#define ROP_SOURCE              0xCC
-#define ROP_PATTERN             0xF0
-#define ROP_SRC_XOR_DST         0x66
-#define ROP_SRC_AND_PAT_AND_DST 0x80
-#define ROP_NOT_DST             0x55
-#define ROP_JAM1                0xCA  // (P and S) or (not P and D): use S (fg) where P (pattern) is 1, else D
-#define ROP_JAM2                ROP_SOURCE
-#define ROP_COMPLEMENT          0x5A  // Flip destination where pattern is 1
+#define ROP_SOURCE                 0xCC
+#define ROP_PATTERN                0xF0
+#define ROP_SRC_XOR_DST            0x66
+#define ROP_SRC_AND_PAT_AND_DST    0x80
+#define ROP_NOT_DST                0x55
+#define ROP_SRC_OR_DST             0xEE  // ROP3: result = S | D (for BlitPlanar2Chunky OR-accumulate)
+#define ROP_PATTERN_AND_SRC_OR_DST 0xE2  //
+#define ROP_JAM1                   0xCA  // (P and S) or (not P and D): use S (fg) where P (pattern) is 1, else D
+#define ROP_JAM2                   ROP_SOURCE
+#define ROP_COMPLEMENT             0x5A  // Flip destination where pattern is 1
 
 /* BlitRectNoMaskComplete OpCode: P96 passes a 4-bit minterm only (B=source, C=destination); see
  * wiki.icomp.de P96_Driver_Development#BlitRectNoMaskComplete. Bits: 3=B∧C, 2=B∧¬C, 1=¬B∧C, 0=¬B∧¬C.
@@ -1552,6 +1554,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     // AT3D doesn't support bit masking for CLUT modes, so we require a full mask in that case.
     // True color modes can ignore the mask
+    // FIXME: can we use a ROP of "SRC_AND_DST" to emulate the mask?
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "FillRect fallback\n");
         bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
@@ -2088,6 +2091,214 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     W_MMIO_W(CLIP_RIGHT, 0xFFF);
 }
 
+/* One plane of BlitPlanar2Chunky: mono Host BLT with FgPen=(1<<p), BgPen=0, ROP Src OR Dst. */
+static void performPlanarPlaneBlit(struct BoardInfo *bi, UWORD width, UWORD height, UBYTE *bitmap, UWORD dwordsPerLine,
+                                   WORD bmPitch, UBYTE rol, UBYTE planeIndex)
+{
+    if (!bitmap) {
+        D(INFO, "skip plane\n");
+        // no need to fill in 0s
+        return;
+    }
+
+    DFUNC(INFO, "BlitPlanar2Chunky plane %ld,  w %ld (%ld dwords), h %ld rol %ld, 0x%08lx \n", (ULONG)planeIndex,
+          (ULONG)width, (ULONG)dwordsPerLine, (ULONG)height, (ULONG)rol, bitmap);
+    MMIOBASE();
+
+    setForegroundPen(bi, 1 << planeIndex, RGBFB_CLUT);
+    // setBackgroundPen(bi, 1 << planeIndex, RGBFB_CLUT);
+    setDrawSize(bi, width, height);
+
+    volatile ULONG *hostBlt = getHostBltPort(bi);
+    while (!TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS)) {
+    }
+
+    if ((ULONG)bitmap == 0xFFFFFFFFUL) {
+        // FIXME: use FillRect to cover these planes
+        ULONG fill = ~0;
+        for (UWORD y = 0; y < height; ++y) {
+            for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                *hostBlt = fill;
+            }
+        }
+    } else {
+        if (!rol) {
+            for (UWORD y = 0; y < height; ++y) {
+                for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                    *hostBlt = ((const ULONG *)bitmap)[x];
+                }
+                bitmap += bmPitch;
+            }
+        } else {
+            for (UWORD y = 0; y < height; ++y) {
+                for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                    ULONG left  = ((const ULONG *)bitmap)[x] << rol;
+                    ULONG right = ((const ULONG *)bitmap)[x + 1] >> (32 - rol);
+                    *hostBlt    = left | right;
+                }
+                bitmap += bmPitch;
+            }
+        }
+    }
+
+    //    W_MMIO_L(DRAW_CMD, DRAW_CMD_OP(DRAW_CMD_NOP) | DRAW_ENGINE_START);
+
+    {
+        ChipData_t *cd = getChipData(bi);
+        int count      = 100;
+        while (TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS) && --count) {
+            *hostBlt = 0xFF00AACC;
+        }
+        if (!count) {
+            D(WARN, "Host BLT completion wait loop iterated too many times, aborting\n");
+            W_MMIO_B(0x1FF, 0x01);
+        }
+    }
+}
+
+/* Planar to chunky: clear destination to 0, then for each plane OR (1<<p) expansion. No per-bit write mask on AT3D. */
+static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct BitMap *bm),
+                                  __REGA2(struct RenderInfo *ri), __REGD0(UWORD srcX), __REGD1(UWORD srcY),
+                                  __REGD2(UWORD dstX), __REGD3(UWORD dstY), __REGD4(UWORD width), __REGD5(UWORD height),
+                                  __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
+{
+    DFUNC(INFO, "src %ld,%ld dst %ld,%ld w %ld h %ld mask 0x%02lx minTerm 0x%02lx\n", (LONG)srcX, (LONG)srcY,
+          (LONG)dstX, (LONG)dstY, (LONG)width, (LONG)height, (ULONG)mask, (ULONG)minTerm);
+
+    // if (mask != 0xFF) {
+    //     DFUNC(WARN, "BlitPlanar2Chunky fallback (mask != 0xFF)\n");
+    //     // Though we could easily incorporate the mask into into the host blit for the conversion, the initial
+    //     // clearing of the destination via FillRect can't support the mask, so just fallback to CPU blit for
+    //     simplicity.
+    //     // FIXME: have a FillRect function that supports ROP and can use and SRC_AND_DST function to clear
+    //     // with mask
+    //     goto fallback;
+    // }
+    // if (minTerm != 0x0C) {
+    //     DFUNC(WARN, "fallback (minTerm != 0x0C)\n");
+    //     goto fallback;
+    // }
+
+    ASSERT(ri->RGBFormat == RGBFB_CLUT);
+
+    FillRect(bi, ri, (WORD)dstX, (WORD)dstY, (WORD)width, (WORD)height, 0, mask, RGBFB_CLUT);
+
+    DFUNC(INFO, "post Fillrect\n");
+
+    MMIOBASE();
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != BLITPLANAR2CHUNKY) {
+        cd->GEOp      = BLITPLANAR2CHUNKY;
+        cd->GEdrawCmd = 0;
+        cd->GEFormat  = ~0;
+        // ROP3 only available during pattern blits?
+        // W_MMIO_B(RASTEROP, ROP_PATTERN_AND_SOURCE_OR_DST);
+        W_MMIO_B(RASTEROP, ROP_SRC_OR_DST & mintermToRop3(minTerm));
+        setBackgroundPen(bi, 0, RGBFB_CLUT);
+    }
+
+    struct RenderInfo dstRi = *ri;
+
+    // We can do linear, if there's effectively no pitch and we only need to transfer full dwords
+    const BOOL isLinear = FALSE; //s(width == dstRi.BytesPerRow) && !(width & 31);
+    // If this is a linear blit, we can handle all width, otherwise either the blitter can support the pitch
+    // directly or as a last resort, we can emulate 320 width.
+    const BOOL emulate320 = !isLinear && (dstRi.BytesPerRow == 320);
+
+    if (emulate320) {
+        DFUNC(WARN, "emulating 320\n");
+        dstRi.BytesPerRow = 640;
+    }
+
+    ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(&dstRi, 0);
+
+    D(INFO, "isLinear %ld, emulate320 %ld, addressModel 0x%08lx\n", (ULONG)isLinear, (ULONG)emulate320, addressModel);
+
+    if (!addressModel) {
+        goto fallback;
+    }
+
+    W_MMIO_L(SRC_LOCATION_X_LOW, 0);
+
+    UWORD clipR;
+    if (!isLinear) {
+        UWORD originX, originY;
+        getStartCoordinates(bi, &dstRi, 0, &originX, &originY);
+
+        UWORD maxWidth = dstRi.BytesPerRow;
+        clipR          = originX + dstX + width - 1;
+        if (clipR >= maxWidth) {
+            clipR = maxWidth - 1;
+        }
+        W_MMIO_W(CLIP_RIGHT, clipR);
+    } else {
+        // Looks like this register is used in linear, non-contiguous mode(???)
+        W_MMIO_L(DST_PITCH, dstRi.BytesPerRow);
+    }
+
+    // Round up to 32pixels, so we don't have too much hassle with the HOST Blit being byte-aligned.
+    // Compensate with the clipping setup
+    width = (width + 31) & ~31;
+
+    ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_HOST_BLT_WRITE) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) |
+                    DRAW_SRC_MONOCHROME | DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS | DRAW_PIXEL_DEPTH(1) |
+                    addressModel;
+    W_MMIO_L(DRAW_CMD, drawCmd);
+
+    WORD bmPitch        = bm->BytesPerRow;
+    ULONG bmStartOffset = (ULONG)(srcY * bmPitch) + (srcX / 32) * 4;  // should this be rather / 8?
+
+    UWORD dwordsPerLine = width / 32;
+    UBYTE rol           = (UBYTE)(srcX % 32);
+
+    D(INFO, "bmPitch %ld, bmStartOffset %ld, rol %ld, dwordsPerLine %ld\n", (ULONG)bmPitch, (ULONG)bmStartOffset,
+      (ULONG)rol, (ULONG)dwordsPerLine);
+
+    // Wait for previous blit to finish (?)
+    while (TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_DRAWING_ENGINE_BUSY)) {
+    }
+
+    setDstLocation(bi, &dstRi, dstX, dstY, 0, isLinear);
+
+    for (short p = 0; p < 8; ++p) {
+        if (!(mask & (1 << p))) {
+            continue;
+        }
+        UBYTE *planeBitmap  = (UBYTE *)bm->Planes[p];
+        UBYTE *planeBitmap2 = (UBYTE *)bm->Planes[p];
+        if (planeBitmap != (UBYTE *)0 && (ULONG)planeBitmap != 0xFFFFFFFFUL) {
+            planeBitmap  = (UBYTE *)((ULONG)planeBitmap + bmStartOffset);
+            planeBitmap2 = (UBYTE *)((ULONG)planeBitmap + bmStartOffset + bmPitch);
+        }
+
+        if (!emulate320) {
+            performPlanarPlaneBlit(bi, width, height, planeBitmap, dwordsPerLine, bmPitch, rol, p);
+        } else {
+            UWORD halfHeight1 = (height + 1) / 2;
+            UWORD halfHeight2 = height / 2;
+
+            setDstLocation(bi, &dstRi, dstX, dstY, 0, isLinear);
+            W_MMIO_W(CLIP_RIGHT, clipR);
+            performPlanarPlaneBlit(bi, width, halfHeight1, planeBitmap, dwordsPerLine, bmPitch * 2, rol, p);
+
+            if (halfHeight2) {
+                setDstLocation(bi, &dstRi, dstX + 320, dstY, 0, isLinear);
+                W_MMIO_W(CLIP_RIGHT, clipR + 320);
+                performPlanarPlaneBlit(bi, width, halfHeight2, planeBitmap2, dwordsPerLine, bmPitch * 2, rol, p);
+            }
+        }
+    }
+
+    W_MMIO_W(CLIP_RIGHT, 0xFFF);
+
+    return;
+
+fallback:
+
+    bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
+}
+
 static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
                             __REGA2(struct Pattern *pattern), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
                             __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
@@ -2593,6 +2804,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
     bi->BlitRect               = BlitRect;
     bi->BlitTemplate           = BlitTemplate;
+    bi->BlitPlanar2Chunky      = BlitPlanar2Chunky;
 
     /* 8x8 pattern cache for BlitPattern (screen-space aligned, pre-rotated upload).
      * Allocate 8 lines of 16bit (Amiga patterns are 16bit wide). At runtime we compare the
