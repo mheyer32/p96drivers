@@ -30,7 +30,7 @@
 #define DRAW_SRC_CONTIGUOUS      BIT(11)
 #define DRAW_6422_PATTERN        BIT(10)
 #define DRAW_SRC_ADDR_LINEAR     BIT(9)
-#define DRAW_MAJOR_AXIS_X        BIT(8)
+#define DRAW_MAJOR_AXIS_Y        BIT(8)
 #define DRAW_DIR_Y_NEGATIVE      BIT(7)
 #define DRAW_DIR_X_NEGATIVE      BIT(6)
 #define DRAW_CMD_OP(x)           (x)

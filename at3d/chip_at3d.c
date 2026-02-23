@@ -1549,7 +1549,7 @@ static INLINE UBYTE mintermToRop3(UBYTE minterm)
     return (UBYTE)(lo | (lo << 4));
 }
 
-static INLINE setDrawCmd(BoardInfo_t *bi, ULONG drawCmd)
+static INLINE void setDrawCmd(BoardInfo_t *bi, ULONG drawCmd)
 {
     ChipData_t *cd = getChipData(bi);
     if (drawCmd != cd->GEdrawCmd) {
@@ -2471,6 +2471,105 @@ fallback:
     bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, fmt);
 }
 
+/* DrawLine: horizontal/vertical via FillRect or strip; diagonal via AT3D vector DDA.
+ * Patterned lines (LinePtrn != 0xFFFF) fall back to DrawLineDefault for now. */
+static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGA2(struct Line *line),
+                         __REGD0(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE,
+          "DrawLine X %ld Y %ld Length %lu dX %ld dY %ld sDelta %ld lDelta %ld twoSDminusLD %ld "
+          "LinePtrn 0x%04lx PatternShift %lu FgPen %lu BgPen %lu Horizontal %ld DrawMode 0x%02lx "
+          "Xorigin %lu Yorigin %lu mask 0x%02lx fmt %ld\n",
+          (LONG)line->X, (LONG)line->Y, (ULONG)line->Length, (LONG)line->dX, (LONG)line->dY, (LONG)line->sDelta,
+          (LONG)line->lDelta, (LONG)line->twoSDminusLD, (ULONG)line->LinePtrn, (ULONG)line->PatternShift,
+          (ULONG)line->FgPen, (ULONG)line->BgPen, (ULONG)line->Horizontal, (ULONG)line->DrawMode, (ULONG)line->Xorigin,
+          (ULONG)line->Yorigin, (ULONG)mask, (ULONG)fmt);
+
+    if (fmt <= RGBFB_CLUT && mask != 0xFF) {
+        DFUNC(WARN, "DrawLine fallback (CLUT mask)\n");
+        bi->DrawLineDefault(bi, ri, line, mask, fmt);
+        return;
+    }
+
+    /* Patterned lines: fallback until PATTERN setup for 16-bit line pattern is implemented */
+    if (line->LinePtrn != 0xFFFF) {
+        DFUNC(WARN, "DrawLine fallback (patterned)\n");
+        bi->DrawLineDefault(bi, ri, line, mask, fmt);
+        return;
+    }
+
+    ChipData_t *cd = getChipData(bi);
+    if (cd->GEFormat != fmt) {
+        cd->GEbppLog2 = getBPPLog2(fmt);
+    }
+    UBYTE bppLog2      = cd->GEbppLog2;
+    ULONG addressModel = getAdressModelBits(ri, bppLog2);
+    if (!addressModel) {
+        bi->DrawLineDefault(bi, ri, line, mask, fmt);
+        return;
+    }
+
+    /* Horizontal and vertical: use FillRect. sDelta==0 means axis-aligned. */
+    // RTG Library already makes that decision
+    // if (line->sDelta == 0) {
+    //     if (line->Horizontal) {
+    //         FillRect(bi, ri, line->X, line->Y, (WORD)line->Length, 1, line->FgPen, mask, fmt);
+    //     } else {
+    //         FillRect(bi, ri, line->X, line->Y, 1, (WORD)line->Length, line->FgPen, mask, fmt);
+    //     }
+    //     return;
+    // }
+
+    /* Diagonal: use AT3D vector drawing with DDA */
+    MMIOBASE();
+
+    if (cd->GEOp != LINE) {
+        cd->GEOp      = LINE;
+        cd->GEdrawCmd = 0;
+        cd->GEFormat  = ~0;
+    }
+
+    setDrawMode(bi, line->DrawMode, line->FgPen, line->BgPen, fmt);
+
+    // setDstPitch(bi, ri->BytesPerRow);
+
+    if (!setDstLocation(bi, ri, (UWORD)line->X, (UWORD)line->Y, bppLog2, FALSE)) {
+        bi->DrawLineDefault(bi, ri, line, mask, fmt);
+        return;
+    }
+
+    /* AT3D spec Table 11.4.1.2a: dmin=min(dx,dy), dmax=max(dx,dy).
+     * P96: lDelta= major extent, sDelta= minor -> |lDelta|=dmax, |sDelta|=dmin. */
+    WORD absMAX         = myabs(line->lDelta);
+    WORD twoTimesAbsMIN = myabs(2 * line->sDelta);
+
+    // W_MMIO_W(DDA_AXIAL_STEP, (UWORD)(2 * absMIN));               /* 2*dmin */
+    // W_MMIO_W(DDA_DIAGONAL_STEP, ); /* (2*dmin)-(2*dmax) */
+    W_MMIO_L(DDA_AXIAL_STEP, makeDWORD(twoTimesAbsMIN - 2 * absMAX, twoTimesAbsMIN)); /* 2*dmin */
+    W_MMIO_W(DDA_ERROR_TERM, line->twoSDminusLD); /* P96 provides correct initial value */
+
+    ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_VECTOR_ENDPOINT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) |
+                    DRAW_PIXEL_DEPTH(bppLog2 + 1) | addressModel;
+
+    /* M040[8] Major axis: set if dy>dx (Y-major), clear if X-major */
+    if (!line->Horizontal) {
+        drawCmd |= DRAW_MAJOR_AXIS_Y;
+    }
+    if (line->dX < 0) {
+        drawCmd |= DRAW_DIR_X_NEGATIVE;
+    }
+    if (line->dY < 0) {
+        drawCmd |= DRAW_DIR_Y_NEGATIVE;
+    }
+
+    // FIXME: if this is ever changed to a different order (no quickstart), make sure to at least
+    //  clear DRAW_CMD as it may have a "quick start" still enabled from prior operations
+    setDrawCmd(bi, drawCmd);
+
+    /* SRC_SIZE_X: Spec Dimension X = dmax + 1; P96 Length = dmax = max(|dx|,|dy|). */
+    W_MMIO_W(SRC_SIZE_X, line->Length + 1);
+}
+
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(ALWAYS, "AT3D InitChip - Testing hardware access\n");
@@ -2808,6 +2907,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->BlitRect               = BlitRect;
     bi->BlitTemplate           = BlitTemplate;
     bi->BlitPlanar2Chunky      = BlitPlanar2Chunky;
+    bi->DrawLine               = DrawLine;
 
     /* 8x8 pattern cache for BlitPattern (screen-space aligned, pre-rotated upload).
      * Allocate 8 lines of 16bit (Amiga patterns are 16bit wide). At runtime we compare the
@@ -3299,6 +3399,110 @@ int main()
             pat.YOffset  = 0;
             bi->BlitPattern(bi, &ri, &pat, 123, 458, 48, 48, 0xFF, RGBFB_CLUT);
         }
+#endif
+
+#if 1
+        /* DrawLine: horizontal, vertical, and diagonal (X-major, Y-major, both directions). */
+        if (bi->DrawLine) {
+            struct Line line;
+            line.LinePtrn     = 0xFFFF; /* solid */
+            line.PatternShift = 0;
+            line.FgPen        = 2; /* green */
+            line.BgPen        = 0;
+            line.DrawMode     = JAM2;
+            line.Xorigin      = 0;
+            line.Yorigin      = 0;
+
+            /* Clear a region for lines and draw a light background */
+            FillRect(bi, &ri, 10, 400, 300, 70, 50, 0xFF, RGBFB_CLUT);
+
+            /* Horizontal line (100, 420) -> (250, 420), 150 pixels */
+            line.X          = 100;
+            line.Y          = 420;
+            line.Length     = 150;
+            line.dX         = 1;
+            line.dY         = 0;
+            line.sDelta     = 0;
+            line.lDelta     = 150;
+            line.Horizontal = TRUE;
+            bi->DrawLine(bi, &ri, &line, 0xFF, RGBFB_CLUT);
+
+            /* Vertical line (170, 410) -> (170, 460), 50 pixels */
+            line.X          = 170;
+            line.Y          = 410;
+            line.Length     = 50;
+            line.dX         = 0;
+            line.dY         = 1;
+            line.sDelta     = 0;
+            line.lDelta     = 50;
+            line.Horizontal = FALSE;
+            bi->DrawLine(bi, &ri, &line, 0xFF, RGBFB_CLUT);
+
+            /* X-major diagonal: (20, 450) down-right, 60 pixels in X, 30 in Y */
+            line.X          = 20;
+            line.Y          = 450;
+            line.Length     = 60;
+            line.dX         = 1;
+            line.dY         = 1;
+            line.sDelta     = 30;
+            line.lDelta     = 60;
+            line.Horizontal = TRUE;
+            bi->DrawLine(bi, &ri, &line, 0xFF, RGBFB_CLUT);
+
+            /* Y-major diagonal: (110, 410) down-right, 30 pixels in X, 60 in Y */
+            line.X          = 110;
+            line.Y          = 410;
+            line.Length     = 60;
+            line.dX         = 1;
+            line.dY         = 1;
+            line.sDelta     = 30;
+            line.lDelta     = 60;
+            line.Horizontal = FALSE;
+            bi->DrawLine(bi, &ri, &line, 0xFF, RGBFB_CLUT);
+
+            /* Diagonal with negative X: (250, 415) down-left */
+            line.X          = 250;
+            line.Y          = 415;
+            line.Length     = 40;
+            line.dX         = -1;
+            line.dY         = 1;
+            line.sDelta     = 20;
+            line.lDelta     = 40;
+            line.Horizontal = TRUE;
+            bi->DrawLine(bi, &ri, &line, 0xFF, RGBFB_CLUT);
+
+            /* Diagonal with negative Y: (290, 455) up-right */
+            line.X          = 290;
+            line.Y          = 455;
+            line.Length     = 40;
+            line.dX         = 1;
+            line.dY         = -1;
+            line.sDelta     = 20;
+            line.lDelta     = 40;
+            line.Horizontal = TRUE;
+            bi->DrawLine(bi, &ri, &line, 0xFF, RGBFB_CLUT);
+
+            /* Full-screen diagonal (0,11) -> (639,479): Length 639, dX 639, dY 468, twoSDminusLD 297 */
+            line.X            = 0;
+            line.Y            = 11;
+            line.Length       = 639;
+            line.dX           = 639;
+            line.dY           = 468;
+            line.sDelta       = 468;
+            line.lDelta       = 639;
+            line.twoSDminusLD = 297;
+            line.LinePtrn     = 0xFFFF;
+            line.PatternShift = 15;
+            line.FgPen        = 0;
+            line.BgPen        = 0;
+            line.Horizontal   = TRUE;
+            line.DrawMode     = 0x81;
+            line.Xorigin      = 0;
+            line.Yorigin      = 11;
+            bi->DrawLine(bi, &ri, &line, 0xFF, RGBFB_CLUT);
+        }
+
+        WaitBlitter(bi);
 #endif
 
         D(INFO, "Alliance Promotion test completed\n");
