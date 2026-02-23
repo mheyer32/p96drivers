@@ -514,12 +514,14 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     return lower;  // Return the index into the PLL table
 }
 
-static INLINE void waitFifo(const BoardInfo_t *bi, UBYTE numSlots)
+static INLINE ULONG waitFifo(const BoardInfo_t *bi, UBYTE numSlots)
 {
     MMIOBASE();
-    while ((R_MMIO_L(EXT_DAC_STATUS) & 0x0F) < numSlots) {
+    ULONG status;
+    while (((status = R_MMIO_L(EXT_DAC_STATUS)) & 0x0F) < numSlots) {
         // Busy wait
     }
+    return status;
 }
 
 static void ASM SetClock(__REGA0(struct BoardInfo *bi))
@@ -691,11 +693,15 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGB
 // Wait for blitter (drawing engine) to finish
 static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
+    DFUNC(CHATTY, "...\n");
     MMIOBASE();
 
-    waitFifo(bi, 8);  // make sure FIFO is flushed
-    while (TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_DRAWING_ENGINE_BUSY)) {
+    ULONG status = waitFifo(bi, 8);  // make sure FIFO is flushed
+    // Wait for FiFo idle and
+    while (status & EXT_DAC_DRAWING_ENGINE_BUSY) {
+        status = R_MMIO_L(EXT_DAC_STATUS);
     }
+    DFUNC(CHATTY, "done.\n");
 }
 
 static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
@@ -1301,8 +1307,9 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
         }
     }
 
-    LOCAL_SYSBASE();
-    CacheClearU();
+    // LOCAL_SYSBASE();
+    // CacheClearU();
+    DFUNC(VERBOSE, "done", (ULONG)fmt);
 }
 
 static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
@@ -1542,6 +1549,16 @@ static INLINE UBYTE mintermToRop3(UBYTE minterm)
     return (UBYTE)(lo | (lo << 4));
 }
 
+static INLINE setDrawCmd(BoardInfo_t *bi, ULONG drawCmd)
+{
+    ChipData_t *cd = getChipData(bi);
+    if (drawCmd != cd->GEdrawCmd) {
+        cd->GEdrawCmd = drawCmd;
+        MMIOBASE();
+        W_MMIO_L(DRAW_CMD, drawCmd);
+    }
+}
+
 static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
                          __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(ULONG pen),
                          __REGD5(UBYTE mask), __REGD7(RGBFTYPE fmt))
@@ -1576,6 +1593,9 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
         return;
     }
+    if (!setDstLocation(bi, ri, x, y, bppLog2, isLinear)) {
+        bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
+    }
 
     MMIOBASE();
 
@@ -1585,6 +1605,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         cd->GEFormat      = ~0;
         cd->GEdrawCmd     = 0;
         cd->GEbytesPerRow = 0;
+        cd->GEopCode      = 0;
         W_MMIO_B(RASTEROP, ROP_SOURCE);
     }
 
@@ -1601,18 +1622,12 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         ULONG cmd = DRAW_CMD_OP(DRAW_CMD_RECT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(pixelDepth) |
                     addressModel;
 
-        if (cmd != cd->GEdrawCmd) {
-            cd->GEdrawCmd = cmd;
-            W_MMIO_L(DRAW_CMD, cmd);
-        }
-
         setForegroundPen(bi, pen, fmt);
+
+        setDrawCmd(bi, cmd);
+
     } else {
         setForegroundPen(bi, pen, fmt);
-    }
-
-    if (!setDstLocation(bi, ri, x, y, bppLog2, isLinear)) {
-        bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
     }
 
     // Kick off the fill by writing the size registers
@@ -1650,6 +1665,9 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
         bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
         return;
     }
+    if (!setDstLocation(bi, ri, x, y, bppLog2, isLinear)) {
+        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
+    }
 
     MMIOBASE();
 
@@ -1658,6 +1676,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
         cd->GElinear  = 0x55;  // Force update of addressing mode and format
         cd->GEFormat  = ~0;
         cd->GEdrawCmd = 0;
+        cd->GEopCode  = 0;
 
         W_MMIO_B(RASTEROP, ROP_NOT_DST);
     }
@@ -1675,14 +1694,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
         ULONG cmd = DRAW_CMD_OP(DRAW_CMD_RECT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(pixelDepth) |
                     addressModel;
 
-        if (cmd != cd->GEdrawCmd) {
-            cd->GEdrawCmd = cmd;
-            W_MMIO_L(DRAW_CMD, cmd);
-        }
-    }
-
-    if (!setDstLocation(bi, ri, x, y, bppLog2, isLinear)) {
-        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
+        setDrawCmd(bi, cmd);
     }
 
     setDrawSize(bi, width, height);
@@ -1789,14 +1801,11 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
             dstY = dstY + height - 1;
         }
     }
-    if (drawCmd != cd->GEdrawCmd) {
-        cd->GEdrawCmd = drawCmd;
-        D(VERBOSE, "drawCmd 0x%08lx\n", drawCmd);
+    setDrawCmd(bi, drawCmd);
 
-        W_MMIO_L(DRAW_CMD, drawCmd);
-    }
     setSrcLocation(bi, sri, srcX, srcY, bppLog2, srcLinear);
     setDstLocation(bi, dri, dstX, dstY, bppLog2, dstLinear);
+
     setDrawSize(bi, width, height);
 }
 
@@ -1865,15 +1874,11 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
             dstY = dstY + height - 1;
         }
     }
-    if (drawCmd != cd->GEdrawCmd) {
-        cd->GEdrawCmd = drawCmd;
-        D(VERBOSE, "drawCmd 0x%08lx\n", drawCmd);
-
-        W_MMIO_L(DRAW_CMD, drawCmd);
-    }
+    setDrawCmd(bi, drawCmd);
     // FIXME: this can be optimized into a single function
     setSrcLocation(bi, sri, srcX, srcY, bppLog2, isLinear);
     setDstLocation(bi, sri, dstX, dstY, bppLog2, isLinear);
+
     setDrawSize(bi, width, height);
 }
 
@@ -1885,34 +1890,35 @@ static INLINE volatile ULONG *getHostBltPort(struct BoardInfo *bi)
 
 static BOOL setDrawMode(BoardInfo_t *bi, UBYTE drawMode, ULONG fgPen, ULONG bgPen, RGBFTYPE fmt)
 {
-    UBYTE rop = 0;
-    switch (drawMode & (JAM1 | JAM2 | COMPLEMENT)) {
-    case JAM1:
-        rop = ROP_JAM2;  // ROP_JAM1;
-        break;
-    case JAM2:
-        rop = ROP_JAM2;
-        break;
-    case COMPLEMENT:
-    // case COMPLEMENT | JAM1:
-    // fallthrough
-    case COMPLEMENT | JAM2:
-        rop = ROP_NOT_DST;  // ROP_NOT_DST; //ROP_SRC_XOR_DST; //ROP_COMPLEMENT;
-        break;
-    default:
-        rop = ROP_SOURCE;
-        break;
-    }
     setForegroundPen(bi, fgPen, fmt);
     setBackgroundPen(bi, bgPen, fmt);
 
-    {
-        MMIOBASE();
-        // Documentation says that PCI burst writes break writing to ROP right after DRAW_CMD.
-        // Thus, make sure there's enough other writes between writing to ROP and DRAW_CMD
-        // Thus, make sure there's enough other writes between writing to ROP and DRAW_CMD
-        // W_MMIO_B(RASTEROP, 0);
-        W_MMIO_B(RASTEROP, rop);
+    ChipData_t *cd = getChipData(bi);
+    if (cd->GEopCode != drawMode) {
+        cd->GEopCode = drawMode;
+        UBYTE rop    = 0;
+        switch (drawMode & (JAM1 | JAM2 | COMPLEMENT)) {
+        case JAM1:
+            rop = ROP_JAM2;  // ROP_JAM1;
+            break;
+        case JAM2:
+            rop = ROP_JAM2;
+            break;
+        case COMPLEMENT:
+        // case COMPLEMENT | JAM1:
+        // fallthrough
+        case COMPLEMENT | JAM2:
+            rop = ROP_NOT_DST;  // ROP_NOT_DST; //ROP_SRC_XOR_DST; //ROP_COMPLEMENT;
+            break;
+        default:
+            rop = ROP_SOURCE;
+            break;
+        }
+        {
+            MMIOBASE();
+            // Documentation says that PCI burst writes break writing to ROP right after DRAW_CMD.
+            W_MMIO_B(RASTEROP, rop);
+        }
     }
 }
 
@@ -1962,11 +1968,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         drawCmd |= DRAW_SRC_TRANSPARENT;
     }
 
-    // if (drawCmd != cd->GEdrawCmd)
-    {
-        cd->GEdrawCmd = drawCmd;
-        W_MMIO_L(DRAW_CMD, drawCmd);
-    }
+    setDrawCmd(bi, drawCmd);
 
     setDstLocation(bi, ri, (UWORD)x, (UWORD)y, bppLog2, isLinear);
 
@@ -2088,7 +2090,9 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         D(WARN, "Host BLT completion wait loop iterated %d times\n", 100 - count);
     }
 
-    W_MMIO_W(CLIP_RIGHT, 0xFFF);
+    if (!isLinear) {
+        W_MMIO_W(CLIP_RIGHT, 0xFFF);
+    }
 }
 
 /* One plane of BlitPlanar2Chunky: mono Host BLT with FgPen=(1<<p), BgPen=0, ROP Src OR Dst. */
@@ -2194,14 +2198,14 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         cd->GEFormat  = ~0;
         // ROP3 only available during pattern blits?
         // W_MMIO_B(RASTEROP, ROP_PATTERN_AND_SOURCE_OR_DST);
-        W_MMIO_B(RASTEROP, ROP_SRC_OR_DST & mintermToRop3(minTerm));
+        W_MMIO_B(RASTEROP, ROP_SRC_OR_DST | (mintermToRop3(minTerm) & 0xF0));
         setBackgroundPen(bi, 0, RGBFB_CLUT);
     }
 
     struct RenderInfo dstRi = *ri;
 
     // We can do linear, if there's effectively no pitch and we only need to transfer full dwords
-    const BOOL isLinear = FALSE; //s(width == dstRi.BytesPerRow) && !(width & 31);
+    const BOOL isLinear = FALSE;  // s(width == dstRi.BytesPerRow) && !(width & 31);
     // If this is a linear blit, we can handle all width, otherwise either the blitter can support the pitch
     // directly or as a last resort, we can emulate 320 width.
     const BOOL emulate320 = !isLinear && (dstRi.BytesPerRow == 320);
@@ -2244,7 +2248,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_HOST_BLT_WRITE) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) |
                     DRAW_SRC_MONOCHROME | DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS | DRAW_PIXEL_DEPTH(1) |
                     addressModel;
-    W_MMIO_L(DRAW_CMD, drawCmd);
+    setDrawCmd(bi, drawCmd);
 
     WORD bmPitch        = bm->BytesPerRow;
     ULONG bmStartOffset = (ULONG)(srcY * bmPitch) + (srcX / 32) * 4;  // should this be rather / 8?
@@ -2290,7 +2294,9 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         }
     }
 
-    W_MMIO_W(CLIP_RIGHT, 0xFFF);
+    if (!isLinear) {
+        W_MMIO_W(CLIP_RIGHT, 0xFFF);
+    }
 
     return;
 
@@ -2314,8 +2320,8 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 
     ChipData_t *cd = getChipData(bi);
 
-    UBYTE bppLog2 = cd->GEbppLog2;
-    BOOL isLinear = FALSE; // ((width << bppLog2) == ri->BytesPerRow);
+    UBYTE bppLog2      = cd->GEbppLog2;
+    BOOL isLinear      = FALSE;  // ((width << bppLog2) == ri->BytesPerRow);
     ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
     if (!addressModel) {
         goto fallback;
@@ -2440,7 +2446,8 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 
     /* Upload pre-rotated 8x8 pattern to PATTERN register (0x048: two DWORDs).
      * Documentation says: "Write to this register prior to each use.
-     * The contents of M048–04F are not sustained across all operations." So no caching.
+     * The contents of M048–04F are not sustained across all operations.".
+     * So no caching.
      */
     W_MMIO_NOSWAP_L(PATTERN, cd->pat0);
     W_MMIO_NOSWAP_L(PATTERN + 4, cd->pat1);
@@ -2454,11 +2461,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         drawCmd |= DRAW_SRC_TRANSPARENT;
     }
 
-    // if (drawCmd != cd->GEdrawCmd)
-    {
-        cd->GEdrawCmd = drawCmd;
-        W_MMIO_L(DRAW_CMD, drawCmd);
-    }
+    setDrawCmd(bi, drawCmd);
 
     setDstLocation(bi, ri, (UWORD)x, (UWORD)y, bppLog2, isLinear);
     setDrawSize(bi, (UWORD)width, (UWORD)height);
