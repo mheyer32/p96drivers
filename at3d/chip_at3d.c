@@ -1574,8 +1574,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     // FIXME: can we use a ROP of "SRC_AND_DST" to emulate the mask?
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "FillRect fallback\n");
-        bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
-        return;
+        goto fallback;
     }
 
     ChipData_t *cd = getChipData(bi);
@@ -1590,11 +1589,10 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
     if (!addressModel) {
         // Pitch can't be expressed in addressing mode bits, fallback to CPU fill
-        bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
-        return;
+        goto fallback;
     }
     if (!setDstLocation(bi, ri, x, y, bppLog2, isLinear)) {
-        bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
+        goto fallback;
     }
 
     MMIOBASE();
@@ -1632,6 +1630,10 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     // Kick off the fill by writing the size registers
     setDrawSize(bi, width, height);
+    return;
+
+fallback:
+    bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
 }
 
 static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
@@ -1646,8 +1648,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
 
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "InvertRect fallback (mask)\n");
-        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
-        return;
+        goto fallback;
     }
 
     ChipData_t *cd = getChipData(bi);
@@ -1662,11 +1663,10 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
     ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
     if (!addressModel) {
         // Pitch can't be expressed in addressing mode bits, fallback to CPU fill
-        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
-        return;
+        goto fallback;
     }
     if (!setDstLocation(bi, ri, x, y, bppLog2, isLinear)) {
-        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
+        goto fallback;
     }
 
     MMIOBASE();
@@ -1698,6 +1698,10 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
     }
 
     setDrawSize(bi, width, height);
+    return;
+
+fallback:
+    bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
 }
 
 static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri),
@@ -1748,8 +1752,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
 
     if (!srcAddrModel && !dstAddrModel) {
         D(WARN, "BlitRectNoMaskComplete fallback src and dst can't  both require linear addressing\n");
-        bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, format);
-        return;
+        goto fallback;
     }
 
     BOOL srcCanLinear = (widthBytes == sri->BytesPerRow);
@@ -1758,8 +1761,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
     // Either one of src and dst could be rectangle, the other one linear
     if ((!srcAddrModel && !srcCanLinear) || (!dstAddrModel && !dstCanLinear)) {
         D(WARN, "BlitRectNoMaskComplete Fallback. src or dst needs linear but blitsize prevents it\n");
-        bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, format);
-        return;
+        goto fallback;
     }
 
     BOOL dstLinear  = FALSE;
@@ -1773,8 +1775,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
             addrModel = dstAddrModel;
         } else {
             D(WARN, "BlitRectNoMaskComplete fallback src and dst are subrects of different pitch\n");
-            bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, format);
-            return;
+            goto fallback;
         }
     }
     D(INFO, "isSrcLinear %ld, isDstLinear %ld\n", (ULONG)srcLinear, (ULONG)dstLinear);
@@ -1807,6 +1808,10 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
     setDstLocation(bi, dri, dstX, dstY, bppLog2, dstLinear);
 
     setDrawSize(bi, width, height);
+    return;
+
+fallback:
+    bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, format);
 }
 
 static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri), __REGD0(WORD srcX),
@@ -1824,9 +1829,8 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     if (mask != 0xFF) {
         D(WARN, "BlitRect fallback (mask != 0xFF)\n");
-        bi->BlitRectDefault(bi, sri, srcX, srcY, dstX, dstY, width, height, mask, fmt);
-        return;
-    };
+        goto fallback;
+    }
 
     ChipData_t *cd = getChipData(bi);
 
@@ -1853,8 +1857,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     if (!addrModel && !isLinear) {
         D(WARN, "BlitRectNoMaskComplete Fallback. src needs linear but blitsize prevents it\n");
-        bi->BlitRectDefault(bi, sri, srcX, srcY, dstX, dstY, width, height, mask, fmt);
-        return;
+        goto fallback;
     }
 
     ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_BLT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(bppLog2 + 1);
@@ -1880,6 +1883,10 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     setDstLocation(bi, sri, dstX, dstY, bppLog2, isLinear);
 
     setDrawSize(bi, width, height);
+    return;
+
+fallback:
+    bi->BlitRectDefault(bi, sri, srcX, srcY, dstX, dstY, width, height, mask, fmt);
 }
 
 // Host BLT port in flat memory (last 32K). Poll EXT_DAC_HOST_BLT_IN_PROGRESS until high before writing.
@@ -1931,8 +1938,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
 
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "BlitTemplate fallback (CLUT and mask)\n");
-        bi->BlitTemplateDefault(bi, ri, template, x, y, width, height, mask, fmt);
-        return;
+        goto fallback;
     }
 
     MMIOBASE();
@@ -1944,8 +1950,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     BOOL isLinear      = (widthBytes == ri->BytesPerRow);
     ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
     if (!addressModel) {
-        bi->BlitTemplateDefault(bi, ri, template, x, y, width, height, mask, fmt);
-        return;
+        goto fallback;
     }
 
     if (cd->GEOp != BLITTEMPLATE) {
@@ -2093,6 +2098,10 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     if (!isLinear) {
         W_MMIO_W(CLIP_RIGHT, 0xFFF);
     }
+    return;
+
+fallback:
+    bi->BlitTemplateDefault(bi, ri, template, x, y, width, height, mask, fmt);
 }
 
 /* One plane of BlitPlanar2Chunky: mono Host BLT with FgPen=(1<<p), BgPen=0, ROP Src OR Dst. */
@@ -2357,7 +2366,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     }
 
     if (!is8x8) {
-        // FIMXE: implement fallback using repeating HOST blit mono pattern
+        // FIXME: implement fallback using repeating HOST blit mono pattern
         goto fallback;
     }
 
@@ -2486,16 +2495,14 @@ static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
           (ULONG)line->Yorigin, (ULONG)mask, (ULONG)fmt);
 
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
-        DFUNC(WARN, "DrawLine fallback (CLUT mask)\n");
-        bi->DrawLineDefault(bi, ri, line, mask, fmt);
-        return;
+        D(WARN, "DrawLine fallback (CLUT mask)\n");
+        goto fallback;
     }
 
     /* Patterned lines: fallback until PATTERN setup for 16-bit line pattern is implemented */
     if (line->LinePtrn != 0xFFFF) {
-        DFUNC(WARN, "DrawLine fallback (patterned)\n");
-        bi->DrawLineDefault(bi, ri, line, mask, fmt);
-        return;
+        D(WARN, "DrawLine fallback (patterned)\n");
+        goto fallback;
     }
 
     ChipData_t *cd = getChipData(bi);
@@ -2505,8 +2512,7 @@ static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     UBYTE bppLog2      = cd->GEbppLog2;
     ULONG addressModel = getAdressModelBits(ri, bppLog2);
     if (!addressModel) {
-        bi->DrawLineDefault(bi, ri, line, mask, fmt);
-        return;
+        goto fallback;
     }
 
     /* Horizontal and vertical: use FillRect. sDelta==0 means axis-aligned. */
@@ -2531,11 +2537,11 @@ static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     setDrawMode(bi, line->DrawMode, line->FgPen, line->BgPen, fmt);
 
+    /* DST_PITCH has no bearing in non-linear (XY) addressing model; omit. */
     // setDstPitch(bi, ri->BytesPerRow);
 
     if (!setDstLocation(bi, ri, (UWORD)line->X, (UWORD)line->Y, bppLog2, FALSE)) {
-        bi->DrawLineDefault(bi, ri, line, mask, fmt);
-        return;
+        goto fallback;
     }
 
     /* AT3D spec Table 11.4.1.2a: dmin=min(dx,dy), dmax=max(dx,dy).
@@ -2568,6 +2574,10 @@ static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     /* SRC_SIZE_X: Spec Dimension X = dmax + 1; P96 Length = dmax = max(|dx|,|dy|). */
     W_MMIO_W(SRC_SIZE_X, line->Length + 1);
+    return;
+
+fallback:
+    bi->DrawLineDefault(bi, ri, line, mask, fmt);
 }
 
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
@@ -2581,7 +2591,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     {
         LEGACYIOBASE();
 
-        // The older AT 6410 cards had the wakup registers
+        // The older AT 6410 cards had the wakeup registers
         if (cd->chipFamily < AT24) {
             W_REG(0x46E8, 0x10);
             W_REG(0x102, 0x01);
@@ -2600,7 +2610,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // Flat Model Control
         // Enable flat memory access, set aperture to 4MB and disable VGA memory (A000:0–BFFF:F) access
         W_SR_MASK(0x1c, 0x3F, 0b00111101);
-        R_SR(0x1c);  // Dummy read to force flush of FIFO( is this the right way?)
+        R_SR(0x1c);  // Dummy read to force flush of FIFO (is this the right way?)
     }
 
     MMIOBASE();
