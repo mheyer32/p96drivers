@@ -76,7 +76,9 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
     if (chip->chipFamily <= AT24)
     {
         bi->RegisterBase = legacyIOBase + REGISTER_OFFSET;
-        bi->MemoryIOBase = bi->MemoryBase + 4*1024*1024 - 2048 + MMIOREGISTER_OFFSET;
+        APTR mmioSpace = bi->MemoryBase + 4*1024*1024 - 2048;
+        bi->MemoryIOBase =  mmioSpace + MMIOREGISTER_OFFSET;
+        setCacheMode(bi, mmioSpace, 2048, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
     }
     else
     {

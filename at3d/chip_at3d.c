@@ -241,9 +241,9 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
 
     ChipData_t *cd = getChipData(bi);
 
-    // AT3D supports up to ~135MHz pixel clock
-    UWORD maxFreq    = 175;  // 175MHz max
-    UWORD minFreq    = 12;   // 12MHz min
+    // AT3D supports up to ~135MHz pixel clock; 6422 limited to 135MHz
+    UWORD maxFreq    = (cd->chipFamily < AT24) ? 135 : 175;
+    UWORD minFreq    = 12;  // 12MHz min
     UWORD numEntries = (maxFreq - minFreq + 1) * 2;
 
     AT3DPLLValue_t *pllValues = AllocVec(sizeof(AT3DPLLValue_t) * numEntries, MEMF_PUBLIC);
@@ -691,12 +691,15 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGB
 }
 
 // Wait for blitter (drawing engine) to finish
-static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
+static void ASM WaitBlitter(__REGA0(const struct BoardInfo *bi))
 {
     DFUNC(CHATTY, "...\n");
     MMIOBASE();
 
-    ULONG status = waitFifo(bi, 8);  // make sure FIFO is flushed
+    const ChipData_t *cd = getConstChipData(bi);
+    UBYTE numSlots       = cd->chipFamily < AT24 ? 4 : 8;  // AT24+ has a deeper FIFO
+
+    ULONG status = waitFifo(bi, numSlots);  // make sure FIFO is flushed
     // Wait for FiFo idle and
     while (status & EXT_DAC_DRAWING_ENGINE_BUSY) {
         status = R_MMIO_L(EXT_DAC_STATUS);
@@ -1024,6 +1027,10 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __R
         DFUNC(ERROR, "Unsupported format %ld\n", (ULONG)format);
         return;
     }
+
+    ChipData_t *cd = getChipData(bi);
+    cd->GEFormat   = format;
+    cd->GEbppLog2  = getBPPLog2(format);
 
     // Read current register value
     UBYTE regValue = R_MMIO_B(SERIAL_CTRL);
@@ -1579,6 +1586,10 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     ChipData_t *cd = getChipData(bi);
 
+    if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
+        goto fallback;
+    }
+
     if (cd->GEFormat != fmt) {
         cd->GEbppLog2 = getBPPLog2(fmt);
     }
@@ -1600,7 +1611,6 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     if (cd->GEOp != FILLRECT) {
         cd->GEOp          = FILLRECT;
         cd->GElinear      = 0x55;  // Force update of addressing mode and format
-        cd->GEFormat      = ~0;
         cd->GEdrawCmd     = 0;
         cd->GEbytesPerRow = 0;
         cd->GEopCode      = 0;
@@ -1653,6 +1663,10 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
 
     ChipData_t *cd = getChipData(bi);
 
+    if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
+        goto fallback;
+    }
+
     if (cd->GEFormat != fmt) {
         cd->GEbppLog2 = getBPPLog2(fmt);
     }
@@ -1674,15 +1688,10 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
     if (cd->GEOp != INVERTRECT) {
         cd->GEOp      = INVERTRECT;
         cd->GElinear  = 0x55;  // Force update of addressing mode and format
-        cd->GEFormat  = ~0;
         cd->GEdrawCmd = 0;
         cd->GEopCode  = 0;
 
         W_MMIO_B(RASTEROP, ROP_NOT_DST);
-    }
-
-    if (cd->GEFormat != fmt) {
-        cd->GEbppLog2 = getBPPLog2(fmt);
     }
 
     if (isLinear != cd->GElinear || cd->GEbytesPerRow != ri->BytesPerRow || cd->GEFormat != fmt) {
@@ -1721,11 +1730,14 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
 
     ChipData_t *cd = getChipData(bi);
 
+    if (cd->chipFamily < AT24 && (UBYTE)format != cd->GEFormat) {
+        goto fallback;
+    }
+
     if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
         cd->GEOp      = BLITRECTNOMASKCOMPLETE;
         cd->GEdrawCmd = 0;
         cd->GEopCode  = 0;
-        cd->GEFormat  = ~0;
     }
 
     if (opCode != cd->GEopCode) {
@@ -1834,11 +1846,14 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     ChipData_t *cd = getChipData(bi);
 
+    if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
+        goto fallback;
+    }
+
     if (cd->GEOp != BLITRECT) {
         cd->GEOp      = BLITRECT;
         cd->GEdrawCmd = 0;
         cd->GEopCode  = 0;
-        cd->GEFormat  = ~0;
 
         W_MMIO_B(RASTEROP, ROP_SOURCE);
     }
@@ -1956,7 +1971,6 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     if (cd->GEOp != BLITTEMPLATE) {
         cd->GEOp      = BLITTEMPLATE;
         cd->GEdrawCmd = 0;
-        cd->GEFormat  = ~0;
 
         //    setDstPitch(bi, ri->BytesPerRow);
         /* 11.7.6: Source Location X must be 0 for mono-to-color. Monochrome source must be 64-bit aligned. */
@@ -2204,7 +2218,6 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     if (cd->GEOp != BLITPLANAR2CHUNKY) {
         cd->GEOp      = BLITPLANAR2CHUNKY;
         cd->GEdrawCmd = 0;
-        cd->GEFormat  = ~0;
         // ROP3 only available during pattern blits?
         // W_MMIO_B(RASTEROP, ROP_PATTERN_AND_SOURCE_OR_DST);
         W_MMIO_B(RASTEROP, ROP_SRC_OR_DST | (mintermToRop3(minTerm) & 0xF0));
@@ -2329,7 +2342,16 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 
     ChipData_t *cd = getChipData(bi);
 
-    UBYTE bppLog2      = cd->GEbppLog2;
+    if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
+        goto fallback;
+    }
+
+    if (cd->GEFormat != fmt) {
+        cd->GEFormat  = fmt;
+        cd->GEbppLog2 = getBPPLog2(fmt);
+    }
+    UBYTE bppLog2 = getBPPLog2(fmt);
+
     BOOL isLinear      = FALSE;  // ((width << bppLog2) == ri->BytesPerRow);
     ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
     if (!addressModel) {
@@ -2339,7 +2361,6 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     if (cd->GEOp != BLITPATTERN) {
         cd->GEOp      = BLITPATTERN;
         cd->GEdrawCmd = 0;
-        cd->GEFormat  = ~0;
         cd->patternCacheKey &= ~0x80000000;
     }
 
@@ -2368,11 +2389,6 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     if (!is8x8) {
         // FIXME: implement fallback using repeating HOST blit mono pattern
         goto fallback;
-    }
-
-    if (cd->GEFormat != fmt || cd->GEdrawCmd == 0) {
-        cd->GEFormat  = fmt;
-        cd->GEbppLog2 = getBPPLog2(fmt);
     }
 
     UWORD originX, originY;
@@ -2463,8 +2479,9 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 
     setDrawMode(bi, pattern->DrawMode, pattern->FgPen, pattern->BgPen, fmt);
 
-    ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_RECT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PATTERN_FORMAT(0b10) |
+    ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_RECT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) |
                     DRAW_PIXEL_DEPTH(bppLog2 + 1) | addressModel;
+    drawCmd |= cd->chipFamily >= AT24 ? DRAW_PATTERN_FORMAT(0b10) : DRAW_6422_PATTERN;
 
     if (!(pattern->DrawMode & (JAM2 | COMPLEMENT))) {
         drawCmd |= DRAW_SRC_TRANSPARENT;
@@ -2506,6 +2523,11 @@ static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     }
 
     ChipData_t *cd = getChipData(bi);
+
+    if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
+        goto fallback;
+    }
+
     if (cd->GEFormat != fmt) {
         cd->GEbppLog2 = getBPPLog2(fmt);
     }
@@ -2532,7 +2554,6 @@ static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     if (cd->GEOp != LINE) {
         cd->GEOp      = LINE;
         cd->GEdrawCmd = 0;
-        cd->GEFormat  = ~0;
     }
 
     setDrawMode(bi, line->DrawMode, line->FgPen, line->BgPen, fmt);
@@ -2677,27 +2698,34 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         W_MMIO_MASK_W(DISP_MEM_CFG, BIT(8), BIT(8));  // 64bit memory bus
     }
 
-    // Scratchpad registers
+    // Scratchpad registers (6422: 0x21–0x23 only; AT24+: 0x21–0x27)
     R_SR(0x20);
-    for (int i = 0x21; i <= 0x27; ++i) {
+    int scratchEnd = (cd->chipFamily < AT24) ? 0x23 : 0x27;
+    for (int i = 0x21; i <= scratchEnd; ++i) {
         W_SR(i, 0x00);
     }
     W_MMIO_B(ABORT, 0);
     W_MMIO_B(COLOR_CORRECTION, BIT(4));  // 8bit per gun palette write (Does not seem to work?!)
     W_MMIO_B(DAC_CTRL, BIT(0));          // DAC Powered, Blanking pedesta, no overcurrent boost
-    W_MMIO_B(SIGANALYSER_CTRL, 0);       // Disable signal analyser
-    W_MMIO_B(FEATURE_CTRL, 0);
-    W_MMIO_L(VMI_PORT_CTRL, 0);
-    W_MMIO_B(THP_CTRL, 0);
-    W_MMIO_B(GPIO_CTRL, 0);
-    W_MMIO_B(OVERCURRENT_RED, 0);
-    W_MMIO_B(OVERCURRENT_GREEN, 0);
-    W_MMIO_B(OVERCURRENT_BLUE, 0);
+    if (cd->chipFamily >= AT24) {
+        W_MMIO_B(SIGANALYSER_CTRL, 0);  // Disable signal analyser
+        W_MMIO_B(FEATURE_CTRL, 0);
+        W_MMIO_L(VMI_PORT_CTRL, 0);
+        W_MMIO_B(THP_CTRL, 0);
+        W_MMIO_B(GPIO_CTRL, 0);
+        W_MMIO_B(OVERCURRENT_RED, 0);
+        W_MMIO_B(OVERCURRENT_GREEN, 0);
+        W_MMIO_B(OVERCURRENT_BLUE, 0);
+    }
 
     W_MMIO_B(MONITOR_INTERLACE_CTRL, 0x00);
 
-    // Force 8 Dot, force Graphics mode, force VCLK PLL, disable VGA IO
-    W_MMIO_W(VGA_OVERRIDE, BIT(5) | BIT(6) | BIT(7) | BIT(9) | BIT(12));
+    // Force 8 Dot, force Graphics mode, force VCLK PLL,
+    UBYTE vgaOverride = BIT(5) | BIT(6) | BIT(7) | BIT(9);
+    if (cd->chipFamily >= AT24) {
+        vgaOverride |= BIT(12);  //  disable VGA IO; 6422 doesn't have the MMVGA regions, thus we still need VGA IO
+    }
+    W_MMIO_W(VGA_OVERRIDE, vgaOverride);
 
     // Enable extended VGA Modes
     W_MMIO_B(SERIAL_CTRL, BIT(6) | DESKTOP_DEPTH_8BPP | DESKTOP_FORMAT_INDEXED);  //
@@ -2915,9 +2943,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->InvertRect             = InvertRect;
     bi->BlitRectNoMaskComplete = BlitRectNoMaskComplete;
     bi->BlitRect               = BlitRect;
-    bi->BlitTemplate           = BlitTemplate;
-    bi->BlitPlanar2Chunky      = BlitPlanar2Chunky;
-    bi->DrawLine               = DrawLine;
+    if (cd->chipFamily >= AT24) {
+        bi->BlitTemplate      = BlitTemplate;
+        bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
+    }
+    bi->DrawLine = DrawLine;
 
     /* 8x8 pattern cache for BlitPattern (screen-space aligned, pre-rotated upload).
      * Allocate 8 lines of 16bit (Amiga patterns are 16bit wide). At runtime we compare the
