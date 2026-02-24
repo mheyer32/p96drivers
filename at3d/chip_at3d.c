@@ -1944,6 +1944,7 @@ static BOOL setDrawMode(BoardInfo_t *bi, UBYTE drawMode, ULONG fgPen, ULONG bgPe
     }
 }
 
+/* AT24+: mono-to-color via HOST-BLT (getHostBltPort, write template data). */
 static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
                              __REGA2(struct Template *template), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
                              __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
@@ -2108,6 +2109,115 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
             W_MMIO_B(0x1FF, 0x00);  // Byte counting gone wrong, abort host write blit
         D(WARN, "Host BLT completion wait loop iterated %d times\n", 100 - count);
     }
+
+    if (!isLinear) {
+        W_MMIO_W(CLIP_RIGHT, 0xFFF);
+    }
+    return;
+
+fallback:
+    bi->BlitTemplateDefault(bi, ri, template, x, y, width, height, mask, fmt);
+}
+
+/* 6422: CPU upload template to reserved 1KB staging, then screen-to-screen mono BLT (no HOST-Write). */
+static void ASM BlitTemplate6422(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
+                                 __REGA2(struct Template *template), __REGD0(WORD x), __REGD1(WORD y),
+                                 __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(INFO, "x %ld, y %ld, w %ld, h %ld mask 0x%02lx fmt %ld\n", (LONG)x, (LONG)y, (LONG)width, (LONG)height,
+          (ULONG)mask, (ULONG)fmt);
+
+    if (fmt <= RGBFB_CLUT && mask != 0xFF) {
+        D(WARN, "BlitTemplate6422 fallback (CLUT and mask)\n");
+        goto fallback;
+    }
+
+    ChipData_t *cd = getChipData(bi);
+
+    UBYTE bppLog2      = getBPPLog2(fmt);
+    UWORD widthBytes   = width << bppLog2;
+    BOOL isLinear      = (widthBytes == ri->BytesPerRow);
+    ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
+    if (!addressModel) {
+        goto fallback;
+    }
+
+    UWORD byteWidth     = (width + 7) / 8;
+    UWORD rowBytesDword = (byteWidth + 3) & ~3;
+    UWORD maxRows       = 1024 / rowBytesDword;
+    if (height > maxRows) {
+        D(WARN, "BlitTemplate6422 fallback (height %ld > maxRows %ld)\n", (ULONG)height, (ULONG)maxRows);
+        goto fallback;
+    }
+
+    UWORD blitWidth = (width + 31) & ~31;
+
+    {
+        WaitBlitter(bi);  // Wait for previous blits to finish accessing the staging area
+
+        volatile ULONG *staging = (volatile ULONG *)(bi->MemoryBase + cd->templateStagingOffset);
+        const UBYTE *bitmap     = (const UBYTE *)template->Memory;
+        UWORD bitmapPitch       = (UWORD) template->BytesPerRow;
+        UWORD dwordsPerLine     = blitWidth / 32;
+        ULONG invert            = (template->DrawMode & INVERSVID) ? ~0 : 0;
+        UBYTE rol               = (UBYTE) template->XOffset;
+
+        if (!rol) {
+            for (UWORD row = 0; row < height; ++row) {
+                for (UWORD col = 0; col < dwordsPerLine; ++col) {
+                    *staging++ = invert ^ ((const ULONG *)bitmap)[col];
+                }
+                bitmap += bitmapPitch;
+            }
+        } else {
+            for (UWORD row = 0; row < height; ++row) {
+                for (UWORD col = 0; col < dwordsPerLine; ++col) {
+                    ULONG left  = ((const ULONG *)bitmap)[col] << rol;
+                    ULONG right = ((const ULONG *)bitmap)[col + 1] >> (32 - rol);
+                    *staging++  = invert ^ (left | right);
+                }
+                bitmap += bitmapPitch;
+            }
+        }
+    }
+
+    MMIOBASE();
+
+    UWORD originX, originY;
+    getStartCoordinates(bi, ri, bppLog2, &originX, &originY);
+    UWORD clipR    = originX + x + width - 1;
+    UWORD maxWidth = ri->BytesPerRow >> bppLog2;
+    if (clipR >= maxWidth) {
+        clipR = maxWidth - 1;
+    }
+    if (!isLinear) {
+        W_MMIO_W(CLIP_RIGHT, clipR);
+    }
+
+    if (cd->GEOp != BLITTEMPLATE) {
+        cd->GEOp      = BLITTEMPLATE;
+        cd->GEdrawCmd = 0;
+    }
+
+    setDrawMode(bi, template->DrawMode, template->FgPen, template->BgPen, fmt);
+
+    ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_BLT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_SRC_MONOCHROME |
+                    DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS | addressModel;
+
+    if (!(template->DrawMode & JAM2)) {
+        drawCmd |= DRAW_SRC_TRANSPARENT;
+    }
+
+    setDrawCmd(bi, drawCmd);
+
+    {
+        ULONG location = cd->templateStagingOffset >> bppLog2;
+        location       = makeDWORD(swapw(location & 0xFFF), swapw(location >> 12));
+        W_MMIO_NOSWAP_L(SRC_LOCATION_X_LOW, location);
+    }
+
+    setDstLocation(bi, ri, (UWORD)x, (UWORD)y, bppLog2, isLinear);
+    setDrawSize(bi, blitWidth, height);
 
     if (!isLinear) {
         W_MMIO_W(CLIP_RIGHT, 0xFFF);
@@ -2721,7 +2831,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_MMIO_B(MONITOR_INTERLACE_CTRL, 0x00);
 
     // Force 8 Dot, force Graphics mode, force VCLK PLL,
-    UBYTE vgaOverride = BIT(5) | BIT(6) | BIT(7) | BIT(9);
+    UWORD vgaOverride = BIT(5) | BIT(6) | BIT(7) | BIT(9);
     if (cd->chipFamily >= AT24) {
         vgaOverride |= BIT(12);  //  disable VGA IO; 6422 doesn't have the MMVGA regions, thus we still need VGA IO
     }
@@ -2946,6 +3056,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     if (cd->chipFamily >= AT24) {
         bi->BlitTemplate      = BlitTemplate;
         bi->BlitPlanar2Chunky = BlitPlanar2Chunky;
+    } else {
+        bi->BlitTemplate = BlitTemplate6422;
     }
     bi->DrawLine = DrawLine;
 
@@ -2965,9 +3077,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     SetSplitPosition(bi, 0);
 
-    /* Hardware cursor: take cursor image data off the top of the memory; cursor at 1 KB segment boundary */
+    /* Hardware cursor: take cursor image data off the top of the memory; cursor at 1 KB segment boundary.
+     * 6422: also reserve 1KB for BlitTemplate6422 mono staging (below cursor). */
     {
-        const ULONG maxCursorBufferSize = (64 * 64 * 2 / 8); /* 64x64 at 2 bpp = 1024 bytes */
+        ULONG maxCursorBufferSize = (64 * 64 * 2 / 8); /* 64x64 at 2 bpp = 1024 bytes */
         MMIOBASE();
 
         bi->MemorySize       = (bi->MemorySize - maxCursorBufferSize) & ~(1024 - 1);
@@ -2981,6 +3094,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         W_MMIO_W(HW_CURSOR_Y, 0);
         W_MMIO_B(HW_CURSOR_OFF_X, 0);
         W_MMIO_B(HW_CURSOR_OFF_Y, 0);
+    }
+
+    if (cd->chipFamily < AT24) {
+        ULONG stagingSize         = 1024; /* +1KB template staging for 6422 */
+        cd->templateStagingOffset = (bi->MemorySize - stagingSize) & ~7;
+        bi->MemorySize            = cd->templateStagingOffset;
     }
 
     W_MMIO_B(BYTE_MASK, 0xFF);
@@ -3101,13 +3220,13 @@ int main()
         ULONG index = ResolvePixelClock(bi, &mi, mi.PixelClock, RGBFB_CLUT);
 
         DFUNC(ALWAYS, "SetClock\n");
-        SetClock(bi);
+        bi->SetClock(bi);
 
         DFUNC(ALWAYS, "SetGC\n");
-        SetGC(bi, &mi, FALSE);
+        bi->SetGC(bi, &mi, FALSE);
 
         DFUNC(ALWAYS, "SetDAC\n");
-        SetDAC(bi, 0, RGBFB_CLUT);
+        bi->SetDAC(bi, 0, RGBFB_CLUT);
 
         DFUNC(ALWAYS, "SetColorArray\n");
         // Set up a grayscale palette
@@ -3123,16 +3242,16 @@ int main()
         bi->CLUT[1].Red   = 255;
         bi->CLUT[1].Green = 0;
         bi->CLUT[1].Blue  = 0;
-        SetColorArray(bi, 0, 256);
+        bi->SetColorArray(bi, 0, 256);
 
         DFUNC(ALWAYS, "SetPanning\n");
-        SetPanning(bi, bi->MemoryBase, 640, 480, 0, 0, RGBFB_CLUT);
+        bi->SetPanning(bi, bi->MemoryBase, 640, 480, 0, 0, RGBFB_CLUT);
 
         DFUNC(ALWAYS, "SetDisplay ON\n");
-        SetDisplay(bi, TRUE);
+        bi->SetDisplay(bi, TRUE);
 
         DFUNC(ALWAYS, "SetDPMSLevel  ON\n");
-        SetDPMSLevel(bi, DPMS_ON);
+        bi->SetDPMSLevel(bi, DPMS_ON);
         // }
 
         // Write a test pattern to the framebuffer
@@ -3149,38 +3268,40 @@ int main()
         ri.RGBFormat   = RGBFB_CLUT;
 
         {
-            FillRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, 0xFF, RGBFB_CLUT);
+            bi->FillRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, 0xFF, RGBFB_CLUT);
         }
 
         {
-            InvertRect(bi, &ri, 0, 20, 640, 40, 0xFF, RGBFB_CLUT);
+            bi->InvertRect(bi, &ri, 0, 20, 640, 40, 0xFF, RGBFB_CLUT);
         }
 
         {
-            FillRect(bi, &ri, 64, 64, 128, 128, 0xAA, 0xFF, RGBFB_CLUT);
+            bi->FillRect(bi, &ri, 64, 64, 128, 128, 0xAA, 0xFF, RGBFB_CLUT);
         }
 
         {
-            FillRect(bi, &ri, 256, 10, 128, 128, 0x33, 0xFF, RGBFB_CLUT);
+            bi->FillRect(bi, &ri, 256, 10, 128, 128, 0x33, 0xFF, RGBFB_CLUT);
         }
 
         {
-            InvertRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, RGBFB_CLUT);
+            bi->InvertRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, RGBFB_CLUT);
         }
 
         /* BlitRectNoMaskComplete: fill a source rect, then copy it to another position (same buffer). */
         {
-            FillRect(bi, &ri, 50, 200, 80, 80, 0x55, 0xFF, RGBFB_CLUT);                       /* source rect */
-            BlitRectNoMaskComplete(bi, &ri, &ri, 50, 200, 300, 200, 80, 80, 0xc, RGBFB_CLUT); /* copy: minterm 0xC0 */
+            bi->FillRect(bi, &ri, 50, 200, 80, 80, 0x55, 0xFF, RGBFB_CLUT); /* source rect */
+            bi->BlitRectNoMaskComplete(bi, &ri, &ri, 50, 200, 300, 200, 80, 80, 0xc,
+                                       RGBFB_CLUT); /* copy: minterm 0xC0 */
         }
 
         /* BlitRectNoMaskComplete with overlapping source and destination (copy 120x40 from 50,350 to 100,350). */
         {
-            FillRect(bi, &ri, 50, 350, 120, 40, 0x77, 0xFF, RGBFB_CLUT);                       /* source rect */
-            BlitRectNoMaskComplete(bi, &ri, &ri, 50, 350, 100, 350, 120, 40, 0xc, RGBFB_CLUT); /* overlapping copy */
+            bi->FillRect(bi, &ri, 50, 350, 120, 40, 0x77, 0xFF, RGBFB_CLUT); /* source rect */
+            bi->BlitRectNoMaskComplete(bi, &ri, &ri, 50, 350, 100, 350, 120, 40, 0xc,
+                                       RGBFB_CLUT); /* overlapping copy */
         }
 
-        BlitRectNoMaskComplete(bi, &ri, &ri, 0, 0, 0, 240, 640, 100, 0xc, RGBFB_CLUT);
+        bi->BlitRectNoMaskComplete(bi, &ri, &ri, 0, 0, 0, 240, 640, 100, 0xc, RGBFB_CLUT);
         // clang-format off
         /* BlitTemplate: 32x32 pattern = circle (center 15.5, radius 12) in 0b notation. MSB = left. */
         static ULONG template32[32] = {
@@ -3216,164 +3337,166 @@ int main()
             (ULONG)0b11001100110011001100110011001100,
             (ULONG)0b00110011001100110011001100110011,
         };
-// clang-format on
+        // clang-format on
+
+        if (bi->BlitTemplate) {
 /* FgPen = 1 (red), BgPen = 0 (blue) for all DrawMode tests. */
 #define BLIT_TMPL_PEN_FG 1
 #define BLIT_TMPL_PEN_BG 0
 
-        for (int i = 7; i < 16; i++) {
-            WORD y = i * 33;
-            /* BlitTemplate JAM1: pattern 1 -> FgPen (red), pattern 0 -> keep D (blue). */
-            {
-                struct Template tmpl;
-                tmpl.Memory      = template32;
-                tmpl.BytesPerRow = 4;
-                tmpl.XOffset     = 0;
-                tmpl.DrawMode    = JAM2;
-                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
-                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
-                FillRect(bi, &ri, i * 32 + i, 0, 32, 32, 50, 0xFF, RGBFB_CLUT);
-                BlitTemplate(bi, &ri, &tmpl, i * 32 + i, 0, 32, 32, 0xFF, RGBFB_CLUT);
+            for (int i = 7; i < 16; i++) {
+                WORD y = i * 33;
+                /* BlitTemplate JAM1: pattern 1 -> FgPen (red), pattern 0 -> keep D (blue). */
+                {
+                    struct Template tmpl;
+                    tmpl.Memory      = template32;
+                    tmpl.BytesPerRow = 4;
+                    tmpl.XOffset     = 0;
+                    tmpl.DrawMode    = JAM2;
+                    tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                    tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                    bi->FillRect(bi, &ri, i * 32 + i, 0, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                    bi->BlitTemplate(bi, &ri, &tmpl, i * 32 + i, 0, 32, 32, 0xFF, RGBFB_CLUT);
+                }
             }
-        }
-#if 1
-        for (int i = 0; i < 4; i++) {
-            WORD y    = 200 + i * 40;
-            WORD xoff = 5;
+            for (int i = 0; i < 4; i++) {
+                WORD y    = 200 + i * 40;
+                WORD xoff = 5;
 
-            /* BlitTemplate JAM1: pattern 1 -> FgPen (red), pattern 0 -> keep D (blue). */
-            {
-                struct Template tmpl;
-                tmpl.Memory      = template32;
-                tmpl.BytesPerRow = 4;
-                tmpl.XOffset     = i * 2;
-                tmpl.DrawMode    = JAM1;
-                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
-                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
-                FillRect(bi, &ri, 32 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
-                BlitTemplate(bi, &ri, &tmpl, 32 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
+                /* BlitTemplate JAM1: pattern 1 -> FgPen (red), pattern 0 -> keep D (blue). */
+                {
+                    struct Template tmpl;
+                    tmpl.Memory      = template32;
+                    tmpl.BytesPerRow = 4;
+                    tmpl.XOffset     = i * 2;
+                    tmpl.DrawMode    = JAM1;
+                    tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                    tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                    bi->FillRect(bi, &ri, 32 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                    bi->BlitTemplate(bi, &ri, &tmpl, 32 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
+                }
+                /* BlitTemplate JAM2: pattern 1 -> FgPen (red), pattern 0 -> BgPen (blue). */
+                {
+                    struct Template tmpl;
+                    tmpl.Memory      = template32;
+                    tmpl.BytesPerRow = 4;
+                    tmpl.XOffset     = i * 2;
+                    tmpl.DrawMode    = JAM2;
+                    tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                    tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                    bi->FillRect(bi, &ri, 96 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                    bi->BlitTemplate(bi, &ri, &tmpl, 96 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
+                }
+
+                /* BlitTemplate COMPLEMENT: flip destination where pattern is 1 (blue<->red on checker). */
+                {
+                    struct Template tmpl;
+                    tmpl.Memory      = template32;
+                    tmpl.BytesPerRow = 4;
+                    tmpl.XOffset     = i * 2;
+                    tmpl.DrawMode    = COMPLEMENT;
+                    tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                    tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                    bi->FillRect(bi, &ri, 144 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                    bi->BlitTemplate(bi, &ri, &tmpl, 144 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
+                }
+                /* BlitTemplate JAM1 | INVERSVID: pens swapped -> pattern 1 -> BgPen (blue), 0 -> D. */
+                {
+                    struct Template tmpl;
+                    tmpl.Memory      = template32;
+                    tmpl.BytesPerRow = 4;
+                    tmpl.XOffset     = i * 2;
+                    tmpl.DrawMode    = JAM1 | INVERSVID;
+                    tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                    tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                    bi->FillRect(bi, &ri, 192 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                    bi->BlitTemplate(bi, &ri, &tmpl, 192 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
+                }
+                /* BlitTemplate JAM2 | INVERSVID: pattern 1 -> BgPen (blue), pattern 0 -> FgPen (red). */
+                {
+                    struct Template tmpl;
+                    tmpl.Memory      = template32;
+                    tmpl.BytesPerRow = 4;
+                    tmpl.XOffset     = i * 2;
+                    tmpl.DrawMode    = JAM2 | INVERSVID;
+                    tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                    tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                    bi->FillRect(bi, &ri, 240 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                    bi->BlitTemplate(bi, &ri, &tmpl, 240 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
+                }
+                /* BlitTemplate COMPLEMENT: flip destination where pattern is 1 (blue<->red on checker). */
+                {
+                    struct Template tmpl;
+                    tmpl.Memory      = template32;
+                    tmpl.BytesPerRow = 4;
+                    tmpl.XOffset     = i * 2;
+                    tmpl.DrawMode    = COMPLEMENT | INVERSVID;
+                    tmpl.FgPen       = BLIT_TMPL_PEN_FG;
+                    tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                    bi->FillRect(bi, &ri, 288 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
+                    bi->BlitTemplate(bi, &ri, &tmpl, 288 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
+                }
             }
-            /* BlitTemplate JAM2: pattern 1 -> FgPen (red), pattern 0 -> BgPen (blue). */
-            {
-                struct Template tmpl;
-                tmpl.Memory      = template32;
-                tmpl.BytesPerRow = 4;
-                tmpl.XOffset     = i * 2;
-                tmpl.DrawMode    = JAM2;
-                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
-                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
-                FillRect(bi, &ri, 96 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
-                BlitTemplate(bi, &ri, &tmpl, 96 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
-            }
-            /* BlitTemplate COMPLEMENT: flip destination where pattern is 1 (blue<->red on checker). */
-            {
-                struct Template tmpl;
-                tmpl.Memory      = template32;
-                tmpl.BytesPerRow = 4;
-                tmpl.XOffset     = i * 2;
-                tmpl.DrawMode    = COMPLEMENT;
-                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
-                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
-                FillRect(bi, &ri, 144 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
-                BlitTemplate(bi, &ri, &tmpl, 144 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
-            }
-            /* BlitTemplate JAM1 | INVERSVID: pens swapped -> pattern 1 -> BgPen (blue), 0 -> D. */
-            {
-                struct Template tmpl;
-                tmpl.Memory      = template32;
-                tmpl.BytesPerRow = 4;
-                tmpl.XOffset     = i * 2;
-                tmpl.DrawMode    = JAM1 | INVERSVID;
-                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
-                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
-                FillRect(bi, &ri, 192 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
-                BlitTemplate(bi, &ri, &tmpl, 192 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
-            }
-            /* BlitTemplate JAM2 | INVERSVID: pattern 1 -> BgPen (blue), pattern 0 -> FgPen (red). */
-            {
-                struct Template tmpl;
-                tmpl.Memory      = template32;
-                tmpl.BytesPerRow = 4;
-                tmpl.XOffset     = i * 2;
-                tmpl.DrawMode    = JAM2 | INVERSVID;
-                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
-                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
-                FillRect(bi, &ri, 240 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
-                BlitTemplate(bi, &ri, &tmpl, 240 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
-            }
-            /* BlitTemplate COMPLEMENT: flip destination where pattern is 1 (blue<->red on checker). */
-            {
-                struct Template tmpl;
-                tmpl.Memory      = template32;
-                tmpl.BytesPerRow = 4;
-                tmpl.XOffset     = i * 2;
-                tmpl.DrawMode    = COMPLEMENT | INVERSVID;
-                tmpl.FgPen       = BLIT_TMPL_PEN_FG;
-                tmpl.BgPen       = BLIT_TMPL_PEN_BG;
-                FillRect(bi, &ri, 288 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
-                BlitTemplate(bi, &ri, &tmpl, 288 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
-            }
-        }
 
 #undef BLIT_TMPL_PEN_FG
 #undef BLIT_TMPL_PEN_BG
 
-        /* BlitTemplate: original small frame (JAM2) at (422,262) for regression. */
-        {
-            static ULONG templateFrame[32];
-            for (int row = 0; row < 32; row++) {
-                if (row == 0 || row == 31)
-                    templateFrame[row] = 0xFFFFFFFFUL;
-                else
-                    templateFrame[row] = 0x80000001UL;
-            }
-            struct Template tmpl;
-            tmpl.Memory      = templateFrame;
-            tmpl.BytesPerRow = 4;
-            tmpl.XOffset     = 0;
-            tmpl.DrawMode    = JAM2;
-            tmpl.FgPen       = 0x00;
-            tmpl.BgPen       = 0xFF;
-            FillRect(bi, &ri, 422, 262, 32, 32, 0xFF, 0xFF, RGBFB_CLUT);
-            BlitTemplate(bi, &ri, &tmpl, 422, 262, 32, 32, 0xFF, RGBFB_CLUT);
-
-            // Edge case: while the blit itself is inside the640x480 rectangle, artificially increasing the
-            // blit width to 32 pixels (617+32 = 649).
-            FillRect(bi, &ri, 627, 262, 20, 32, 0xFF, 0xFF, RGBFB_CLUT);
-            BlitTemplate(bi, &ri, &tmpl, 627, 262, 20, 32, 0xFF, RGBFB_CLUT);
-        }
-
-        /* BlitTemplate 46x11: exercise non-32 width (byteWidth 6, totalBytes 66, dwords 18). */
-        {
-            static UBYTE template46x11[11][8]; /* 6 bytes per row used, 8 for alignment */
-            for (int row = 0; row < 11; row++) {
-                if (row == 0 || row == 10) {
-                    template46x11[row][0] = 0xFF;
-                    template46x11[row][1] = 0xFF;
-                    template46x11[row][2] = 0xFF;
-                    template46x11[row][3] = 0xFF;
-                    template46x11[row][4] = 0xFF;
-                    template46x11[row][5] = 0x3F; /* 46 bits: low 6 bits of byte 5 */
-                } else {
-                    template46x11[row][0] = 0x01;
-                    template46x11[row][1] = 0x00;
-                    template46x11[row][2] = 0x00;
-                    template46x11[row][3] = 0x00;
-                    template46x11[row][4] = 0x00;
-                    template46x11[row][5] = 0x20; /* bit 45 = last column */
+            /* BlitTemplate: original small frame (JAM2) at (422,262) for regression. */
+            {
+                static ULONG templateFrame[32];
+                for (int row = 0; row < 32; row++) {
+                    if (row == 0 || row == 31)
+                        templateFrame[row] = 0xFFFFFFFFUL;
+                    else
+                        templateFrame[row] = 0x80000001UL;
                 }
+                struct Template tmpl;
+                tmpl.Memory      = templateFrame;
+                tmpl.BytesPerRow = 4;
+                tmpl.XOffset     = 0;
+                tmpl.DrawMode    = JAM2;
+                tmpl.FgPen       = 0x00;
+                tmpl.BgPen       = 0xFF;
+                bi->FillRect(bi, &ri, 422, 262, 32, 32, 0xFF, 0xFF, RGBFB_CLUT);
+                bi->BlitTemplate(bi, &ri, &tmpl, 422, 262, 32, 32, 0xFF, RGBFB_CLUT);
+
+                // Edge case: while the blit itself is inside the640x480 rectangle, artificially increasing the
+                // blit width to 32 pixels (617+32 = 649).
+                bi->FillRect(bi, &ri, 627, 262, 20, 32, 0xFF, 0xFF, RGBFB_CLUT);
+                bi->BlitTemplate(bi, &ri, &tmpl, 627, 262, 20, 32, 0xFF, RGBFB_CLUT);
             }
-            struct Template tmpl46;
-            tmpl46.Memory      = template46x11;
-            tmpl46.BytesPerRow = 6;
-            tmpl46.XOffset     = 0;
-            tmpl46.DrawMode    = JAM2;
-            tmpl46.FgPen       = 0x00;
-            tmpl46.BgPen       = 0xFF;
-            FillRect(bi, &ri, 94, 57, 46, 11, 0xFF, 0xFF, RGBFB_CLUT);
-            BlitTemplate(bi, &ri, &tmpl46, 94, 57, 46, 11, 0xFF, RGBFB_CLUT);
+
+            /* BlitTemplate 46x11: exercise non-32 width (byteWidth 6, totalBytes 66, dwords 18). */
+            {
+                static UBYTE template46x11[11][8]; /* 6 bytes per row used, 8 for alignment */
+                for (int row = 0; row < 11; row++) {
+                    if (row == 0 || row == 10) {
+                        template46x11[row][0] = 0xFF;
+                        template46x11[row][1] = 0xFF;
+                        template46x11[row][2] = 0xFF;
+                        template46x11[row][3] = 0xFF;
+                        template46x11[row][4] = 0xFF;
+                        template46x11[row][5] = 0x3F; /* 46 bits: low 6 bits of byte 5 */
+                    } else {
+                        template46x11[row][0] = 0x01;
+                        template46x11[row][1] = 0x00;
+                        template46x11[row][2] = 0x00;
+                        template46x11[row][3] = 0x00;
+                        template46x11[row][4] = 0x00;
+                        template46x11[row][5] = 0x20; /* bit 45 = last column */
+                    }
+                }
+                struct Template tmpl46;
+                tmpl46.Memory      = template46x11;
+                tmpl46.BytesPerRow = 6;
+                tmpl46.XOffset     = 0;
+                tmpl46.DrawMode    = JAM2;
+                tmpl46.FgPen       = 0x00;
+                tmpl46.BgPen       = 0xFF;
+                bi->FillRect(bi, &ri, 94, 57, 46, 11, 0xFF, 0xFF, RGBFB_CLUT);
+                bi->BlitTemplate(bi, &ri, &tmpl46, 94, 57, 46, 11, 0xFF, RGBFB_CLUT);
+            }
         }
-#endif
 
 #if 1
         /* BlitPattern: 8x8 mono pattern (PATTERN register). Red/blue checkerboard; one test per DrawMode. */
@@ -3454,7 +3577,7 @@ int main()
             line.Yorigin      = 0;
 
             /* Clear a region for lines and draw a light background */
-            FillRect(bi, &ri, 10, 400, 300, 70, 50, 0xFF, RGBFB_CLUT);
+            bi->FillRect(bi, &ri, 10, 400, 300, 70, 50, 0xFF, RGBFB_CLUT);
 
             /* Horizontal line (100, 420) -> (250, 420), 150 pixels */
             line.X          = 100;
@@ -3542,7 +3665,7 @@ int main()
             bi->DrawLine(bi, &ri, &line, 0xFF, RGBFB_CLUT);
         }
 
-        WaitBlitter(bi);
+        bi->WaitBlitter(bi);
 #endif
 
         D(INFO, "Alliance Promotion test completed\n");

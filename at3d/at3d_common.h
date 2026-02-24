@@ -53,6 +53,7 @@ typedef struct ChipData
     AT3DPLLValue_t *pllValues;
     UWORD numPllValues;
 
+    ULONG templateStagingOffset;  // 6422: byte offset for 1KB mono template staging (from MemoryBase)
 } ChipData_t;
 
 STATIC_ASSERT(sizeof(ChipData_t) <= sizeof(((BoardInfo_t *)0)->ChipData), ChipData_t_too_large);
