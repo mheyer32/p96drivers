@@ -648,7 +648,7 @@ static INLINE int copyToUpper(short hilo)
         "move.w %0,%1\n\t"
         "swap %0\n\t"
         "move.w %1,%0\n\t"
-        : "=&d"(res), "=r"(tmp)
+        : "=&d"(res), "=d"(tmp)
         : "0"(hilo)
         : "cc");
     return res;

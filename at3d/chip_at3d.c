@@ -691,7 +691,7 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGB
 }
 
 // Wait for blitter (drawing engine) to finish
-static void ASM WaitBlitter(__REGA0(const struct BoardInfo *bi))
+static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(CHATTY, "...\n");
     MMIOBASE();
@@ -1467,7 +1467,7 @@ static INLINE void setDrawSize(struct BoardInfo *bi, UWORD width, UWORD height)
     W_MMIO_W(SRC_SIZE_X, width);
 }
 
-ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
+static ULONG PenToColor(ULONG pen, RGBFTYPE fmt)
 {
     switch (fmt) {
     case RGBFB_B8G8R8A8:
@@ -1552,8 +1552,7 @@ static ULONG getAdressModelBits(struct RenderInfo *ri, UBYTE bppLog2)
  * of Pattern and 0x0C -> 0xCC. No table needed. */
 static INLINE UBYTE mintermToRop3(UBYTE minterm)
 {
-    UBYTE lo = minterm & 0x0FU;
-    return (UBYTE)(lo | (lo << 4));
+    return (UBYTE)(minterm | (minterm << 4));
 }
 
 static INLINE void setDrawCmd(BoardInfo_t *bi, ULONG drawCmd)
@@ -2359,6 +2358,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         // ROP3 only available during pattern blits?
         // W_MMIO_B(RASTEROP, ROP_PATTERN_AND_SOURCE_OR_DST);
         W_MMIO_B(RASTEROP, ROP_SRC_OR_DST | (mintermToRop3(minTerm) & 0xF0));
+        W_MMIO_L(SRC_LOCATION_X_LOW, 0);
         setBackgroundPen(bi, 0, RGBFB_CLUT);
     }
 
@@ -2383,7 +2383,6 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         goto fallback;
     }
 
-    W_MMIO_L(SRC_LOCATION_X_LOW, 0);
 
     UWORD clipR;
     if (!isLinear) {
@@ -2396,9 +2395,6 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
             clipR = maxWidth - 1;
         }
         W_MMIO_W(CLIP_RIGHT, clipR);
-    } else {
-        // Looks like this register is used in linear, non-contiguous mode(???)
-        W_MMIO_L(DST_PITCH, dstRi.BytesPerRow);
     }
 
     // Round up to 32pixels, so we don't have too much hassle with the HOST Blit being byte-aligned.
@@ -2418,10 +2414,6 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
 
     D(INFO, "bmPitch %ld, bmStartOffset %ld, rol %ld, dwordsPerLine %ld\n", (ULONG)bmPitch, (ULONG)bmStartOffset,
       (ULONG)rol, (ULONG)dwordsPerLine);
-
-    // Wait for previous blit to finish (?)
-    while (TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_DRAWING_ENGINE_BUSY)) {
-    }
 
     setDstLocation(bi, &dstRi, dstX, dstY, 0, isLinear);
 
@@ -2644,7 +2636,7 @@ static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
                          __REGD0(UBYTE mask), __REGD7(RGBFTYPE fmt))
 {
     DFUNC(VERBOSE,
-          "DrawLine X %ld Y %ld Length %lu dX %ld dY %ld sDelta %ld lDelta %ld twoSDminusLD %ld "
+          "X %ld Y %ld Length %lu dX %ld dY %ld sDelta %ld lDelta %ld twoSDminusLD %ld "
           "LinePtrn 0x%04lx PatternShift %lu FgPen %lu BgPen %lu Horizontal %ld DrawMode 0x%02lx "
           "Xorigin %lu Yorigin %lu mask 0x%02lx fmt %ld\n",
           (LONG)line->X, (LONG)line->Y, (ULONG)line->Length, (LONG)line->dX, (LONG)line->dY, (LONG)line->sDelta,
@@ -3184,7 +3176,7 @@ int main()
     struct BoardInfo *bi = &boardInfo;
 
     bi->ExecBase = SysBase;
-    bi->UtilBase = UtilityBase;
+    bi->UtilBase = (struct Library *)UtilityBase;
 
     D(INFO, "AT3D Test Executable\n");
     D(INFO, "UtilityBase 0x%lx\n", bi->UtilBase);
