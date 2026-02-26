@@ -1613,7 +1613,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         cd->GElinear      = 0x55;  // Force update of addressing mode and format
         cd->GEdrawCmd     = 0;
         cd->GEbytesPerRow = 0;
-        cd->GEopCode      = 0;
+        cd->GEopCode      = 0x81;
         W_MMIO_B(RASTEROP, ROP_SOURCE);
     }
 
@@ -1690,7 +1690,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
         cd->GEOp      = INVERTRECT;
         cd->GElinear  = 0x55;  // Force update of addressing mode and format
         cd->GEdrawCmd = 0;
-        cd->GEopCode  = 0;
+        cd->GEopCode  = 0x81;
 
         W_MMIO_B(RASTEROP, ROP_NOT_DST);
     }
@@ -1739,7 +1739,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
     if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
         cd->GEOp      = BLITRECTNOMASKCOMPLETE;
         cd->GEdrawCmd = 0;
-        cd->GEopCode  = 0;
+        cd->GEopCode  = 0x81;
     }
 
     if (opCode != cd->GEopCode) {
@@ -1856,7 +1856,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     if (cd->GEOp != BLITRECT) {
         cd->GEOp      = BLITRECT;
         cd->GEdrawCmd = 0;
-        cd->GEopCode  = 0;
+        cd->GEopCode  = 0x81;
 
         W_MMIO_B(RASTEROP, ROP_SOURCE);
     }
@@ -1914,7 +1914,7 @@ static INLINE volatile ULONG *getHostBltPort(struct BoardInfo *bi)
     return (volatile ULONG *)((UBYTE *)bi->MemoryBase + HOST_BLT_OFFSET);
 }
 
-static BOOL setDrawMode(BoardInfo_t *bi, UBYTE drawMode, ULONG fgPen, ULONG bgPen, RGBFTYPE fmt)
+static void setDrawMode(BoardInfo_t *bi, UBYTE drawMode, ULONG fgPen, ULONG bgPen, RGBFTYPE fmt)
 {
     setForegroundPen(bi, fgPen, fmt);
     setBackgroundPen(bi, bgPen, fmt);
@@ -1976,36 +1976,45 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     if (cd->GEOp != BLITTEMPLATE) {
         cd->GEOp      = BLITTEMPLATE;
         cd->GEdrawCmd = 0;
+        cd->GEopCode  = 0x81;
 
         //    setDstPitch(bi, ri->BytesPerRow);
         /* 11.7.6: Source Location X must be 0 for mono-to-color. Monochrome source must be 64-bit aligned. */
         W_MMIO_L(SRC_LOCATION_X_LOW, 0);
     }
-
-    setDrawMode(bi, template->DrawMode, template->FgPen, template->BgPen, fmt);
+    setDstLocation(bi, ri, (UWORD)x, (UWORD)y, bppLog2, isLinear);
 
     ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_HOST_BLT_WRITE) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) |
                     DRAW_SRC_MONOCHROME | DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS | DRAW_PIXEL_DEPTH(bppLog2 + 1) |
                     addressModel;
 
+    ULONG bgPen = template->BgPen;
     if (!(template->DrawMode & JAM2)) {
         drawCmd |= DRAW_SRC_TRANSPARENT;
-    }
 
+        // "Color/monochrome - Monochrome regions are expanded to depth of
+        // display memory by replacing source 0s with background color and 1s
+        // with foreground color. To expand a monochrome region to
+        // foreground/transparent, the host should set both the source
+        // monochrome and source transparent bits, and set the background color
+        // to a different color than the foreground color register."
+
+        // I think this means that the expanded color will be compared to the
+        // background/transparency color for determining whether to write the pixel or not.
+        // So if we want the foreground color to survive the transparency test,
+        // set the background to its complement.
+        bgPen = ~template->FgPen;
+    }
+    setDrawMode(bi, template->DrawMode, template->FgPen, bgPen, fmt);
     setDrawCmd(bi, drawCmd);
 
-    setDstLocation(bi, ri, (UWORD)x, (UWORD)y, bppLog2, isLinear);
-
-    ULONG invert = (template->DrawMode & INVERSVID) ? ~0 : 0;
+    ULONG invert = (template->DrawMode & INVERSVID) ? ~(ULONG)0 : 0;
 
     /* 11.7.6: Host BLT mono data is a byte stream: width rounded up to next 8 bits (bytesPerLine bytes per row).
      * Bytes are packed into 32-bit words; words are written at 8-byte offsets (0, 8, 16, ...).
      * So one 32-bit word can span a row boundary (e.g. last bytes of line 0 + first bytes of line 1). */
     UWORD byteWidth = (width + 7) / 8;
-
-    volatile ULONG *hostBlt = getHostBltPort(bi);
-
-    BOOL srcLinear = (byteWidth == template->BytesPerRow);
+    BOOL srcLinear  = (byteWidth == template->BytesPerRow);
     if (srcLinear) {
         setDrawSize(bi, width, height);
 
@@ -2017,9 +2026,12 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         while (!TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS)) {
         };
 
-        for (ULONG i = 0; i < ((width * height + 31) / 32); i++) {
+        // Round up each line to byte boundary, then to dword boundary since we write in dwords
+        volatile ULONG *hostBlt = getHostBltPort(bi);
+        UWORD linearDWords      = ((byteWidth * height) + 3) / 4;
+        for (ULONG i = 0; i < linearDWords; i++) {
             ULONG pattern = src[i];
-            hostBlt[i]    = pattern ^ invert;
+            *hostBlt      = pattern ^ invert;
         }
     } else {
         // // more generic functions
@@ -2076,10 +2088,12 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         width = (width + 31) & ~31;
 
         setDrawSize(bi, width, height);
-        UWORD dwordsPerLine = (width + 31) / 32;
+
+        UWORD dwordsPerLine = width / 32;
         UBYTE rol           = template->XOffset;
         while (!TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS)) {
         };
+        volatile ULONG *hostBlt = getHostBltPort(bi);
         if (!rol) {
             for (UWORD y = 0; y < height; ++y) {
                 for (UWORD x = 0; x < dwordsPerLine; ++x) {
@@ -2099,20 +2113,26 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
             }
         }
     }
-    int count = 100;
-
-    while (TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS) && --count) {
-        *hostBlt = 0xFF00AACC;
-    };
-
     /* 11.7.6: write to M040 (DRAW_CMD) with arbitrary data to complete the write to last line(s). */
-    // W_MMIO_L(DRAW_CMD, DRAW_CMD_OP(DRAW_CMD_NOP)| DRAW_ENGINE_START);
+    // setDrawCmd(bi, DRAW_CMD_OP(DRAW_CMD_NOP)| DRAW_ENGINE_START);
+    // flushWrites();
 
-    if (count < 100) {
-        if (!count)
-            W_MMIO_B(0x1FF, 0x00);  // Byte counting gone wrong, abort host write blit
-        D(WARN, "Host BLT completion wait loop iterated %d times\n", 100 - count);
+#if 1
+    // FIXME: this should not be needed if everything went right...
+    {
+        int count               = 100;
+        volatile ULONG *hostBlt = getHostBltPort(bi);
+        while (TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS) && --count) {
+            *hostBlt = 0;
+        };
+
+        if (count < 99) {
+            if (!count)
+                W_MMIO_B(0x1FF, 0x00);  // Byte counting gone wrong, abort host write blit
+            D(WARN, "Host BLT completion wait loop iterated %d times\n", 100 - count);
+        }
     }
+#endif
 
     if (!isLinear) {
         W_MMIO_W(CLIP_RIGHT, 0xFFF);
@@ -2153,6 +2173,10 @@ static void ASM BlitTemplate6422(__REGA0(struct BoardInfo *bi), __REGA1(struct R
     if (height > maxRows) {
         D(WARN, "BlitTemplate6422 fallback (height %ld > maxRows %ld)\n", (ULONG)height, (ULONG)maxRows);
         goto fallback;
+    }
+
+    if (cd->GEOp != BLITTEMPLATE) {
+        cd->GEOp = BLITTEMPLATE;
     }
 
     UWORD blitWidth = (width + 31) & ~31;
@@ -2199,21 +2223,18 @@ static void ASM BlitTemplate6422(__REGA0(struct BoardInfo *bi), __REGA1(struct R
         W_MMIO_W(CLIP_RIGHT, clipR);
     }
 
-    if (cd->GEOp != BLITTEMPLATE) {
-        cd->GEOp      = BLITTEMPLATE;
-        cd->GEdrawCmd = 0;
-    }
-
-    setDrawMode(bi, template->DrawMode, template->FgPen, template->BgPen, fmt);
-
     ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_BLT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_SRC_MONOCHROME |
                     DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS | addressModel;
 
+    ULONG bgPen = template->BgPen;
     if (!(template->DrawMode & JAM2)) {
         drawCmd |= DRAW_SRC_TRANSPARENT;
+        // make forground color always survive the transparency test
+        bgPen = ~template->FgPen;
     }
 
     setDrawCmd(bi, drawCmd);
+    setDrawMode(bi, template->DrawMode, template->FgPen, bgPen, fmt);
 
     {
         ULONG location = cd->templateStagingOffset >> bppLog2;
@@ -2334,6 +2355,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     if (cd->GEOp != BLITPLANAR2CHUNKY) {
         cd->GEOp      = BLITPLANAR2CHUNKY;
         cd->GEdrawCmd = 0;
+        cd->GEopCode  = 0x81;
         // ROP3 only available during pattern blits?
         // W_MMIO_B(RASTEROP, ROP_PATTERN_AND_SOURCE_OR_DST);
         W_MMIO_B(RASTEROP, ROP_SRC_OR_DST | (mintermToRop3(minTerm) & 0xF0));
@@ -2593,15 +2615,17 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     W_MMIO_NOSWAP_L(PATTERN, cd->pat0);
     W_MMIO_NOSWAP_L(PATTERN + 4, cd->pat1);
 
-    setDrawMode(bi, pattern->DrawMode, pattern->FgPen, pattern->BgPen, fmt);
-
     ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_RECT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) |
                     DRAW_PIXEL_DEPTH(bppLog2 + 1) | addressModel;
     drawCmd |= cd->chipFamily >= AT24 ? DRAW_PATTERN_FORMAT(0b10) : DRAW_6422_PATTERN;
 
-    if (!(pattern->DrawMode & (JAM2 | COMPLEMENT))) {
+    ULONG bgPen = pattern->BgPen;
+    if (!(pattern->DrawMode & JAM2)) {
         drawCmd |= DRAW_SRC_TRANSPARENT;
+        // Make the forground color always survive the transparency test
+        bgPen = ~pattern->FgPen;
     }
+    setDrawMode(bi, pattern->DrawMode, pattern->FgPen, bgPen, fmt);
 
     setDrawCmd(bi, drawCmd);
 
