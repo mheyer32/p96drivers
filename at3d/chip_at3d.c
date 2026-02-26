@@ -1643,6 +1643,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     return;
 
 fallback:
+    WaitBlitter(bi);
     bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
 }
 
@@ -1710,6 +1711,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
     return;
 
 fallback:
+    WaitBlitter(bi);
     bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
 }
 
@@ -1823,6 +1825,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
     return;
 
 fallback:
+    WaitBlitter(bi);
     bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, format);
 }
 
@@ -1901,6 +1904,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     return;
 
 fallback:
+    WaitBlitter(bi);
     bi->BlitRectDefault(bi, sri, srcX, srcY, dstX, dstY, width, height, mask, fmt);
 }
 
@@ -2116,6 +2120,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     return;
 
 fallback:
+    WaitBlitter(bi);
     bi->BlitTemplateDefault(bi, ri, template, x, y, width, height, mask, fmt);
 }
 
@@ -2225,6 +2230,7 @@ static void ASM BlitTemplate6422(__REGA0(struct BoardInfo *bi), __REGA1(struct R
     return;
 
 fallback:
+    WaitBlitter(bi);
     bi->BlitTemplateDefault(bi, ri, template, x, y, width, height, mask, fmt);
 }
 
@@ -2433,7 +2439,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     return;
 
 fallback:
-
+    WaitBlitter(bi);
     bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
 }
 
@@ -2604,6 +2610,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     return;
 
 fallback:
+    WaitBlitter(bi);
     bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, fmt);
 }
 
@@ -2708,6 +2715,7 @@ static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     return;
 
 fallback:
+    WaitBlitter(bi);
     bi->DrawLineDefault(bi, ri, line, mask, fmt);
 }
 
