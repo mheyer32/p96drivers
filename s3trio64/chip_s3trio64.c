@@ -50,14 +50,19 @@ int debugLevel = VERBOSE;
 
 #define CMD 0x9AE8  // Write-only
 
-#define CMD_ALWAYS                            0x0001
-#define CMD_ACROSS_PLANE                      0x0002
-#define CMD_NO_LASTPIXEL                      0x0004
-#define CMD_RADIAL_DRAW_DIR                   0x0008
-#define CMD_DRAW_PIXELS                       0x0010
-#define CMD_DRAW_DIR_MASK                     0x00e0
-#define CMD_BYTE_SWAP                         0x1000
-#define CMD_WAIT_CPU                          0x0100
+#define CMD_ALWAYS          0x0001
+#define CMD_ACROSS_PLANE    0x0002
+#define CMD_NO_LASTPIXEL    0x0004
+#define CMD_RADIAL_DRAW_DIR 0x0008
+#define CMD_DRAW_PIXELS     0x0010
+#define CMD_DRAW_DIR_MASK   0x00e0
+#define CMD_BYTE_SWAP       0x1000
+#define CMD_WAIT_CPU        0x0100
+
+// Minimum PLL frequency (kHz). Below this, SR1 bit 3 enables DCLK = VCLK/2 (clock halving).
+#define MIN_PLLCLOCK_KHZ 24000
+#define MIN_PLLCLOCK_HZ  (MIN_PLLCLOCK_KHZ * 1000)
+
 #define CMD_BUS_SIZE_8BIT                     (0b00 << 9)
 #define CMD_BUS_SIZE_16BIT                    (0b01 << 9)
 #define CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED (0b10 << 9)
@@ -236,15 +241,26 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
     // Generate PLL values for each frequency
     int lastValue = 0;
     for (UWORD i = 0; i < numEntries; ++i) {
-        ULONG freq = (minFreq + i) * 500;
+        ULONG freq = (minFreq + i) * 500;  // kHz
+
+        BOOL clockHalving = (freq <= MIN_PLLCLOCK_KHZ);
+        if (clockHalving) {
+            freq *= 2;  // PLL runs at 2x; SR1 bit 3 gives DCLK = VCLK/2
+        }
+
         UWORD m, n, r;
         int currentKhz = svga_compute_pll(pll, freq, &m, &n, &r);
 
+        if (clockHalving) {
+            currentKhz /= 2;  // Effective pixel clock
+        }
+
         if (currentKhz >= 0 && currentKhz != lastValue) {
-            lastValue                     = currentKhz;
-            pllValues[cd->numPllValues].m = m;
-            pllValues[cd->numPllValues].n = n;
-            pllValues[cd->numPllValues].r = r;
+            lastValue                             = currentKhz;
+            pllValues[cd->numPllValues].m         = m;
+            pllValues[cd->numPllValues].n         = n;
+            pllValues[cd->numPllValues].r         = r;
+            pllValues[cd->numPllValues].freq10khz = (UWORD)((currentKhz + 5) / 10);  // store in 10 kHz units
 
             cd->numPllValues++;
 
@@ -276,7 +292,7 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
     USHORT m, n, r;
     UBYTE regval;
 
-    DFUNC(10, "original Hz: %ld\n", clockHz);
+    DFUNC(INFO, "Hz: %ld\n", clockHz);
 
     const struct svga_pll *pll = (getChipData(bi)->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
 
@@ -540,7 +556,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     UWORD hTotal;
     UWORD ScreenWidth;
 
-    DFUNC(VERBOSE,
+    DFUNC(INFO,
           "W %ld, H %ld, HTotal %ld, HBlankSize %ld, HSyncStart %ld, HSyncSize "
           "%ld, "
           "\nVTotal %ld, VBlankSize %ld,  VSyncStart %ld ,  VSyncSize %ld\n",
@@ -555,10 +571,11 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 
     // Disable Clock Doubling
 #if !BUILD_VISION864
-    W_SR_MASK(0x15, BIT(4) | BIT(6), 0);
+    // W_SR_MASK(0x15, /*BIT(4) |*/ BIT(6), 0);
     W_SR_MASK(0x18, BIT(7), 0);
 #else
-    W_SR_MASK(0x01, 0x04, 0x00);
+    // W_SR_MASK(0x01, BIT(3), 0x00); // FIXME: why set DCLK/2?  to 0
+
     // W_CR_MASK(0x66, 0x07, 0x00); // careful, CR66 has new meanings on later chips
     W_CR_MASK(0x33, BIT(3), 0x00);
     W_CR_MASK(0x43, BIT(0), 0x00);
@@ -624,7 +641,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
             // Either this bit or bit 6 of this register must be set to 1 for clock
             // doubled RAMDAC operation (mode 0001).
             // This essentially makes DCLK = VCLK/2, which is then again doubled by the RAMDAC for the pixel clock
-            W_SR_MASK(0x15, BIT(4), BIT(4));
+            // W_SR_MASK(0x15, BIT(6), BIT(6));
 
             // RAMDAC/CLKSYN Control Register (SR18)
             // Bit 7 CLKx2 - Enable clock doubled mode
@@ -796,7 +813,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // width in scan line units to the CR10 value, also in scan line units. The
         // 4 1east significant bits of this sum are programmed into this field.
         // This allows a maximum VSYNC pulse width of 15 scan line units.
-        UWORD vRetraceEnd = TO_SCANLINES(mi->Height + mi->VerSyncStart + mi->VerSyncSize) -1;
+        UWORD vRetraceEnd = TO_SCANLINES(mi->Height + mi->VerSyncStart + mi->VerSyncSize) - 1;
         D(INFO, "VRetrace End %ld\n", (ULONG)vRetraceEnd);
         W_CR_MASK(0x11, 0x0F, vRetraceEnd);
     }
@@ -1092,18 +1109,17 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
 {
     DFUNC(VERBOSE, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
 
-    const ChipData_t *cd       = getChipData(bi);
-    const struct svga_pll *pll = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
+    const ChipData_t *cd = getChipData(bi);
 
     mi->Flags &= ~GMF_ALWAYSBORDER;
     if (0x3ff < mi->VerTotal) {
         mi->Flags |= GMF_ALWAYSBORDER;
     }
 
-    mi->Flags &= ~GMF_DOUBLESCAN;
-    if (mi->Height < 400) {
-        mi->Flags |= GMF_DOUBLESCAN;
-    }
+    // mi->Flags &= ~GMF_DOUBLESCAN;
+    // if (mi->Height < 400) {
+    //     mi->Flags |= GMF_DOUBLESCAN;
+    // }
 
     // Figure out if we can/need to make use of double clocking
     mi->Flags &= ~GMF_DOUBLECLOCK;
@@ -1128,22 +1144,19 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     }
 #endif
 
-    ULONG targetFreqKhz = pixelClock / 1000;
+    UWORD targetFreq10khz = (UWORD)(pixelClock / 10000);  // 10 kHz units
 
-    // Find the best matching PLL entry using binary search
+    // Find the best matching PLL entry using binary search (on stored freq10khz)
     UWORD upper     = cd->numPllValues - 1;
-    ULONG upperFreq = computeKhzFromPllValue(pll, &cd->pllValues[upper]);
+    UWORD upperFreq = cd->pllValues[upper].freq10khz;
     UWORD lower     = 0;
-    ULONG lowerFreq = computeKhzFromPllValue(pll, &cd->pllValues[lower]);
+    UWORD lowerFreq = cd->pllValues[lower].freq10khz;
 
     while (lower + 1 < upper) {
         UWORD middle     = (upper + lower) / 2;
-        ULONG middleFreq = computeKhzFromPllValue(pll, &cd->pllValues[middle]);
+        UWORD middleFreq = cd->pllValues[middle].freq10khz;
 
-        // DFUNC(INFO, "l %ld @ %ld, u %ld @ %ld, middle %ld @ %ld\n", (ULONG)lower, (ULONG)lowerFreq, (ULONG)upper,
-        //       (ULONG)upperFreq, (ULONG)middle, (ULONG)middleFreq);
-
-        if (targetFreqKhz > middleFreq) {
+        if (targetFreq10khz > middleFreq) {
             lower     = middle;
             lowerFreq = middleFreq;
         } else {
@@ -1152,17 +1165,13 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         }
     }
 
-    // DFUNC(INFO, "Candidate fequencies: lower %ld @ %ld, upper %ld @ %ld, target %ld\n", (ULONG)lower,
-    // (ULONG)lowerFreq,
-    //       (ULONG)upper, (ULONG)upperFreq, (ULONG)targetFreqKhz);
-
     // Return the best match between upper and lower
-    if (targetFreqKhz - lowerFreq > upperFreq - targetFreqKhz) {
+    if ((ULONG)targetFreq10khz - (ULONG)lowerFreq > (ULONG)upperFreq - (ULONG)targetFreq10khz) {
         lower     = upper;
         lowerFreq = upperFreq;
     }
 
-    mi->PixelClock = lowerFreq * 1000;
+    mi->PixelClock = (ULONG)cd->pllValues[lower].freq10khz * 10000;  // 10 kHz -> Hz
 
     PLLValue_t pllValues = cd->pllValues[lower];
 
@@ -1209,16 +1218,14 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct Mod
 {
     DFUNC(INFO, "Index: %ld\n", index);
 
-    const ChipData_t *cd       = getChipData(bi);
-    const struct svga_pll *pll = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
+    const ChipData_t *cd = getChipData(bi);
 
     if (index >= cd->numPllValues) {
         DFUNC(ERROR, "Invalid pixel clock index %ld (max %ld)\n", index, cd->numPllValues - 1);
         return 0;
     }
 
-    ULONG frequency = computeKhzFromPllValue(pll, &cd->pllValues[index]);
-    return frequency * 1000;  // Convert kHz to Hz
+    return (ULONG)cd->pllValues[index].freq10khz * 10000;  // 10 kHz -> Hz
 }
 
 static void ASM SetClock(__REGA0(struct BoardInfo *bi))
@@ -1240,6 +1247,17 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 #endif
 
     REGBASE();
+
+    // SR1 bit 3: Select DCLK/2 for low pixel frequencies (actual clock runs at *2)
+    if (mi->PixelClock < MIN_PLLCLOCK_HZ || mi->Flags & GMF_DOUBLECLOCK) {
+        DFUNC(INFO, "SetClock: Clock halving enabled for effective Pixelclock = VCLK/2\n");
+        // W_SR_MASK(0x01, BIT(3), BIT(3));  // DCLK = VCLK/2
+        // Weird, DCLK/2 via SR1 causes artifacts
+        W_SR_MASK(0x15, BIT(4), BIT(4));  // DCLK = VCLK/2
+    } else {
+        // W_SR_MASK(0x01, BIT(3), 0);  // DCLK = VCLK
+        W_SR_MASK(0x15, BIT(4), 0);  // DCLK = VCLK/2
+    }
 
 #if !BUILD_VISION864
     /* Set S3 DCLK clock registers */

@@ -37,6 +37,7 @@ typedef struct PLLValue
     UBYTE m;  // M numerant
     UBYTE n;  // N divider
     UBYTE r;  // 2 << R divider
+    UWORD freq10khz;  // effective pixel clock in 10 kHz units (e.g. 2517 = 25.17 MHz), like at3d
 } PLLValue_t;
 
 typedef struct ChipData
