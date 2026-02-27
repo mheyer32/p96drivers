@@ -1361,7 +1361,25 @@ static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expect
 }
 
 // FIXME: implement, but make sure to coordinate with SetDPMSLevel
-static void WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL waitForEnd)) {}
+static void WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL waitForEnd))
+{
+    REGBASE();
+    if (waitForEnd) {
+        // wait for vertical retrace end
+        // Use readReg() so in debug mode slow serial output doesn't make us miss the signals
+        while (!(readReg(RegBase, 0x3DA) & 0x08)) {
+        };
+        // For pixel display (should now be top of frame, i.e. end of retrace)
+        while (!(readReg(RegBase, 0x3DA) & 0x01)) {
+        };
+    } else {  // For pixel display first
+        while (!(readReg(RegBase, 0x3DA) & 0x01)) {
+        };
+        // wait for vertical retrace starting
+        while (!(readReg(RegBase, 0x3DA) & 0x08)) {
+        };
+    }
+}
 
 static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level))
 {
