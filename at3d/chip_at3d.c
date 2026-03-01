@@ -1467,7 +1467,7 @@ static INLINE void setDrawSize(struct BoardInfo *bi, UWORD width, UWORD height)
     W_MMIO_W(SRC_SIZE_X, width);
 }
 
-static ULONG PenToColor(ULONG pen, RGBFTYPE fmt)
+static ULONG penToColor(ULONG pen, RGBFTYPE fmt)
 {
     switch (fmt) {
     case RGBFB_B8G8R8A8:
@@ -1478,13 +1478,6 @@ static ULONG PenToColor(ULONG pen, RGBFTYPE fmt)
     case RGBFB_R5G5B5PC:
         pen = swapw(pen);
         // fallthrough
-    case RGBFB_R5G6B5:
-    case RGBFB_R5G5B5:
-        pen = copyToUpper(pen);
-        break;
-    case RGBFB_CLUT:
-        pen = (pen << 8) | pen;
-        pen = copyToUpper(pen);
     default:
         break;
     }
@@ -1496,7 +1489,7 @@ static INLINE void setForegroundPen(struct BoardInfo *bi, ULONG fgPen, RGBFTYPE 
     ChipData_t *cd = getChipData(bi);
     if (cd->GEfgPen != fgPen) {
         cd->GEfgPen = fgPen;
-        fgPen       = PenToColor(fgPen, fmt);
+        fgPen       = penToColor(fgPen, fmt);
         MMIOBASE();
         W_MMIO_L(FRGD_COLOR, fgPen);
     }
@@ -1507,7 +1500,7 @@ static INLINE void setBackgroundPen(struct BoardInfo *bi, ULONG bgPen, RGBFTYPE 
     ChipData_t *cd = getChipData(bi);
     if (cd->GEbgPen != bgPen) {
         cd->GEbgPen = bgPen;
-        bgPen       = PenToColor(bgPen, fmt);
+        bgPen       = penToColor(bgPen, fmt);
         MMIOBASE();
         W_MMIO_L(BKGD_COLOR, bgPen);
     }
