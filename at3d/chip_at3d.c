@@ -1100,6 +1100,13 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
     return;
 }
 
+static INLINE ULONG REGARGS getMemoryOffset(const struct BoardInfo *bi, APTR memory)
+{
+    ULONG offset = (ULONG)memory - (ULONG)bi->MemoryBase;
+    offset &= ~0x800000;  // map addresses from (BE) linear window2 back to regular framebuffer address
+    return offset;
+}
+
 static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width),
                            __REGD4(UWORD height), __REGD1(WORD xoffset), __REGD2(WORD yoffset),
                            __REGD7(RGBFTYPE format))
@@ -1118,7 +1125,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
 
     bi->XOffset = xoffset;
     bi->YOffset = yoffset;
-    memOffset   = (ULONG)memory - (ULONG)bi->MemoryBase;
+    memOffset   = getMemoryOffset(bi, memory);
 
     // Calculate pitch and panning offset based on format
     switch (format) {
@@ -1372,13 +1379,6 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
         SetSpriteColor(bi, 2, bi->CLUT[19].Red, bi->CLUT[19].Green, bi->CLUT[19].Blue, bi->RGBFormat);
     }
     return TRUE;
-}
-
-static INLINE ULONG REGARGS getMemoryOffset(const struct BoardInfo *bi, APTR memory)
-{
-    ULONG offset = (ULONG)memory - (ULONG)bi->MemoryBase;
-    offset &= ~0x800000;  // map addresses from (BE) linear window2 back to regular framebuffer address
-    return offset;
 }
 
 static INLINE ULONG REGARGS getLinearPixelOffset(const struct BoardInfo *bi, const struct RenderInfo *ri, UWORD x,
