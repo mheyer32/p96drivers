@@ -310,13 +310,7 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
           bi->PixelClockCount[TRUECOLOR], bi->PixelClockCount[TRUEALPHA]);
 }
 
-/**
- * Program MCLK (Memory Clock)
- * @param bi BoardInfo structure
- * @param clockHz Target frequency in Hz
- * @return Actual frequency set in Hz
- */
-ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
+ULONG setMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 {
     DFUNC(INFO, "Setting MCLK to %ld Hz\n", clockHz);
 
@@ -354,11 +348,6 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
     return actualFreqKhz * 1000;  // convert to hz
 }
 
-/**
- * Get I2C operations structure for EDID support
- * @param bi BoardInfo structure
- * @return Pointer to I2COps_t structure, or NULL if not initialized
- */
 I2COps_t *getI2COps(struct BoardInfo *bi)
 {
     CardData_t *card = getCardData(bi);
@@ -770,7 +759,7 @@ static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fo
                      : "d0", "d1", "a0", "a1");
 }
 
-static INLINE REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags)
+static INLINE REGARGS UWORD toScanLines(UWORD y, UWORD modeFlags)
 {
     if (modeFlags & GMF_DOUBLESCAN)
         y *= 2;
@@ -779,7 +768,7 @@ static INLINE REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags)
     return y;
 }
 
-static INLINE REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
+static INLINE REGARGS UWORD adjustBorder(UWORD x, BOOL border, UWORD defaultX)
 {
     if (!border || x == 0)
         x = defaultX;
@@ -806,10 +795,10 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     UBYTE depth       = mi->Depth;
 
 // 8 pixels default border size = 1 character clock
-#define ADJUST_HBORDER(x) AdjustBorder(x, border, 8)
-#define ADJUST_VBORDER(y) AdjustBorder(y, border, 1);
+#define ADJUST_HBORDER(x) adjustBorder(x, border, 8)
+#define ADJUST_VBORDER(y) adjustBorder(y, border, 1);
 #define TO_CLKS(x)        ((x) >> 3)
-#define TO_SCANLINES(y)   ToScanLines((y), modeFlags)
+#define TO_SCANLINES(y)   toScanLines((y), modeFlags)
 
     REGBASE();
 
@@ -841,9 +830,9 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     }
 
     UWORD hBorderSize = ADJUST_HBORDER(mi->HorBlankSize);
-    UWORD hBlankStart = TO_CLKS(ScreenWidth + hBorderSize) - 1;
     {
         // Start Horizontal Blank Register (CR2)
+        UWORD hBlankStart = TO_CLKS(ScreenWidth + hBorderSize) - 1;
         D(INFO, "Horizontal Blank Start %ld\n", (ULONG)hBlankStart);
         W_CR_OVERFLOW1(hBlankStart, 0x02, 0, 8, 0x1B, 2, 1);
     }
@@ -855,16 +844,16 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         W_CR_OVERFLOW1(hBlankEnd, 0x03, 0, 5, 0x05, 7, 1);
     }
 
-    UWORD hSyncStart = TO_CLKS(mi->HorSyncStart + ScreenWidth);
     {
         // Start Horizontal Sync Position Register (CR4)
+        UWORD hSyncStart = TO_CLKS(ScreenWidth + mi->HorSyncStart);
         D(INFO, "HSync start %ld\n", (ULONG)hSyncStart);
         W_CR_OVERFLOW1(hSyncStart, 0x04, 0, 8, 0x1B, 3, 1);
     }
 
-    UWORD endHSync = TO_CLKS(mi->HorSyncStart + ScreenWidth + mi->HorSyncSize);
     {
         // End Horizontal Sync Position Register (CR5)
+        UWORD endHSync = TO_CLKS(ScreenWidth + mi->HorSyncStart + mi->HorSyncSize);
         D(INFO, "HSync End %ld\n", (ULONG)endHSync);
         W_CR_MASK(0x05, 0x1f, endHSync);
     }
@@ -880,23 +869,12 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // Vertical Display End register (CR12)
         UWORD vDisplayEnd = TO_SCANLINES(mi->Height) - 1;
         D(INFO, "Vertical Display End %ld\n", (ULONG)vDisplayEnd);
-        // FIXME: check the overflow bit order. Counterintuitively, bit 1 nd 6 are
-        // opposite to what they are on S3Trio.
-        // W_CR_OVERFLOW3(vDisplayEnd, 0x12, 0, 8, 0x7, 6, 1, 0x7, 1, 1, 0x1A, 1, 1);
-
-        // FIXME: I think the Alliance Specs are wrong here... why would they introduce
-        // incompatibility with the standard VGA registers when all the other registers
-        // follow the order for the overflow bits?
-
-        // S3Trio64 order:
         W_CR_OVERFLOW3(vDisplayEnd, 0x12, 0, 8, 0x07, 1, 1, 0x07, 6, 1, 0x1A, 1, 1);
     }
 
-    // Program vertical retrace registers (CR10-11) BEFORE vertical blank registers (CR15-16)
-    // This matches the ROM's programming order and may be required for proper VSYNC initialization
-    UWORD vRetraceStart = TO_SCANLINES(mi->Height + mi->VerSyncStart) - 1;
     {
         // Vertical Retrace Start Register (VRS) (CR10)
+        UWORD vRetraceStart = TO_SCANLINES(mi->Height + mi->VerSyncStart) - 1;
         D(INFO, "VRetrace Start %ld\n", (ULONG)vRetraceStart);
         W_CR_OVERFLOW3(vRetraceStart, 0x10, 0, 8, 0x07, 2, 1, 0x07, 7, 1, 0x1A, 3, 1);
     }
@@ -905,37 +883,27 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // Vertical Retrace End Register (VRE) (CR11) Bits 3-0 VERTICAL RETRACE END
         // Note: CR11 bit 5 controls vertical interrupt enable (should remain set to disable interrupt)
         // CR11 bit 7 is write protect (handled separately)
-        UWORD vRetraceEnd     = TO_SCANLINES(mi->Height + mi->VerSyncStart + mi->VerSyncSize) - 1;
-        UBYTE vRetraceEndLow4 = vRetraceEnd & 0x0F;
-        D(INFO, "VRetrace End %ld (raw value), writing bits [3:0] = %ld\n", (ULONG)vRetraceEnd, (ULONG)vRetraceEndLow4);
-        W_CR_MASK(0x11, 0x0F, vRetraceEndLow4);
+        UWORD vRetraceEnd = TO_SCANLINES(mi->Height + mi->VerSyncStart + mi->VerSyncSize) - 1;
+        D(INFO, "VRetrace End %ld, writing low 4 bits 0x%lx", (ULONG)vRetraceEnd, (ULONG)vRetraceEnd & 0xF);
+        W_CR_MASK(0x11, 0x0F, vRetraceEnd);
     }
 
     UWORD vBlankSize = ADJUST_VBORDER(mi->VerBlankSize);
     {
         // Start Vertical Blank Register (SVB) (CR15)
-        UWORD vBlankStart = mi->Height;
-        if ((modeFlags & GMF_DOUBLESCAN) != 0) {
-            vBlankStart = vBlankStart * 2;
-        }
-        vBlankStart = ((vBlankStart + vBlankSize) >> isInterlaced) - 1;
+        UWORD vBlankStart = TO_SCANLINES(mi->Height + vBlankSize) - 1;
         D(INFO, "VBlank Start %ld\n", (ULONG)vBlankStart);
         W_CR_OVERFLOW3(vBlankStart, 0x15, 0, 8, 0x07, 3, 1, 0x09, 5, 1, 0x1A, 2, 1);
     }
 
     {
         // End Vertical Blank Register (EVB) (CR16)
-        UWORD vBlankEnd = mi->VerTotal;
-        if ((modeFlags & GMF_DOUBLESCAN) != 0) {
-            vBlankEnd = vBlankEnd * 2;
-        }
-        vBlankEnd = ((vBlankEnd - vBlankSize) >> isInterlaced) - 1;
+        UWORD vBlankEnd = TO_SCANLINES(mi->VerTotal - vBlankSize) - 1;
         D(6, "VBlank End %ld\n", (ULONG)vBlankEnd);
         W_CR(0x16, vBlankEnd);
     }
 
-    // Enable Interlace
-    // AT3D uses memory-mapped register 0D2h for interlace control
+    // Interlace
     {
         MMIOBASE();
         UBYTE interlaceCtrl = R_MMIO_B(MONITOR_INTERLACE_CTRL);
@@ -945,9 +913,14 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
             interlaceCtrl &= ~BIT(0);  // Disable interlace
         }
         W_MMIO_B(MONITOR_INTERLACE_CTRL, interlaceCtrl);
+
+        // Horizontal interlaced start
+        // FIXME: is this right?
+        UWORD horizontalInterlaceStart = TO_CLKS(mi->HorSyncStart + ScreenWidth + mi->HorSyncSize + 8);
+        W_CR_OVERFLOW1(horizontalInterlaceStart, 0x19, 0, 8, 0x1B, 4, 1);  //?
     }
 
-    // Enable Doublescan
+    // Doublescan
     {
         UBYTE dblScan = R_CR(0x9) & 0x7f;
         if ((modeFlags & GMF_DOUBLESCAN) != 0) {
@@ -967,9 +940,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         }
         W_MISC_MASK(0xC0, polarities);
     }
-
-    // Horizontal interlaced start
-    W_CR(0x19, 0);
 }
 
 static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE format))
@@ -1197,7 +1167,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
  */
 static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level))
 {
-    DFUNC(VERBOSE, "SetDPMSLevel: level=%ld\n", level);
+    DFUNC(VERBOSE, "level=%ld\n", level);
     // Mapping:
     //  DPMS_ON:      Both bits clear (0x00) - HSYNC and VSYNC enabled
     //  DPMS_STANDBY: VSYNC disabled (0x02) - bit [1] set
