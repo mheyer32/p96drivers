@@ -1874,7 +1874,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     ULONG addrModel = getAdressModelBits(sri, bppLog2);
     BOOL isLinear   = (widthBytes == sri->BytesPerRow);
 
-    if (!addrModel && !isLinear) {
+    if (!addrModel) {
         D(WARN, "BlitRectNoMaskComplete Fallback. src needs linear but blitsize prevents it\n");
         goto fallback;
     }
@@ -1884,17 +1884,16 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     if (!addrModel) {
         drawCmd |= DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS;
-    } else {
-        if (dstX > srcX) {
-            drawCmd |= DRAW_DIR_X_NEGATIVE;
-            srcX = srcX + width - 1;
-            dstX = dstX + width - 1;
-        }
-        if (dstY > srcY) {
-            drawCmd |= DRAW_DIR_Y_NEGATIVE;
-            srcY = srcY + height - 1;
-            dstY = dstY + height - 1;
-        }
+    }
+    if (dstX > srcX) {
+        drawCmd |= DRAW_DIR_X_NEGATIVE;
+        srcX = srcX + width - 1;
+        dstX = dstX + width - 1;
+    }
+    if (dstY > srcY) {
+        drawCmd |= DRAW_DIR_Y_NEGATIVE;
+        srcY = srcY + height - 1;
+        dstY = dstY + height - 1;
     }
     setDrawCmd(bi, drawCmd);
     // FIXME: this can be optimized into a single function
