@@ -3105,7 +3105,13 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_MMIO_W(CLIP_RIGHT, 0xFFF);
     W_MMIO_W(CLIP_BOTTOM, 0xFFF);
 
-    SetMemoryClock(bi, 50000000);
+    ULONG memClk = bi->MemoryClock;
+    if (memClk < 45000000) {
+        memClk = 45000000;
+    } else if (memClk > 75000000) {
+        memClk = 75000000;
+    }
+    setMemoryClock(bi, memClk);
 
     return TRUE;
 }
