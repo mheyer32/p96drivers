@@ -378,6 +378,8 @@ static BOOL ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
     // SR1 bit 5: Screen Off (1 = screen off, 0 = screen on)
     W_SR_MASK(0x01, 0x20, (~(UBYTE)state & 1) << 5);
 
+    bi->ChipFlags = (bi->ChipFlags & ~1) | (state & 1);
+
     return TRUE;
 }
 
@@ -1210,6 +1212,13 @@ static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level)
 // FIXME: Make sure to coordinate with SetDPMSLevel, does the register signals still get produced?
 static void WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL waitForEnd))
 {
+    DFUNC(VERBOSE, "waitForEnd: %ld, displayState: 0x%lx\n", (ULONG)waitForEnd, (ULONG)bi->ChipFlags);
+
+    // Don't wait for VSYNC if display is off.
+    if (!(bi->ChipFlags & 1)) {
+        return;
+    }
+
     REGBASE();
     if (waitForEnd) {
         // wait for verticel retrace
