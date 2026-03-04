@@ -3373,7 +3373,7 @@ int main()
                     tmpl.XOffset     = i * 2;
                     tmpl.DrawMode    = JAM1;
                     tmpl.FgPen       = BLIT_TMPL_PEN_FG;
-                    tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                    tmpl.BgPen       = BLIT_TMPL_PEN_FG;  // force the driver to work around the transparency test
                     bi->FillRect(bi, &ri, 32 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
                     bi->BlitTemplate(bi, &ri, &tmpl, 32 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
                 }
@@ -3398,7 +3398,7 @@ int main()
                     tmpl.XOffset     = i * 2;
                     tmpl.DrawMode    = COMPLEMENT;
                     tmpl.FgPen       = BLIT_TMPL_PEN_FG;
-                    tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                    tmpl.BgPen       = BLIT_TMPL_PEN_FG;  // force the driver to work around the transparency test
                     bi->FillRect(bi, &ri, 144 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
                     bi->BlitTemplate(bi, &ri, &tmpl, 144 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
                 }
@@ -3410,7 +3410,7 @@ int main()
                     tmpl.XOffset     = i * 2;
                     tmpl.DrawMode    = JAM1 | INVERSVID;
                     tmpl.FgPen       = BLIT_TMPL_PEN_FG;
-                    tmpl.BgPen       = BLIT_TMPL_PEN_BG;
+                    tmpl.BgPen       = BLIT_TMPL_PEN_FG;  // force the driver to work around the transparency test
                     bi->FillRect(bi, &ri, 192 + xoff, y, 32, 32, 50, 0xFF, RGBFB_CLUT);
                     bi->BlitTemplate(bi, &ri, &tmpl, 192 + xoff, y, 24, 32, 0xFF, RGBFB_CLUT);
                 }
@@ -3524,6 +3524,9 @@ int main()
 
             /* JAM1: pattern 1 -> FgPen (red), pattern 0 -> keep D (blue). */
             pat.DrawMode = JAM1;
+            pat.FgPen    = 1;
+            pat.BgPen    = 0;
+
             FillRect(bi, &ri, PAT_LEFT, PAT_TOP, PAT_CELL_W * 5, PAT_CELL_H, 0, 0xFF, RGBFB_CLUT);
             bi->BlitPattern(bi, &ri, &pat, PAT_LEFT, PAT_TOP, PAT_CELL_W, PAT_CELL_H, 0xFF, RGBFB_CLUT);
 
