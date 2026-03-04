@@ -1837,8 +1837,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         cd->GEbppLog2 = getBPPLog2(fmt);
     }
 
-    UBYTE bppLog2 = cd->GEbppLog2;
-    // FIXME: cache src and dst render info
+    UBYTE bppLog2    = cd->GEbppLog2;
     UWORD widthBytes = width << bppLog2;
 
     ULONG addrModel = getAdressModelBits(sri, bppLog2);
@@ -2040,13 +2039,10 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         //     *hostBlt = w;
         // }
 
-        const UBYTE *bitmap = (const UBYTE *)template->Memory;
-        UWORD bitmapPitch   = (UWORD) template->BytesPerRow;
-        UWORD originX, originY;
-        getStartCoordinates(bi, ri, bppLog2, &originX, &originY);
-
         if (!isLinear) {
-            UWORD maxWidth = ri->BytesPerRow >> bppLog2;
+            UWORD originX, originY;
+            getStartCoordinates(bi, ri, bppLog2, &originX, &originY);
+            UWORD maxWidth = originX + ri->BytesPerRow >> bppLog2;
             UWORD clipR    = originX + x + width - 1;
             if (clipR >= maxWidth) {
                 clipR = maxWidth - 1;
@@ -2059,6 +2055,8 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
 
         setDrawSize(bi, width, height);
 
+        const UBYTE *bitmap = (const UBYTE *)template->Memory;
+        UWORD bitmapPitch   = (UWORD) template->BytesPerRow;
         UWORD dwordsPerLine = width / 32;
         UBYTE rol           = template->XOffset;
         while (!TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS)) {
@@ -2182,14 +2180,17 @@ static void ASM BlitTemplate6422(__REGA0(struct BoardInfo *bi), __REGA1(struct R
 
     MMIOBASE();
 
-    UWORD originX, originY;
-    getStartCoordinates(bi, ri, bppLog2, &originX, &originY);
-    UWORD clipR    = originX + x + width - 1;
-    UWORD maxWidth = ri->BytesPerRow >> bppLog2;
-    if (clipR >= maxWidth) {
-        clipR = maxWidth - 1;
-    }
     if (!isLinear) {
+        UWORD originX, originY;
+        if (!getStartCoordinates(bi, ri, bppLog2, &originX, &originY)) {
+            goto fallback;
+        }
+        UWORD clipR    = originX + x + width - 1;
+        UWORD maxWidth = originX + ri->BytesPerRow >> bppLog2;
+        if (clipR >= maxWidth) {
+            clipR = maxWidth - 1;
+        }
+
         W_MMIO_W(CLIP_RIGHT, clipR);
     }
 
@@ -2360,7 +2361,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         UWORD originX, originY;
         getStartCoordinates(bi, &dstRi, 0, &originX, &originY);
 
-        UWORD maxWidth = dstRi.BytesPerRow;
+        UWORD maxWidth = originX + dstRi.BytesPerRow;
         clipR          = originX + dstX + width - 1;
         if (clipR >= maxWidth) {
             clipR = maxWidth - 1;
