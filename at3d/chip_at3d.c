@@ -1250,7 +1250,7 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xp
     bi->MouseX = xpos;
     bi->MouseY = ypos;
 
-    WORD spriteX = xpos - bi->XOffset;
+    WORD spriteX = xpos - bi->XOffset + 24;
     WORD spriteY = ypos - bi->YOffset + bi->YSplit;
 
     if (bi->ModeInfo->Flags & GMF_DOUBLESCAN) {
