@@ -1446,6 +1446,15 @@ static INLINE void setDrawSize(struct BoardInfo *bi, UWORD width, UWORD height)
     W_MMIO_W(SRC_SIZE_X, width);
 }
 
+static INLINE setFormat(struct BoardInfo *bi, RGBFTYPE fmt)
+{
+    ChipData_t *cd = getChipData(bi);
+    if (cd->GEFormat != fmt) {
+        cd->GEFormat  = fmt;
+        cd->GEbppLog2 = getBPPLog2(fmt);
+    }
+}
+
 static ULONG penToColor(ULONG pen, RGBFTYPE fmt)
 {
     switch (fmt) {
@@ -1559,10 +1568,8 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
         goto fallback;
-    }
-
-    if (cd->GEFormat != fmt) {
-        cd->GEbppLog2 = getBPPLog2(fmt);
+    } else {
+        setFormat(bi, fmt);
     }
 
     UBYTE bppLog2 = cd->GEbppLog2;
@@ -1637,10 +1644,8 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
 
     if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
         goto fallback;
-    }
-
-    if (cd->GEFormat != fmt) {
-        cd->GEbppLog2 = getBPPLog2(fmt);
+    } else {
+        setFormat(bi, fmt);
     }
 
     UBYTE bppLog2 = cd->GEbppLog2;
@@ -1703,8 +1708,11 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
 
     ChipData_t *cd = getChipData(bi);
 
+    // On older chips the format is tied to the current screen format
     if (cd->chipFamily < AT24 && (UBYTE)format != cd->GEFormat) {
         goto fallback;
+    } else {
+        setFormat(bi, format);
     }
 
     if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
@@ -1721,11 +1729,6 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         D(INFO, "minterm 0x%02lX ROP3 0x%02lX\n", (ULONG)opCode, (ULONG)rop3);
 
         W_MMIO_B(RASTEROP, rop3);
-    }
-
-    if (cd->GEFormat != format) {
-        cd->GEFormat  = format;
-        cd->GEbppLog2 = getBPPLog2(format);
     }
 
     UBYTE bppLog2 = cd->GEbppLog2;
@@ -1822,6 +1825,8 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
         goto fallback;
+    } else {
+        setFormat(bi, fmt);
     }
 
     if (cd->GEOp != BLITRECT) {
@@ -1830,11 +1835,6 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         cd->GEopCode  = 0x81;
 
         W_MMIO_B(RASTEROP, ROP_SOURCE);
-    }
-
-    if (cd->GEFormat != fmt) {
-        cd->GEFormat  = fmt;
-        cd->GEbppLog2 = getBPPLog2(fmt);
     }
 
     UBYTE bppLog2    = cd->GEbppLog2;
@@ -1933,7 +1933,8 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     MMIOBASE();
     ChipData_t *cd = getChipData(bi);
 
-    UBYTE bppLog2    = getBPPLog2(fmt);
+    setFormat(bi, fmt);
+    UBYTE bppLog2    = cd->GEbppLog2;
     UWORD widthBytes = width << bppLog2;
 
     BOOL isLinear      = (widthBytes == ri->BytesPerRow);
@@ -2127,7 +2128,13 @@ static void ASM BlitTemplate6422(__REGA0(struct BoardInfo *bi), __REGA1(struct R
 
     ChipData_t *cd = getChipData(bi);
 
-    UBYTE bppLog2      = getBPPLog2(fmt);
+    if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
+        goto fallback;
+    } else {
+        setFormat(bi, fmt);
+    }
+
+    UBYTE bppLog2      = cd->GEbppLog2;
     UWORD widthBytes   = width << bppLog2;
     BOOL isLinear      = (widthBytes == ri->BytesPerRow);
     ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
@@ -2446,13 +2453,11 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 
     if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
         goto fallback;
+    } else {
+        setFormat(bi, fmt);
     }
 
-    if (cd->GEFormat != fmt) {
-        cd->GEFormat  = fmt;
-        cd->GEbppLog2 = getBPPLog2(fmt);
-    }
-    UBYTE bppLog2 = getBPPLog2(fmt);
+    UBYTE bppLog2 = cd->GEbppLog2;
 
     BOOL isLinear      = FALSE;  // ((width << bppLog2) == ri->BytesPerRow);
     ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
