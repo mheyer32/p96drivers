@@ -3,6 +3,8 @@
 #include "mach64GX.h"
 #include "mach64VT.h"
 #include "mach64_common.h"
+#include "mach64_i2c.h"
+#include "edid_common.h"
 
 #include <graphics/rastport.h>
 #include <libraries/pcitags.h>
@@ -2314,12 +2316,16 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     D(INFO, "Monitor is %s present\n", ((R_MMIO_B(DAC_CNTL, 0) & 0x80) ? "NOT" : ""));
 
+
+    queryEDID(bi);
+
     // Two sprite images, each 64x64*2 bits
     // BEWARE: softsprite data would use 4 byte per pixel
     const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
     bi->MemorySize                   = (bi->MemorySize - maxSpriteBuffersSize) & ~(63);  // align to 64 byte boundary
 
     bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
+    //FIXME: is this one even needed?
     bi->MouseSaveBuffer  = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
 
     // reserve memory for a pattern that can be up to 256 lines high (2kb)

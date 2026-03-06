@@ -194,6 +194,8 @@ S3TRIOCARD_SRC = common.c \
                  card_common.c \
                  s3trio64/card_s3trio64.c \
                  s3trio64/s3trio64_common.c \
+                 s3trio64/s3i2c.c \
+                 edid_common.c \
                  card_library.c
 
 S3Trio64.card : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DOPENPCI=1
@@ -251,6 +253,8 @@ ATIMACH64_SRC = common.c \
                 mach64/mach64VT.c \
                 mach64/mach64_common.c \
                 mach64/chip_mach64.c \
+                mach64/mach64_i2c.c \
+                edid_common.c \
                 chip_library.c
 
 ATIMach64.chip : CFLAGS+=-include mach64/mach64config.h
@@ -271,7 +275,9 @@ ATIMACH64_TESTEXE_SRC = common.c \
                         mach64/mach64GT.c \
                         mach64/mach64VT.c \
                         mach64/mach64_common.c \
-                        mach64/chip_mach64.c
+                        mach64/chip_mach64.c \
+                        mach64/mach64_i2c.c \
+                        edid_common.c
 
 TestMach64 : CFLAGS+=-DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0 -include mach64/mach64config.h
  
@@ -279,10 +285,12 @@ $(eval $(call make_exe,TestMach64,$(BUILDDIR)testmach64/, ${ATIMACH64_TESTEXE_SR
 
 TestMach64Card : CFLAGS+=-DBIGENDIAN_IO=0 -DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0 -include mach64/mach64config.h
 TESTATIMACH64CARD_SRC = common.c \
-                        card_common.c \
-                        mach64/card_mach64.c \
-                        mach64/mach64_common.c
-
+						card_common.c \
+						mach64/card_mach64.c \
+						mach64/mach64_common.c \
+						mach64/mach64_i2c.c \
+						edid_common.c
+					
 $(eval $(call make_exe,TestMach64Card,$(BUILDDIR)testmach64card/, ${TESTATIMACH64CARD_SRC}))
 
 

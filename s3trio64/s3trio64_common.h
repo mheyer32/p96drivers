@@ -88,7 +88,6 @@ typedef struct CardData
     volatile UBYTE *cv64CtrlReg;
     UBYTE cv64Ctrl;
 #endif
-    I2COps_t i2cOps;  // I2C operations for EDID support
 } CardData_t;
 
 STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);

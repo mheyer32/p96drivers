@@ -65,7 +65,7 @@ typedef struct EDIDTiming
 // Function to get I2C operations
 // Default implementation in edid_common.c returns NULL
 // Card drivers must provide their own implementation that accesses their CardData structure
-I2COps_t *getI2COps(struct BoardInfo *bi);
+const I2COps_t *getI2COps(struct BoardInfo *bi);
 
 // I2C protocol functions (common implementation using I2COps)
 void i2cStart(struct BoardInfo *bi);

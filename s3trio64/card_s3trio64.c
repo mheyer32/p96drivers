@@ -1,15 +1,15 @@
-#include "card_common.h"
 #include "s3trio64_common.h"
+#include "card_common.h"
 
 #define __NOLIBBASE__
 #include <clib/debug_protos.h>
 #include <exec/nodes.h>
 #include <exec/types.h>
 #include <proto/exec.h>
-#include <proto/openpci.h>
 #include <proto/picasso96_chip.h>
-#include <proto/timer.h>
 #include <proto/utility.h>
+#include <proto/openpci.h>
+#include <proto/timer.h>
 #include <utility/tagitem.h>
 
 #define OPENPCI_SWAP  // don't make it define its own SWAP macros

@@ -1,5 +1,6 @@
 #include "at3d_i2c.h"
 #include "chip_at3d.h"
+#include "edid_common.h"
 #include "common.h"
 
 // I2C timing delays (standard I2C: 100kHz)
@@ -156,5 +157,23 @@ BOOL at3dI2cReadSda(struct BoardInfo *bi)
     // Read SDA input from 1FC[16] per AT3D documentation (equivalent to 0D0[4])
     ULONG statusReg = R_MMIO_L(EXT_DAC_STATUS);
     return (statusReg & I2C_SDA_IN) != 0;
+}
+
+// Static I2C operations structure for mach64 (GT and higher)
+static const I2COps_t at3d_i2c_ops = {
+    .init =   at3dI2cInit,
+    .setScl = at3dI2cSetScl,
+    .setSda = at3dI2cSetSda,
+    .readScl =at3dI2cReadScl,
+    .readSda =at3dI2cReadSda
+};
+
+/**
+ * Get I2C operations for Mach64 card
+ * This function is required by edid_common.c
+ */
+const I2COps_t *getI2COps(struct BoardInfo *bi)
+{
+    return &at3d_i2c_ops;
 }
 

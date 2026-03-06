@@ -135,9 +135,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     bi->MemorySpaceBase = memoryBase;
     bi->MemorySpaceSize = memorySize;
 
-    // Register base for Cybervision64 is typically at an offset from memory base
-    // The exact offset depends on the card design. For S3 Trio64, registers are typically
-    // accessed via legacy I/O space, but on Zorro cards this may be different.
+    // This is where the Cybervision maps its IO registers in Zorro space
     bi->RegisterBase = (UBYTE *)memoryBase + 0x02000000 + REGISTER_OFFSET;
 
     // We basically don't use MMIO, so trick the driver to access IO registers

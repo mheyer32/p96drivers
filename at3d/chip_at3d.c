@@ -348,12 +348,6 @@ ULONG setMemoryClock(struct BoardInfo *bi, ULONG clockHz)
     return actualFreqKhz * 1000;  // convert to hz
 }
 
-I2COps_t *getI2COps(struct BoardInfo *bi)
-{
-    CardData_t *card = getCardData(bi);
-    return &card->i2cOps;
-}
-
 // Stub implementations for required functions
 // FIXME: BoardInfo defines this function as returning a BOOL, but what are we supposed to return?!
 static BOOL ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
@@ -2929,14 +2923,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     UBYTE miscOut = R_REG(MISC_R);
     D(INFO, "Monitor is %s present (may be inaccurate)\n", (miscOut & 0x10) ? "" : "not");
-
-    // Initialize I2C operations for EDID support
-    CardData_t *card     = getCardData(bi);
-    card->i2cOps.init    = at3dI2cInit;
-    card->i2cOps.setScl  = at3dI2cSetScl;
-    card->i2cOps.setSda  = at3dI2cSetSda;
-    card->i2cOps.readScl = at3dI2cReadScl;
-    card->i2cOps.readSda = at3dI2cReadSda;
 
     D(INFO, "Attempting EDID readout of monitor\n");
     UBYTE edid_data[EDID_BLOCK_SIZE];

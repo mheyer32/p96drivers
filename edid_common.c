@@ -17,7 +17,7 @@
  */
 void i2cStart(struct BoardInfo *bi)
 {
-    I2COps_t *ops = getI2COps(bi);
+    const I2COps_t *ops = getI2COps(bi);
     if (!ops) {
         DFUNC(ERROR, "I2C ops not initialized\n");
         return;
@@ -44,7 +44,7 @@ void i2cStart(struct BoardInfo *bi)
  */
 void i2cStop(struct BoardInfo *bi)
 {
-    I2COps_t *ops = getI2COps(bi);
+    const I2COps_t *ops = getI2COps(bi);
     if (!ops) {
         DFUNC(ERROR, "I2C ops not initialized\n");
         return;
@@ -72,7 +72,7 @@ void i2cStop(struct BoardInfo *bi)
  */
 BOOL i2cWriteBit(struct BoardInfo *bi, UBYTE bit)
 {
-    I2COps_t *ops = getI2COps(bi);
+    const I2COps_t *ops = getI2COps(bi);
     if (!ops) {
         DFUNC(ERROR, "I2C ops not initialized\n");
         return FALSE;
@@ -100,7 +100,7 @@ BOOL i2cWriteBit(struct BoardInfo *bi, UBYTE bit)
  */
 UBYTE i2cReadBit(struct BoardInfo *bi)
 {
-    I2COps_t *ops = getI2COps(bi);
+    const I2COps_t *ops = getI2COps(bi);
     if (!ops) {
         DFUNC(ERROR, "I2C ops not initialized\n");
         return 0;
@@ -180,7 +180,7 @@ BOOL readEDIDBlock(struct BoardInfo *bi, UBYTE *edid_data, UBYTE i2c_addr, UBYTE
         return FALSE;
     }
 
-    I2COps_t *ops = getI2COps(bi);
+    const I2COps_t *ops = getI2COps(bi);
     if (!ops) {
         DFUNC(ERROR, "I2C ops not initialized\n");
         return FALSE;

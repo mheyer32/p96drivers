@@ -1,10 +1,7 @@
 #ifndef CHIP_ATIMACH64_H
 #define CHIP_ATIMACH64_H
 
-#include "common.h"
 #include "mach64_common.h"
-
-#include <exec/types.h>  // This header is required for UBYTE and UWORD
 
 #include <assert.h>
 
@@ -26,6 +23,9 @@ typedef struct ChipSpecific
     ComputeFrequencyFromPllValueFunc_t computeVCLKFrequency;
 } ChipSpecific_t;
 
+struct I2COps;
+typedef struct I2COps I2COps_t;
+
 typedef struct ChipData
 {
     ULONG GEfgPen;
@@ -44,6 +44,8 @@ typedef struct ChipData
     UWORD chipFamily;  // chip family
     UWORD ioSparseBase;
     ChipSpecific_t *chipSpecific;
+
+    const I2COps_t *i2cOps;
 } ChipData_t;
 
 STATIC_ASSERT(sizeof(ChipData_t) < SIZEOF_MEMBER(BoardInfo_t, ChipData), check_chipdata_size);

@@ -197,3 +197,20 @@ BOOL s3I2cReadSda(struct BoardInfo *bi)
 // I2C protocol functions (start, stop, bit/byte read/write) are now in edid_common.c
 // They use the I2COps interface provided by s3I2cInit, s3I2cSetScl, etc.
 
+// Static I2C operations structure for S3
+static const I2COps_t s3_i2c_ops = {
+    .init =   s3I2cInit,
+    .setScl = s3I2cSetScl,
+    .setSda = s3I2cSetSda,
+    .readScl =s3I2cReadScl,
+    .readSda =s3I2cReadSda
+};
+
+/**
+ * Get I2C operations for S3 card
+ * This function is required by edid_common.c
+ */
+const I2COps_t *getI2COps(struct BoardInfo *bi)
+{
+    return &s3_i2c_ops;
+}
