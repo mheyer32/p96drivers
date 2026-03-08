@@ -2927,7 +2927,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->GraphicsControllerType = GCT_S3Trio64;
     bi->PaletteChipType        = PCT_S3Trio64;
     bi->Flags = bi->Flags | BIF_NOMEMORYMODEMIX | BIF_BORDERBLANK | BIF_BLITTER | BIF_GRANTDIRECTACCESS |
-                BIF_VGASCREENSPLIT | BIF_HASSPRITEBUFFER | BIF_HARDWARESPRITE;
+                BIF_VGASCREENSPLIT | BIF_HARDWARESPRITE;
     // Trio64 supports BGR_8_8_8_X 24bit, R5G5B5 and R5G6B5 modes.
     // From the perspective of our big endian machine, the following formats map to that:
     // 32bit register filled with XRGB, the written memory order will be BGRX
