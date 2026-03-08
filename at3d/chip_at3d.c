@@ -783,7 +783,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     bi->Border   = border;
 
     UWORD hTotal      = mi->HorTotal;
-    UWORD ScreenWidth = mi->Width;
+    UWORD screenWidth = mi->Width;
     UBYTE modeFlags   = mi->Flags;
     BOOL isInterlaced = (modeFlags & GMF_INTERLACE) ? 1 : 0;
     UBYTE depth       = mi->Depth;
@@ -813,12 +813,15 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         UWORD hTotalClk = TO_CLKS(hTotal) - 5;
         D(INFO, "Horizontal Total %ld\n", (ULONG)hTotalClk);
         W_CR_OVERFLOW1(hTotalClk, 0x00, 0, 8, 0x1B, 0, 1);
+
+        // Horizontal interlaced start
+        W_CR_OVERFLOW1(hTotalClk >> 1, 0x19, 0, 8, 0x1B, 4, 1);
     }
 
     {
         // Horizontal Display End Register (CR1)
         // One less than the total number of displayed characters
-        UWORD hDisplayEnd = TO_CLKS(ScreenWidth) - 1;
+        UWORD hDisplayEnd = TO_CLKS(screenWidth) - 1;
         D(INFO, "Display End %ld\n", (ULONG)hDisplayEnd);
         W_CR_OVERFLOW1(hDisplayEnd, 0x01, 0, 8, 0x1B, 1, 1);
     }
@@ -826,7 +829,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     UWORD hBorderSize = ADJUST_HBORDER(mi->HorBlankSize);
     {
         // Start Horizontal Blank Register (CR2)
-        UWORD hBlankStart = TO_CLKS(ScreenWidth + hBorderSize) - 1;
+        UWORD hBlankStart = TO_CLKS(screenWidth + hBorderSize);
         D(INFO, "Horizontal Blank Start %ld\n", (ULONG)hBlankStart);
         W_CR_OVERFLOW1(hBlankStart, 0x02, 0, 8, 0x1B, 2, 1);
     }
@@ -840,14 +843,14 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 
     {
         // Start Horizontal Sync Position Register (CR4)
-        UWORD hSyncStart = TO_CLKS(ScreenWidth + mi->HorSyncStart);
+        UWORD hSyncStart = TO_CLKS(screenWidth + mi->HorSyncStart);
         D(INFO, "HSync start %ld\n", (ULONG)hSyncStart);
         W_CR_OVERFLOW1(hSyncStart, 0x04, 0, 8, 0x1B, 3, 1);
     }
 
     {
         // End Horizontal Sync Position Register (CR5)
-        UWORD endHSync = TO_CLKS(ScreenWidth + mi->HorSyncStart + mi->HorSyncSize);
+        UWORD endHSync = TO_CLKS(screenWidth + mi->HorSyncStart + mi->HorSyncSize)  - 1;
         D(INFO, "HSync End %ld\n", (ULONG)endHSync);
         W_CR_MASK(0x05, 0x1f, endHSync);
     }
@@ -868,7 +871,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 
     {
         // Vertical Retrace Start Register (VRS) (CR10)
-        UWORD vRetraceStart = TO_SCANLINES(mi->Height + mi->VerSyncStart) - 1;
+        UWORD vRetraceStart = TO_SCANLINES(mi->Height + mi->VerSyncStart);
         D(INFO, "VRetrace Start %ld\n", (ULONG)vRetraceStart);
         W_CR_OVERFLOW3(vRetraceStart, 0x10, 0, 8, 0x07, 2, 1, 0x07, 7, 1, 0x1A, 3, 1);
     }
@@ -885,7 +888,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     UWORD vBlankSize = ADJUST_VBORDER(mi->VerBlankSize);
     {
         // Start Vertical Blank Register (SVB) (CR15)
-        UWORD vBlankStart = TO_SCANLINES(mi->Height + vBlankSize) - 1;
+        UWORD vBlankStart = TO_SCANLINES(mi->Height + vBlankSize);
         D(INFO, "VBlank Start %ld\n", (ULONG)vBlankStart);
         W_CR_OVERFLOW3(vBlankStart, 0x15, 0, 8, 0x07, 3, 1, 0x09, 5, 1, 0x1A, 2, 1);
     }
@@ -907,11 +910,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
             interlaceCtrl &= ~BIT(0);  // Disable interlace
         }
         W_MMIO_B(MONITOR_INTERLACE_CTRL, interlaceCtrl);
-
-        // Horizontal interlaced start
-        // FIXME: is this right?
-        UWORD horizontalInterlaceStart = TO_CLKS(mi->HorSyncStart + ScreenWidth + mi->HorSyncSize + 8);
-        W_CR_OVERFLOW1(horizontalInterlaceStart, 0x19, 0, 8, 0x1B, 4, 1);  //?
     }
 
     // Doublescan
@@ -1440,7 +1438,7 @@ static INLINE void setDrawSize(struct BoardInfo *bi, UWORD width, UWORD height)
     W_MMIO_W(SRC_SIZE_X, width);
 }
 
-static INLINE setFormat(struct BoardInfo *bi, RGBFTYPE fmt)
+static INLINE void setFormat(struct BoardInfo *bi, RGBFTYPE fmt)
 {
     ChipData_t *cd = getChipData(bi);
     if (cd->GEFormat != fmt) {

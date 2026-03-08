@@ -528,7 +528,7 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __R
     return;
 }
 
-static INLINE REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags)
+static INLINE REGARGS UWORD toScanLines(UWORD y, UWORD modeFlags)
 {
     if (modeFlags & GMF_DOUBLESCAN)
         y *= 2;
@@ -537,10 +537,10 @@ static INLINE REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags)
     return y;
 }
 
-static INLINE REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
+static INLINE REGARGS UWORD adjustBorder(UWORD x, BOOL borderEnabled, UWORD minBorder)
 {
-    if (!border || x == 0)
-        x = defaultX;
+    if (!borderEnabled || x == 0)
+        x = minBorder;
     return x;
 }
 
@@ -552,7 +552,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     UBYTE depth;
     UBYTE modeFlags;
     UWORD hTotal;
-    UWORD ScreenWidth;
+    UWORD screenWidth;
 
     DFUNC(VERBOSE,
           "W %ld, H %ld, HTotal %ld, HBlankSize %ld, HSyncStart %ld, HSyncSize "
@@ -579,7 +579,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 #endif
 
     hTotal       = mi->HorTotal;
-    ScreenWidth  = mi->Width;
+    screenWidth  = mi->Width;
     modeFlags    = mi->Flags;
     isInterlaced = (modeFlags & GMF_INTERLACE) != 0;
 
@@ -668,7 +668,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         W_CR_MASK(0x43, 0x80, 0x80);
         // And double again. We need x4 "dot clocks"
         hTotal      = hTotal * 2;
-        ScreenWidth = ScreenWidth * 2;
+        screenWidth = screenWidth * 2;
 #else
         // Reset doubling all horizontal parameters.
         W_CR_MASK(0x43, 0x80, 0x00);
@@ -676,39 +676,35 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         border = 0;
     }
 
-#define ADJUST_HBORDER(x) AdjustBorder(x, border, 8)
-#define ADJUST_VBORDER(y) AdjustBorder(y, border, 1);
+#define ADJUST_HBORDER(x) adjustBorder(x, border, 8)
+#define ADJUST_VBORDER(y) adjustBorder(y, border, 1);
 #define TO_CLKS(x)        ((x) >> 3)
-#define TO_SCANLINES(y)   ToScanLines((y), modeFlags)
+#define TO_SCANLINES(y)   toScanLines((y), modeFlags)
 
     {
         // Horizontal Total (CRO)
         UWORD hTotalClk = TO_CLKS(hTotal) - 5;
         D(INFO, "Horizontal Total %ld\n", (ULONG)hTotalClk);
         W_CR_OVERFLOW1(hTotalClk, 0x0, 0, 8, 0x5D, 0, 1);
-        // FIXME: is this correct?
-        {
-            // Interlace Retrace Start Register (lL_RTSTART) (CR3C) ???
-            W_CR(0x3c, hTotalClk >> 1);
-        }
+        // Interlace Retrace Start Register (IL_RTSTART) (CR3C)
+        W_CR(0x3c, hTotalClk >> 1);
     }
     {
         // Horizontal Display End Register (H_D_END) (CR1)
         // One less than the total number of displayed characters
         // This register defines the number of character clocks for one line of the
         // active display. Bit 8 of this value is bit 1 of CR5D.
-        UWORD hDisplayEnd = TO_CLKS(ScreenWidth) - 1;
+        UWORD hDisplayEnd = TO_CLKS(screenWidth) - 1;
         D(INFO, "Display End %ld\n", (ULONG)hDisplayEnd);
-        W_CR_OVERFLOW1(hDisplayEnd, 0x1, 0, 8, 0x5D, 1, 1);
+        W_CR_OVERFLOW1(hDisplayEnd, 0x1, 0, 8, 0x5d, 1, 1);
     }
 
     UWORD hBorderSize = ADJUST_HBORDER(mi->HorBlankSize);
-    UWORD hBlankStart = TO_CLKS(ScreenWidth + hBorderSize) - 1;
     {
         // AR11 register defines the overscan or border color displayed on the CRT
         // screen. The overscan color is displayed when both BLANK and DE (Display
         // Enable) signals are inactive.
-
+        UWORD hBlankStart = TO_CLKS(screenWidth + hBorderSize);
         // Start Horizontal Blank Register (S_H_BLNKI (CR2))
         D(INFO, "Horizontal Blank Start %ld\n", (ULONG)hBlankStart);
         W_CR_OVERFLOW1(hBlankStart, 0x2, 0, 8, 0x5d, 2, 1);
@@ -722,18 +718,18 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         W_CR_OVERFLOW1(hBlankEnd, 0x3, 0, 5, 0x5, 7, 1);
     }
 
-    UWORD hSyncStart = TO_CLKS(mi->HorSyncStart + ScreenWidth);
+    UWORD hSyncStart = TO_CLKS(screenWidth + mi->HorSyncStart);
     {
         // Start Horizontal Sync Position Register (S_H_SV _PI (CR4)
         D(INFO, "HSync start %ld\n", (ULONG)hSyncStart);
         W_CR_OVERFLOW1(hSyncStart, 0x4, 0, 8, 0x5d, 4, 1);
     }
 
-    UWORD endHSync = hSyncStart + TO_CLKS(mi->HorSyncSize);
+    UWORD hSyncEnd = TO_CLKS(screenWidth + mi->HorSyncStart + mi->HorSyncSize) - 1;
     {
         // End Horizontal Sync Position Register (E_H_SY_P) (CR5)
-        D(INFO, "HSync End %ld\n", (ULONG)endHSync);
-        W_CR_MASK(0x5, 0x1f, endHSync);
+        D(INFO, "HSync End %ld\n", (ULONG)hSyncEnd);
+        W_CR_MASK(0x5, 0x1f, hSyncEnd);
         //    W_CR_OVERFLOW1(endHSync, 0x5, 0, 5, 0x5d, 5, 1);
     }
 
@@ -746,8 +742,8 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     // horizontal blanking period for RAM refresh and hardware cursor fetch.
     {
         UWORD startDisplayFifo = TO_CLKS(hTotal) - 5 - 5;
-        if (endHSync > startDisplayFifo) {
-            startDisplayFifo = endHSync + 1;
+        if (hSyncEnd > startDisplayFifo) {
+            startDisplayFifo = hSyncEnd + 1;
         }
         D(INFO, "Start Display Fifo %ld\n", (ULONG)startDisplayFifo);
         W_CR_OVERFLOW1(startDisplayFifo, 0x3b, 0, 8, 0x5d, 6, 1);
@@ -760,7 +756,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         W_CR_OVERFLOW3(vTotal, 0x6, 0, 8, 0x7, 0, 1, 0x7, 5, 1, 0x5e, 0, 1);
     }
 
-    UWORD vBlankSize = ADJUST_VBORDER(mi->VerBlankSize);
     {
         // Vertical Display End register (CR12)
         UWORD vDisplayEnd = TO_SCANLINES(mi->Height) - 1;
@@ -768,37 +763,24 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         W_CR_OVERFLOW3(vDisplayEnd, 0x12, 0, 8, 0x7, 1, 1, 0x7, 6, 1, 0x5e, 1, 1);
     }
 
+    UWORD vBlankSize = ADJUST_VBORDER(mi->VerBlankSize);
     {
         // Start Vertical Blank Register (SVB) (CR15)
-        UWORD vBlankStart = mi->Height;
-        if ((modeFlags & GMF_DOUBLESCAN) != 0) {
-            vBlankStart = vBlankStart * 2;
-        }
-        // FIXME: the blankSize is unaffected by double scan, but affected by
-        // interlaced?
-        vBlankStart = ((vBlankStart + vBlankSize) >> isInterlaced) - 1;
+        UWORD vBlankStart = TO_SCANLINES(mi->Height + vBlankSize);
         D(INFO, "VBlank Start %ld\n", (ULONG)vBlankStart);
         W_CR_OVERFLOW3(vBlankStart, 0x15, 0, 8, 0x7, 3, 1, 0x9, 5, 1, 0x5e, 2, 1);
     }
 
     {
         // End Vertical Blank Register (EVB) (CR16)
-        UWORD vBlankEnd = mi->VerTotal;
-        if ((modeFlags & GMF_DOUBLESCAN) != 0) {
-            vBlankEnd = vBlankEnd * 2;
-        }
-        vBlankEnd = ((vBlankEnd - vBlankSize) >> isInterlaced) - 1;
+        UWORD vBlankEnd = TO_SCANLINES(mi->VerTotal - vBlankSize) - 1;
         D(6, "VBlank End %ld\n", (ULONG)vBlankEnd);
-        // FIXME: the blankSize is unaffected by double scan, but affected by
-        // interlaced?
         W_CR(0x16, vBlankEnd);
     }
 
-    UWORD vRetraceStart = TO_SCANLINES(mi->Height + mi->VerSyncStart) - 1;
+    UWORD vRetraceStart = TO_SCANLINES(mi->Height + mi->VerSyncStart);
     {
         // Vertical Retrace Start Register (VRS) (CR10)
-        // FIXME: here VsyncStart is in lines, not scanlines, while mi->VerBlankSize
-        // is in scanlines?
         D(INFO, "VRetrace Start %ld\n", (ULONG)vRetraceStart);
         W_CR_OVERFLOW3(vRetraceStart, 0x10, 0, 8, 0x7, 2, 1, 0x7, 7, 1, 0x5e, 4, 1);
     }
@@ -810,7 +792,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // width in scan line units to the CR10 value, also in scan line units. The
         // 4 1east significant bits of this sum are programmed into this field.
         // This allows a maximum VSYNC pulse width of 15 scan line units.
-        UWORD vRetraceEnd = TO_SCANLINES(mi->Height + mi->VerSyncStart + mi->VerSyncSize) -1;
+        UWORD vRetraceEnd = TO_SCANLINES(mi->Height + mi->VerSyncStart + mi->VerSyncSize) - 1;
         D(INFO, "VRetrace End %ld\n", (ULONG)vRetraceEnd);
         W_CR_MASK(0x11, 0x0F, vRetraceEnd);
     }
@@ -3470,6 +3452,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     //  1 = Disables the write protect setting of the bit 7 of CR11 on bits 1
     //      and 6 of CR7
     W_CR(0x33, 0x02);
+
+    // Backward Compatibility 3 Register (BKWD_3) (CR34)
+    // Bit 4 ENB SFF - Enable Start Display FIFO Fetch Register(CR3B)
+    W_CR_MASK(0x34, BIT(4), BIT(4));
+
     /* Miscellaneous 1 (CR3A)
      * Bits 1-0 REF-CNT - Alternate Refresh Count Control
           01 = Refresh Count 1
