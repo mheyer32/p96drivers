@@ -3342,9 +3342,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_SR(0x14, 0x00);
 
     // FIXME: this has memory setting implications potentially only valid for the
-    // Cybervision
-    //  W_SR(0xa, 0xc0);
-    //  W_SR(0x18, 0xc0);
+#ifdef CONFIG_CYBERVISION64
+    W_SR(0x0A, BIT(6)); // Support 4MB FPM RAM and 2MCLK memory writes
+    W_SR(0x18, BIT(6)); // 1 DCLK LUT Write Cycle
+#endif
 
     // Init RAMDAC
 #if BUILD_VISION864
@@ -3539,8 +3540,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_REG(ATR_AD, 0x20);
 
     // Just some diagnostics; FIXME: this is different between various series of Vision/Trio chips
+    const UBYTE memType = (R_CR(0x36) >> 2) & 3;
 #ifdef DBG
-    UBYTE memType = (R_CR(0x36) >> 2) & 3;
     switch (memType) {
     case 0b00:
         D(1, "1-cycle EDO\n");
@@ -3579,9 +3580,15 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             } else if (bi->MemorySize >= 0x400000) {
                 LAWSize = 0b11;
                 MemSize = 0b000;
+                if (chipFamily >= TRIO64 && memType == 0b11 /* FPM */) {
+                    // This bit must be set to 1 for 4-MByte fast page mode memory configurations.
+                    // This bit has no function if bit 2 of CR36 is cleared to 0 to indicate EDO memory.
+                    W_SR_MASK(0x0A, BIT(6), BIT(6));
+                }
             } else if (bi->MemorySize >= 0x200000) {
                 LAWSize = 0b10;  // 2MB
                 MemSize = 0b100;
+                W_SR_MASK(0x0A, BIT(6), 0);
             } else {
                 LAWSize = 0b01;  // 1MB
                 MemSize = 0b110;
