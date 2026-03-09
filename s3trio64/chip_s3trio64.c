@@ -1841,7 +1841,9 @@ static INLINE void REGARGS setMix(struct BoardInfo *bi, UWORD frgdMix, UWORD bkg
 
 static INLINE void setForegroundColor(struct BoardInfo *bi, ULONG fgPen)
 {
-#if !MMIO_ONLY
+
+    //Cybervision seeems to byte-swap WORD sized registers but not longword ones
+#if !MMIO_ONLY && !defined(CONFIG_CYBERVISION64)
     REGBASE();
     W_IO_L(FRGD_COLOR, fgPen);
 #else
@@ -1853,7 +1855,8 @@ static INLINE void setForegroundColor(struct BoardInfo *bi, ULONG fgPen)
 
 static INLINE void setBackgroundColor(struct BoardInfo *bi, ULONG bgPen)
 {
-#if !MMIO_ONLY
+    //Cybervision seeems to byte-swap WORD sized registers but not longword ones
+#if !MMIO_ONLY && !defined(CONFIG_CYBERVISION64)
     REGBASE();
     W_IO_L(BKGD_COLOR, bgPen);
 #else
@@ -1889,7 +1892,7 @@ static INLINE void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG 
 
 static INLINE void setWriteMask(const struct BoardInfo *bi, ULONG mask)
 {
-#if !MMIO_ONLY
+#if !MMIO_ONLY && !defined(CONFIG_CYBERVISION64)
     REGBASE();
     W_IO_L(WRT_MASK, mask);
 #else
