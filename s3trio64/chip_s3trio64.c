@@ -1644,6 +1644,8 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
 
 static INLINE void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
 {
+// S3Trio64+ and above allow PCI Disconnect when FIFO is full
+#if defined(CONFIG_S3TRIO3264) || defined(CONFIG_CYBERVISION64)
     if (!numSlots) {
         return;
     }
@@ -1676,6 +1678,7 @@ static INLINE void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
 #endif
 
     D(CHATTY, "done\n");
+#endif
 }
 
 #define MByte(x) ((x) * (1024 * 1024))
@@ -1823,8 +1826,7 @@ static INLINE void REGARGS setMix(struct BoardInfo *bi, UWORD frgdMix, UWORD bkg
 
 static INLINE void setForegroundColor(struct BoardInfo *bi, ULONG fgPen)
 {
-
-    //Cybervision seeems to byte-swap WORD sized registers but not longword ones
+    // Cybervision seeems to byte-swap WORD sized registers but not longword ones
 #if !MMIO_ONLY && !defined(CONFIG_CYBERVISION64)
     REGBASE();
     W_IO_L(FRGD_COLOR, fgPen);
@@ -1837,7 +1839,7 @@ static INLINE void setForegroundColor(struct BoardInfo *bi, ULONG fgPen)
 
 static INLINE void setBackgroundColor(struct BoardInfo *bi, ULONG bgPen)
 {
-    //Cybervision seeems to byte-swap WORD sized registers but not longword ones
+    // Cybervision seeems to byte-swap WORD sized registers but not longword ones
 #if !MMIO_ONLY && !defined(CONFIG_CYBERVISION64)
     REGBASE();
     W_IO_L(BKGD_COLOR, bgPen);
@@ -3220,6 +3222,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #endif
     }
 
+#if defined(CONFIG_S3TRIO64PLUS) || defined(CONFIG_STRIO64V2)
+    W_CR_MASK(0x66, BIT(7)|BIT(3), BIT(7)|BIT(3)); // enable PCI Disconnect on FIFO full
+#endif
     D(INFO, "MMIO base address: 0x%08lx, IO base address: 0x%08lx \n", (ULONG)getMMIOBase(bi), (ULONG)getIOBase(bi));
 
     MMIOBASE();
