@@ -1645,7 +1645,7 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
 static INLINE void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
 {
 // S3Trio64+ and above allow PCI Disconnect when FIFO is full
-#if defined(CONFIG_S3TRIO3264) || defined(CONFIG_CYBERVISION64)
+#if defined(CONFIG_VISION864) || defined(CONFIG_S3TRIO3264) || defined(CONFIG_CYBERVISION64)
     if (!numSlots) {
         return;
     }
