@@ -2670,6 +2670,9 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
 
     setBlitSrcPosAndSize(bi, dstX, dstY, width, height);
 
+    // FIXME: we can optimize this by building a mask of 0 and 1 planes and then do a single fill
+    // first to establish that pattern. IDK how much this feature is used, though. I guess its meant
+    // to support planar images with less than 8 bitplanes.
     if ((ULONG)bitmap == 0x00000000) {
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
         W_MMIO_W(FRGD_MIX, (CLR_SRC_BKGD_COLOR | mixMode));
@@ -2754,21 +2757,16 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         // Invalidate the pen and drawmode caches
         cd->GEdrawMode = 0xFF;
 
+        cd->GEfgPen = 0xFFFFFFFF;
+        cd->GEbgPen = 0x00000000;
+
         setForegroundColor(bi, 0xFFFFFFFF);
         setBackgroundColor(bi, 0x00000000);
     }
 
-    UWORD mixMode = minTermToMix[minTerm];
-
-    if (cd->GEfgPen != 0xFFFFFFFF || cd->GEdrawMode != minTerm || cd->GEFormat != RGBFB_CLUT) {
-        cd->GEfgPen    = 0xFFFFFFFF;
-        cd->GEbgPen    = 0x00000000;
-        cd->GEdrawMode = minTerm;
-        cd->GEFormat   = RGBFB_CLUT;
-
-        WaitFifo(bi, 10);
-        setMix(bi, (CLR_SRC_FRGD_COLOR | mixMode), (CLR_SRC_BKGD_COLOR | mixMode));
-    }
+    UWORD mixMode = mintermToMixMode(minTerm);
+    cd->GEdrawMode = minTerm;
+    cd->GEFormat   = RGBFB_CLUT;
 
     MMIOBASE();
 
