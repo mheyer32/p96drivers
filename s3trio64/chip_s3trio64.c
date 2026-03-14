@@ -1885,11 +1885,14 @@ static INLINE void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask, RGBF
 {
     ChipData_t *cd = getChipData(bi);
 
-    if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
-        // 16/32 bit modes ignore the mask
-        cd->GEmask = 0xFF;
-        WaitFifo(bi, waitFifoSlots + 2);
-        setWriteMask(bi, 0xFFFFFFFF);
+    if (fmt != RGBFB_CLUT) {
+        if (cd->GEmask != 0xFF) {
+            // 16/32 bit modes are supposed to ignore the mask, so set it to ~0
+            // if not done so yet
+            cd->GEmask = 0xFF;
+            waitFifo(bi, waitFifoSlots + 2);
+            setWriteMask(bi, 0xFFFFFFFF);
+        }
     } else {
         // 8bit modes use the mask
         if (cd->GEmask != mask) {
