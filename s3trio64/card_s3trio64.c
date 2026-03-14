@@ -1,15 +1,15 @@
-#include "s3trio64_common.h"
 #include "card_common.h"
+#include "s3trio64_common.h"
 
 #define __NOLIBBASE__
 #include <clib/debug_protos.h>
 #include <exec/nodes.h>
 #include <exec/types.h>
 #include <proto/exec.h>
-#include <proto/picasso96_chip.h>
-#include <proto/utility.h>
 #include <proto/openpci.h>
+#include <proto/picasso96_chip.h>
 #include <proto/timer.h>
+#include <proto/utility.h>
 #include <utility/tagitem.h>
 
 #define OPENPCI_SWAP  // don't make it define its own SWAP macros
@@ -142,7 +142,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         generateBoardName(getCardData(bi)->boardName, "S3Trio64", bus, slot);
         bi->BoardName = getCardData(bi)->boardName;
 
-        // Found and claimed the board, break out of first loop
+        // Found and claimed the board
         break;
     }
 

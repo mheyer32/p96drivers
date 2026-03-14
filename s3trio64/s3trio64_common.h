@@ -122,6 +122,6 @@ static INLINE void writeCv64CtrlRegister(BoardInfo_t *bi, UBYTE value)
 #define CV64_MONITOR_SWITCH_BIT 0x10  // 0 = show passthrough (Amiga), 1 = show Cybervision
 #define CV64_SWAP16_BIT         0x20  // 0 = no word swap, 1 = word swap
 #define CV64_SWAP32_BIT         0x40  // 0 = no dword swap, 1 = dword swap
-#endif  // CONFIG_CYBERVISION64
+#endif                                // CONFIG_CYBERVISION64
 
 #endif  // S3TRIO64_COMMON_H

@@ -103,7 +103,7 @@ BOOL InitSDAC(struct BoardInfo *bi)
 
     DAC_ENABLE_RS2();
 
-    W_REG(SDAC_WR_ADR, 0x0E);              // PLL Control register
+    W_REG(SDAC_WR_ADR, 0x0E);  // PLL Control register
     // In the ICS 5430, f0 and f1 are fixed clocks and cannot be programmed
     W_REG(SDAC_PLL_PARAM, BIT(5) | 0x02);  // Enable internal clock select. Select CLK0 = 2 and CLK1 = fA;
     W_REG(SDAC_PLL_PARAM, 0);              // Pseudo 2nd byte write to realize the change

@@ -1784,7 +1784,7 @@ static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 
 static INLINE void REGARGS drawModeToMixMode(UBYTE drawMode, UWORD *frgdMix, UWORD *bkgdMix)
 {
-    UWORD f  = CLR_SRC_FRGD_COLOR, g = CLR_SRC_BKGD_COLOR;
+    UWORD f = CLR_SRC_FRGD_COLOR, g = CLR_SRC_BKGD_COLOR;
     switch (drawMode & (JAM1 | JAM2 | COMPLEMENT)) {
     case JAM1:
         f |= MIX_NEW;
@@ -2764,7 +2764,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         setBackgroundColor(bi, 0x00000000);
     }
 
-    UWORD mixMode = mintermToMixMode(minTerm);
+    UWORD mixMode  = mintermToMixMode(minTerm);
     cd->GEdrawMode = minTerm;
     cd->GEFormat   = RGBFB_CLUT;
 
@@ -3227,7 +3227,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
 
 #if defined(CONFIG_S3TRIO64PLUS) || defined(CONFIG_STRIO64V2)
-    W_CR_MASK(0x66, BIT(7)|BIT(3), BIT(7)|BIT(3)); // enable PCI Disconnect on FIFO full
+    W_CR_MASK(0x66, BIT(7) | BIT(3), BIT(7) | BIT(3));  // enable PCI Disconnect on FIFO full
 #endif
     D(INFO, "MMIO base address: 0x%08lx, IO base address: 0x%08lx \n", (ULONG)getMMIOBase(bi), (ULONG)getIOBase(bi));
 
@@ -3337,8 +3337,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     // FIXME: this has memory setting implications potentially only valid for the
 #ifdef CONFIG_CYBERVISION64
-    W_SR(0x0A, BIT(6)); // Support 4MB FPM RAM and 2MCLK memory writes
-    W_SR(0x18, BIT(6)); // 1 DCLK LUT Write Cycle
+    W_SR(0x0A, BIT(6));  // Support 4MB FPM RAM and 2MCLK memory writes
+    W_SR(0x18, BIT(6));  // 1 DCLK LUT Write Cycle
 #endif
 
     // Init RAMDAC
@@ -3734,7 +3734,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             D(INFO, "EDID: Not available or read failed (monitor may not support EDID)\n");
         }
     }
-
 
     return TRUE;
 }

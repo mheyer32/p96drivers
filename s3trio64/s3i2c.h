@@ -43,6 +43,4 @@ BOOL s3I2cReadScl(struct BoardInfo *bi);
  */
 BOOL s3I2cReadSda(struct BoardInfo *bi);
 
-#endif // S3I2C_H
-
-
+#endif  // S3I2C_H

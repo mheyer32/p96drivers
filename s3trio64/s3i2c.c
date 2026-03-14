@@ -1,5 +1,5 @@
-#include "s3trio64_common.h"
 #include "edid_common.h"
+#include "s3trio64_common.h"
 
 // Serial Port Register (MMFF20) - MMIO offset 0xFF20
 #define SERIAL_PORT_REG 0xFF20
@@ -22,18 +22,18 @@
 BOOL s3I2cInit(struct BoardInfo *bi)
 {
     MMIOBASE();
-    
+
     // Enable serial port by setting SPE bit
     ULONG serialReg = R_MMIO_L(SERIAL_PORT_REG);
     W_MMIO_L(SERIAL_PORT_REG, serialReg | SERIAL_SPE);
-    
+
     // Release both SDA and SCL lines (set to high/tri-state)
     serialReg = R_MMIO_L(SERIAL_PORT_REG);
     W_MMIO_L(SERIAL_PORT_REG, serialReg | SERIAL_SCW | SERIAL_SDW);
-    
+
     // Wait a bit for lines to stabilize
     delayMicroSeconds(10);
-    
+
     D(VERBOSE, "I2C bus initialized\n");
     return TRUE;
 }
@@ -52,15 +52,15 @@ void s3I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
     if (high) {
         // Release SCL (set to tri-state/high)
         W_MMIO_L(SERIAL_PORT_REG, serialReg | SERIAL_SCW);
-        
+
         // Small delay to allow hardware to actually release the line
         delayMicroSeconds(I2C_DELAY_US);
-        
+
 #ifdef DBG
         // First, verify that SCL actually goes high (pull-up working)
         // Give it a few attempts to account for hardware settling time
         int settle_attempts = 5;
-        BOOL scl_high = FALSE;
+        BOOL scl_high       = FALSE;
         while (settle_attempts-- > 0) {
             serialReg = R_MMIO_L(SERIAL_PORT_REG);
             if (serialReg & SERIAL_SCR) {
@@ -69,23 +69,24 @@ void s3I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
             }
             delayMicroSeconds(I2C_DELAY_US);
         }
-        
+
         if (!scl_high) {
             // SCL never went high - this is a hardware issue, not clock stretching
             // Could be: missing pull-up resistor, hardware not tri-stating properly
-            D(ERROR, "I2C SCL failed to go high after release (serialReg=0x%08lx) - check pull-up resistors\n", serialReg);
+            D(ERROR, "I2C SCL failed to go high after release (serialReg=0x%08lx) - check pull-up resistors\n",
+              serialReg);
             R_MMIO_L(0xFF08);
             // Continue anyway - might still work if slave drives it
         }
 #endif
-        
+
         if (checkClockStretching) {
             // SCL went high, now check for clock stretching
             // Clock stretching: slave pulls SCL low after master releases it
             // Wait a bit and check if slave pulled it low
             delayMicroSeconds(I2C_DELAY_US);
             serialReg = R_MMIO_L(SERIAL_PORT_REG);
-            
+
             if (!(serialReg & SERIAL_SCR)) {
                 // SCL went high but then went low - slave is clock stretching
                 // Wait for SCL to go high again (slave releases it)
@@ -106,7 +107,7 @@ void s3I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
             }
             // If SCL stayed high, no clock stretching occurred
         }
-        
+
 #ifdef DBG
         // Final verification: after all processing, SCL should be high when released
         delayMicroSeconds(I2C_DELAY_US);
@@ -120,7 +121,7 @@ void s3I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
         // Drive SCL low (no clock stretching check needed here)
         W_MMIO_L(SERIAL_PORT_REG, serialReg & ~SERIAL_SCW);
         delayMicroSeconds(I2C_DELAY_US);
-        
+
 #ifdef DBG
         // Verify that SCL is actually low (we're driving it, so it should be)
         serialReg = R_MMIO_L(SERIAL_PORT_REG);
@@ -138,14 +139,14 @@ void s3I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
  */
 void s3I2cSetSda(struct BoardInfo *bi, BOOL high)
 {
-   DFUNC(VERBOSE, " %s\n", high ? "HIGH" : "LOW");
+    DFUNC(VERBOSE, " %s\n", high ? "HIGH" : "LOW");
     MMIOBASE();
     ULONG serialReg = R_MMIO_L(SERIAL_PORT_REG);
     if (high) {
         // Release SDA (set to tri-state/high)
         W_MMIO_L(SERIAL_PORT_REG, serialReg | SERIAL_SDW);
         delayMicroSeconds(I2C_DELAY_US);
-        
+
 #ifdef DBG
         // Verify SDA goes high after release (slave may pull it low during ACK, which is expected)
         serialReg = R_MMIO_L(SERIAL_PORT_REG);
@@ -159,7 +160,7 @@ void s3I2cSetSda(struct BoardInfo *bi, BOOL high)
         // Drive SDA low
         W_MMIO_L(SERIAL_PORT_REG, serialReg & ~SERIAL_SDW);
         delayMicroSeconds(I2C_DELAY_US);
-        
+
 #ifdef DBG
         // Verify that SDA is actually low (we're driving it, so it should be)
         serialReg = R_MMIO_L(SERIAL_PORT_REG);
@@ -198,13 +199,11 @@ BOOL s3I2cReadSda(struct BoardInfo *bi)
 // They use the I2COps interface provided by s3I2cInit, s3I2cSetScl, etc.
 
 // Static I2C operations structure for S3
-static const I2COps_t s3_i2c_ops = {
-    .init =   s3I2cInit,
-    .setScl = s3I2cSetScl,
-    .setSda = s3I2cSetSda,
-    .readScl =s3I2cReadScl,
-    .readSda =s3I2cReadSda
-};
+static const I2COps_t s3_i2c_ops = {.init    = s3I2cInit,
+                                    .setScl  = s3I2cSetScl,
+                                    .setSda  = s3I2cSetSda,
+                                    .readScl = s3I2cReadScl,
+                                    .readSda = s3I2cReadSda};
 
 /**
  * Get I2C operations for S3 card

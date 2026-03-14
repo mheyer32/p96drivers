@@ -1,9 +1,9 @@
 #include "s3trio64_common.h"
 
 #define OPENPCI_SWAP  // don't make it define its own SWAP macros
-#include <proto/openpci.h>
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>
+#include <proto/openpci.h>
 
 ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision)
 {
@@ -38,11 +38,11 @@ ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision)
     case 0x890e:  // Trio 64V+ family
     case 0x890f:  // Trio 64V+ family
         return TRIO64PLUS;
-/* FIXME: we should not claim the Virge3D if we don't truly support it.
- * There's a dedicated Virge driver out there already
-     case 0x8a01:
-        return VIRGE3D;
- */
+        /* FIXME: we should not claim the Virge3D if we don't truly support it.
+         * There's a dedicated Virge driver out there already
+             case 0x8a01:
+                return VIRGE3D;
+         */
     default:
         DFUNC(WARN, "Unknown chip family 0x%04lx\n", (ULONG)deviceId);
         return UNKNOWN;
