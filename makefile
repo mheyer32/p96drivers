@@ -22,8 +22,6 @@ CFLAGS ?=
 LDFLAGS ?=
 LIBS = -lamiga
 
-
-
 BUILDFLAGS = -noixemul -mregparm=4 -msmall-code -m68020-60 -mtune=68030 -g -ggdb 
 
 ifeq ($(DEBUG),1)
@@ -66,14 +64,14 @@ endef
 define build_rules
 #create build directory if needed
 %/.:
-	$$(MKDIR) $$(@D)
+	@ $$(MKDIR) $$(@D)
 
 # build .c files into .o with dependency generation
 # $$$$(@D)/. will be doubly-evaluated to $(@D)/. which will trigger the build directory
 # target above
 ${1}%.o: %.c | makefile $$$$(@D)/.
-	echo $$(@D)
-	$$(CC) $$(CFLAGS) -MMD -MP -c $$< -o $$@
+	@ echo compiling $$< ...
+	@ $$(CC) $$(CFLAGS) -MMD -MP -c $$< -o $$@
 
 ${1}%.o: %.asm | makefile $$$$(@D)/.
 	$$(ASS) $$(AFLAGS) $$< -o $$@
@@ -95,14 +93,13 @@ ifeq ($(DEBUG),0)
 ${1} : LDFLAGS += -nodefaultlibs
 endif
 
-echo "Building: $${${1}_TARGET}"
-
 $$(eval $$(call build_rules,${2}))
 ${1} : $$(BUILDDIR)=${2}
 ${1} : $$(${1}_OBJS)
-	$$(MKDIR) $$(dir $$(${1}_TARGET))
-	$$(LD) $$^ $${LIBS} $$(LDFLAGS) -o $$(<D)/${1}
-	$$(STRIP) $$(<D)/${1} -o $$(${1}_TARGET)
+	$(info ============ Building: ${1} ============)
+	@ $$(MKDIR) $$(dir $$(${1}_TARGET))
+	@ $$(LD) $$^ $${LIBS} $$(LDFLAGS) -o $$(<D)/${1}
+	@ $$(STRIP) $$(<D)/${1} -o $$(${1}_TARGET)
 
 # Include dependency files for this target
 -include $$(${1}_DEPS)
@@ -114,8 +111,6 @@ ${1}_OBJS = $$(call create_objlist,$$(${1}_SRC),${2})
 ${1}_DEPS = $$(call create_deplist,$$(${1}_SRC),${2})
 ${1}_TARGET = $$(BINDIR)/${1}
 
-echo "Building: $${${1}_TARGET}"
-
 ${1} : CFLAGS += -DTESTEXE -DDBG -DDEBUG
 ${1} : LIBS += -ldebug -lm
 
@@ -123,9 +118,10 @@ $$(eval $$(call build_rules,${2}))
 
 ${1} : $$(BUILDDIR)=${2}
 ${1} : $$(${1}_OBJS)
-	$$(MKDIR) $$(dir $$(${1}_TARGET))
-	$$(LD) $$^ $$(LIBS) $$(LDFLAGS) -o $$(<D)/${1}
-	$$(STRIP) $$(<D)/${1} -o $$(${1}_TARGET)
+	$(info ============ Building: ${1} ============)
+	@ $$(MKDIR) $$(dir $$(${1}_TARGET))
+	@ $$(LD) $$^ $$(LIBS) $$(LDFLAGS) -o $$(<D)/${1}
+	@ $$(STRIP) $$(<D)/${1} -o $$(${1}_TARGET)
 
 # Include dependency files for this target
 -include $$(${1}_DEPS)
@@ -167,8 +163,6 @@ P96Headers : Picasso96_card.sfd Picasso96_chip.sfd  makefile
 	sfdc --sdi --output=Picasso96Develop/PrivateInclude/inline/picasso96_chip.h --target=m68k-amigaos --mode=macros Picasso96_chip.sfd
 	sfdc --sdi --output=Picasso96Develop/PrivateInclude/proto/picasso96_chip.h --target=m68k-amigaos --mode=proto Picasso96_chip.sfd
 	sfdc --sdi --output=Picasso96Develop/PrivateInclude/clib/picasso96_chip_protos.h --target=m68k-amigaos --mode=clib Picasso96_chip.sfd
-
-
 
 S3TRIO_SRC = common.c \
              s3trio64/s3trio64_common.c \
