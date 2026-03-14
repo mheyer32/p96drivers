@@ -1744,16 +1744,11 @@ static INLINE BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
 
     getGESegmentAndOffset(getMemoryOffset(bi, cd->patternVideoBuffer), bytesPerRow, bpp, &cd->pattSegment, &cd->pattX,
                           &cd->pattY);
-    cd->pattX           = (cd->pattX + 7) & ~7;  // Align to 8 pixel boundary
-    cd->pattY           = (cd->pattY + 7) & ~7;
+    // cd->pattX           = (cd->pattX + 7) & ~7;  // Align to 8 pixel boundary
+    // cd->pattY           = cd->pattY & ~7;
     cd->patternCacheKey = ~0;  // invalidate cache as  the pattern address may have moved
     D(CHATTY, "pattSeg %ld, pattX %ld, pattY %ld, bytesPerRow %ld\n", (ULONG)cd->pattSegment, (ULONG)cd->pattX,
       (ULONG)cd->pattY, (ULONG)cd->GEbytesPerRow);
-#ifdef DBG
-    if (cd->pattX & 7 || cd->pattY & 7) {
-        D(WARN, "pattern not on 8 pixel boundary %ld,%ld\n", (ULONG)cd->pattX, (ULONG)cd->pattY);
-    }
-#endif
 
     WaitBlitter(bi);
 
@@ -3635,13 +3630,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // with the Vision964. FIXME: have to use the RAMDAC's cursor
 
     // Two sprite images, each 64x64*2 bits
-    const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8) * 2;
+    const ULONG maxSpriteBuffersSize = (64 * 64 * 2 / 8);
 
     // take sprite image data off the top of the memory
     // sprites can be placed at segment boundaries of 1kb
     bi->MemorySize       = (bi->MemorySize - maxSpriteBuffersSize) & ~(1024 - 1);
     bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
-    bi->MouseSaveBuffer  = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
 
     // Start Address in terms of 1024byte segments
     W_CR(0x4c, 0);  // init to 0
