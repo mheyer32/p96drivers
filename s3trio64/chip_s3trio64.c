@@ -1642,7 +1642,7 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
     return TRUE;
 }
 
-static INLINE void REGARGS WaitFifo(struct BoardInfo *bi, BYTE numSlots)
+static INLINE void REGARGS waitFifo(struct BoardInfo *bi, BYTE numSlots)
 {
 // S3Trio64+ and above allow PCI Disconnect when FIFO is full
 #if defined(CONFIG_VISION864) || defined(CONFIG_S3TRIO3264) || defined(CONFIG_CYBERVISION64)
@@ -1758,7 +1758,7 @@ static INLINE BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
     return TRUE;
 }
 
-static INLINE ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
+static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 {
     switch (fmt) {
     case RGBFB_B8G8R8A8:
@@ -1782,22 +1782,22 @@ static INLINE ULONG REGARGS PenToColor(ULONG pen, RGBFTYPE fmt)
     return pen;
 }
 
-static INLINE void REGARGS DrawModeToMixMode(UBYTE drawMode, UWORD *frgdMix, UWORD *bkgdMix)
+static INLINE void REGARGS drawModeToMixMode(UBYTE drawMode, UWORD *frgdMix, UWORD *bkgdMix)
 {
-    UWORD writeMode = (drawMode & COMPLEMENT) ? MIX_NOT_CURRENT : MIX_NEW;
-    UWORD f, g;
-    switch (drawMode & 1) {
+    UWORD f  = CLR_SRC_FRGD_COLOR, g = CLR_SRC_BKGD_COLOR;
+    switch (drawMode & (JAM1 | JAM2 | COMPLEMENT)) {
     case JAM1:
-        f = writeMode;
-        g = MIX_CURRENT;
+        f |= MIX_NEW;
+        g |= MIX_CURRENT;
         break;
     case JAM2:
-        f = writeMode;
-        g = writeMode;
+        f |= MIX_NEW;
+        g |= MIX_NEW;
         break;
+    case COMPLEMENT:
+        f |= MIX_NOT_CURRENT;
+        g |= MIX_CURRENT;
     }
-    f |= CLR_SRC_FRGD_COLOR;
-    g |= CLR_SRC_BKGD_COLOR;
     if (drawMode & INVERSVID) {
         // Swap the foreground and background
         UWORD t = f;
@@ -1845,7 +1845,7 @@ static INLINE void setBackgroundColor(struct BoardInfo *bi, ULONG bgPen)
 #endif
 }
 
-static INLINE void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format)
+static INLINE void REGARGS setDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format)
 {
     ChipData_t *cd = getChipData(bi);
 
@@ -1856,11 +1856,11 @@ static INLINE void REGARGS SetDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG 
         cd->GEFormat   = format;
 
         UWORD frgdMix, bkgdMix;
-        DrawModeToMixMode(DrawMode, &frgdMix, &bkgdMix);
-        ULONG fgPen = PenToColor(FgPen, format);
-        ULONG bgPen = PenToColor(BgPen, format);
+        drawModeToMixMode(DrawMode, &frgdMix, &bkgdMix);
+        ULONG fgPen = penToColor(FgPen, format);
+        ULONG bgPen = penToColor(BgPen, format);
 
-        WaitFifo(bi, 6);
+        waitFifo(bi, 6);
 
         setForegroundColor(bi, fgPen);
         setBackgroundColor(bi, bgPen);
@@ -1881,7 +1881,7 @@ static INLINE void setWriteMask(const struct BoardInfo *bi, ULONG mask)
 #endif
 }
 
-static INLINE void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask, RGBFTYPE fmt, BYTE waitFifoSlots)
+static INLINE void REGARGS setGEWriteMask(struct BoardInfo *bi, UBYTE mask, RGBFTYPE fmt, BYTE waitFifoSlots)
 {
     ChipData_t *cd = getChipData(bi);
 
@@ -1898,13 +1898,13 @@ static INLINE void REGARGS SetGEWriteMask(struct BoardInfo *bi, UBYTE mask, RGBF
         if (cd->GEmask != mask) {
             cd->GEmask = mask;
 
-            WaitFifo(bi, waitFifoSlots + 2);
+            waitFifo(bi, waitFifoSlots + 2);
 
             UWORD wmask = mask;
             wmask |= (wmask << 8);
             setWriteMask(bi, copyToUpper(wmask));
         } else {
-            WaitFifo(bi, waitFifoSlots);
+            waitFifo(bi, waitFifoSlots);
         }
     }
 }
@@ -1980,22 +1980,22 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     if (cd->GEOp != FILLRECT) {
         cd->GEOp = FILLRECT;
 
-        WaitFifo(bi, 2);
+        waitFifo(bi, 2);
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
         W_MMIO_W(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
     }
 
-    SetGEWriteMask(bi, mask, fmt, 0);
+    setGEWriteMask(bi, mask, fmt, 0);
 
     if (cd->GEfgPen != pen || cd->GEFormat != fmt) {
         cd->GEfgPen  = pen;
         cd->GEFormat = fmt;
-        pen          = PenToColor(pen, fmt);
+        pen          = penToColor(pen, fmt);
 
-        WaitFifo(bi, 8);
+        waitFifo(bi, 8);
         setForegroundColor(bi, pen);
     } else {
-        WaitFifo(bi, 6);
+        waitFifo(bi, 6);
     }
 
     // This could/should get chached as well
@@ -2045,13 +2045,13 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
     if (cd->GEOp != INVERTRECT) {
         cd->GEOp = INVERTRECT;
 
-        WaitFifo(bi, 2);
+        waitFifo(bi, 2);
 
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
         W_MMIO_W(FRGD_MIX, CLR_SRC_MEMORY | MIX_NOT_CURRENT);
     }
 
-    SetGEWriteMask(bi, mask, fmt, 6);
+    setGEWriteMask(bi, mask, fmt, 6);
 
     // This could/should get chached as well
     W_BEE8(MULT_MISC2, seg << 4);
@@ -2119,13 +2119,13 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     if (cd->GEOp != BLITRECT) {
         cd->GEOp = BLITRECT;
 
-        WaitFifo(bi, 2);
+        waitFifo(bi, 2);
 
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
         W_MMIO_W(FRGD_MIX, CLR_SRC_MEMORY | MIX_NEW);
     }
 
-    SetGEWriteMask(bi, mask, fmt, 8);
+    setGEWriteMask(bi, mask, fmt, 8);
 
     W_BEE8(MULT_MISC2, seg << 4 | seg);
 
@@ -2155,17 +2155,25 @@ const static UWORD minTermToMix[16] = {
     MIX_ONE,                      // 1111  (!dst ^ !src) v (dst ^ !src) v (!dst ^ src) v (dst ^ src)
 };
 
+UWORD mintermToMixMode(UBYTE minterm)
+{
+    // Unfortunately, the mix modes don't seem to be classic ROP codes that would be
+    // the same as minterms, so we have to translate here.
+    return minTermToMix[minterm];
+    //   return minterm | (minterm << 4);
+}
+
 static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri),
                                        __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY),
                                        __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
-                                       __REGD5(WORD height), __REGD6(UBYTE opCode), __REGD7(RGBFTYPE format))
+                                       __REGD5(WORD height), __REGD6(UBYTE minTerm), __REGD7(RGBFTYPE format))
 {
     DFUNC(VERBOSE,
           "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
           "h %ld\nminTerm 0x%lx fmt %ld\n"
           "sri->bytesPerRow %ld, sri->memory 0x%lx\n",
-          (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)opCode, (ULONG)format,
-          (ULONG)sri->BytesPerRow, (ULONG)sri->Memory);
+          (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)minTerm,
+          (ULONG)format, (ULONG)sri->BytesPerRow, (ULONG)sri->Memory);
 
     MMIOBASE();
 
@@ -2173,7 +2181,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
     UBYTE bpp         = getBPP(format);
     if (!bpp || !setCR50(bi, bytesPerRow, bpp)) {
         DFUNC(1, "fallback to BlitRectNoMaskCompleteDefault\n");
-        bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, format);
+        bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, minTerm, format);
         return;
     }
 
@@ -2183,17 +2191,17 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         cd->GEmask     = 0xFF;
         cd->GEdrawMode = 0xFF;  // invalidate minterm cache
 
-        WaitFifo(bi, 3);
+        waitFifo(bi, 3);
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
 
         setWriteMask(bi, 0xFFFFFFFF);
     }
 
-    if (cd->GEdrawMode != opCode) {
-        cd->GEdrawMode = opCode;
+    if (cd->GEdrawMode != minTerm) {
+        cd->GEdrawMode = minTerm;
 
-        WaitFifo(bi, 1);
-        W_MMIO_W(FRGD_MIX, CLR_SRC_MEMORY | minTermToMix[opCode]);
+        waitFifo(bi, 1);
+        W_MMIO_W(FRGD_MIX, CLR_SRC_MEMORY | mintermToMixMode(minTerm));
     }
 
     if (sri->BytesPerRow == dri->BytesPerRow) {
@@ -2235,7 +2243,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
             }
         }
 
-        WaitFifo(bi, 8);
+        waitFifo(bi, 8);
 
         W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
 
@@ -2256,7 +2264,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         srcMem += srcY * sri->BytesPerRow + srcX * bpp;
         ULONG memOffset = getMemoryOffset(bi, srcMem);
 
-        WaitFifo(bi, 2);
+        waitFifo(bi, 2);
 
         for (WORD h = 0; h < height; ++h) {
             WORD x;
@@ -2264,7 +2272,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
             UWORD segSrc;
             getGESegmentAndOffset(memOffset, dri->BytesPerRow, bpp, &segSrc, &x, &y);
 
-            WaitFifo(bi, 8);
+            waitFifo(bi, 8);
             W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
 
             setBlitSrcPosAndSize(bi, x, y, width, 1);
@@ -2293,7 +2301,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
             UWORD segDst;
             getGESegmentAndOffset(memOffset, sri->BytesPerRow, bpp, &segDst, &x, &y);
 
-            WaitFifo(bi, 8);
+            waitFifo(bi, 8);
             W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
 
             setBlitSrcPosAndSize(bi, srcX, srcY + h, width, 1);
@@ -2358,13 +2366,13 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         // Invalidate the pen and drawmode caches
         cd->GEdrawMode = 0xFF;
 
-        WaitFifo(bi, 1);
+        waitFifo(bi, 1);
 
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
     }
 
-    SetDrawMode(bi, template->FgPen, template->BgPen, template->DrawMode, fmt);
-    SetGEWriteMask(bi, mask, fmt, 6);
+    setDrawMode(bi, template->FgPen, template->BgPen, template->DrawMode, fmt);
+    setGEWriteMask(bi, mask, fmt, 6);
 
     // This could/should get chached as well
     W_BEE8(MULT_MISC2, seg << 4);
@@ -2452,7 +2460,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
     }
 
-    SetGEWriteMask(bi, mask, fmt, 6);
+    setGEWriteMask(bi, mask, fmt, 6);
 
     // First, figure out if the new pattern would actually fit into an 8x8 mono pattern.
     // Then we can use the hardware pattern registers, which are much faster.
@@ -2576,7 +2584,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
             cd->GEbgPen    = 0;
             cd->GEdrawMode = 0xFF;
 
-            WaitFifo(bi, 16);
+            waitFifo(bi, 16);
             W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
             W_BEE8(MULT_MISC2, cd->pattSegment << 4);
 
@@ -2592,18 +2600,18 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
             writePIX_TRANS(bi, pat0);
             writePIX_TRANS(bi, pat1);
 
-            WaitFifo(bi, 1);
+            waitFifo(bi, 1);
             W_BEE8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
         } else {
             if (!was8x8) {
-                WaitFifo(bi, 1);
+                waitFifo(bi, 1);
                 W_BEE8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
             }
         }
 
-        SetDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
+        setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
 
-        WaitFifo(bi, 8);
+        waitFifo(bi, 8);
         W_BEE8(MULT_MISC2, (cd->pattSegment << 4) | seg);
         setBlitDestPos(bi, x, y);
         setBlitSrcPosAndSize(bi, cd->pattX, cd->pattY, width, height);
@@ -2613,9 +2621,9 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     } else {
         cd->patternCacheKey &= ~0x80000000;
 
-        SetDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
+        setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
 
-        WaitFifo(bi, 7);
+        waitFifo(bi, 7);
 
         if (was8x8) {
             W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
@@ -2779,7 +2787,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
             continue;
         }
 
-        SetGEWriteMask(bi, writeMask, RGBFB_CLUT, 8);
+        setGEWriteMask(bi, writeMask, RGBFB_CLUT, 8);
 
         UBYTE *bitmap = (UBYTE *)bm->Planes[p];
         if (bitmap != 0x0 && (ULONG)bitmap != 0xffffffff) {
@@ -2834,15 +2842,15 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
         cd->GEdrawMode = 0xFF;
     }
 
-    WaitFifo(bi, 1);
+    waitFifo(bi, 1);
 
     MMIOBASE();
 
     // This could/should get chached as well
     W_BEE8(MULT_MISC2, seg << 4);
 
-    SetDrawMode(bi, line->FgPen, line->BgPen, line->DrawMode, fmt);
-    SetGEWriteMask(bi, mask, fmt, 0);
+    setDrawMode(bi, line->FgPen, line->BgPen, line->DrawMode, fmt);
+    setGEWriteMask(bi, mask, fmt, 0);
 
     UWORD direction = 0;
 
@@ -2861,7 +2869,7 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     if (!line->Horizontal)
         direction |= Y_MAJOR;
 
-    WaitFifo(bi, 8);
+    waitFifo(bi, 8);
 
 #if HAS_PACKED_MMIO
     W_MMIO_L(ALT_CURXY, makeDWORD(x, y));
@@ -3968,7 +3976,7 @@ int main()
 
         CardData_t *card  = getCardData(bi);
         bi->ExecBase      = SysBase;
-        bi->UtilBase      = UtilityBase;
+        bi->UtilBase      = (struct Library *)UtilityBase;
         bi->ChipBase      = NULL;
         card->OpenPciBase = OpenPciBase;
         card->board       = board;
