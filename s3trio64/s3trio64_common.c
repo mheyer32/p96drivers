@@ -38,10 +38,13 @@ ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision)
     case 0x890e:  // Trio 64V+ family
     case 0x890f:  // Trio 64V+ family
         return TRIO64PLUS;
-    case 0x8a01:
+/* FIXME: we should not claim the Virge3D if we don't truly support it.
+ * There's a dedicated Virge driver out there already
+     case 0x8a01:
         return VIRGE3D;
+ */
     default:
-        DFUNC(WARN, "Unknown chip family, aborting\n");
+        DFUNC(WARN, "Unknown chip family 0x%04lx\n", (ULONG)deviceId);
         return UNKNOWN;
     }
 }
