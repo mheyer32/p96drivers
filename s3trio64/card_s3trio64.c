@@ -207,8 +207,8 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         return FALSE;
     }
 
-    static const char *libNames[] = {CHIP_NAME_VISION864, CHIP_NAME_TRIO3264, CHIP_NAME_TRIO64PLUS,
-                                     CHIP_NAME_TRIO64PLUS, CHIP_NAME_TRIO64V2};
+    static const char *libNames[] = {CHIP_NAME_VISION864, CHIP_NAME_TRIO3264, CHIP_NAME_TRIO64PLUS,CHIP_NAME_TRIO64PLUS,CHIP_NAME_TRIO64V2,
+                                     CHIP_NAME_TRIO64V2, CHIP_NAME_TRIO64V2};
 
     struct ChipBase *ChipBase = NULL;
 

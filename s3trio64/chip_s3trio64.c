@@ -3386,6 +3386,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_CR(0x55, 0x00);  // RS2 = 0
 #endif
 
+    if (chipFamily == AURORA64PLUS) {
+        W_SR_MASK(0x1A, BIT(7), BIT(7));  // 5V RAMDAC, so we can go up to 135Mhz(?)
+    }
+
     // RAMDAC Mask register
     W_REG(DAC_MASK, 0xff);
 
@@ -3399,7 +3403,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         clock = 60000000;
     }
 #else
-    if (chipFamily >= TRIO64V2) {
+
+    if (chipFamily == AURORA64PLUS) {
+        if (clock > 50000000) {
+            clock = 50000000;
+        }
+    } else if (chipFamily >= TRIO64V2) {
         if (clock > 70000000) {
             clock = 70000000;
         }

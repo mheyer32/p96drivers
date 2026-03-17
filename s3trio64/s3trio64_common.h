@@ -24,11 +24,13 @@ STATIC_ASSERT(REGISTER_OFFSET == MMIOREGISTER_OFFSET, check_register_offset);
 typedef enum ChipFamily
 {
     UNKNOWN,
-    VISION864,   // pre-Trio64, separate RAMDAC, oldstyle MMIO, no packed MMIO
-    TRIO64,      // integrated 135Mhz RAMDAC, oldstyle+packed MMIO
-    VISION968,   // pre-Trio64(?), separate RAMDAC, newstyle MMIO, packed MMIO, ROPBLT
-    TRIO64PLUS,  // integrated 135Mhz RAMDAC, newstyle+packed MMIO
-    TRIO64V2,    // integrated 170Mhz RAMDAC, newstyle+packed MMIO 60-66Mhz RAM
+    VISION864,     // pre-Trio64, separate RAMDAC, oldstyle MMIO, no packed MMIO
+    TRIO64,        // integrated 135Mhz RAMDAC, oldstyle+packed MMIO
+    VISION968,     // pre-Trio64(?), separate RAMDAC, newstyle MMIO, packed MMIO, ROPBLT
+    TRIO64PLUS,    // integrated 135Mhz RAMDAC, newstyle+packed MMIO
+    TRIO64UVPLUS,  // integrated 135Mhz RAMDAC, newstyle+packed MMIO
+    AURORA64PLUS,  // integrated 135Mhz RAMDAC, newstyle+packed MMIO,
+    TRIO64V2,      // integrated 170Mhz RAMDAC, newstyle+packed MMIO 60-66Mhz RAM
     VIRGE3D
 } ChipFamily_t;
 
