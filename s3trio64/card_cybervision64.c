@@ -215,7 +215,7 @@ int main()
     struct BoardInfo *bi = &boardInfo;
 
     bi->ExecBase = SysBase;
-    bi->UtilBase = UtilityBase;
+    bi->UtilBase = (struct Library*)UtilityBase;
 
     if (!FindCard(bi, NULL)) {
         goto exit;

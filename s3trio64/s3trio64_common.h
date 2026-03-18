@@ -19,6 +19,9 @@ STATIC_ASSERT(REGISTER_OFFSET == MMIOREGISTER_OFFSET, check_register_offset);
 #define SDAC_WR_ADR    0x3C8
 #define SDAC_PLL_PARAM 0x3C9
 
+// Forward declaration to avoid including s3ramdac.h here
+struct RamdacOps;
+
 // Beware: if we ever add a new chip family, make sure to check the chip library loading code
 // in InitCard, because its using static arrays indexed by this enum!
 typedef enum ChipFamily
@@ -36,9 +39,9 @@ typedef enum ChipFamily
 
 typedef struct PLLValue
 {
-    UBYTE m;  // M numerant
-    UBYTE n;  // N divider
-    UBYTE r;  // 2 << R divider
+    UBYTE m;          // M numerant
+    UBYTE n;          // N divider
+    UBYTE r;          // 2 << R divider
     UWORD freq10khz;  // effective pixel clock in 10 kHz units (e.g. 2517 = 25.17 MHz), like at3d
 } PLLValue_t;
 
@@ -70,6 +73,9 @@ typedef struct ChipData
     // PLL table for pixel clocks
     PLLValue_t *pllValues;
     UWORD numPllValues;
+
+    // RAMDAC/PLL ops (installed by InitRAMDAC)
+    const struct RamdacOps *ramdacOps;
 
 } ChipData_t;
 

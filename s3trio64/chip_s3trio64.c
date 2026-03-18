@@ -209,16 +209,6 @@ static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
     WaitForIdle(bi);
 }
 
-static const struct svga_pll s3trio64_pll = {3, 129, 3, 33, 0, 3, 35000, 240000, 14318};
-static const struct svga_pll s3sdac_pll   = {3, 129, 3, 33, 0, 3, 60000, 270000, 14318};
-
-// Helper function to compute frequency from PLL values
-static ULONG computeKhzFromPllValue(const struct svga_pll *pll, const PLLValue_t *pllValue)
-{
-    ULONG f_vco = (pll->f_base * pllValue->m) / pllValue->n;
-    return f_vco >> pllValue->r;
-}
-
 // Initialize PLL table for pixel clocks
 void initPixelClockPLLTable(BoardInfo_t *bi)
 {
@@ -227,10 +217,12 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
     LOCAL_SYSBASE();
 
     ChipData_t *cd             = getChipData(bi);
-    const struct svga_pll *pll = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
+    const struct svga_pll *pll = NULL;
+    UWORD maxFreq              = 135;
 
-    UWORD maxFreq    = (cd->chipFamily >= TRIO64V2) ? 170 : 135;  // 170MHz max for Trio64V2, 135MHz for others
-    UWORD minFreq    = 12;                                        // 12MHz min
+    cd->ramdacOps->getPllParams(bi, &pll, &maxFreq);
+
+    UWORD minFreq    = 12;  // 12MHz min
     UWORD numEntries = (maxFreq - minFreq + 1) * 2;
 
     PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * numEntries, MEMF_PUBLIC);
@@ -301,61 +293,10 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
 
 ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 {
-    REGBASE();
-
-    USHORT m, n, r;
-    UBYTE regval;
-
     DFUNC(INFO, "Hz: %ld\n", clockHz);
 
-    const struct svga_pll *pll = (getChipData(bi)->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
-
-    int currentKhz = svga_compute_pll(pll, clockHz / 1000, &m, &n, &r);
-    if (currentKhz < 0) {
-        DFUNC(0, "cannot set requested pixclock, keeping old value\n");
-        return clockHz;
-    }
-
-    if (getChipData(bi)->chipFamily >= TRIO64 && getChipData(bi)->chipFamily != VISION968) {
-        /* Set S3 clock registers */
-        W_SR(0x10, (r << 5) | (n - 2));
-        W_SR(0x11, m - 2);
-
-        // delayMicroSeconds(10);
-
-        /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
-        regval = R_SR(0x15) & ~BIT(0);
-        W_SR(0x15, regval);
-        W_SR(0x15, regval | BIT(0));
-        W_SR(0x15, regval);
-
-        // Setting this bit to 1 improves performance for systems using an MCLK less than 57
-        // MHz. For MCLK frequencies between 55 and 57 MHz, bit 7 of SR15 should also be set
-        // // to 1 if linear addressing is being used.
-        if (clockHz <= 57000000) {
-            // 2 MCLK memory writes
-            W_SR_MASK(0xA, BIT(7), BIT(7));
-            if (clockHz >= 55000000) {
-                W_SR_MASK(0x15, BIT(7), BIT(7));
-            }
-        } else {
-            // 3 MCLK memory writes
-            W_SR_MASK(0xA, BIT(7), 0x00);
-            W_SR_MASK(0x15, BIT(7), 0x00);
-        }
-    } else {
-        DAC_ENABLE_RS2();
-        // FIXME: 0x0A being fA makes sense, if the SDAC is actually a ICS 5340, not 5342
-        // From the specs, the 5342 uses 0x09/0x0A for CLK1 fA/fB, while the 5340 uses 0x0A/0x0B
-        W_REG(SDAC_WR_ADR, 0x0A);
-        W_REG(SDAC_PLL_PARAM, m - 2);
-        W_REG(SDAC_PLL_PARAM, (r << 5) | (n - 2));
-
-        DAC_DISABLE_RS2();
-    }
-
-    // testS3PLLClock(bi, TRUE);
-    return currentKhz * 1000;
+    const ChipData_t *cd = getChipData(bi);
+    return cd->ramdacOps->setMemoryClock(bi, clockHz);
 }
 
 static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
@@ -1210,9 +1151,8 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     DFUNC(CHATTY, "Reporting pixelclock Hz: %ld, index: %ld,  M:%ld N:%ld R:%ld \n\n", mi->PixelClock, (ULONG)lower,
           (ULONG)pllValues.m, (ULONG)pllValues.n, (ULONG)pllValues.r);
 
-    // Store PLL values in the format expected by SetClock
-    mi->pll1.Numerator   = pllValues.m - 2;
-    mi->pll2.Denominator = (pllValues.r << 5) | (pllValues.n - 2);
+    // Store PLL values in the format expected by SetClock via RAMDAC ops
+    cd->ramdacOps->packPllToModeInfo(bi, pllValues.m, pllValues.n, pllValues.r, mi);
 
 #if !BUILD_VISION864
     if ((mi->Flags & GMF_DOUBLECLOCK) && cd->chipFamily >= TRIO64PLUS) {
@@ -1252,55 +1192,12 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(INFO, "\n");
 
-    struct ModeInfo *mi = bi->ModeInfo;
+    const ChipData_t *cd = getChipData(bi);
+    struct ModeInfo *mi  = bi->ModeInfo;
 
     D(INFO, "SetClock: PixelClock %ldHz\n", mi->PixelClock);
 
-#ifdef DBG
-    const ChipData_t *cd         = getChipData(bi);
-    const struct svga_pll *pll   = (cd->chipFamily >= TRIO64) ? &s3trio64_pll : &s3sdac_pll;
-    const PLLValue_t selectedPll = {
-        .m = (mi->pll1.Numerator + 2), .n = (mi->pll2.Denominator & 0x1F) + 2, .r = (mi->pll2.Denominator >> 5) & 0x03};
-    ULONG frequency = computeKhzFromPllValue(pll, &selectedPll);
-    D(VERBOSE, "         Actual PixelClock %ldHz M: %ld N: %ld, R: %ld\n", frequency * 1000, (ULONG)selectedPll.m,
-      (ULONG)selectedPll.n, (ULONG)selectedPll.r);
-#endif
-
-    REGBASE();
-
-    // SR1 bit 3: Select DCLK/2 for low pixel frequencies (actual clock runs at *2)
-    if (mi->PixelClock < MIN_PLLCLOCK_HZ || mi->Flags & GMF_DOUBLECLOCK) {
-        DFUNC(INFO, "SetClock: Clock halving enabled for effective Pixelclock = VCLK/2\n");
-        // W_SR_MASK(0x01, BIT(3), BIT(3));  // DCLK = VCLK/2
-        // Weird, DCLK/2 via SR1 causes artifacts
-        W_SR_MASK(0x15, BIT(4), BIT(4));  // DCLK = VCLK/2
-    } else {
-        // W_SR_MASK(0x01, BIT(3), 0);  // DCLK = VCLK
-        W_SR_MASK(0x15, BIT(4), 0);  // DCLK = VCLK/2
-    }
-
-#if !BUILD_VISION864
-    /* Set S3 DCLK clock registers */
-    // Clock-Doubling will be enabled by SetGC, but is also encoded into Denominator Bit 7
-    W_SR(0x12, mi->pll2.Denominator);  // write N and R
-    W_SR(0x13, mi->pll1.Numerator);    // write M
-
-    /* Activate clock - write 0, 1, 0 to seq/15 bit 5 */
-    UBYTE sr15 = R_SR(0x15) & ~BIT(1);
-    W_SR(0x15, sr15);
-    W_SR(0x15, sr15 | BIT(1));
-
-//    testS3PLLClock(bi, TRUE);
-#else
-    // S3 SDAC/GENDAC programming
-    DAC_ENABLE_RS2();
-
-    W_REG(SDAC_WR_ADR, 0x02);  // CLK0 f2 parameters (f0/1 are not programmable on ICS5340)
-    W_REG(SDAC_PLL_PARAM, mi->pll1.Numerator);
-    W_REG(SDAC_PLL_PARAM, mi->pll2.Denominator);
-
-    DAC_DISABLE_RS2();
-#endif
+    cd->ramdacOps->setClock(bi);
 }
 
 static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
@@ -2942,6 +2839,178 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     }
 }
 
+/** Read CR36 memory type, log it, and return (CR36>>2)&3 for use by callers (e.g. Trio64 SR0x0A). */
+static UBYTE getMemoryType(struct BoardInfo *bi)
+{
+    REGBASE();
+    const UBYTE memType = (R_CR(0x36) >> 2) & 3;
+    switch (memType) {
+    case 0b00:
+        D(INFO, "1-cycle EDO/VRAM\n");
+        break;
+    case 0b10:
+        D(INFO, "2-cycle EDO\n");
+        break;
+    case 0b11:
+        D(INFO, "FPM\n");
+        break;
+    default:
+        D(WARN, "unknown memory type\n");
+    }
+    return memType;
+}
+
+/** Probe framebuffer at current bi->MemorySize: write/read high, low, zero; return TRUE if all match. */
+static BOOL testFramebufferReadWrite(struct BoardInfo *bi)
+{
+    LOCAL_SYSBASE();
+    volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
+    CacheClearU();
+    volatile ULONG *highOffset = framebuffer + (bi->MemorySize >> 2) - 1;
+    volatile ULONG *lowOffset  = framebuffer + (bi->MemorySize >> 3);
+    *framebuffer               = 0;
+    *highOffset                = (ULONG)highOffset;
+    *lowOffset                 = (ULONG)lowOffset;
+    CacheClearU();
+    ULONG readbackHigh = *highOffset;
+    ULONG readbackLow  = *lowOffset;
+    ULONG readbackZero = *framebuffer;
+    D(10, "Probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= 0x%lx\n", highOffset, readbackHigh, lowOffset,
+      readbackLow, readbackZero);
+    return readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset && readbackZero == 0;
+}
+
+static BOOL probeFramebufferVision(struct BoardInfo *bi)
+{
+    REGBASE();
+    getMemoryType(bi);
+
+    ChipFamily_t chipFamily = getChipData(bi)->chipFamily;
+
+    bi->MemorySize = (chipFamily == VISION968) ? 0x800000 : 0x400000;
+    while (bi->MemorySize) {
+        D(VERBOSE, "\nProbing memory size %ld\n", bi->MemorySize);
+        {
+            UBYTE LAWSize = 0;
+            UBYTE MemSize = 0;
+            if (bi->MemorySize >= 0x800000) {
+                LAWSize = 0b11;
+                MemSize = 0b011;
+            } else if (bi->MemorySize >= 0x600000) {
+                LAWSize = 0b11;
+                MemSize = 0b101;
+            } else if (bi->MemorySize >= 0x400000) {
+                LAWSize = 0b11;
+                MemSize = 0b000;
+            } else if (bi->MemorySize >= 0x200000) {
+                LAWSize = 0b10;
+                MemSize = 0b100;
+            } else {
+                LAWSize = 0b01;
+                MemSize = 0b110;
+            }
+            W_CR_MASK(0x36, 0xE0, MemSize << 5);
+            W_CR_MASK(0x58, 0x13, LAWSize | BIT(4));
+        }
+        if (testFramebufferReadWrite(bi)) {
+            break;
+        }
+        bi->MemorySize >>= 1;
+        if (bi->MemorySize < 1024 * 1024) {
+            D(ERROR, "Memory detection failed, aborting\n");
+            return FALSE;
+        }
+    }
+    D(INFO, "MemorySize: %ldmb\n", bi->MemorySize / (1024 * 1024));
+    return TRUE;
+}
+
+static BOOL probeFramebufferTrio64(struct BoardInfo *bi)
+{
+    REGBASE();
+    const UBYTE memType = getMemoryType(bi);
+
+    ChipFamily_t chipFamily = getChipData(bi)->chipFamily;
+
+    bi->MemorySize = 0x400000;
+    while (bi->MemorySize) {
+        D(VERBOSE, "\nProbing memory size %ld\n", bi->MemorySize);
+        {
+            UBYTE LAWSize = 0;
+            UBYTE MemSize = 0;
+            if (bi->MemorySize >= 0x800000) {
+                LAWSize = 0b11;
+                MemSize = 0b011;
+            } else if (bi->MemorySize >= 0x600000) {
+                LAWSize = 0b11;
+                MemSize = 0b101;
+            } else if (bi->MemorySize >= 0x400000) {
+                LAWSize = 0b11;
+                MemSize = 0b000;
+                if ((chipFamily == TRIO64 || chipFamily == TRIO64PLUS) && memType == 0b11) {
+                    W_SR_MASK(0x0A, BIT(6), BIT(6));
+                }
+            } else if (bi->MemorySize >= 0x200000) {
+                LAWSize = 0b10;
+                MemSize = 0b100;
+                if (chipFamily == TRIO64 || chipFamily == TRIO64PLUS) {
+                    W_SR_MASK(0x0A, BIT(6), 0);
+                }
+            } else {
+                LAWSize = 0b01;
+                MemSize = 0b110;
+            }
+            W_CR_MASK(0x36, 0xE0, MemSize << 5);
+            W_CR_MASK(0x58, 0x13, LAWSize | BIT(4));
+        }
+        if (testFramebufferReadWrite(bi)) {
+            break;
+        }
+        bi->MemorySize >>= 1;
+        if (bi->MemorySize < 1024 * 1024) {
+            D(ERROR, "Memory detection failed, aborting\n");
+            return FALSE;
+        }
+    }
+    D(INFO, "MemorySize: %ldmb\n", bi->MemorySize / (1024 * 1024));
+    return TRUE;
+}
+
+static BOOL probeFramebufferAurora64(struct BoardInfo *bi)
+{
+    REGBASE();
+    getMemoryType(bi);
+
+    static const UBYTE memSizes[] = {4, 2, 2, 1};
+    static const UBYTE lawSizeCodes[] = {0b11, 0b10, 0b10, 0b01};
+    // There's a weird discrepancy in the Aurora manual/ Early in the text the below
+    // bitmasks are presribed, while the 'classic' bitmasks are used elsewhere
+    // UBYTE MemSize[] = {0b111, 0b011, 0b010, 0b001};
+
+    // OTOH the manual states:
+    // "If EDO memory is used, the 86CM65 must be configured for 1-cycle operation (CR36_3-2 = 11b).
+    // IDK if one can trust the strapping of CR36 memory type, though.
+     static const UBYTE memSizeCodes[] = {0b000, 0b011, 0b010, 0b110};
+
+    WORD m = 0;
+    for (; m < ARRAY_SIZE(memSizes); ++m) {
+        bi->MemorySize = memSizes[m] << 20;
+        D(VERBOSE, "\nProbing memory size %ld\n", bi->MemorySize);
+        W_CR_MASK(0x36, 0xE0, memSizeCodes[m] << 5);
+        W_CR_MASK(0x58, 0x13, lawSizeCodes[m] | BIT(4));
+        if (testFramebufferReadWrite(bi)) {
+            break;
+        }
+    }
+
+    if (m == ARRAY_SIZE(memSizes)) {
+        D(ERROR, "Memory detection failed, aborting\n");
+        return FALSE;
+    }
+    D(INFO, "MemorySize: %ldmb\n", bi->MemorySize / (1024 * 1024));
+    return TRUE;
+}
+
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(ALWAYS, "\n");
@@ -3098,9 +3167,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     retry:
         W_MISC_MASK(0x0F, 0x0F);  // Enable RAM access and Color-Emulation, 0x3D4/5 for CR_IDX/DATA
 
-        // Unlock S3 CRTC registers CR30 and up
-        W_CR(0x38, 0x48);
-        W_CR(0x39, 0xa5);
+        W_CR(0x38, 0x48);  // provide access to extended CRTC registers CR2D-CR3F
+        W_CR(0x39, 0xa5);  // provide access to extended CRTC registers CR40-CRFF
+        W_SR(0x08, 0x06);  // unlock extended sequencer registers SR9-SR1C
 
         if (chipFamily >= TRIO64) {
             DFUNC(INFO, "Checking register response...\n");
@@ -3157,8 +3226,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // FIXME: PCI cards should startup with New MMIO enabled. Thus, we should be able to just use MMIO directly.
         D(INFO, "Setting up MMIO only driver\n");
         bi->RegisterBase = bi->MemoryIOBase + 0x8000;  // bi->MemoryIObase has MMIOREGISTER_OFFSET added already
-                                                       // Disable IO Response
 #if OPENPCI
+                                                       // Disable IO Response
+
         pci_write_config_word(PCI_COMMAND, PCI_COMMAND_MEMORY /*| PCI_COMMAND_IO*/, getCardData(bi)->board);
 #endif
     }
@@ -3170,10 +3240,14 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         W_CR_MASK(0x36, 0x1e, 0x1e);
         W_CR(0x37, 0xff);
         W_CR(0x68, 0xec);
+    } else if (chipFamily == AURORA64PLUS) {
+        R_SR(0x1A);  // This register allows to override the 3.3v/5v autoselection found in SR1B
+        R_SR(0x1B);
+        R_SR(0x0B);
+        // Try to power down Controller2 as much as possible
+        W_SR(0x21, BIT(4) | BIT(5));
+        W_SR(0x1E, BIT(1));  // Power down Controller 2 DCLK when Controller 2 is  not enabled
     }
-
-    // Unlock Extended Sequencer Registers SR9-SR1C
-    W_SR(0x08, 0x06);
 
 #if !BUILD_VISION864
     W_SR(0x15, 0x00);
@@ -3269,7 +3343,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     MMIOBASE();
 
-    // Initialize PLL table for pixel clocks
+    if (!InitRAMDAC(bi)) {
+        DFUNC(ERROR, "InitRAMDAC() failed\n");
+        return FALSE;
+    }
+
+    // Initialize PLL table for pixel clocks (RAMDAC ops provide PLL limits)
     initPixelClockPLLTable(bi);
 
     UBYTE chipRevision = R_CR(0x2F);
@@ -3280,43 +3359,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // Adressing Window
         bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
 
-        if (chipFamily == VISION968) {
-            if (CheckForRGB524(bi)) {
-                InitRGB524(bi);
-
-                // Configure VRAM memory for 64 bit SID
-                // 00 = 64-bit serial (non-interleaved) SID bus operation
-                // 10 = 128-bit serial or 64-bit parallel (interleaved) SID bus operation
-                // Bit6 : Tristate PA[0..7], because we're using SID to feed the RAMDAC
-                W_CR_MASK(0x66, (3 << 5) | BIT(6), (0b00 << 5) | BIT(6));
-
-                // BitS PAR VRAM - Parallel VRAM addressing
-                // 0 = Serial VRAM addressing mode
-                // 1 = Parallel VRAM addressing mode
-                // This bit needs to be set to 1 to enable parallel addressing only when a 64-bit
-                // interleaved SID bus design is used (bits 5-4 of CR66 = 10b).
-                W_CR_MASK(0x53, BIT(5), 0);
-
-                // Bit 6 SAM 256 - Serial Access Mode 256 Words Control
-                // 0 = SAM control is 512 words
-                // 1 =SAM control is 256 words
-                // This setting is VRAM-dependent. A setting of 1 always works.
-                // If the VRAM can support a setting of 0, this can enhance performance.
-                W_CR_MASK(0x58, BIT(6), BIT(6));
-            }
-        } else if (chipFamily == TRIO64PLUS) {
+        if (chipFamily == TRIO64PLUS) {
             UBYTE cr6F = R_CR(0x6F);
             D(INFO, "Trio64+ card is in %s mode \n", TESTBIT(cr6F, 0) ? "Trio64 compatibility" : "LPB");
         }
     } else {
         D(INFO, "Chip does not support Big Endian aperture\n");
-#if BUILD_VISION864
-        if (!CheckForSDAC(bi)) {
-            DFUNC(ERROR, "Unsupported RAMDAC.\n");
-            return FALSE;
-        }
-        InitSDAC(bi);
-#endif
     }
 
     /* The Enhanced Graphics Command register group is unlocked
@@ -3377,22 +3425,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_SR(0x18, BIT(6));  // 1 DCLK LUT Write Cycle
 #endif
 
-    // Init RAMDAC
-#if BUILD_VISION864
-    // Select clock 2 (see initialization of 0x3C2).
-    // This should actually have no effect as the SDAC is set to ignore the clock select and
-    // instead produce the clock programmed through its PLLs
-    W_CR(0x42, 0x02);
-    W_CR(0x55, 0x00);  // RS2 = 0
-#endif
-
-    if (chipFamily == AURORA64PLUS) {
-        W_SR_MASK(0x1A, BIT(7), BIT(7));  // 5V RAMDAC, so we can go up to 135Mhz(?)
-    }
-
-    // RAMDAC Mask register
-    W_REG(DAC_MASK, 0xff);
-
     ULONG clock = bi->MemoryClock;
     if (clock < 40000000) {
         clock = 40000000;
@@ -3403,10 +3435,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         clock = 60000000;
     }
 #else
-
     if (chipFamily == AURORA64PLUS) {
-        if (clock > 50000000) {
-            clock = 50000000;
+        if (clock > 60000000) {
+            clock = 60000000;
         }
     } else if (chipFamily >= TRIO64V2) {
         if (clock > 70000000) {
@@ -3583,96 +3614,30 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     R_REG(0x3DA);  // reset AFF
     W_REG(ATR_AD, 0x20);
 
-    // Just some diagnostics; FIXME: this is different between various series of Vision/Trio chips
-    const UBYTE memType = (R_CR(0x36) >> 2) & 3;
-#ifdef DBG
-    switch (memType) {
-    case 0b00:
-        D(1, "1-cycle EDO\n");
-        break;
-    case 0b10:
-        D(1, "2-cycle EDO\n");
-        break;
-    case 0b11:
-        D(1, "FPM\n");
-        break;
-    default:
-        D(0, "unknown memory type\n");
-    }
-#endif
-
-    LOCAL_SYSBASE();
-    // Determine memory size of the card (typically 1-2MB, but can be up to 4MB)
-    bi->MemorySize              = (chipFamily == VISION968) ? 0x800000 : 0x400000;
-    volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
-    framebuffer[0]              = 0;
-    while (bi->MemorySize) {
-        D(1, "\nProbing memory size %ld\n", bi->MemorySize);
-
-        // Enable Linear Addressing Window LAW
-        {
-            UBYTE LAWSize = 0;
-            UBYTE MemSize = 0;
-            if (bi->MemorySize >= 0x800000) {
-                // Only Vision 968?
-                LAWSize = 0b11;
-                MemSize = 0b011;
-            } else if (bi->MemorySize >= 0x600000) {
-                // Only Vision 968? FIXME: current way of enumeration doesn't get to 6MB test
-                LAWSize = 0b11;
-                MemSize = 0b101;
-            } else if (bi->MemorySize >= 0x400000) {
-                LAWSize = 0b11;
-                MemSize = 0b000;
-                if (chipFamily >= TRIO64 && memType == 0b11 /* FPM */) {
-                    // This bit must be set to 1 for 4-MByte fast page mode memory configurations.
-                    // This bit has no function if bit 2 of CR36 is cleared to 0 to indicate EDO memory.
-                    W_SR_MASK(0x0A, BIT(6), BIT(6));
-                }
-            } else if (bi->MemorySize >= 0x200000) {
-                LAWSize = 0b10;  // 2MB
-                MemSize = 0b100;
-                W_SR_MASK(0x0A, BIT(6), 0);
-            } else {
-                LAWSize = 0b01;  // 1MB
-                MemSize = 0b110;
-            }
-            W_CR_MASK(0x36, 0xE0, MemSize << 5);
-            W_CR_MASK(0x58, 0x13, LAWSize | 0x10);
-        }
-
-        CacheClearU();
-
-        // Probe the last and the first longword for the current segment,
-        // as well as offset 0 to check for wrap arounds
-        volatile ULONG *highOffset = framebuffer + (bi->MemorySize >> 2) - 1;
-        volatile ULONG *lowOffset  = framebuffer + (bi->MemorySize >> 3);
-        // Probe  memory
-        *framebuffer = 0;
-        *highOffset  = (ULONG)highOffset;
-        *lowOffset   = (ULONG)lowOffset;
-
-        CacheClearU();
-
-        ULONG readbackHigh = *highOffset;
-        ULONG readbackLow  = *lowOffset;
-        ULONG readbackZero = *framebuffer;
-
-        D(10, "Probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= 0x%lx\n", highOffset, readbackHigh, lowOffset,
-          readbackLow, readbackZero);
-
-        if (readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset && readbackZero == 0) {
-            break;
-        }
-        // reduce available memory size
-        bi->MemorySize >>= 1;
-        if (bi->MemorySize < 1024 * 1024) {
-            D(0, "Memory detection failed, aborting\n");
+    switch (chipFamily) {
+    case VISION864:
+    case VISION968:
+        if (!probeFramebufferVision(bi)) {
             return FALSE;
         }
+        break;
+    case TRIO64:
+    case TRIO64PLUS:
+    case TRIO64UVPLUS:
+    case TRIO64V2:
+        if (!probeFramebufferTrio64(bi)) {
+            return FALSE;
+        }
+        break;
+    case AURORA64PLUS:
+        if (!probeFramebufferAurora64(bi)) {
+            return FALSE;
+        }
+        break;
+    default:
+        D(0, "Unknown chip family for framebuffer probe\n");
+        return FALSE;
     }
-
-    D(1, "MemorySize: %ldmb\n", bi->MemorySize / (1024 * 1024));
 
     // Input Status ? Register (STATUS_O)
     D(1, "Monitor is %s present\n", ((R_REG(0x3C2) & 0x10) ? "" : "NOT"));
@@ -3713,6 +3678,13 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_BEE8(SCISSORS_R, 0x0fff);
 
     W_BEE8(MULT_MISC2, 0);
+
+    {
+        const UBYTE memType    = (R_CR(0x36) >> 2) & 3;
+        const BOOL oneCycleEDO = (memType == 0b00);
+        UWORD multMisc         = oneCycleEDO ? 0 : BIT(10);
+        (void)multMisc;
+    }
     // Init GE write/read masks. The use of IO instead of MMIO is deliberate.
     // Apparently when we switch these registers to 32bit via MULT_MISC above,
     // Only the registers in the IO space become 32bit, but not in MMIO!
@@ -3748,14 +3720,17 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Flush FIFO
     W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
 
-    // reserve memory for a 8x8 monochrome pattern
-    // Unfortunately we're overallocating here for the largest pitch.
-    ULONG patternSize      = 8 * 3200;  // 800 * 4 * 8
-    ULONG patternOffset    = (bi->MemorySize - patternSize);
-    patternOffset          = (patternOffset / 3200) * 3200;  // align to 800pixel@32bit boundary
-    bi->MemorySize         = patternOffset;
-    cd->patternVideoBuffer = (ULONG *)(bi->MemoryBase + bi->MemorySize);
-    cd->patternCacheBuffer = AllocVec(patternSize, MEMF_PUBLIC);
+    {
+        LOCAL_SYSBASE();
+        // reserve memory for a 8x8 monochrome pattern
+        // Unfortunately we're overallocating here for the largest pitch.
+        ULONG patternSize      = 8 * 3200;  // 800 * 4 * 8
+        ULONG patternOffset    = (bi->MemorySize - patternSize);
+        patternOffset          = (patternOffset / 3200) * 3200;  // align to 800pixel@32bit boundary
+        bi->MemorySize         = patternOffset;
+        cd->patternVideoBuffer = (ULONG *)(bi->MemoryBase + bi->MemorySize);
+        cd->patternCacheBuffer = AllocVec(patternSize, MEMF_PUBLIC);
+    }
 
     // setCacheMode(bi, bi->MemoryBase, bi->MemorySize & ~4095, MAPP_NONSERIALIZED | MAPP_IMPRECISE, CACHEFLAGS);
 
