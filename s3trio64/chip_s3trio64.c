@@ -67,7 +67,9 @@ int debugLevel = VERBOSE;
 #define CMD_BUS_SIZE_8BIT                     (0b00 << 9)
 #define CMD_BUS_SIZE_16BIT                    (0b01 << 9)
 #define CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED (0b10 << 9)
-#define CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED  (0b11 << 9)
+#if !BUILD_VISION864  // FIXME: supposed to apply to Vision964, too
+#define CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED (0b11 << 9)
+#endif
 
 #define CMD_COMMAND_TYPE_MASK  0xe000
 #define CMD_COMMAND_TYPE_SHIFT 13
@@ -1526,8 +1528,11 @@ static INLINE BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
 
     getGESegmentAndOffset(getMemoryOffset(bi, cd->patternVideoBuffer), bytesPerRow, bpp, &cd->pattSegment, &cd->pattX,
                           &cd->pattY);
-    // cd->pattX           = (cd->pattX + 7) & ~7;  // Align to 8 pixel boundary
-    // cd->pattY           = cd->pattY & ~7;
+    // Pattern Fill. Same as a BitBit except that an 8x8 patterned rectangle is
+    // transferred repeatedly to the destination rectangle. The starting X coordinate of
+    // the source rectangle should always be on an 8 pixel boundary.
+    cd->pattX = (cd->pattX + 7) & ~7;  // Align to 8 pixel boundary
+
     cd->patternCacheKey = ~0;  // invalidate cache as  the pattern address may have moved
     D(CHATTY, "pattSeg %ld, pattX %ld, pattY %ld, bytesPerRow %ld\n", (ULONG)cd->pattSegment, (ULONG)cd->pattX,
       (ULONG)cd->pattY, (ULONG)cd->GEbytesPerRow);
@@ -2376,11 +2381,33 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
             setMix(bi, CLR_SRC_FRGD_COLOR | MIX_NEW, CLR_SRC_BKGD_COLOR | MIX_NEW);
             setBlitSrcPosAndSize(bi, cd->pattX, cd->pattY, 8, 8);
 
-            W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
-                              CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED);
-
-            writePIX_TRANS(bi, pat0);
-            writePIX_TRANS(bi, pat1);
+            // FIXME: I should get away from checking aginst the family and instead have "feature bits"
+            if (cd->chipFamily == VISION864 || cd->chipFamily == VISION968) {
+                // The vision 864 doesn't have CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED, so we have to transfer the pattern
+                // in 8bit chunks
+                W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+                                  CMD_WAIT_CPU | CMD_BUS_SIZE_8BIT);
+                // FIXME: at this point I wonder if it would be faster to place the 8x8 pattern via CPU writes instead
+                // of blitting it
+                pat0 = swapl(pat0);
+                pat1 = swapl(pat1);
+                for (int i = 0; i < 4; ++i) {
+                    W_MMIO_B(PIX_TRANS, pat0);
+                    pat0 >>= 8;
+                }
+                for (int i = 0; i < 4; ++i) {
+                    W_MMIO_B(PIX_TRANS, pat1);
+                    pat1 >>= 8;
+                }
+            }
+#if !BUILD_VISION864
+            else {
+                W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+                                  CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED);
+                writePIX_TRANS(bi, pat0);
+                writePIX_TRANS(bi, pat1);
+            }
+#endif
 
             waitFifo(bi, 1);
             W_BEE8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
@@ -2397,9 +2424,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         W_BEE8(MULT_MISC2, (cd->pattSegment << 4) | seg);
         setBlitDestPos(bi, x, y);
         setBlitSrcPosAndSize(bi, cd->pattX, cd->pattY, width, height);
-        W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_PAT_BLIT | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
-                          CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED);
-
+        W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_PAT_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
     } else {
         cd->patternCacheKey &= ~0x80000000;
 
@@ -3708,56 +3733,56 @@ BOOL testCard(BoardInfo_t *bi)
         FillRect(bi, &ri, 256, 10, 128, 128, 0x33, 0xFF, RGBFB_CLUT);
     }
 
-#if 0
-            for (int i = 0; i < 8; ++i) {
-                {
-                    UWORD patternData[] = {0x0101, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
-                    struct Pattern pattern;
-                    pattern.BgPen    = 127;
-                    pattern.FgPen    = 255;
-                    pattern.DrawMode = JAM2;
-                    pattern.Size     = 2;
-                    pattern.Memory   = patternData;
-                    pattern.XOffset  = i;
-                    pattern.YOffset  = i;
+#if 1
+    for (int i = 0; i < 8; ++i) {
+        {
+            UWORD patternData[] = {0x0101, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
+            struct Pattern pattern;
+            pattern.BgPen    = 127;
+            pattern.FgPen    = 255;
+            pattern.DrawMode = JAM2;
+            pattern.Size     = 2;
+            pattern.Memory   = patternData;
+            pattern.XOffset  = i;
+            pattern.YOffset  = i;
 
-                    BlitPattern(bi, &ri, &pattern, 100 + i * 32, 150 + i * 32, 24, 24, 0xFF, RGBFB_CLUT);
-                }
-            }
+            BlitPattern(bi, &ri, &pattern, 100 + i * 32, 150 + i * 32, 24, 24, 0xFF, RGBFB_CLUT);
+        }
+    }
 
-            for (int i = 0; i < 8; ++i) {
-                {
-                    UWORD patternData[] = {0x0101, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
-                    struct Pattern pattern;
-                    pattern.BgPen    = 127;
-                    pattern.FgPen    = 255;
-                    pattern.DrawMode = JAM2;
-                    pattern.Size     = 2;
-                    pattern.Memory   = patternData;
-                    pattern.XOffset  = 0;
-                    pattern.YOffset  = 0;
+    for (int i = 0; i < 8; ++i) {
+        {
+            UWORD patternData[] = {0x0101, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
+            struct Pattern pattern;
+            pattern.BgPen    = 127;
+            pattern.FgPen    = 255;
+            pattern.DrawMode = JAM2;
+            pattern.Size     = 2;
+            pattern.Memory   = patternData;
+            pattern.XOffset  = 0;
+            pattern.YOffset  = 0;
 
-                    BlitPattern(bi, &ri, &pattern, 150 + i * 32 + i, 150 + i * 32 + i, 24, 24, 0xFF, RGBFB_CLUT);
-                }
-            }
+            BlitPattern(bi, &ri, &pattern, 150 + i * 32 + i, 150 + i * 32 + i, 24, 24, 0xFF, RGBFB_CLUT);
+        }
+    }
 
-            for (int i = 0; i < 8; ++i) {
-                {
-                    UWORD patternData[] = {
-                        0xF0F0, 0xF0F0, 0x0F0F, 0x0F0F, 0x0, 0x0, 0x0,
-                    };
-                    struct Pattern pattern;
-                    pattern.BgPen    = 127;
-                    pattern.FgPen    = 255;
-                    pattern.DrawMode = JAM2;
-                    pattern.Size     = 2;
-                    pattern.Memory   = patternData;
-                    pattern.XOffset  = i;
-                    pattern.YOffset  = i;
+    for (int i = 0; i < 8; ++i) {
+        {
+            UWORD patternData[] = {
+                0xF0F0, 0xF0F0, 0x0F0F, 0x0F0F, 0x0, 0x0, 0x0,
+            };
+            struct Pattern pattern;
+            pattern.BgPen    = 127;
+            pattern.FgPen    = 255;
+            pattern.DrawMode = JAM2;
+            pattern.Size     = 2;
+            pattern.Memory   = patternData;
+            pattern.XOffset  = i;
+            pattern.YOffset  = i;
 
-                    BlitPattern(bi, &ri, &pattern, 200 + i * 32 + i, 150 + i * 32 + i, 24, 24, 0xFF, RGBFB_CLUT);
-                }
-            }
+            BlitPattern(bi, &ri, &pattern, 200 + i * 32 + i, 150 + i * 32 + i, 24, 24, 0xFF, RGBFB_CLUT);
+        }
+    }
 #endif
     WaitBlitter(bi);
 
