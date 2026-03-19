@@ -21,6 +21,9 @@ static void sdac_setClock(struct BoardInfo *bi);
 static ULONG integrated_setMemoryClock(struct BoardInfo *bi, ULONG clockHz);
 static ULONG sdac_setMemoryClock(struct BoardInfo *bi, ULONG clockHz);
 
+static void integrated_setDac(struct BoardInfo *bi, RGBFTYPE format);
+static void sdac_setDac(struct BoardInfo *bi, RGBFTYPE format);
+
 // PLL limits used by svga_compute_pll (see common.h struct svga_pll)
 static const struct svga_pll s3trio64_pll = {3, 129, 3, 33, 0, 3, 35000, 240000, 14318};
 static const struct svga_pll s3sdac_pll   = {3, 129, 3, 33, 0, 3, 60000, 270000, 14318};
@@ -30,6 +33,7 @@ static const RamdacOps_t integrated_ops = {
     .packPllToModeInfo = integrated_packPllToModeInfo,
     .setClock          = integrated_setClock,
     .setMemoryClock    = integrated_setMemoryClock,
+    .setDac            = integrated_setDac,
 };
 
 static const RamdacOps_t aurora64_ops = {
@@ -37,6 +41,7 @@ static const RamdacOps_t aurora64_ops = {
     .packPllToModeInfo = aurora64_packPllToModeInfo,
     .setClock          = integrated_setClock,
     .setMemoryClock    = integrated_setMemoryClock,
+    .setDac            = integrated_setDac,
 };
 
 static const RamdacOps_t sdac_ops = {
@@ -44,6 +49,7 @@ static const RamdacOps_t sdac_ops = {
     .packPllToModeInfo = sdac_packPllToModeInfo,
     .setClock          = sdac_setClock,
     .setMemoryClock    = sdac_setMemoryClock,
+    .setDac            = sdac_setDac,
 };
 
 const RamdacOps_t *getRamdacOps(struct BoardInfo *bi)
@@ -209,6 +215,114 @@ static ULONG sdac_setMemoryClock(struct BoardInfo *bi, ULONG clockHz)
     DAC_DISABLE_RS2();
 
     return (ULONG)currentKhz * 1000;
+}
+
+// Integrated DAC (Trio64, Aurora64, etc.): CR67 pixel format. region unused (single DAC).
+static void integrated_setDac(struct BoardInfo *bi, RGBFTYPE format)
+{
+    static const UBYTE DAC_ColorModes[] = {
+        0x00,  // RGBFB_NONE
+        0x00,  // RGBFB_CLUT
+        0x70,  // RGBFB_R8G8B8
+        0x70,  // RGBFB_B8G8R8
+        0x50,  // RGBFB_R5G6B5PC
+        0x30,  // RGBFB_R5G5B5PC
+        0xd0,  // RGBFB_A8R8G8B8
+        0xd0,  // RGBFB_A8B8G8R8
+        0xd0,  // RGBFB_R8G8B8A8
+        0xd0,  // RGBFB_B8G8R8A8
+        0x50,  // RGBFB_R5G6B5
+        0x30,  // RGBFB_R5G5B5
+        0x50,  // RGBFB_B5G6R5PC
+        0x30,  // RGBFB_B5G5R5PC
+        0x00,  // RGBFB_YUV422CGX
+        0x00,  // RGBFB_YUV411
+        0x00,  // RGBFB_YUV411PC
+        0x00,  // RGBFB_YUV422
+        0x00,  // RGBFB_YUV422PC
+        0x00,  // RGBFB_YUV422PA
+        0x00,  // RGBFB_YUV422PAPC
+    };
+
+    REGBASE();
+
+    UBYTE dacMode;
+    if ((format == RGBFB_CLUT) && ((bi->ModeInfo->Flags & GMF_DOUBLECLOCK) != 0)) {
+        D(INFO, "Setting 8bit multiplex DAC mode\n");
+        dacMode = 0x11;
+    } else {
+        dacMode = DAC_ColorModes[format];
+    }
+    W_CR_MASK(0x67, 0xF1, dacMode);
+}
+
+// SDAC/GENDAC (Vision864, Vision968 fallback):
+static void sdac_setDac(struct BoardInfo *bi, RGBFTYPE format)
+{
+    static const UBYTE SDAC_ColorModes[] = {
+        0x00,  // RGBFB_NONE
+        0x00,  // RGBFB_CLUT
+        0x90,  // RGBFB_R8G8B8
+        0x90,  // RGBFB_B8G8R8
+        0x50,  // RGBFB_R5G6B5PC
+        0x30,  // RGBFB_R5G5B5PC
+        0x70,  // RGBFB_A8R8G8B8
+        0x70,  // RGBFB_A8B8G8R8
+        0x70,  // RGBFB_R8G8B8A8
+        0x70,  // RGBFB_B8G8R8A8
+        0x50,  // RGBFB_R5G6B5
+        0x30,  // RGBFB_R5G5B5
+        0x50,  // RGBFB_B5G6R5PC
+        0x30,  // RGBFB_B5G5R5PC
+        0x00,  // RGBFB_YUV422CGX
+        0x00,  // RGBFB_YUV411
+        0x00,  // RGBFB_YUV411PC
+        0x00,  // RGBFB_YUV422
+        0x00,  // RGBFB_YUV422PC
+        0x00,  // RGBFB_YUV422PA
+        0x00,  // RGBFB_YUV422PAPC
+    };
+
+    static const UBYTE DAC_ColorModes[] = {
+        0x00,  // RGBFB_NONE
+        0x00,  // RGBFB_CLUT
+        0x80,  // RGBFB_R8G8B8
+        0x80,  // RGBFB_B8G8R8
+        0x50,  // RGBFB_R5G6B5PC
+        0x30,  // RGBFB_R5G5B5PC
+        0x70,  // RGBFB_A8R8G8B8
+        0x70,  // RGBFB_A8B8G8R8
+        0x70,  // RGBFB_R8G8B8A8
+        0x70,  // RGBFB_B8G8R8A8
+        0x50,  // RGBFB_R5G6B5
+        0x30,  // RGBFB_R5G5B5
+        0x50,  // RGBFB_B5G6R5PC
+        0x30,  // RGBFB_B5G5R5PC
+        0x00,  // RGBFB_YUV422CGX
+        0x00,  // RGBFB_YUV411
+        0x00,  // RGBFB_YUV411PC
+        0x00,  // RGBFB_YUV422
+        0x00,  // RGBFB_YUV422PC
+        0x00,  // RGBFB_YUV422PA
+        0x00,  // RGBFB_YUV422PAPC
+    };
+
+    REGBASE();
+
+    UBYTE sdacMode;
+    UBYTE dacMode;
+    if ((format == RGBFB_CLUT) && ((bi->ModeInfo->Flags & GMF_DOUBLECLOCK) != 0)) {
+        D(INFO, "Setting 8bit multiplex SDAC mode\n");
+        sdacMode = 0x10;
+        dacMode  = 0x11;
+    } else {
+        sdacMode = SDAC_ColorModes[format];
+        dacMode  = DAC_ColorModes[format];
+    }
+    DAC_ENABLE_RS2();
+    W_REG(SDAC_COMMAND, sdacMode);
+    DAC_DISABLE_RS2();
+    W_CR_MASK(0x67, 0xF1, dacMode);
 }
 
 BOOL InitRAMDAC(struct BoardInfo *bi)

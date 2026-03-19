@@ -373,116 +373,8 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __R
 {
     DFUNC(INFO, "\n");
 
-    REGBASE();
-#if BUILD_VISION864
-    static const UBYTE SDAC_ColorModes[] = {
-        0x00,  // RGBFB_NONE
-        0x00,  // RGBFB_CLUT
-        0xE0,  // RGBFB_R8G8B8
-        0xE0,  // RGBFB_B8G8R8
-        0x50,  // RGBFB_R5G6B5PC
-        0x30,  // RGBFB_R5G5B5PC
-        0x90,  // RGBFB_A8R8G8B8
-        0x90,  // RGBFB_A8B8G8R8
-        0x90,  // RGBFB_R8G8B8A8
-        0x90,  // RGBFB_B8G8R8A8
-        0x50,  // RGBFB_R5G6B5
-        0x30,  // RGBFB_R5G5B5
-        0x50,  // RGBFB_B5G6R5PC
-        0x30,  // RGBFB_B5G5R5PC
-        0x00,  // RGBFB_YUV422CGX
-        0x00,  // RGBFB_YUV411
-        0x00,  // RGBFB_YUV411PC
-        0x00,  // RGBFB_YUV422
-        0x00,  // RGBFB_YUV422PC
-        0x00,  // RGBFB_YUV422PA
-        0x00,  // RGBFB_YUV422PAPC
-    };
-
-    static const UBYTE DAC_ColorModes[] = {
-        0x00,  // RGBFB_NONE
-        0x00,  // RGBFB_CLUT
-        0x70,  // RGBFB_R8G8B8
-        0x70,  // RGBFB_B8G8R8
-        0x50,  // RGBFB_R5G6B5PC
-        0x30,  // RGBFB_R5G5B5PC
-        0x70,  // RGBFB_A8R8G8B8
-        0x70,  // RGBFB_A8B8G8R8
-        0x70,  // RGBFB_R8G8B8A8
-        0x70,  // RGBFB_B8G8R8A8
-        0x50,  // RGBFB_R5G6B5
-        0x30,  // RGBFB_R5G5B5
-        0x50,  // RGBFB_B5G6R5PC
-        0x30,  // RGBFB_B5G5R5PC
-        0x00,  // RGBFB_YUV422CGX
-        0x00,  // RGBFB_YUV411
-        0x00,  // RGBFB_YUV411PC
-        0x00,  // RGBFB_YUV422
-        0x00,  // RGBFB_YUV422PC
-        0x00,  // RGBFB_YUV422PA
-        0x00,  // RGBFB_YUV422PAPC
-    };
-
-    if (format < RGBFB_MaxFormats) {
-        UBYTE sdacMode;
-        if ((format == RGBFB_CLUT) && ((bi->ModeInfo->Flags & GMF_DOUBLECLOCK) != 0)) {
-            D(INFO, "Setting 8bit multiplex SDAC mode\n");
-            sdacMode = 0x10;
-        } else {
-            sdacMode = SDAC_ColorModes[format];
-        }
-        DAC_ENABLE_RS2();
-        W_REG(SDAC_COMMAND, sdacMode);
-        DAC_DISABLE_RS2();
-    }
-
-#else
-    static const UBYTE DAC_ColorModes[] = {
-        0x00,  // RGBFB_NONE
-        0x00,  // RGBFB_CLUT
-        0x70,  // RGBFB_R8G8B8
-        0x70,  // RGBFB_B8G8R8
-        0x50,  // RGBFB_R5G6B5PC
-        0x30,  // RGBFB_R5G5B5PC
-        0xd0,  // RGBFB_A8R8G8B8
-        0xd0,  // RGBFB_A8B8G8R8
-        0xd0,  // RGBFB_R8G8B8A8
-        0xd0,  // RGBFB_B8G8R8A8
-        0x50,  // RGBFB_R5G6B5
-        0x30,  // RGBFB_R5G5B5
-        0x50,  // RGBFB_B5G6R5PC
-        0x30,  // RGBFB_B5G5R5PC
-        0x00,  // RGBFB_YUV422CGX
-        0x00,  // RGBFB_YUV411
-        0x00,  // RGBFB_YUV411PC
-        0x00,  // RGBFB_YUV422
-        0x00,  // RGBFB_YUV422PC
-        0x00,  // RGBFB_YUV422PA
-        0x00,  // RGBFB_YUV422PAPC
-    };
-#endif
-
-    if (format < RGBFB_MaxFormats) {
-        UBYTE dacMode;
-
-        if ((format == RGBFB_CLUT) && ((bi->ModeInfo->Flags & GMF_DOUBLECLOCK) != 0)) {
-            D(INFO, "Setting 8bit multiplex DAC mode\n");
-            // pixel multiplex and invert DCLK; This way it results in double-inversion and thus VCLK/PCLK on the RAMDAC
-            // are in-phase with its internal double-clocked ICLK
-            // Bit 0 VCLK PHS - VCLK Phase With Respect to DCLK
-            //     0 = VCLK is 180° out of phase with DCLK (inverted)
-            //     1 = VCLK is in phase with DCLK
-            dacMode = 0x11;
-        } else {
-            dacMode = DAC_ColorModes[format];
-        }
-        W_CR_MASK(0x67, 0xF1, dacMode);
-
-        // XFree86 does this... not sure if I need it?
-        //        W_CR(0x6D, 0x02); // Blank Delay
-    }
-
-    return;
+    const RamdacOps_t *ops = getChipData(bi)->ramdacOps;
+    ops->setDac(bi, format);
 }
 
 static INLINE REGARGS UWORD toScanLines(UWORD y, UWORD modeFlags)
@@ -569,28 +461,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 
         if (modeFlags & GMF_DOUBLECLOCK) {
             DFUNC(INFO, "Double-Clock Mode\n");
-#if BUILD_VISION864
-            // Various experiments with the Vision864 to try get the 8bit multiplex mode going
-
-            // SR1, bit 3, is used for VGA modes. It selects
-            // between DCLK and DCLK/2. Its output is
-            // called the internal dot clock.
-            // W_SR_MASK(0x01, BIT(3), BIT(3));
-
-            // Double all horizontal parameters.
-            // W_CR_MASK(0x43, BIT(7), BIT(7));
-
-            // VCLK EDG - Video Clock Edge Mode Select
-            // 0 = PA[15:0] values change every VCLK rising edge
-            // 1 = PAI15:0] values change every VCLK rising and falling edge (15/16 bits/pixel only)
-            // I don't think this applies to the SDAC as it only transfers data on the rising edge
-            // W_CR_MASK(0x43, BIT(0), BIT(0));
-
-            // CR66 divide DCLK by 2 before it becomes VCLK. This _almost_ worked.
-            // No changes to DCLK programming needed. But the output doesn't look right.
-            // It looks as if a pair of pixels is being repeated
-            W_CR_MASK(0x66, 0x07, 0x01);
-#else
+#if !BUILD_VISION864
             // CLKSYN Control 2 Register (SR15)
             // Bit 4 DCLK/2 - Divide DCLK by 2
             // Either this bit or bit 6 of this register must be set to 1 for clock
@@ -1076,25 +947,16 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     if (0x3ff < mi->VerTotal) {
         mi->Flags |= GMF_ALWAYSBORDER;
     }
-
-    // mi->Flags &= ~GMF_DOUBLESCAN;
-    // if (mi->Height < 400) {
-    //     mi->Flags |= GMF_DOUBLESCAN;
-    // }
-
     // Figure out if we can/need to make use of double clocking
     mi->Flags &= ~GMF_DOUBLECLOCK;
 
     // Enable Double Clock for 8Bit modes when required pixelclock exceeds 80Mhz
-    // I couldn't get this to work on the VISION864
-#if !BUILD_VISION864
     if (RGBFormat == RGBFB_CLUT || RGBFormat == RGBFB_NONE) {
         if (pixelClock > 67500000) {
             D(VERBOSE, "Applying pixel multiplex clocking\n")
             mi->Flags |= GMF_DOUBLECLOCK;
         }
     }
-#endif
 
 #if BUILD_VISION864
     if (getBPP(RGBFormat) >= 3) {
@@ -1135,15 +997,6 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     mi->PixelClock = (ULONG)cd->pllValues[lower].freq10khz * 10000;  // 10 kHz -> Hz
 
     PLLValue_t pllValues = cd->pllValues[lower];
-
-#if BUILD_VISION864 && 0
-    // Another multiplex test test. CR66 seems to have the same effect and lets us run the PLL at a higher freuqncy,
-    // though
-    if (mi->Flags & GMF_DOUBLECLOCK) {
-        // divide by 2 the pixel clock by increasing R
-        pllValues.r += 1;
-    }
-#endif
 
     // FIXME: There's a note in the manual saying that fDCLK > fSCLK "to ensure proper PLL writes"
     //  I take SCLK as the 33Mhz PCI clock, thus DCLK must be greater than 16.5Mhz

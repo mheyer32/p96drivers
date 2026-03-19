@@ -16,6 +16,7 @@ typedef struct RamdacOps
     void (*packPllToModeInfo)(struct BoardInfo *bi, UWORD m, UWORD n, UWORD r, struct ModeInfo *mi);
     void (*setClock)(struct BoardInfo *bi);
     ULONG (*setMemoryClock)(struct BoardInfo *bi, ULONG clockHz);
+    void (*setDac)(struct BoardInfo *bi, RGBFTYPE format);
 } RamdacOps_t;
 
 BOOL InitRAMDAC(struct BoardInfo *bi);
