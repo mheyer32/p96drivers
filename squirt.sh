@@ -23,6 +23,7 @@ ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/AT3D.card
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestMach64
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestMach64Card
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3Trio64Plus
+${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3Vision864
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3TrioCard
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestAT3D
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestAT3DCard

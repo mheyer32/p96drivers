@@ -146,7 +146,8 @@ all : S3Trio64V2.chip \
       AT3D.card \
       TestAT3D \
       TestAT3DCard \
-      TestCybervision64
+      TestCybervision64 \
+      TestS3Vision864
 
 openpci.h : openpci/openpci.fd openpci/clib/openpci_protos.h
 	@$(MKDIR) -p openpci/inline
@@ -195,16 +196,20 @@ S3TRIOCARD_SRC = common.c \
 S3Trio64.card : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DOPENPCI=1
 $(eval $(call make_driver,S3Trio64.card,$(BUILDDIR)s3triocard/, ${S3TRIOCARD_SRC}))
 
-S3TRIO64PLUS_TESTEXE_SRC = common.c \
-                           s3trio64/s3trio64_common.c \
-                           s3trio64/s3ramdac.c \
-                           s3trio64/chip_s3trio64.c \
-                           s3trio64/s3i2c.c \
-                           edid_common.c
+S3TRIO_TESTEXE_SRC = common.c \
+                     s3trio64/s3trio64_common.c \
+                     s3trio64/s3ramdac.c \
+                     s3trio64/chip_s3trio64.c \
+                     s3trio64/s3i2c.c \
+                     edid_common.c
 
 TestS3Trio64Plus : CFLAGS+=-DCONFIG_S3TRIO64PLUS -DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include s3trio64/s3config.h 
 
-$(eval $(call make_exe,TestS3Trio64Plus,$(BUILDDIR)tests3trio64plus/, ${S3TRIO64PLUS_TESTEXE_SRC}))
+$(eval $(call make_exe,TestS3Trio64Plus,$(BUILDDIR)tests3trio64plus/, ${S3TRIO_TESTEXE_SRC}))
+
+TestS3Vision864 : CFLAGS+=-DCONFIG_VISION864 -DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include s3trio64/s3config.h 
+
+$(eval $(call make_exe,TestS3Vision864,$(BUILDDIR)tests3vision864/, ${S3TRIO_TESTEXE_SRC}))
 
 S3TRIOCARD_TESTEXE_SRC = common.c \
                          card_common.c \
