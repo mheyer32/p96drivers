@@ -64,10 +64,6 @@ int debugLevel = VERBOSE;
 #define CMD_BYTE_SWAP       0x1000
 #define CMD_WAIT_CPU        0x0100
 
-// Minimum PLL frequency (kHz). Below this, SR1 bit 3 enables DCLK = VCLK/2 (clock halving).
-#define MIN_PLLCLOCK_KHZ 24000
-#define MIN_PLLCLOCK_HZ  (MIN_PLLCLOCK_KHZ * 1000)
-
 #define CMD_BUS_SIZE_8BIT                     (0b00 << 9)
 #define CMD_BUS_SIZE_16BIT                    (0b01 << 9)
 #define CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED (0b10 << 9)

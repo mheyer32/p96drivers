@@ -106,9 +106,10 @@ static void integrated_setClock(struct BoardInfo *bi)
     {
         const ChipFamily_t family = getChipData(bi)->chipFamily;
         UWORD n_reg = (family == AURORA64PLUS) ? (mi->pll2.Denominator & 0x3F) + 2 : (mi->pll2.Denominator & 0x1F) + 2;
-        UWORD r_reg = (family == AURORA64PLUS) ? (mi->pll2.Denominator >> 6) & 0x03 : (mi->pll2.Denominator >> 5) & 0x03;
-        UWORD m_reg = (mi->pll1.Numerator + 2);
-        ULONG f_vco = (s3trio64_pll.f_base * m_reg) / n_reg;
+        UWORD r_reg =
+            (family == AURORA64PLUS) ? (mi->pll2.Denominator >> 6) & 0x03 : (mi->pll2.Denominator >> 5) & 0x03;
+        UWORD m_reg        = (mi->pll1.Numerator + 2);
+        ULONG f_vco        = (s3trio64_pll.f_base * m_reg) / n_reg;
         ULONG frequencyKhz = f_vco >> r_reg;
         D(VERBOSE, "         Actual PixelClock %ldHz M: %ld N: %ld, R: %ld\n", frequencyKhz * 1000, (ULONG)m_reg,
           (ULONG)n_reg, (ULONG)r_reg);
@@ -116,7 +117,7 @@ static void integrated_setClock(struct BoardInfo *bi)
 #endif
 
     // SR15 bit 4 selects DCLK = VCLK/2 (used for low clocks / pixel multiplex)
-    if (mi->PixelClock < (ULONG)24000 * 1000 || mi->Flags & GMF_DOUBLECLOCK) {
+    if (mi->PixelClock < MIN_PLLCLOCK_HZ || mi->Flags & GMF_DOUBLECLOCK) {
         W_SR_MASK(0x15, BIT(4), BIT(4));
     } else {
         W_SR_MASK(0x15, BIT(4), 0);
@@ -139,15 +140,22 @@ static void sdac_setClock(struct BoardInfo *bi)
 
 #ifdef DBG
     {
-        UWORD n_reg = (mi->pll2.Denominator & 0x1F) + 2;
-        UWORD r_reg = (mi->pll2.Denominator >> 5) & 0x03;
-        UWORD m_reg = (mi->pll1.Numerator + 2);
-        ULONG f_vco = (s3sdac_pll.f_base * m_reg) / n_reg;
+        UWORD n_reg        = (mi->pll2.Denominator & 0x1F) + 2;
+        UWORD r_reg        = (mi->pll2.Denominator >> 5) & 0x03;
+        UWORD m_reg        = (mi->pll1.Numerator + 2);
+        ULONG f_vco        = (s3sdac_pll.f_base * m_reg) / n_reg;
         ULONG frequencyKhz = f_vco >> r_reg;
         D(VERBOSE, "         Actual PixelClock %ldHz M: %ld N: %ld, R: %ld\n", frequencyKhz * 1000, (ULONG)m_reg,
           (ULONG)n_reg, (ULONG)r_reg);
     }
 #endif
+
+    // SR15 bit 4 selects DCLK = VCLK/2 (used for low clocks / pixel multiplex)
+    if (mi->PixelClock < MIN_PLLCLOCK_HZ) {
+        W_SR_MASK(0x1, BIT(3), BIT(3));
+    } else {
+        W_SR_MASK(0x1, BIT(3), 0);
+    }
 
     DAC_ENABLE_RS2();
 
@@ -184,9 +192,7 @@ static ULONG integrated_setMemoryClock(struct BoardInfo *bi, ULONG clockHz)
         W_SR_MASK(0xA, BIT(7), BIT(7));
         if (clockHz >= 55000000) {
             W_SR_MASK(0x15, BIT(7), BIT(7));
-        }
-        else
-        {
+        } else {
             W_SR_MASK(0x15, BIT(7), 0);
         }
     } else {
