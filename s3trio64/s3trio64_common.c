@@ -106,7 +106,6 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
 
     card->legacyIOBase = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
     if (chip->chipFamily >= VISION968) {
-        // The Trio64
         // S3Trio64.chip expects register base adress to be offset by 0x8000
         // to be able to address all registers with just regular signed 16bit
         // offsets
@@ -154,10 +153,8 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
         }
     }
 
-    // enable special cache mode settings(?)
     bi->MemorySpaceBase = memory0;
     bi->MemorySpaceSize = memory0Size;
-    bi->Flags |= BIF_CACHEMODECHANGE;
 
     return TRUE;
 }

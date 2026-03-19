@@ -3513,6 +3513,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         return FALSE;
     }
 
+    setCacheMode(bi, bi->MemoryBase, bi->MemorySize & ~4095, MAPP_NONSERIALIZED | MAPP_IMPRECISE | MAPP_CACHEINHIBIT,
+                 CACHEFLAGS);
+
     // Input Status ? Register (STATUS_O)
     D(1, "Monitor is %s present\n", ((R_REG(0x3C2) & 0x10) ? "" : "NOT"));
 
@@ -3605,8 +3608,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         cd->patternVideoBuffer = (ULONG *)(bi->MemoryBase + bi->MemorySize);
         cd->patternCacheBuffer = AllocVec(patternSize, MEMF_PUBLIC);
     }
-
-    // setCacheMode(bi, bi->MemoryBase, bi->MemorySize & ~4095, MAPP_NONSERIALIZED | MAPP_IMPRECISE, CACHEFLAGS);
 
     // Read EDID after I2C initialization (for TRIO64PLUS and higher)
     if (chipFamily >= TRIO64PLUS) {
