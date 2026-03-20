@@ -1345,6 +1345,7 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE inde
 
 #if BUILD_VISION864
     if (fmt == RGBFB_CLUT) {
+        //This seems to contradict the specs, but works
         if (index == 0) {
             reg = 0x0F;
         } else {
@@ -1372,19 +1373,27 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE inde
         }
         W_CR(reg, paletteEntry);
         W_REG(CRTC_DATA, paletteEntry);
-        W_REG(CRTC_DATA, paletteEntry);
-        W_REG(CRTC_DATA, paletteEntry);
+        // W_REG(CRTC_DATA, paletteEntry);
+        // W_REG(CRTC_DATA, paletteEntry);
     } break;
     case RGBFB_B8G8R8A8:
     case RGBFB_A8R8G8B8: {
-        W_CR(reg, blue);  // No Conversion needed for 24bit RGB
+        // No Conversion needed for 24bit RGB
+#if BUILD_VISION864
+        W_CR(reg, red);
+        W_REG(CRTC_DATA, 0);
+        W_REG(CRTC_DATA, blue);
+        W_REG(CRTC_DATA, green);
+#else
+        W_CR(reg, blue);
         W_REG(CRTC_DATA, green);
         W_REG(CRTC_DATA, red);
+#endif
     } break;
     case RGBFB_R5G5B5PC:
     case RGBFB_R5G5B5: {
         UBYTE a = (blue >> 3) | ((green << 2) & 0xe);  // 16bit, just need to write the first two byte
-        UBYTE b = (green >> 5) | ((red >> 1) & ~0x3);
+        UBYTE b = (green >> 6) | ((red >> 1) & ~0x3);
         W_CR(reg, a);
         W_REG(CRTC_DATA, b);
     } break;
@@ -1402,18 +1411,6 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
 {
     DFUNC(VERBOSE, "\n");
     REGBASE();
-
-#if BUILD_VISION864
-    if (getChipData(bi)->chipFamily <= VISION864) {
-        UBYTE bpp = getBPP(RGBFormat);
-        if (bpp < 3) {
-            W_CR_MASK(0x45, 0x0C, 0b0000);
-        } else {
-            // Set Cursor pixel mode to 24/32bit
-            W_CR_MASK(0x45, 0x0C, 0b0100);
-        }
-    }
-#endif
 
     W_CR_MASK(0x45, 0x01, activate ? 0x01 : 0x00);
 

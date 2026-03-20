@@ -329,6 +329,20 @@ static void sdac_setDac(struct BoardInfo *bi, RGBFTYPE format)
     W_REG(SDAC_COMMAND, sdacMode);
     DAC_DISABLE_RS2();
     W_CR_MASK(0x67, 0xF1, dacMode);
+
+#if BUILD_VISION864
+    // Adjust cursor sprite format
+    if (getChipData(bi)->chipFamily <= VISION864) {
+        UBYTE bpp = getBPP(format);
+        if (bpp < 3) {
+            W_CR_MASK(0x45, 0x0C, 0b0000);
+        } else {
+            // Set Cursor pixel mode to 24/32bit
+            W_CR_MASK(0x45, 0x0C, 0b0100);
+        }
+    }
+#endif
+
 }
 
 BOOL InitRAMDAC(struct BoardInfo *bi)
