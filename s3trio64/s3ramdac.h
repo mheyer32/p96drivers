@@ -5,7 +5,7 @@
 #include <exec/types.h>
 
 // Minimum PLL frequency (kHz). Below this, SR1 bit 3 enables DCLK = VCLK/2 (clock halving).
-#define MIN_PLLCLOCK_KHZ 24000
+#define MIN_PLLCLOCK_KHZ 25000
 #define MIN_PLLCLOCK_HZ  (MIN_PLLCLOCK_KHZ * 1000)
 
 #define DAC_ENABLE_RS2()  W_CR_MASK(0x55, 0x01, 0x01);  // Clear RS2 bit for direct register access

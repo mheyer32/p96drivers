@@ -150,11 +150,20 @@ static void sdac_setClock(struct BoardInfo *bi)
     }
 #endif
 
-    // SR15 bit 4 selects DCLK = VCLK/2 (used for low clocks / pixel multiplex)
-    if (mi->PixelClock < MIN_PLLCLOCK_HZ) {
+    // We run modes < 25Mhz pixel clock at twice the pixel clock and use
+    // DCLK = VCLK/2 to slow down the character clock back to the correct speed.
+    // But do not clock down for 32bit modes where double the clock is actually needed
+    if (mi->PixelClock <= MIN_PLLCLOCK_HZ && mi->Depth < 24) {
+        // SR1 bit 3 selects DCLK = VCLK/2.
         W_SR_MASK(0x1, BIT(3), BIT(3));
+        // // Invert VCLK
+        // W_CR_MASK(0x33, BIT(0), BIT(0));
+        // // Invert VCLK
+        // W_CR_MASK(0x67, BIT(0), BIT(0));
     } else {
         W_SR_MASK(0x1, BIT(3), 0);
+        W_CR_MASK(0x33, BIT(0),0);
+        W_CR_MASK(0x67, BIT(0), 0);
     }
 
     DAC_ENABLE_RS2();
@@ -496,14 +505,11 @@ static BOOL CheckForSDAC(struct BoardInfo *bi)
         /* the fourth read will show the SDAC chip ID and revision */
         if ((R_REG(0x3c6) & 0xf0) == 0x70) {
             DFUNC(0, "Found S3 SDAC\n");
-            saveCR43 &= ~0x02;
-            saveCR45 &= ~0x20;
-        } else
+        } else {
             DFUNC(0, "Found S3 GENDAC\n");
-        {
-            saveCR43 &= ~0x02;
-            saveCR45 &= ~0x20;
         }
+        saveCR43 &= ~0x02;
+        saveCR45 &= ~0x20;
         W_REG(0x3c8, 0);
 
         found = TRUE;

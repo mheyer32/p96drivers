@@ -116,9 +116,10 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
         bi->MemoryBase = (UBYTE *)memory0;
     } else {
         bi->RegisterBase = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
-        // This is how I understand Trio64/32 MMIO approach: 0xA0000 is
+        // This is how I understand Trio64/32 MMIO approach: 0xA8000 is
         // hardcoded as the base of the enhanced registers I need to make
         // sure, the first 1 MB of address space don't overlap with anything.
+        // Because we use register offset Macros in the form of 0x8xxxx, we use 0xA0000 as base
         bi->MemoryIOBase = (UBYTE *)pci_physic_to_logic_addr((APTR)0xA0000, card->board);
 
         if (bi->MemoryIOBase == NULL) {

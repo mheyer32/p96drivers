@@ -216,12 +216,12 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
 
     ChipData_t *cd             = getChipData(bi);
     const struct svga_pll *pll = NULL;
-    UWORD maxFreq              = 135;
+    UWORD maxFreqMhz           = 135;
 
-    cd->ramdacOps->getPllParams(bi, &pll, &maxFreq);
+    cd->ramdacOps->getPllParams(bi, &pll, &maxFreqMhz);
 
-    UWORD minFreq    = 12;  // 12MHz min
-    UWORD numEntries = (maxFreq - minFreq + 1) * 2;
+    UWORD minFreqMhz = 12;  // 12MHz min
+    UWORD numEntries = (maxFreqMhz - minFreqMhz + 1) * 2;
 
     PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * numEntries, MEMF_PUBLIC);
     if (!pllValues) {
@@ -245,15 +245,15 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
     // Generate PLL values for each frequency
     int lastValue = 0;
     for (UWORD i = 0; i < numEntries; ++i) {
-        ULONG freq = (minFreq + i) * 500;  // kHz
+        ULONG freqKhz = (minFreqMhz + i) * 500;  // kHz
 
-        BOOL clockHalving = (freq <= MIN_PLLCLOCK_KHZ);
+        BOOL clockHalving = (freqKhz <= MIN_PLLCLOCK_KHZ);
         if (clockHalving) {
-            freq *= 2;  // PLL runs at 2x; SR1 bit 3 gives DCLK = VCLK/2
+            freqKhz *= 2;  // PLL runs at 2x; SR1 bit 3 gives DCLK = VCLK/2
         }
 
         UWORD m, n, r;
-        int currentKhz = svga_compute_pll(pll, freq, &m, &n, &r);
+        int currentKhz = svga_compute_pll(pll, freqKhz, &m, &n, &r);
 
         if (clockHalving) {
             currentKhz /= 2;  // Effective pixel clock
@@ -419,10 +419,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     // W_SR_MASK(0x15, /*BIT(4) |*/ BIT(6), 0);
     W_SR_MASK(0x18, BIT(7), 0);
 #else
-    // W_SR_MASK(0x01, BIT(3), 0x00); // FIXME: why set DCLK/2?  to 0
-
-    // W_CR_MASK(0x66, 0x07, 0x00); // careful, CR66 has new meanings on later chips
-    W_CR_MASK(0x33, BIT(3), 0x00);
     W_CR_MASK(0x43, BIT(0), 0x00);
 #endif
 
@@ -450,7 +446,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 
 #if BUILD_VISION864 && 0
         // FIXME: Do we ever overrun the max register size?
-        if (hTotal > (2 << 9) + 5) {
+        if (hTotal > ((2 << 9) - 1 + 5)) {
             hTotal /= 2;
             ScreenWidth /= 2;
             W_CR_MASK(0x43, BIT(7), BIT(7));
@@ -993,6 +989,11 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     }
 
     mi->PixelClock = (ULONG)cd->pllValues[lower].freq10khz * 10000;  // 10 kHz -> Hz
+#if BUILD_VISION864
+    if (getBPP(RGBFormat) >= 3) {
+        mi->PixelClock /= 2;  // Compensate for the earlier doubling of pixel clock for 24/32bpp modes
+    }
+#endif
 
     PLLValue_t pllValues = cd->pllValues[lower];
 
@@ -1036,7 +1037,15 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct Mod
         return 0;
     }
 
-    return (ULONG)cd->pllValues[index].freq10khz * 10000;  // 10 kHz -> Hz
+    ULONG pixelClock = (ULONG)cd->pllValues[index].freq10khz * 10000;  // 10 kHz -> Hz
+
+#if BUILD_VISION864
+    if (getBPP(format) >= 3) {
+        pixelClock /= 2;  // Compensate for the earlier doubling of pixel clock for 24/32bpp modes
+    }
+#endif
+
+    return pixelClock;  // 10 kHz -> Hz
 }
 
 static void ASM SetClock(__REGA0(struct BoardInfo *bi))
@@ -1345,7 +1354,7 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE inde
 
 #if BUILD_VISION864
     if (fmt == RGBFB_CLUT) {
-        //This seems to contradict the specs, but works
+        // This seems to contradict the specs, but works
         if (index == 0) {
             reg = 0x0F;
         } else {
@@ -1486,7 +1495,7 @@ static INLINE ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
     return offset;
 }
 
-static INLINE BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
+static INLINE BOOL setGEFormat(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
 {
     REGBASE();
 
@@ -1539,6 +1548,20 @@ static INLINE BOOL setCR50(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
     W_CR_MASK(0x50, 0xF1, CR50_76_0 | ((bpp - 1) << 4));
     W_CR_MASK(0x31, (1 << 1), CR31_1);
 
+    MMIOBASE();
+    if (bpp >= 3) {
+        W_BEE8(MULT_MISC, BIT(9));
+        W_MMIO_L(WRT_MASK, ~0);
+        // Invalidate the mask and fg/bg color caches because we need to write them again.
+        // Only in 32bpp mode, these registers are 32bit
+        cd->GEmask  = 0xFF;
+        cd->GEbgPen = cd->GEfgPen = 0x80000001;
+    } else {
+        W_BEE8(MULT_MISC, 0);
+        cd->GEmask  = 0x0;
+        cd->GEbgPen = cd->GEfgPen = 0x80000001;
+    }
+
     return TRUE;
 }
 
@@ -1551,15 +1574,6 @@ static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
     case RGBFB_R5G6B5PC:
     case RGBFB_R5G5B5PC:
         pen = swapw(pen);
-        // Fallthrough
-    case RGBFB_R5G6B5:
-    case RGBFB_R5G5B5:
-        pen = copyToUpper(pen);
-        break;
-    case RGBFB_CLUT:
-        pen |= (pen << 8);
-        pen = copyToUpper(pen);
-        break;
     default:
         break;
     }
@@ -1603,30 +1617,28 @@ static INLINE void REGARGS setMix(struct BoardInfo *bi, UWORD frgdMix, UWORD bkg
 #endif
 }
 
-static INLINE void setForegroundColor(struct BoardInfo *bi, ULONG fgPen)
+static INLINE void setForegroundColor32(struct BoardInfo *bi, ULONG fgPen)
 {
-    // Cybervision seeems to byte-swap WORD sized registers but not longword ones
-#if !MMIO_ONLY && !defined(CONFIG_CYBERVISION64)
-    REGBASE();
-    W_IO_L(FRGD_COLOR, fgPen);
-#else
     MMIOBASE();
-    W_MMIO_W(FRGD_COLOR, fgPen);
-    W_MMIO_W(FRGD_COLOR, fgPen >> 16);
-#endif
+    W_MMIO_L(FRGD_COLOR, fgPen);
 }
 
-static INLINE void setBackgroundColor(struct BoardInfo *bi, ULONG bgPen)
+static INLINE void setBackgroundColor32(struct BoardInfo *bi, ULONG bgPen)
 {
-    // Cybervision seeems to byte-swap WORD sized registers but not longword ones
-#if !MMIO_ONLY && !defined(CONFIG_CYBERVISION64)
-    REGBASE();
-    W_IO_L(BKGD_COLOR, bgPen);
-#else
+    MMIOBASE();
+    W_MMIO_L(BKGD_COLOR, bgPen);
+}
+
+static INLINE void setForegroundColor(struct BoardInfo *bi, UWORD fgPen)
+{
+    MMIOBASE();
+    W_MMIO_W(FRGD_COLOR, fgPen);
+}
+
+static INLINE void setBackgroundColor(struct BoardInfo *bi, UWORD bgPen)
+{
     MMIOBASE();
     W_MMIO_W(BKGD_COLOR, bgPen);
-    W_MMIO_W(BKGD_COLOR, bgPen >> 16);
-#endif
 }
 
 static INLINE void REGARGS setDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format)
@@ -1641,55 +1653,38 @@ static INLINE void REGARGS setDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG 
 
         UWORD frgdMix, bkgdMix;
         drawModeToMixMode(DrawMode, &frgdMix, &bkgdMix);
-        ULONG fgPen = penToColor(FgPen, format);
-        ULONG bgPen = penToColor(BgPen, format);
+        ULONG fgColor = penToColor(FgPen, format);
+        ULONG bgColor = penToColor(BgPen, format);
 
-        waitFifo(bi, 6);
-
-        setForegroundColor(bi, fgPen);
-        setBackgroundColor(bi, bgPen);
-
+        switch (format) {
+        case RGBFB_B8G8R8A8:
+        case RGBFB_A8R8G8B8:
+            waitFifo(bi, 6);
+            setForegroundColor32(bi, fgColor);
+            setBackgroundColor32(bi, bgColor);
+            break;
+        default:
+            waitFifo(bi, 4);
+            setForegroundColor(bi, fgColor);
+            setBackgroundColor(bi, bgColor);
+        }
         setMix(bi, frgdMix, bkgdMix);
     }
-}
-
-static INLINE void setWriteMask(const struct BoardInfo *bi, ULONG mask)
-{
-#if !MMIO_ONLY && !defined(CONFIG_CYBERVISION64)
-    REGBASE();
-    W_IO_L(WRT_MASK, mask);
-#else
-    MMIOBASE();
-    W_MMIO_W(WRT_MASK, mask);
-    W_MMIO_W(WRT_MASK, mask >> 16);
-#endif
 }
 
 static INLINE void REGARGS setGEWriteMask(struct BoardInfo *bi, UBYTE mask, RGBFTYPE fmt, BYTE waitFifoSlots)
 {
     ChipData_t *cd = getChipData(bi);
 
-    if (fmt != RGBFB_CLUT) {
-        if (cd->GEmask != 0xFF) {
-            // 16/32 bit modes are supposed to ignore the mask, so set it to ~0
-            // if not done so yet
-            cd->GEmask = 0xFF;
-            waitFifo(bi, waitFifoSlots + 2);
-            setWriteMask(bi, 0xFFFFFFFF);
-        }
+    // 8bit modes use the mask
+    if (fmt == RGBFB_CLUT && cd->GEmask != mask) {
+        cd->GEmask = mask;
+
+        waitFifo(bi, waitFifoSlots + 1);
+        MMIOBASE();
+        W_MMIO_B(WRT_MASK, mask);
     } else {
-        // 8bit modes use the mask
-        if (cd->GEmask != mask) {
-            cd->GEmask = mask;
-
-            waitFifo(bi, waitFifoSlots + 2);
-
-            UWORD wmask = mask;
-            wmask |= (wmask << 8);
-            setWriteMask(bi, copyToUpper(wmask));
-        } else {
-            waitFifo(bi, waitFifoSlots);
-        }
+        waitFifo(bi, waitFifoSlots);
     }
 }
 
@@ -1739,8 +1734,8 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     MMIOBASE();
 
     UBYTE bpp = getBPP(fmt);
-    if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
-        DFUNC(1, "Fallback to FillRectDefault\n")
+    if (!bpp || !setGEFormat(bi, ri->BytesPerRow, bpp)) {
+        DFUNC(INFO, "Fallback to FillRectDefault\n")
         bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
         return;
     }
@@ -1755,7 +1750,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
 #ifdef DBG
     if ((x > (1 << 11)) || (y > (1 << 11))) {
-        KPrintF("X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
+        D(ERROR, "X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
     }
 #endif
 
@@ -1774,10 +1769,16 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     if (cd->GEfgPen != pen || cd->GEFormat != fmt) {
         cd->GEfgPen  = pen;
         cd->GEFormat = fmt;
-        pen          = penToColor(pen, fmt);
 
-        waitFifo(bi, 8);
-        setForegroundColor(bi, pen);
+        pen = penToColor(pen, fmt);
+
+        if (bpp < 3) {
+            waitFifo(bi, 7);
+            setForegroundColor(bi, pen);
+        } else {
+            waitFifo(bi, 8);
+            setForegroundColor32(bi, pen);
+        }
     } else {
         waitFifo(bi, 6);
     }
@@ -1805,8 +1806,8 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
     MMIOBASE();
 
     UBYTE bpp = getBPP(fmt);
-    if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
-        DFUNC(1, "Fallback to InvertRectDefault\n")
+    if (!bpp || !setGEFormat(bi, ri->BytesPerRow, bpp)) {
+        DFUNC(INFO, "Fallback to InvertRectDefault\n")
         bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
         return;
     }
@@ -1859,8 +1860,8 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     MMIOBASE();
 
     UBYTE bpp = getBPP(fmt);
-    if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
-        DFUNC(1, "Fallback to BlitRectDefault\n")
+    if (!bpp || !setGEFormat(bi, ri->BytesPerRow, bpp)) {
+        DFUNC(INFO, "Fallback to BlitRectDefault\n")
         bi->BlitRectDefault(bi, ri, srcX, srcY, dstX, dstY, width, height, mask, fmt);
         return;
     }
@@ -1963,8 +1964,8 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
 
     UWORD bytesPerRow = dri->BytesPerRow > sri->BytesPerRow ? dri->BytesPerRow : sri->BytesPerRow;
     UBYTE bpp         = getBPP(format);
-    if (!bpp || !setCR50(bi, bytesPerRow, bpp)) {
-        DFUNC(1, "fallback to BlitRectNoMaskCompleteDefault\n");
+    if (!bpp || !setGEFormat(bi, bytesPerRow, bpp)) {
+        DFUNC(INFO, "fallback to BlitRectNoMaskCompleteDefault\n");
         bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, minTerm, format);
         return;
     }
@@ -1972,13 +1973,10 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
     ChipData_t *cd = getChipData(bi);
     if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
         cd->GEOp       = BLITRECTNOMASKCOMPLETE;
-        cd->GEmask     = 0xFF;
         cd->GEdrawMode = 0xFF;  // invalidate minterm cache
 
-        waitFifo(bi, 3);
+        setGEWriteMask(bi, ~0, format, 1);
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
-
-        setWriteMask(bi, 0xFFFFFFFF);
     }
 
     if (cd->GEdrawMode != minTerm) {
@@ -2120,8 +2118,8 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
           (ULONG)ri->Memory);
 
     UBYTE bpp = getBPP(fmt);
-    if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
-        DFUNC(1, "fallback to BlitTemplateDefault\n");
+    if (!bpp || !setGEFormat(bi, ri->BytesPerRow, bpp)) {
+        DFUNC(INFO, "fallback to BlitTemplateDefault\n");
         bi->BlitTemplateDefault(bi, ri, template, x, y, width, height, mask, fmt);
         return;
     }
@@ -2210,8 +2208,8 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     MMIOBASE();
 
     UBYTE bpp = getBPP(fmt);
-    if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp)) {
-        DFUNC(1, "fallback to BlitPatternDefault\n");
+    if (!bpp || !setGEFormat(bi, ri->BytesPerRow, bpp)) {
+        DFUNC(INFO, "fallback to BlitPatternDefault\n");
         bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, fmt);
         return;
     }
@@ -2239,12 +2237,8 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         cd->GEdrawMode = 0xFF;
         cd->patternCacheKey &= ~0x80000000;
 
-        // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
-        WaitForBlitter(bi);
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
     }
-
-    setGEWriteMask(bi, mask, fmt, 6);
 
     // First, figure out if the new pattern would actually fit into an 8x8 mono pattern.
     // Then we can use the hardware pattern registers, which are much faster.
@@ -2368,16 +2362,22 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
             cd->GEbgPen    = 0;
             cd->GEdrawMode = 0xFF;
 
-            waitFifo(bi, 16);
+            setGEWriteMask(bi, ~0, fmt, 16);
+            if (bpp > 2) {
+                setForegroundColor32(bi, ~0);
+                setBackgroundColor32(bi, 0);
+            } else {
+                setForegroundColor(bi, ~0);
+                setBackgroundColor(bi, 0);
+            }
+
             W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
             W_BEE8(MULT_MISC2, cd->pattSegment << 4);
-
-            setForegroundColor(bi, 0xFFFFFFFF);
-            setBackgroundColor(bi, 0x0);
 
             setMix(bi, CLR_SRC_FRGD_COLOR | MIX_NEW, CLR_SRC_BKGD_COLOR | MIX_NEW);
             setBlitSrcPosAndSize(bi, cd->pattX, cd->pattY, 8, 8);
 
+            WaitForBlitter(bi);
             // FIXME: I should get away from checking aginst the family and instead have "feature bits"
             if (cd->chipFamily == VISION864 || cd->chipFamily == VISION968) {
                 // The vision 864 doesn't have CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED, so we have to transfer the pattern
@@ -2415,19 +2415,22 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
             }
         }
 
+        // Now that the pattern is in place, we can do the actual pattern blit
+        setGEWriteMask(bi, mask, fmt, 6);
         setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
 
         waitFifo(bi, 8);
         W_BEE8(MULT_MISC2, (cd->pattSegment << 4) | seg);
         setBlitDestPos(bi, x, y);
         setBlitSrcPosAndSize(bi, cd->pattX, cd->pattY, width, height);
+
         W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_PAT_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
     } else {
         cd->patternCacheKey &= ~0x80000000;
 
         setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
 
-        waitFifo(bi, 7);
+        setGEWriteMask(bi, mask, fmt, 7);
 
         if (was8x8) {
             W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
@@ -2539,7 +2542,9 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     UWORD numPlanarBytes              = width / 8 * height * bm->Depth;
     UWORD projectedRegisterWriteBytes = (9 + 8 * 8) * 2;
 
-    if ((projectedRegisterWriteBytes > numPlanarBytes) || !setCR50(bi, bytesPerRow, 1)) {
+    BOOL swFallback = (projectedRegisterWriteBytes > numPlanarBytes);
+
+    if (swFallback || !setGEFormat(bi, bytesPerRow, 1)) {
         DFUNC(1, "fallback to BlitPlanar2ChunkyDefault\n");
         bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
         return;
@@ -2561,11 +2566,11 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         // Invalidate the pen and drawmode caches
         cd->GEdrawMode = 0xFF;
 
-        cd->GEfgPen = 0xFFFFFFFF;
-        cd->GEbgPen = 0x00000000;
+        cd->GEfgPen = 0xFF;
+        cd->GEbgPen = 0x00;
 
-        setForegroundColor(bi, 0xFFFFFFFF);
-        setBackgroundColor(bi, 0x00000000);
+        setForegroundColor(bi, 0xFF);
+        setBackgroundColor(bi, 0x00);
     }
 
     UWORD mixMode  = mintermToMixMode(minTerm);
@@ -2618,7 +2623,7 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     DFUNC(VERBOSE, "\n");
 
     UBYTE bpp = getBPP(fmt);
-    if (!bpp || !setCR50(bi, ri->BytesPerRow, bpp) || !line->Length) {
+    if (!bpp || !setGEFormat(bi, ri->BytesPerRow, bpp) || !line->Length) {
         DFUNC(1, "Fallback to DrawLineDefault\n")
         bi->DrawLineDefault(bi, ri, line, mask, fmt);
         return;
@@ -3559,37 +3564,20 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         UWORD multMisc         = oneCycleEDO ? 0 : BIT(10);
         (void)multMisc;
     }
-    // Init GE write/read masks. The use of IO instead of MMIO is deliberate.
-    // Apparently when we switch these registers to 32bit via MULT_MISC above,
-    // Only the registers in the IO space become 32bit, but not in MMIO!
-#if !MMIO_ONLY
-    // Set MULT_MISC first so that
-    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
-    // Bit 9 CMR 32B - Select 32-Bit Command Registers
+
+    // Init GE write/read masks.
     W_BEE8(MULT_MISC, (1 << 9));
 
-    W_IO_L(WRT_MASK, 0xFFFFFFFF);
-    W_IO_L(RD_MASK, 0xFFFFFFFF);
-    W_IO_L(COLOR_CMP, 0x0);
-#else
-    // Set MULT_MISC first so that
-    // "Bit 4 RSF - Select Upper Word in 32 Bits/Pixel Mode" is set to 0 and
-    // Bit 9 CMR 32B - Select 32-Bit Command Registers
-    W_BEE8(MULT_MISC, 0);
+    // Flush FIFO
+    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
 
-    W_MMIO_W(WRT_MASK, 0xFFFF);
-    W_MMIO_W(WRT_MASK, 0xFFFF);
-    W_MMIO_W(RD_MASK, 0xFFFF);
-    W_MMIO_W(RD_MASK, 0xFFFF);
-    W_MMIO_W(COLOR_CMP, 0x0);
-    W_MMIO_W(COLOR_CMP, 0x0);
-#endif
+    waitFifo(bi, 16);
+    W_MMIO_L(WRT_MASK, ~0);
+    W_MMIO_L(RD_MASK, ~0);
+    W_MMIO_L(COLOR_CMP, 0);
 
     W_MMIO_W(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
     W_MMIO_W(BKGD_MIX, CLR_SRC_BKGD_COLOR | MIX_NEW);
-
-    W_MMIO_W(PAT_Y, 0);
-    W_MMIO_W(PAT_X, 0);
 
     // Flush FIFO
     W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
