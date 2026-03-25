@@ -127,7 +127,7 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
             return FALSE;
         }
 
-        D(ERROR, "S3Trio.card: MMIO Base at physical address 0xA0000 virtual: 0x%lx.\n", bi->MemoryIOBase);
+        D(ERROR, "S3Trio.card: MMIO Base at physical address 0xA8000 virtual: 0x%lx.\n", bi->MemoryIOBase + 0x8000);
 
         bi->MemoryIOBase += MMIOREGISTER_OFFSET;
 

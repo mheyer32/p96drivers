@@ -121,8 +121,8 @@ int debugLevel = VERBOSE;
 
 #define PIX_TRANS     0xE2E8
 #define PIX_TRANS_EXT 0xE2EA
-#define PAT_Y         0xEAE8
-#define PAT_X         0xEAEA
+// #define PAT_Y         0xEAE8
+// #define PAT_X         0xEAEA
 
 #if HAS_PACKED_MMIO
 // Packed MMIO 32bit registers
@@ -169,7 +169,7 @@ const UWORD LibRevision = 0;
 // Wait For just the blitter to finish. No wait for FIFO queue empty.
 static void WaitForBlitter(__REGA0(struct BoardInfo *bi))
 {
-    D(20, "Waiting for blitter...");
+    D(CHATTY, "Waiting for blitter...");
     // FIXME: ideally you'd want this interrupt driven. I.e. sleep until the HW
     // interrupt indicates its done. Otherwise, whats the point of having the
     // blitter run asynchronous to the CPU?
@@ -182,13 +182,13 @@ static void WaitForBlitter(__REGA0(struct BoardInfo *bi))
     while (R_MMIO_W(GP_STAT) & BIT(9)) {
     };
 #endif
-    D(20, "done\n");
+    D(CHATTY, "done\n");
 }
 
 // Wait for blitter to finish AND FIFO queue empty.
 static void WaitForIdle(__REGA0(struct BoardInfo *bi))
 {
-    D(20, "Waiting for idle...");
+    D(CHATTY, "Waiting for idle...");
     // Here we're waiting for the GE to finish AND all FIFO slots to clear
 #if BUILD_VISION864
     REGBASE();
@@ -199,7 +199,7 @@ static void WaitForIdle(__REGA0(struct BoardInfo *bi))
     while ((R_MMIO_W(GP_STAT) & (BIT(9) | BIT(10))) != BIT(10)) {
     };
 #endif
-    D(20, "done\n");
+    D(CHATTY, "done\n");
 }
 
 static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
@@ -951,7 +951,6 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
             mi->Flags |= GMF_DOUBLECLOCK;
         }
     }
-
 #if BUILD_VISION864
     if (getBPP(RGBFormat) >= 3) {
         // In 24/32bit modes, it takes 2 clock cycles to transfer one pixel to the RAMDAC,
@@ -1822,7 +1821,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
 
 #ifdef DBG
     if ((x > (1 << 11)) || (y > (1 << 11))) {
-        KPrintF("X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
+        DFUNC(ERROR, "X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
     }
 #endif
 
@@ -2134,7 +2133,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
 
 #ifdef DBG
     if ((x > (1 << 11)) || (y > (1 << 11))) {
-        KPrintF("X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
+        DFUNC(ERROR, "X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
     }
 #endif
 
@@ -2224,7 +2223,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 
 #ifdef DBG
     if ((x > (1 << 11)) || (y > (1 << 11))) {
-        KPrintF("X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
+        DFUNC(ERROR, "X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
     }
 #endif
 
@@ -2857,7 +2856,7 @@ static BOOL probeFramebufferAurora64(struct BoardInfo *bi)
     REGBASE();
     getMemoryType(bi);
 
-    static const UBYTE memSizes[] = {4, 2, 2, 1};
+    static const UBYTE memSizes[]     = {4, 2, 2, 1};
     static const UBYTE lawSizeCodes[] = {0b11, 0b10, 0b10, 0b01};
     // There's a weird discrepancy in the Aurora manual/ Early in the text the below
     // bitmasks are presribed, while the 'classic' bitmasks are used elsewhere
@@ -2866,7 +2865,7 @@ static BOOL probeFramebufferAurora64(struct BoardInfo *bi)
     // OTOH the manual states:
     // "If EDO memory is used, the 86CM65 must be configured for 1-cycle operation (CR36_3-2 = 11b).
     // IDK if one can trust the strapping of CR36 memory type, though.
-     static const UBYTE memSizeCodes[] = {0b000, 0b011, 0b010, 0b110};
+    static const UBYTE memSizeCodes[] = {0b000, 0b011, 0b010, 0b110};
 
     WORD m = 0;
     for (; m < ARRAY_SIZE(memSizes); ++m) {
@@ -3657,8 +3656,6 @@ BOOL testCard(BoardInfo_t *bi)
         mi.VerTotal         = 525;
 
         bi->ModeInfo = &mi;
-
-        // ResolvePixelClock(bi, &mi, 67000000, RGBFB_CLUT);
 
         ULONG index = ResolvePixelClock(bi, &mi, mi.PixelClock, RGBFB_CLUT);
 
