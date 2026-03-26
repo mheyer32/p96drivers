@@ -3623,7 +3623,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
 #ifdef TESTEXE
 
-BOOL testCard(BoardInfo_t *bi)
+BOOL TestCard(BoardInfo_t *bi)
 {
     struct ChipBase *ChipBase = NULL;
 
@@ -3874,7 +3874,7 @@ int main()
         }
         D(ALWAYS, "Trio64 has %ldkb usable memory\n", bi->MemorySize / 1024);
 
-        testCard(bi);
+        TestCard(bi);
 
         WaitBlitter(bi);
         // RegisterOwner(cb, board, (struct Node *)ChipBase);

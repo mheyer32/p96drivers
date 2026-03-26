@@ -28,7 +28,7 @@ int debugLevel = VERBOSE;
 
 BOOL ASM SetSwitch(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 {
-    DFUNC(INFO, "state %ld", (LONG)state);
+    DFUNC(INFO, "state %ld\n", (LONG)state);
     if (bi->MoniSwitch == state) {
         return state;
     }
@@ -101,11 +101,13 @@ BOOL releaseCard(__REGA0(struct BoardInfo *bi))
         cd->configDev->cd_Flags |= CDF_CONFIGME;
         cd->configDev = NULL;
     }
+#ifndef TESTEXE
     {
         if (getCardData(bi)->cv64CtrlReg) {
             W_CV64_MASK(CV64_MONITOR_SWITCH_BIT, 0);
         }
     }
+#endif
 }
 
 BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
@@ -192,7 +194,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 #include <stdlib.h>
 #include <string.h>
 
-extern BOOL testCard(BoardInfo_t *bi);
+extern BOOL TestCard(BoardInfo_t *bi);
 
 static struct UtilityBase *UtilityBase;
 
@@ -225,9 +227,12 @@ int main()
         goto exit;
     }
 
-    testCard(bi);
+    bi->SetSwitch(bi, TRUE);
 
-    rval = EXIT_SUCCESS;
+    rval = TestCard(bi);
+
+//   bi->SetSwitch(bi, FALSE);
+
 exit:
     releaseCard(bi);
     return rval;

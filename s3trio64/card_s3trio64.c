@@ -247,6 +247,8 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 #include <stdlib.h>
 #include <string.h>
 
+//extern BOOL TestCard(BoardInfo_t *bi);
+
 extern struct UtilityBase *UtilityBase;
 
 static struct BoardInfo boardInfo = {0};
@@ -280,7 +282,8 @@ int main()
         goto exit;
     }
 
-    rval = EXIT_SUCCESS;
+//    rval = TestCard(bi);
+
 exit:
     releaseCard(bi);
     return rval;
