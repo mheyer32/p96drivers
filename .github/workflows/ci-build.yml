@@ -1,0 +1,31 @@
+name: P96 Drivers CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: stefanreinauer/amiga-gcc
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mark git directory as safe
+        run: git config --global --add safe.directory '*'
+
+      - name: Build all driver targets
+        run: make all
+
+      - name: Archive CI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: p96drivers-build-artifacts
+          path: |
+            _bin/*
+          if-no-files-found: error

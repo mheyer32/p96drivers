@@ -22,6 +22,21 @@ CFLAGS ?=
 LDFLAGS ?=
 LIBS = -lamiga
 
+# Version override values from tag:
+#  - vMAJOR.MINOR or vMAJOR.MINOR.PATCH
+#  - release_MAJOR.MINOR or release_MAJOR.MINOR.PATCH
+# You can still override manually, e.g. make LIB_VERSION=2 LIB_REVISION=7
+TAG_NAME ?= $(strip $(if $(GITHUB_REF_NAME),$(GITHUB_REF_NAME),$(shell git describe --tags --exact-match 2>/dev/null)))
+TAG_VERSION := $(patsubst v%,%,$(patsubst release_%,%,$(TAG_NAME)))
+LIB_VERSION ?= $(shell printf '%s' "$(TAG_VERSION)" | sed -n 's/^\([0-9][0-9]*\)\.\([0-9][0-9]*\)\(\.[0-9][0-9]*\)\{0,1\}$$/\1/p')
+LIB_REVISION ?= $(shell printf '%s' "$(TAG_VERSION)" | sed -n 's/^\([0-9][0-9]*\)\.\([0-9][0-9]*\)\(\.[0-9][0-9]*\)\{0,1\}$$/\2/p')
+ifeq ($(strip $(LIB_VERSION)),)
+LIB_VERSION := 1
+endif
+ifeq ($(strip $(LIB_REVISION)),)
+LIB_REVISION := 0
+endif
+
 BUILDFLAGS = -noixemul -mregparm=4 -msmall-code -m68020-60 -mtune=68030 -g -ggdb 
 
 ifeq ($(DEBUG),1)
@@ -33,6 +48,7 @@ else
 endif
 
 CFLAGS +=  $(BUILDFLAGS) -Wundef -I. -IPicasso96Develop/Include -IPicasso96Develop/PrivateInclude -Iopenpci
+CFLAGS += -DLIB_VERSION=$(LIB_VERSION) -DLIB_REVISION=$(LIB_REVISION)
 LDFLAGS += $(BUILDFLAGS)
 
 ###############################################################################

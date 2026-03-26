@@ -36,8 +36,14 @@ int debugLevel = VERBOSE;
 const char LibName[]     = "AT3D.chip";
 const char LibIdString[] = "Alliance ProMotion AT3D Picasso96 chip driver version 1.0";
 
-const UWORD LibVersion  = 1;
-const UWORD LibRevision = 0;
+#ifndef LIB_VERSION
+#define LIB_VERSION 1
+#endif
+#ifndef LIB_REVISION
+#define LIB_REVISION 0
+#endif
+const UWORD LibVersion  = LIB_VERSION;
+const UWORD LibRevision = LIB_REVISION;
 #endif
 
 #define MIN_PLLCLOCK_KHZ 24000

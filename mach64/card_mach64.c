@@ -20,8 +20,14 @@
 #ifndef TESTEXE
 const char LibName[]     = "ATIMach64.card";
 const char LibIdString[] = "ATIMach64 Picasso96 card driver version 1.0";
-const UWORD LibVersion   = 1;
-const UWORD LibRevision  = 0;
+#ifndef LIB_VERSION
+#define LIB_VERSION 1
+#endif
+#ifndef LIB_REVISION
+#define LIB_REVISION 0
+#endif
+const UWORD LibVersion   = LIB_VERSION;
+const UWORD LibRevision  = LIB_REVISION;
 #endif
 
 #ifdef DBG

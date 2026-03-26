@@ -1,0 +1,28 @@
+name: Coverity Scan
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  coverity:
+    runs-on: ubuntu-latest
+    container: stefanreinauer/amiga-gcc
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mark git directory as safe
+        run: git config --global --add safe.directory '*'
+
+      - name: Install file utility
+        run: |
+          apt-get update
+          apt-get install -y file
+
+      - uses: reinauer/coverity-scan-action@v1
+        with:
+          configure: --compiler m68k-amigaos-gcc --comptype gcc --template
+          email: ${{ secrets.COVERITY_SCAN_EMAIL }}
+          token: ${{ secrets.COVERITY_SCAN_TOKEN }}

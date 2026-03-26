@@ -162,8 +162,14 @@ const char LibName[] = "S3Trio64V2.chip";
 #endif
 const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 chip driver version 1.0";
 
-const UWORD LibVersion  = 1;
-const UWORD LibRevision = 0;
+#ifndef LIB_VERSION
+#define LIB_VERSION 1
+#endif
+#ifndef LIB_REVISION
+#define LIB_REVISION 0
+#endif
+const UWORD LibVersion  = LIB_VERSION;
+const UWORD LibRevision = LIB_REVISION;
 #endif
 
 // Wait For just the blitter to finish. No wait for FIFO queue empty.
