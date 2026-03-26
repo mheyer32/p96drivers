@@ -929,6 +929,9 @@ static BOOL ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
     DFUNC(VERBOSE, " state %ld\n", (ULONG)state);
 
     W_SR_MASK(0x01, 0x20, (~(UBYTE)state & 1) << 5);
+
+
+
     //  R_REG(0x3DA);
     //  W_REG(ATR_AD, 0x20);
     //  R_REG(0x3DA);
@@ -1537,7 +1540,7 @@ static INLINE BOOL setGEFormat(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bp
         CR31_1    = (1 << 1);
         CR50_76_0 = 0b00000000;
     } else {
-        DFUNC(0, "Width %ld unsupported by Graphics Engine, choosing unaccelerated  path\n", (ULONG)width);
+        DFUNC(WARN, "pitch %ld bytes unsupported by GE\n", (ULONG)width);
         return FALSE;  // reserved
     }
 
@@ -1744,8 +1747,6 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)pen, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
           (ULONG)ri->Memory);
 
-    MMIOBASE();
-
     UBYTE bpp = getBPP(fmt);
     if (!bpp || !setGEFormat(bi, ri->BytesPerRow, bpp)) {
         DFUNC(INFO, "Fallback to FillRectDefault\n")
@@ -1768,6 +1769,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 #endif
 
     ChipData_t *cd = getChipData(bi);
+    MMIOBASE();
 
     if (cd->GEOp != FILLRECT) {
         cd->GEOp = FILLRECT;
@@ -2821,6 +2823,10 @@ static BOOL probeFramebufferTrio64(struct BoardInfo *bi)
 
     ChipFamily_t chipFamily = getChipData(bi)->chipFamily;
 
+    if (chipFamily == TRIO64 || chipFamily == TRIO64PLUS) {
+        W_CR_MASK(0x68, BIT(7), BIT(7));
+    }
+
     bi->MemorySize = 0x400000;
     while (bi->MemorySize) {
         D(VERBOSE, "\nProbing memory size %ld\n", bi->MemorySize);
@@ -2848,6 +2854,9 @@ static BOOL probeFramebufferTrio64(struct BoardInfo *bi)
             } else {
                 LAWSize = 0b01;
                 MemSize = 0b110;
+                if (chipFamily == TRIO64 || chipFamily == TRIO64PLUS) {
+                    W_CR_MASK(0x68, BIT(7), 0);
+                }
             }
             W_CR_MASK(0x36, 0xE0, MemSize << 5);
             W_CR_MASK(0x58, 0x13, LAWSize | BIT(4));
@@ -3637,6 +3646,79 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
 #ifdef TESTEXE
 
+#include <stdio.h>
+
+static void testDumpModeInfo(const struct ModeInfo *mi, const char *label)
+{
+    D(ALWAYS,
+      "\n=== %s ===\n"
+      "W=%ld H=%ld Depth=%ld Flags=0x%02lx\n"
+      "HTotal=%ld HBlank=%ld HSyncStart=%ld HSyncSize=%ld\n"
+      "VTotal=%ld VBlank=%ld VSyncStart=%ld VSyncSize=%ld\n"
+      "PixelClock=%ld Hz\n",
+      label ? label : "(null)", (ULONG)mi->Width, (ULONG)mi->Height, (ULONG)mi->Depth, (ULONG)mi->Flags,
+      (ULONG)mi->HorTotal, (ULONG)mi->HorBlankSize, (ULONG)mi->HorSyncStart, (ULONG)mi->HorSyncSize,
+      (ULONG)mi->VerTotal, (ULONG)mi->VerBlankSize, (ULONG)mi->VerSyncStart, (ULONG)mi->VerSyncSize,
+      (ULONG)mi->PixelClock);
+}
+
+static void testWaitForEnter(void)
+{
+    D(ALWAYS, "Press Enter for next mode...\n");
+    int ch;
+    do {
+        ch = getchar();
+    } while (ch != '\n' && ch != EOF);
+}
+
+static void testFillPattern8bpp(BoardInfo_t *bi, UWORD width, UWORD height)
+{
+    volatile UBYTE *mem = (volatile UBYTE *)bi->MemoryBase;
+    for (UWORD y = 0; y < height; y++) {
+        for (UWORD x = 0; x < width; x++) {
+            mem[y * width + x] = (UBYTE)(x ^ y);
+        }
+    }
+}
+
+static void testApplyMode(BoardInfo_t *bi, struct ModeInfo *mi, const char *label)
+{
+    testDumpModeInfo(mi, label);
+
+    bi->ModeInfo = mi;
+
+    (void)ResolvePixelClock(bi, mi, mi->PixelClock, RGBFB_CLUT);
+
+    DFUNC(ALWAYS, "SetClock\n");
+    SetClock(bi);
+
+    DFUNC(ALWAYS, "SetGC\n");
+    SetGC(bi, mi, TRUE);
+
+    DFUNC(ALWAYS, "SetDAC\n");
+    SetDAC(bi, 0, RGBFB_CLUT);
+
+    SetSprite(bi, FALSE, RGBFB_CLUT);
+
+    SetPanning(bi, bi->MemoryBase, mi->Width, mi->Height, 0, 0, RGBFB_CLUT);
+
+    DFUNC(ALWAYS, "SetDisplay ON\n");
+    SetDisplay(bi, TRUE);
+
+    testFillPattern8bpp(bi, mi->Width, mi->Height);
+
+    {
+        struct RenderInfo ri;
+        ri.Memory      = bi->MemoryBase;
+        ri.BytesPerRow = mi->Width;
+        ri.RGBFormat   = RGBFB_CLUT;
+
+        FillRect(bi, &ri, 0, 0, mi->Width, mi->Height, 0x10, 0xFF, RGBFB_CLUT);
+        FillRect(bi, &ri, 4, 4, mi->Width - 8, mi->Height - 8, 0x7F, 0xFF, RGBFB_CLUT);
+        FillRect(bi, &ri, 8, 8, mi->Width - 16, mi->Height - 16, 0xE0, 0xFF, RGBFB_CLUT);
+    }
+}
+
 BOOL TestCard(BoardInfo_t *bi)
 {
     struct ChipBase *ChipBase = NULL;
@@ -3646,47 +3728,6 @@ BOOL TestCard(BoardInfo_t *bi)
     {
         DFUNC(ALWAYS, "SetDisplay OFF\n");
         SetDisplay(bi, FALSE);
-    }
-
-    // test 640x480 screen
-    struct ModeInfo mi;
-
-    {
-        mi.Depth            = 8;
-        mi.Flags            = GMF_HPOLARITY | GMF_VPOLARITY;
-        mi.Height           = 480;
-        mi.Width            = 640;
-        mi.HorBlankSize     = 0;
-        mi.HorEnableSkew    = 0;
-        mi.HorSyncSize      = 96;
-        mi.HorSyncStart     = 16;
-        mi.HorTotal         = 800;
-        mi.PixelClock       = 25175000;
-        mi.pll1.Numerator   = 0;
-        mi.pll2.Denominator = 0;
-        mi.VerBlankSize     = 0;
-        mi.VerSyncSize      = 2;
-        mi.VerSyncStart     = 10;
-        mi.VerTotal         = 525;
-
-        bi->ModeInfo = &mi;
-
-        ULONG index = ResolvePixelClock(bi, &mi, mi.PixelClock, RGBFB_CLUT);
-
-        DFUNC(ALWAYS, "SetClock\n");
-
-        SetClock(bi);
-
-        DFUNC(ALWAYS, "SetGC\n");
-
-        SetGC(bi, &mi, TRUE);
-    }
-    {
-        DFUNC(ALWAYS, "SetDAC\n");
-        SetDAC(bi, 0, RGBFB_CLUT);
-    }
-    {
-        SetSprite(bi, FALSE, RGBFB_CLUT);
     }
 
     {
@@ -3699,37 +3740,131 @@ BOOL TestCard(BoardInfo_t *bi)
         }
         SetColorArray(bi, 0, 256);
     }
-    {
-        SetPanning(bi, bi->MemoryBase, 640, 480, 0, 0, RGBFB_CLUT);
-    }
-    {
-        DFUNC(ALWAYS, "SetDisplay ON\n");
-        SetDisplay(bi, TRUE);
-    }
-
-    for (int y = 0; y < 480; y++) {
-        for (int x = 0; x < 640; x++) {
-            *(volatile UBYTE *)(bi->MemoryBase + y * 640 + x) = x;
-        }
-    }
-
-    struct RenderInfo ri;
-    ri.Memory      = bi->MemoryBase;
-    ri.BytesPerRow = 640;
-    ri.RGBFormat   = RGBFB_CLUT;
 
     {
-        FillRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, 0xFF, RGBFB_CLUT);
+        DFUNC(ALWAYS, "SetDisplay OFF\n");
+        SetDisplay(bi, FALSE);
     }
 
-    {
-        FillRect(bi, &ri, 64, 64, 128, 128, 0xAA, 0xFF, RGBFB_CLUT);
+    static struct ModeInfo modes[] = {
+        // Baseline known-good from existing test
+        {
+            .Width        = 640,
+            .Height       = 480,
+            .Depth        = 8,
+            .Flags        = GMF_HPOLARITY | GMF_VPOLARITY,
+            .HorTotal     = 800,
+            .HorBlankSize = 0,
+            .HorSyncStart = 16,
+            .HorSyncSize  = 96,
+            .VerTotal     = 525,
+            .VerBlankSize = 0,
+            .VerSyncStart = 10,
+            .VerSyncSize  = 2,
+            .PixelClock   = 25175000,
+        },
+
+        // 320x200: doublescan -> ~400 scanlines (VGA-ish)
+        {
+            .Width        = 320,
+            .Height       = 200,
+            .Depth        = 8,
+            .Flags        = GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY,
+            .HorTotal     = 400,
+            .HorBlankSize = 0,
+            .HorSyncStart = 8,
+            .HorSyncSize  = 48,
+            .VerTotal     = 225,
+            .VerBlankSize = 0,
+            .VerSyncStart = 6,
+            .VerSyncSize  = 1,
+            .PixelClock   = 12587500,
+        },
+        {
+            .Width        = 320,
+            .Height       = 200,
+            .Depth        = 8,
+            .Flags        = GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY,
+            .HorTotal     = 400,
+            .HorBlankSize = 0,
+            .HorSyncStart = 8,
+            .HorSyncSize  = 48,
+            .VerTotal     = 224,
+            .VerBlankSize = 0,
+            .VerSyncStart = 6,
+            .VerSyncSize  = 1,
+            .PixelClock   = 12587500,
+        },
+
+        // 320x240: doublescan -> ~480 scanlines (VGA-ish)
+        {
+            .Width        = 320,
+            .Height       = 240,
+            .Depth        = 8,
+            .Flags        = GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY,
+            .HorTotal     = 400,
+            .HorBlankSize = 0,
+            .HorSyncStart = 8,
+            .HorSyncSize  = 48,
+            .VerTotal     = 263,
+            .VerBlankSize = 0,
+            .VerSyncStart = 5,
+            .VerSyncSize  = 1,
+            .PixelClock   = 12587500,
+        },
+        {
+            .Width        = 320,
+            .Height       = 240,
+            .Depth        = 8,
+            .Flags        = GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY,
+            .HorTotal     = 400,
+            .HorBlankSize = 0,
+            .HorSyncStart = 8,
+            .HorSyncSize  = 48,
+            .VerTotal     = 262,
+            .VerBlankSize = 0,
+            .VerSyncStart = 5,
+            .VerSyncSize  = 1,
+            .PixelClock   = 12587500,
+        },
+
+        // 1280x1024 @ 60 Hz, 8-bit (VESA-style timings, ~108 MHz pixel clock)
+        {
+            .Width        = 1280,
+            .Height       = 1024,
+            .Depth        = 8,
+            .Flags        = 0,
+            .HorTotal     = 1688,
+            .HorBlankSize = 0,
+            .HorSyncStart = 48,
+            .HorSyncSize  = 128,
+            .VerTotal     = 1066,
+            .VerBlankSize = 0,
+            .VerSyncStart = 3,
+            .VerSyncSize  = 3,
+            .PixelClock   = 108000000,
+        },
+    };
+
+    static const char *modeNames[] = {
+        "640x480@60 baseline",
+        "320x200 doublescan vtotal=225",
+        "320x200 doublescan vtotal=224",
+        "320x240 doublescan vtotal=263",
+        "320x240 doublescan vtotal=262",
+        "1280x1024@60 8bpp",
+    };
+
+    for (UWORD i = 0; i < (sizeof(modes) / sizeof(modes[0])); i++) {
+        testApplyMode(bi, &modes[i], modeNames[i]);
+        testWaitForEnter();
+        DFUNC(ALWAYS, "SetDisplay OFF\n");
+        SetDisplay(bi, FALSE);
     }
 
-    {
-        FillRect(bi, &ri, 256, 10, 128, 128, 0x33, 0xFF, RGBFB_CLUT);
-    }
+    return TRUE;
 
+#if 0
 #if 1
     for (int i = 0; i < 8; ++i) {
         {
@@ -3781,9 +3916,72 @@ BOOL TestCard(BoardInfo_t *bi)
         }
     }
 #endif
+
+    REGBASE();
+    MMIOBASE();
+
+    W_BEE8(MULT_MISC, (1 << 9));
+    // Flush FIFO
+    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
+
     WaitBlitter(bi);
+    flushWrites();
+    WaitForIdle(bi);
+
+    R_BEE8(MULT_MISC);
+    R_IO_L(WRT_MASK);
+
+    setGEFormat(bi, 640 * 4, 4);
+    W_BEE8(MULT_MISC, (1 << 9));
+
+    // Flush FIFO
+    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
+    flushWrites();
+    WaitForIdle(bi);
+    R_BEE8(MULT_MISC);
+    // R_IO_L(WRT_MASK);
+
+    // W_IO_L(WRT_MASK, 0xaabbccdd);
+
+    flushWrites();
+
+    // Flush FIFO
+    D(INFO, "1");
+    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
+    flushWrites();
+    WaitForIdle(bi);
+
+    D(INFO, "2");
+    R_BEE8(MULT_MISC);
+    // R_MMIO_W(WRT_MASK);
+    // R_IO_L(WRT_MASK);
+
+    // W_IO_L(WRT_MASK, 0xbaadf00d);
+    // Flush FIFO
+    D(INFO, "3");
+    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
+    flushWrites();
+    WaitForIdle(bi);
+
+    D(INFO, "4");
+    R_BEE8(MULT_MISC);
+    // R_MMIO_W(WRT_MASK);
+    // R_IO_L(WRT_MASK);
+
+    W_MMIO_L(WRT_MASK, 0xcafebabe);
+    // Flush FIFO
+    D(INFO, "3");
+    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
+    flushWrites();
+    WaitForIdle(bi);
+
+    D(INFO, "4");
+    R_BEE8(MULT_MISC);
+    // R_MMIO_W(WRT_MASK);
+    R_MMIO_L(WRT_MASK);
 
     return TRUE;
+#endif /* disabled legacy TestCard code */
 }
 
 #if !defined(CONFIG_CYBERVISION64)

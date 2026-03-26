@@ -418,8 +418,8 @@ BOOL InitRAMDAC(struct BoardInfo *bi)
 
     case AURORA64PLUS:
         cd->ramdacOps = &aurora64_ops;
-         W_SR_MASK(0x1A, BIT(7), BIT(0));  // 3.3V RAMDAC, so we can go up to 110Mhz(?)
-         // W_SR_MASK(0x1A, BIT(7), BIT(7));  // 5V RAMDAC, so we can go up to 135Mhz(?)
+        W_SR_MASK(0x1A, BIT(7), BIT(0));  // 3.3V RAMDAC, so we can go up to 110Mhz(?)
+        // W_SR_MASK(0x1A, BIT(7), BIT(7));  // 5V RAMDAC, so we can go up to 135Mhz(?)
         return TRUE;
 
     case UNKNOWN:
