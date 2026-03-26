@@ -1158,6 +1158,7 @@ static void ASM SetReadPlane(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
 
 static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expected))
 {
+    DFUNC(VERBOSE, "\n");
     REGBASE();
     return (R_REG(0x3DA) & 0x08) != 0;
 }
@@ -1165,7 +1166,14 @@ static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expect
 // FIXME: implement, but make sure to coordinate with SetDPMSLevel
 static void WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL waitForEnd))
 {
+    DFUNC(VERBOSE, "waitForEnd: %ld\n", (ULONG)waitForEnd);
     REGBASE();
+
+    if (R_SR(0x1) & BIT(5)) {
+        // Don't attempt to time vertical sync if the display is off
+        // Though SR1 promised to still generate the HSYNC/VSYNC signals
+        return;
+    }
     if (waitForEnd) {
         // wait for vertical retrace end
         // Use readReg() so in debug mode slow serial output doesn't make us miss the signals
