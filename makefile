@@ -183,7 +183,11 @@ all : S3Trio64V2.chip \
       AT3D.card \
       TestAT3D \
       TestAT3DCard \
-      TestCybervision64
+      TestCybervision64 \
+      CirrusGD542x.chip \
+      CirrusGD542x.card \
+      TestCirrus \
+      TestCirrusCard
 
 openpci.h : openpci/openpci.fd openpci/clib/openpci_protos.h
 	@$(MKDIR) -p openpci/inline
@@ -450,6 +454,42 @@ AT3DCARD_TESTEXE_SRC = common.c \
 
 TestAT3DCard : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -DOPENPCI=1 -DAT3D_EMBEDDED_CHIP=1
 $(eval $(call make_exe,TestAT3DCard,$(BUILDDIR)testat3dcard/, ${AT3DCARD_TESTEXE_SRC}))
+
+CIRRUS_SRC = common.c \
+             cirrus/cirrus_common.c \
+             cirrus/cirrus_i2c.c \
+             cirrus/chip_cirrus.c \
+             edid_common.c \
+             chip_library.c
+
+CirrusGD542x.chip : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include cirrus/cirrusconfig.h
+$(eval $(call make_driver,CirrusGD542x.chip,$(BUILDDIR)cirrus/, ${CIRRUS_SRC}))
+
+CIRRUSCARD_SRC = common.c \
+                   card_common.c \
+                   cirrus/card_cirrus.c \
+                   cirrus/cirrus_common.c \
+                   card_library.c
+
+CirrusGD542x.card : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -DOPENPCI=1 -include cirrus/cirrusconfig.h
+$(eval $(call make_driver,CirrusGD542x.card,$(BUILDDIR)cirruscard/, ${CIRRUSCARD_SRC}))
+
+CIRRUS_TESTEXE_SRC = common.c \
+                     cirrus/cirrus_common.c \
+                     cirrus/cirrus_i2c.c \
+                     cirrus/chip_cirrus.c \
+                     edid_common.c
+
+TestCirrus : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include cirrus/cirrusconfig.h
+$(eval $(call make_exe,TestCirrus,$(BUILDDIR)testcirrus/, ${CIRRUS_TESTEXE_SRC}))
+
+CIRRUSCARD_TESTEXE_SRC = common.c \
+                         card_common.c \
+                         cirrus/card_cirrus.c \
+                         cirrus/cirrus_common.c
+
+TestCirrusCard : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -DOPENPCI=1 -DTESTEXE -include cirrus/cirrusconfig.h
+$(eval $(call make_exe,TestCirrusCard,$(BUILDDIR)testcirruscard/, ${CIRRUSCARD_TESTEXE_SRC}))
 
 
 # target 'clean'
