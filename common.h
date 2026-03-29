@@ -286,12 +286,40 @@ static INLINE UWORD REGARGS readRegW(volatile UBYTE *regbase, LONG reg, const ch
     return value;
 }
 
+static INLINE UWORD REGARGS readRegWNoSwap(volatile UBYTE *regbase, LONG reg, const char *regName)
+{
+    flushWrites();
+    UWORD value = *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET));
+    asm volatile("" ::"r"(value));
+
+    D(VERBOSE, "R %s -> 0x%04lx\n", regName, (ULONG)SWAPW_IO(value));
+
+    return value;
+}
+
 static INLINE void REGARGS writeRegW(volatile UBYTE *regbase, LONG reg, UWORD value, const char *regName)
 {
     D(VERBOSE, "W %s <- 0x%04lx\n", regName, (ULONG)value);
 
     *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = SWAPW_IO(value);
 }
+
+static INLINE void REGARGS writeRegWNoSwap(volatile UBYTE *regbase, LONG reg, UWORD value, const char *regName)
+{
+    D(VERBOSE, "W %s <- 0x%04lx\n", regName, (ULONG)SWAPW_IO(value));
+
+    *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = value;
+}
+
+static INLINE void REGARGS writeRegMask_W(volatile UBYTE *regbase, LONG reg, UWORD mask, UWORD value,
+                                           const char *regName)
+{
+    UWORD regValue = readRegWNoSwap(regbase, reg, regName);
+    regValue &= SWAPW_IO(~mask);
+    regValue |= SWAPW_IO(value & mask);
+    writeRegWNoSwap(regbase, reg, regValue, regName);
+}
+
 
 static INLINE void REGARGS writeRegL(volatile UBYTE *regbase, LONG reg, ULONG value, const char *regName)
 {
@@ -564,7 +592,9 @@ static INLINE void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
 #define R_IO_W(reg)        readRegW(RegBase, reg, #reg)
 #define R_IO_L(reg)        readRegL(RegBase, reg, #reg)
 #define W_IO_W(reg, value) writeRegW(RegBase, reg, value, #reg)
+#define W_IO_MASK_W(reg, mask, value) writeRegMask_W(RegBase, reg, mask, value, #reg)
 #define W_IO_L(reg, value) writeRegL(RegBase, reg, value, #reg)
+#define TST_IO_W(reg, mask)     ((readRegWNoSwap(RegBase, reg, #reg) & SWAPW_IO(mask)) != 0)
 
 #define W_MMIO_B(reg, value)            writeMMIO_B(MMIOBase, reg, value, #reg)
 #define R_MMIO_B(reg)                   readMMIO_B(MMIOBase, reg, #reg)

@@ -152,8 +152,12 @@ all : S3Trio64V2.chip \
       S3Vision864.chip \
       S3Trio64.card \
       Cybervision64.card \
+      ATIMach32.chip \
+      ATIMach32.card \
       ATIMach64.chip \
       ATIMach64.card \
+      TestMach32 \
+      TestMach32Card \
       TestMach64 \
       TestMach64Card \
       TestS3Trio64Plus \
@@ -272,9 +276,40 @@ ATIMACH64_SRC = common.c \
                 edid_common.c \
                 chip_library.c
 
-ATIMach64.chip : CFLAGS+=-include mach64/mach64config.h
-ATIMach64.chip : LDFLAGS+=-lm
+ATIMach64.chip : CFLAGS+=-DCONFIG_ATIMACH64 -include mach64/mach64config.h
 $(eval $(call make_driver,ATIMach64.chip,$(BUILDDIR)mach64/, ${ATIMACH64_SRC}))
+
+ATIMACH32_SRC = common.c \
+                mach32/mach32.c \
+                mach32/mach32_ramdac.c \
+                mach32/chip_mach32.c \
+                chip_library.c
+
+ATIMach32.chip : CFLAGS+= -DCONFIG_ATIMACH32 -include mach64/mach64config.h -DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x0 -DOPENPCI=1
+$(eval $(call make_driver,ATIMach32.chip,$(BUILDDIR)mach32/, ${ATIMACH32_SRC}))
+
+ATIMACH32CARD_SRC = common.c \
+                      card_common.c \
+                      mach32/card_mach32.c \
+                      card_library.c
+
+ATIMach32.card : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x0 -DOPENPCI=1
+$(eval $(call make_driver,ATIMach32.card,$(BUILDDIR)mach32card/, ${ATIMACH32CARD_SRC}))
+
+ATIMACH32_TESTEXE_SRC = common.c \
+                        mach32/mach32.c \
+                        mach32/mach32_ramdac.c \
+                        mach32/chip_mach32.c
+
+TestMach32 : CFLAGS+=-DCONFIG_ATIMACH32 -Imach64 -include mach64/mach64config.h -DOPENPCI=1
+$(eval $(call make_exe,TestMach32,$(BUILDDIR)testmach32/, ${ATIMACH32_TESTEXE_SRC}))
+
+TESTATIMACH32CARD_SRC = common.c \
+                        card_common.c \
+                        mach32/card_mach32.c
+
+TestMach32Card : CFLAGS+=-DCONFIG_ATIMACH32 -Imach64 -include mach64/mach64config.h -DOPENPCI=1
+$(eval $(call make_exe,TestMach32Card,$(BUILDDIR)testmach32card/, ${TESTATIMACH32CARD_SRC}))
 
 ATIMACH64CARD_SRC = common.c \
                     card_common.c \
@@ -282,7 +317,7 @@ ATIMACH64CARD_SRC = common.c \
                     mach64/mach64_common.c \
                     card_library.c
 
-ATIMach64.card : CFLAGS+=-include mach64/mach64config.h
+ATIMach64.card : CFLAGS+=-DCONFIG_ATIMACH64 -include mach64/mach64config.h
 $(eval $(call make_driver,ATIMach64.card,$(BUILDDIR)mach64card/, ${ATIMACH64CARD_SRC}))
 
 ATIMACH64_TESTEXE_SRC = common.c \
@@ -294,11 +329,11 @@ ATIMACH64_TESTEXE_SRC = common.c \
                         mach64/mach64_i2c.c \
                         edid_common.c
 
-TestMach64 : CFLAGS+=-DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0 -include mach64/mach64config.h
+TestMach64 : CFLAGS+=-DCONFIG_ATIMACH64 -DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0 -include mach64/mach64config.h
  
 $(eval $(call make_exe,TestMach64,$(BUILDDIR)testmach64/, ${ATIMACH64_TESTEXE_SRC}))
 
-TestMach64Card : CFLAGS+=-DBIGENDIAN_IO=0 -DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0 -include mach64/mach64config.h
+TestMach64Card : CFLAGS+=-DCONFIG_ATIMACH64 -DBIGENDIAN_IO=0 -DBIGENDIAN_MMIO=0 -DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0 -include mach64/mach64config.h
 TESTATIMACH64CARD_SRC = common.c \
 						card_common.c \
 						mach64/card_mach64.c \

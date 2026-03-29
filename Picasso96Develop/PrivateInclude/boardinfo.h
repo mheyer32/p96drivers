@@ -134,7 +134,8 @@ typedef enum {
 	BT_PiStorm,
         BT_S3Trio64,
         BT_Mach64,
-        BT_VoodoRush
+        BT_VoodoRush,
+        BT_Mach32
 } BTYPE;
 
 /************************************************************************/
