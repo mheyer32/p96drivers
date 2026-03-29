@@ -1,0 +1,1695 @@
+#include "chip_mach32.h"
+
+#define __NOLIBBASE__
+
+#include <exec/types.h>
+#include <graphics/rastport.h>
+#include <libraries/pcitags.h>
+#include <proto/exec.h>
+
+#if OPENPCI
+#define OPENPCI_SWAP
+#include <libraries/openpci.h>
+#include <proto/openpci.h>
+#endif
+
+#include <string.h>
+
+/******************************************************************************/
+
+const char LibName[]     = "ATIMach32.chip";
+const char LibIdString[] = "ATI Mach32 Picasso96 chip driver version 0.1 (skeleton)";
+
+#ifndef LIB_VERSION
+#define LIB_VERSION 1
+#endif
+#ifndef LIB_REVISION
+#define LIB_REVISION 0
+#endif
+const UWORD LibVersion  = LIB_VERSION;
+const UWORD LibRevision = LIB_REVISION;
+
+/******************************************************************************/
+
+#ifdef DBG
+int debugLevel = TELLALL;
+#endif
+
+static void INLINE waitFifo(const BoardInfo_t *bi, UBYTE slots)
+{
+    flushWrites();
+    REGBASE();
+    while ((R_IO_W(EXT_FIFO_STATUS) & 0xffff) > ((ULONG)(0x8000 >> slots)))
+        ;
+}
+
+static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
+{
+    DFUNC(VERBOSE, "\n");
+    flushWrites();
+    REGBASE();
+    waitFifo(bi, 16);
+    while (TST_IO_W(EXT_GE_STATUS, BIT(13))) {
+        /* wait for GE idle */
+    }
+}
+
+/* 8514/A CRT: horizontal in units of 8 pixels; vertical in lines (see DISP_CNTL Y_CONTROL). */
+static INLINE UWORD toChars(UWORD pixels)
+{
+    return (pixels + 7) >> 3;
+}
+
+/*
+ * Vertical amounts from ModeInfo are in logical scanlines. Interlace halves them.
+ *
+ * Double-scan modes: do not multiply here. DISP_CNTL DOUBLE_SCAN makes the CRT Y counter
+ * visit each logical line twice (bit D11 interleaved as LSB: 0, 0x800, 1, 0x801, … —
+ * REG688000-15 §9-1). Program V_TOTAL / V_DISP / sync in that logical space; the chip
+ * emits two physical scanlines per logical line. Multiplying by 2 here as well would
+ * double-apply line doubling (bad sync vs ModeInfo).
+ */
+static INLINE UWORD toScanLinesY(UWORD y, UWORD modeFlags)
+{
+    // if (modeFlags & GMF_INTERLACE) {
+    //     y /= 2;
+    // }
+    return y;
+}
+
+/*
+ * Mach32 vertical timing registers are expressed in terms of the (potentially non-linear)
+ * CRTC Y counter. With DISP_CNTL.Y_CONTROL set to 01b ("normal"), the counter uses the
+ * SKIP_2 representation (REG688000-15 §8-10..8-12).
+ */
+static INLINE UWORD encodeSkip2Y(UWORD linear)
+{
+    return ((linear << 1) & 0x0FF8) | (linear & 0x0003) | ((linear & 0x0080) >> 5);
+}
+
+static INLINE ULONG encodeSkip2YL(ULONG linear)
+{
+    return ((linear << 1) & 0x0FF8) | (linear & 0x0003) | ((linear & 0x0080) >> 5);
+}
+
+static void ASM SetWriteMask(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
+{
+    DFUNC(VERBOSE, "mask=0x%02lx\n", (ULONG)mask);
+    (void)bi;
+    (void)mask;
+}
+
+static void ASM SetClearMask(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
+{
+    DFUNC(VERBOSE, "mask=0x%02lx\n", (ULONG)mask);
+    (void)bi;
+    (void)mask;
+}
+
+static void ASM SetReadPlane(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
+{
+    DFUNC(VERBOSE, "mask=0x%02lx\n", (ULONG)mask);
+    (void)bi;
+    (void)mask;
+}
+
+static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE idx), __REGD1(UBYTE r), __REGD2(UBYTE g),
+                               __REGD3(UBYTE b), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE, "idx=%ld r=%ld g=%ld b=%ld fmt=%ld\n", (ULONG)idx, (ULONG)r, (ULONG)g, (ULONG)b, (ULONG)fmt);
+
+    idx = (idx + 1) % 3;
+
+    REGBASE();
+
+    switch (fmt) {
+    case RGBFB_NONE:
+    case RGBFB_CLUT:
+        if (idx == 0)
+            W_REG(CURSOR_COLOR_0, (UBYTE)(17 + idx));
+        else if (idx == 1)
+            W_REG(CURSOR_COLOR_1, (UBYTE)(17 + idx));
+        break;
+    default:
+        if (idx == 0) {
+            W_REG(CURSOR_COLOR_0, b);
+            W_IO_W(EXT_CURSOR_COLOR_0, (UWORD)(((UWORD)(r & 0xF8) << 8) | (UWORD)(g & 0xFC)));
+        } else if (idx == 1) {
+            W_REG(CURSOR_COLOR_1, b);
+            W_IO_W(EXT_CURSOR_COLOR_1, (UWORD)(((UWORD)(r & 0xF8) << 8) | (UWORD)(g & 0xFC)));
+        }
+        break;
+    }
+}
+
+static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE, "fmt=%ld\n", (ULONG)fmt);
+    (void)fmt;
+
+    const UWORD *image = bi->MouseImage + 2;
+    ULONG *cursor      = (ULONG *)bi->MouseImageBuffer;
+
+    for (UWORD y = 0; y < bi->MouseHeight; ++y) {
+        // first 16 bit
+        ULONG plane0 = *image++;
+        ULONG plane1 = *image++;
+
+        plane0 = ~plane0;
+
+        *cursor++ = swapl((spreadBits(plane0) << 1) | spreadBits((plane1)));
+        *cursor++ = 0xAAAAAAAA;  // encodes 0b10 per cursor pixel (transparent)
+        *cursor++ = 0xAAAAAAAA;
+        *cursor++ = 0xAAAAAAAA;
+    }
+    for (UWORD y = bi->MouseHeight; y < 64; ++y) {
+        for (UWORD p = 0; p < 4; ++p) {
+            *cursor++ = 0xAAAAAAAA;
+        }
+    }
+}
+
+static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL show), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE, "show=%ld fmt=%ld\n", (ULONG)show, (ULONG)fmt);
+
+    /* REG688000 §9-78: CURSOR_OFFSET_LO/HI are the offset to the cursor definition in **DWORDs**
+     * (32-bit units, i.e. byte_offset / 4) from the start of display memory — not bytes or QWs. */
+    ULONG byteOff = (ULONG)bi->MouseImageBuffer - (ULONG)bi->MemoryBase;
+    ULONG offDW   = byteOff >> 2;
+
+    REGBASE();
+    W_IO_W(CURSOR_OFFSET_LO, (UWORD)(offDW & 0xFFFF));
+    UWORD hi = (UWORD)((offDW >> 16) & 0xF);
+    if (show) {
+        hi |= CURSOR_ENA;
+    }
+    W_IO_W(CURSOR_OFFSET_HI, hi);
+
+    if (show) {
+        SetSpriteColor(bi, 0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, fmt);
+        SetSpriteColor(bi, 1, bi->CLUT[18].Red, bi->CLUT[18].Green, bi->CLUT[18].Blue, fmt);
+        SetSpriteColor(bi, 2, bi->CLUT[19].Red, bi->CLUT[19].Green, bi->CLUT[19].Blue, fmt);
+    }
+
+    return TRUE;
+}
+
+static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xpos), __REGD1(WORD ypos),
+                                  __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE, "x=%ld y=%ld fmt=%ld\n", (LONG)xpos, (LONG)ypos, (ULONG)fmt);
+
+    bi->MouseX = xpos;
+    bi->MouseY = ypos;
+
+    WORD spriteX = xpos - bi->XOffset;
+    WORD spriteY = ypos - bi->YOffset + bi->YSplit;
+
+    WORD offsetX = 0;
+    if (spriteX < 0) {
+        if (spriteX > -64)
+            offsetX = -spriteX;
+        else
+            offsetX = 64;
+        spriteX = 0;
+    }
+    WORD offsetY = 0;
+    if (spriteY < 0) {
+        if (spriteY > -64)
+            offsetY = -spriteY;
+        else
+            offsetY = 64;
+        spriteY = 0;
+    }
+
+    if (bi->ModeInfo && (bi->ModeInfo->Flags & GMF_DOUBLESCAN)) {
+        spriteY *= 2;
+    }
+
+    REGBASE();
+    // The specs say that the horizontal position is in units of 8 pixels, but in reality this is not true.
+    W_IO_W(HORZ_CURSOR_POSN, spriteX & 0x7FF);
+    W_IO_W(VERT_CURSOR_POSN, spriteY & 0x0FFF);
+    W_IO_W(HORZ_CURSOR_OFFSET, offsetX & 0x3F);
+    W_IO_W(VERT_CURSOR_OFFSET, offsetY & 0x3F);
+}
+
+void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
+{
+    if (mi == NULL)
+        return;
+
+    bi->ModeInfo = mi;
+    bi->Border   = border;
+
+    DFUNC(INFO, "SetGC %lux%u HT=%u HB=%u HS=%u HW=%u VT"
+          "=%u VB=%u VS=%u VW=%u border=%d\n", (ULONG)mi->Width,
+          (ULONG)mi->Height, (ULONG)mi->HorTotal, (ULONG)mi->HorBlankSize, (ULONG)mi->HorSyncStart,
+          (ULONG)mi->HorSyncSize, (ULONG)mi->VerTotal, (ULONG)mi->VerBlankSize, (ULONG)mi->VerSyncStart,
+          (ULONG)mi->VerSyncSize, (int)border);
+
+    REGBASE();
+
+    WaitBlitter(bi);
+
+    W_IO_W(DISP_CNTL, CRT_RESET | Y_CONTROL_NORMAL);
+
+    UWORD modeFlags = mi->Flags;
+
+    UWORD hTotalChars = toChars(mi->HorTotal) - 1;
+    UWORD hDispChars  = toChars(mi->Width) - 1;
+    UWORD hSyncStart  = toChars(mi->Width + mi->HorSyncStart) - 1;
+    UWORD hSyncWid    = toChars(mi->HorSyncSize) & 0x1F;
+    if (modeFlags & GMF_HPOLARITY) {
+        hSyncWid |= BIT(5);
+    }
+
+    /* Encode linear line counts to SKIP_2 Y-counter representation (DISP_CNTL.Y_CONTROL=01b). */
+    UWORD vTotal     = encodeSkip2Y(toScanLinesY(mi->VerTotal, modeFlags) - 1);
+    UWORD vDisp      = encodeSkip2Y(toScanLinesY(mi->Height, modeFlags) - 1);
+    UWORD vSyncStart = encodeSkip2Y(toScanLinesY(mi->VerSyncStart + mi->Height, modeFlags) - 1);
+    UWORD vSyncWid   = toScanLinesY(mi->VerSyncSize, modeFlags) & 0x1F;
+    if (modeFlags & GMF_VPOLARITY) {
+        vSyncWid |= BIT(5);
+    }
+
+    W_IO_W(H_DISP, (hDispChars & 0xFF) | (hTotalChars << 8));
+    W_IO_W(H_TOTAL, hTotalChars & 0xFF);
+    W_IO_W(H_SYNC_STRT, hSyncStart & 0xFF);
+    W_IO_W(H_SYNC_WID, hSyncWid);
+
+    W_IO_W(V_TOTAL, vTotal & 0x0FFF);
+    W_IO_W(V_DISP, vDisp & 0x0FFF);
+    W_IO_W(V_SYNC_STRT, vSyncStart & 0x0FFF);
+    W_IO_W(V_SYNC_WID, vSyncWid);
+
+    if (border) {
+        UWORD hb = toChars(mi->HorBlankSize) & 0xF;
+        UWORD vb = toScanLinesY(mi->VerBlankSize, modeFlags);
+        if (vb > 255)
+            vb = 255;
+        W_IO_W(HORZ_OVERSCAN, (hb & 0xF) | ((hb & 0xF) << 4));
+        W_IO_W(VERT_OVERSCAN, (vb & 0xFF) | ((vb & 0xFF) << 8));
+    } else {
+        W_IO_W(HORZ_OVERSCAN, 0);
+        W_IO_W(VERT_OVERSCAN, 0);
+    }
+
+    UWORD disp = CRT_ENABLED | Y_CONTROL_NORMAL;
+
+    if (modeFlags & GMF_DOUBLESCAN) {
+        disp |= DOUBLE_SCAN_BIT;
+    }
+    if (modeFlags & GMF_INTERLACE) {
+        disp |= INTERLACE_BIT;
+    }
+
+    W_IO_W(DISP_CNTL, disp);
+}
+
+static UBYTE bppForRgbFormat(RGBFTYPE fmt)
+{
+    switch (fmt) {
+    case RGBFB_NONE:
+    case RGBFB_CLUT:
+        return 1;
+    case RGBFB_R5G6B5PC:
+    case RGBFB_R5G5B5PC:
+    case RGBFB_B5G6R5PC:
+    case RGBFB_B5G5R5PC:
+    case RGBFB_R5G6B5:
+    case RGBFB_R5G5B5:
+        return 2;
+    case RGBFB_R8G8B8:
+    case RGBFB_B8G8R8:
+        return 3;
+    default:
+        return 4;
+    }
+}
+
+void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width), __REGD4(UWORD height),
+                    __REGD1(WORD xoffset), __REGD2(WORD yoffset), __REGD7(RGBFTYPE format))
+{
+    DFUNC(INFO,
+          "mem 0x%lx, width %ld, height %ld, xoffset %ld, yoffset %ld, "
+          "format %ld\n",
+          memory, (ULONG)width, (ULONG)height, (LONG)xoffset, (LONG)yoffset, (ULONG)format);
+
+#ifndef NDEBUG
+    if (width & 7) {
+        DFUNC(ERROR, "Panning pitch not a multiple of 8\n");
+        return;
+    }
+#endif
+
+    LONG panOffset;
+    ULONG pitch;
+    ULONG memOffset;
+
+    bi->XOffset = xoffset;
+    bi->YOffset = yoffset;
+    memOffset   = (ULONG)memory - (ULONG)bi->MemoryBase;
+
+    UBYTE bpp = getBPP(format);
+    panOffset = (yoffset * width + xoffset) * bpp;
+
+    pitch     = width / 8;                    // pitch in 8 pixels
+    panOffset = (panOffset + memOffset) / 4;  // offset in 64bit words
+
+    D(VERBOSE, "panOffset 0x%lx, pitch %ld qwords\n", panOffset, (ULONG)pitch);
+
+    REGBASE();
+    W_IO_W(CRT_OFFSET_LO, panOffset & 0xFFFF);
+    W_IO_W(CRT_OFFSET_HI, (panOffset >> 16));
+    /* Linear scanout advances by CRT_PITCH once per physical raster line. DISP_CNTL
+     * DOUBLE_SCAN (SetGC) shapes the 8514/A line counter for sync/blanking; it does
+     * not by itself halve row-increment rate. Line doubling for the framebuffer is
+     * usually tied to the VGA CRTC path (e.g. CR9 doublescan) or other fetch control. */
+    W_IO_W(CRT_PITCH, pitch);
+}
+
+UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
+                               __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
+{
+    DFUNC(VERBOSE, "width=%lu height=%lu mi=0x%lx fmt=%ld\n", (ULONG)width, (ULONG)height, (ULONG)mi, (ULONG)format);
+    (void)bi;
+    (void)height;
+    (void)mi;
+    UBYTE bpp = 1;
+    switch (format) {
+    case RGBFB_CLUT:
+        bpp = 1;
+        break;
+    case RGBFB_R5G6B5PC:
+    case RGBFB_R5G5B5PC:
+    case RGBFB_B5G6R5PC:
+    case RGBFB_B5G5R5PC:
+    case RGBFB_R5G6B5:
+    case RGBFB_R5G5B5:
+        bpp = 2;
+        break;
+    case RGBFB_R8G8B8:
+    case RGBFB_B8G8R8:
+        bpp = 3;
+        break;
+    default:
+        bpp = 4;
+        break;
+    }
+    UWORD bpr = width * bpp;
+    return (bpr + 63) & ~63;
+}
+
+APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system),
+                      __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
+{
+    // We always overallocate by 8 bytes to be able to align the memory to 8 bytes in CalculateMemory
+    // SGRAM requries 64byte alignment
+    // size += 8;
+    size += 64;
+    return getConstCardData(bi)->AllocCardMemDefault(bi, size, force, system, bytesperrow, mi, format);
+}
+
+APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REGD0(struct RenderInfo *ri),
+                         __REGD7(RGBFTYPE format))
+{
+    DFUNC(VERBOSE, "mem=0x%lx ri=0x%lx fmt=%ld\n", (ULONG)mem, (ULONG)ri, (ULONG)format);
+    (void)bi;
+    (void)ri;
+    (void)format;
+    return (APTR)(((ULONG)mem + 63) & ~63UL);
+}
+
+ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
+{
+    DFUNC(VERBOSE, "fmt=%ld\n", (ULONG)format);
+    (void)bi;
+    if (format == RGBFB_NONE)
+        return 0;
+    return RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC;
+}
+
+void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE format))
+{
+    DFUNC(INFO, "region=%lu fmt=%ld\n", (ULONG)region, (ULONG)format);
+    (void)region;
+    const RamdacOps_t *ops = getConstChipData(bi)->ramdacOps;
+
+    UWORD dac8 = (bi->BitsPerCannon == 8) ? DAC_8BIT_EN : 0;
+
+    // Docs suggest changing the DAC in 8bit mode only
+    W_EXT_GE_CONFIG_MASK(DISPLAY_PIXEL_SIZE_MASK | PIXEL_WIDTH_MASK | _16_BIT_COLOR_MODE_MASK |
+                             _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK,
+                         PIXEL_WIDTH(1) | DISPLAY_PIXEL_SIZE | dac8);
+
+    ops->setDac(bi, format);
+
+    UBYTE bpp    = bppForRgbFormat(format);
+    UWORD config = 0;
+
+    switch (format) {
+    case RGBFB_CLUT:
+        config = PIXEL_WIDTH(1);
+        break;
+    case RGBFB_R5G5B5PC:
+    case RGBFB_R5G5B5:
+        config = PIXEL_WIDTH(2) | _16_BIT_COLOR_MODE(0);
+        break;
+        break;
+    case RGBFB_R5G6B5PC:
+    case RGBFB_R5G6B5:
+        config = PIXEL_WIDTH(2) | _16_BIT_COLOR_MODE(1);
+        break;
+        ;
+        break;
+    case RGBFB_R8G8B8:
+        config = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(0) | _24_BIT_COLOR_ORDER(0);
+        break;
+        ;
+        break;
+    case RGBFB_B8G8R8:
+        config = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(0) | _24_BIT_COLOR_ORDER(1);
+        break;
+        ;
+    case RGBFB_R8G8B8A8:
+        config = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(1) | _24_BIT_COLOR_ORDER(0);
+        break;
+        ;
+        break;
+    case RGBFB_B8G8R8A8:
+        config = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(1) | _24_BIT_COLOR_ORDER(1);
+        break;
+        ;
+        break;
+    default:
+        break;
+    }
+    config |= DISPLAY_PIXEL_SIZE | dac8;
+
+    W_EXT_GE_CONFIG_MASK(DISPLAY_PIXEL_SIZE_MASK | PIXEL_WIDTH_MASK | _16_BIT_COLOR_MODE_MASK |
+                             _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK,
+                         config);
+}
+
+void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count))
+{
+    DFUNC(VERBOSE, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
+
+    REGBASE();
+    LOCAL_SYSBASE();
+
+    const UBYTE bppDiff = 8 - bi->BitsPerCannon;
+
+    // This may noty be interrupted, so DAC_WR_AD remains set throughout the
+    // function
+    Disable();
+
+    W_REG(DAC_W_INDEX, startIndex);
+
+    struct CLUTEntry *entry = &bi->CLUT[startIndex];
+
+    // Do not print these individual register writes as it takes ages
+    for (UWORD c = 0; c < count; ++c) {
+        writeReg(RegBase, DAC_DATA, entry->Red >> bppDiff);
+        writeReg(RegBase, DAC_DATA, entry->Green >> bppDiff);
+        writeReg(RegBase, DAC_DATA, entry->Blue >> bppDiff);
+        ++entry;
+    }
+
+    Enable();
+    return;
+}
+
+BOOL ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
+{
+    DFUNC(INFO, "state=%ld\n", (ULONG)state);
+    (void)bi;
+    (void)state;
+    return TRUE;
+}
+
+void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
+{
+    DFUNC(VERBOSE, "fmt=%ld\n", (ULONG)format);
+    (void)bi;
+    (void)format;
+}
+
+LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(ULONG pixelClock),
+                           __REGD7(RGBFTYPE RGBFormat))
+{
+    DFUNC(CHATTY, "mi=0x%lx target=%lu fmt=%ld\n", (ULONG)mi, pixelClock, (ULONG)RGBFormat);
+    (void)bi;
+    (void)RGBFormat;
+    return ResolveModeInfoPixelClock(mi, pixelClock);
+}
+
+ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(ULONG index),
+                        __REGD7(RGBFTYPE format))
+{
+    DFUNC(VERBOSE, "index=%lu fmt=%ld\n", index, (ULONG)format);
+
+    ULONG pixelClock = HzForClockIndex(index);
+
+    D(VERBOSE, "Pixel clock for index %lu is %lu Hz\n", index, pixelClock);
+
+    return pixelClock;
+}
+
+void ASM SetClock(__REGA0(struct BoardInfo *bi))
+{
+    DFUNC(VERBOSE, "\n");
+    const RamdacOps_t *ops = getConstChipData(bi)->ramdacOps;
+    ops->setClock(bi);
+}
+
+BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expected))
+{
+    DFUNC(CHATTY, "expected=%ld\n", (ULONG)expected);
+    (void)expected;
+    (void)bi;
+    return FALSE;
+}
+
+/**
+ * Set DPMS (Display Power Management Signaling) level.
+ *
+ * Uses HORZ_OVERSCAN[15:13] (SYN_CONT_SEL/HSYN_CONT/VSYN_CONT) to force the HSYNC/VSYNC
+ * pins to constant levels for monitor power-down.
+ *
+ * DPMS levels: DPMS_ON (0), DPMS_STANDBY (1), DPMS_SUSPEND (2), DPMS_OFF (3)
+ */
+static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level))
+{
+    DFUNC(VERBOSE, "level=%ld\n", level);
+
+    if (level > 3) {
+        level = 3;
+    }
+
+    REGBASE();
+
+    /* Recreate the baseline overscan widths (and sync delay=0) based on current border setting. */
+    UWORD base = 0;
+    // if (bi->Border && bi->ModeInfo) {
+    //     UWORD hb = (UWORD)(toChars(bi->ModeInfo->HorBlankSize) & 0xFu);
+    //     base     = (UWORD)((hb & 0xFu) | ((hb & 0xFu) << 4));
+    // }
+
+    /*
+     * Force sync pins to constant levels. A value of 1 corresponds to the "inactive" sync level.
+     * This provides DPMS-style combinations without requiring the normal timing generator.
+     */
+    static const UWORD dpmsMask[4] = {
+        0,                                    /* ON */
+        SYN_CONT_SEL | HSYN_CONT,             /* STANDBY: HSYNC inactive, VSYNC active */
+        SYN_CONT_SEL | VSYN_CONT,             /* SUSPEND: VSYNC inactive, HSYNC active */
+        SYN_CONT_SEL | HSYN_CONT | VSYN_CONT, /* OFF: both inactive */
+    };
+
+    W_IO_W(HORZ_OVERSCAN, base | dpmsMask[level]);
+}
+
+void ASM WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL end))
+{
+    DFUNC(CHATTY, "\n");
+    (void)end;
+    (void)bi;
+}
+
+static ULONG ASM GetVBeamPos(__REGA0(struct BoardInfo *bi))
+{
+    REGBASE();
+    return R_IO_W(VERT_LINE_CNTR) & 0x7FF;
+}
+
+/*
+ * FillRect — same driver-level structure as mach64/chip_mach64.c (setDstBuffer, pen/mask/GEOp cache,
+ * drawRect kick). I/O-mapped IBM 8514/A-style engine registers (REG688000-15 §8–9, Appendix A).
+ */
+
+static INLINE ULONG getMemoryOffset(struct BoardInfo *bi, APTR memory)
+{
+    return (ULONG)memory - (ULONG)bi->MemoryBase;
+}
+
+static UBYTE bytesPerPixelForFmt(RGBFTYPE fmt)
+{
+    UBYTE b = getBPP(fmt);
+    if (b)
+        return b;
+    return bppForRgbFormat(fmt);
+}
+
+static void computeGEConfig(RGBFTYPE fmt, UWORD *maskOut, UWORD *valOut)
+{
+    *maskOut = DRAW_PIXEL_SIZE_MASK | PIXEL_WIDTH_MASK | _16_BIT_COLOR_MODE_MASK | _24_BIT_COLOR_CONFIG_MASK |
+               _24_BIT_COLOR_ORDER_MASK;
+    UWORD cfg = 0;
+
+    switch (fmt) {
+    case RGBFB_CLUT:
+        cfg = PIXEL_WIDTH(1);
+        break;
+    case RGBFB_R5G5B5PC:
+    case RGBFB_R5G5B5:
+        cfg = PIXEL_WIDTH(2) | _16_BIT_COLOR_MODE(0);
+        break;
+    case RGBFB_R5G6B5PC:
+    case RGBFB_R5G6B5:
+        cfg = PIXEL_WIDTH(2) | _16_BIT_COLOR_MODE(1);
+        break;
+    case RGBFB_R8G8B8:
+        cfg = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(0) | _24_BIT_COLOR_ORDER(0);
+        break;
+    case RGBFB_B8G8R8:
+        cfg = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(0) | _24_BIT_COLOR_ORDER(1);
+        break;
+    case RGBFB_R8G8B8A8:
+        cfg = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(1) | _24_BIT_COLOR_ORDER(0);
+        break;
+    case RGBFB_B8G8R8A8:
+        cfg = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(1) | _24_BIT_COLOR_ORDER(1);
+        break;
+    default:
+        cfg = PIXEL_WIDTH(1);
+        break;
+    }
+    cfg |= DRAW_PIXEL_SIZE;
+    *valOut = cfg;
+}
+
+static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
+{
+    switch (fmt) {
+    case RGBFB_B8G8R8A8:
+        pen = swapl(pen);
+        break;
+    case RGBFB_R5G6B5PC:
+    case RGBFB_R5G5B5PC:
+        pen = swapw((UWORD)pen);
+        /* fallthrough */
+    case RGBFB_R5G6B5:
+    case RGBFB_R5G5B5:
+        pen |= pen << 16;
+        break;
+    case RGBFB_CLUT:
+        pen = (pen & 0xFF) | ((pen & 0xFF) << 8) | ((pen & 0xFF) << 16) | ((pen & 0xFF) << 24);
+        break;
+    default:
+        break;
+    }
+    return pen;
+}
+
+static INLINE void setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fmt, BYTE waitFifoSlots)
+{
+    ChipData_t *cd = getChipData(bi);
+
+    if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
+        cd->GEmask = 0xFF;
+        waitFifo(bi, waitFifoSlots + 1);
+        REGBASE();
+        W_IO_W(WRT_MASK, 0xFFFF);
+    } else if (cd->GEmask != mask) {
+        cd->GEmask = mask;
+        waitFifo(bi, waitFifoSlots + 1);
+        REGBASE();
+        W_IO_W(WRT_MASK, mask << 8 | mask);
+    } else {
+        waitFifo(bi, waitFifoSlots);
+    }
+}
+
+static BOOL setDstBuffer(BoardInfo_t *bi, const struct RenderInfo *ri, RGBFTYPE fmt)
+{
+    ChipData_t *cd = getChipData(bi);
+
+    if (memcmp(ri, &cd->dstBuffer, sizeof(struct RenderInfo)) == 0) {
+        return TRUE;
+    }
+    cd->dstBuffer = *ri;
+
+    UBYTE bpp = bytesPerPixelForFmt(fmt);
+    if (bpp == 0 || bpp > 2) {
+        return FALSE;
+    }
+    BYTE bppLog2 = (bpp == 2) ? 1 : 0;
+
+    UWORD pitch    = (UWORD)ri->BytesPerRow >> (bppLog2 + 3);
+    ULONG offWords = encodeSkip2YL(getMemoryOffset(bi, ri->Memory) >> 2);
+
+    waitFifo(bi, 4);
+    REGBASE();
+    W_IO_W(GE_PITCH, pitch);
+    W_IO_W(GE_OFFSET_LO, offWords);
+    W_IO_W(GE_OFFSET_HI, offWords >> 16);
+
+    {
+        UWORD emask, eval;
+        computeGEConfig(fmt, &emask, &eval);
+
+        W_EXT_GE_CONFIG_MASK(emask, eval);
+    }
+
+    return TRUE;
+}
+
+static void drawRect(BoardInfo_t *bi, WORD x, WORD y, WORD width, WORD height)
+{
+    waitFifo(bi, 6);
+    REGBASE();
+
+    W_IO_W(SRC_Y_DIR, 1);
+    W_IO_W(CUR_X, x);
+    W_IO_W(CUR_Y, y);
+    W_IO_W(DEST_X_START, x);
+    W_IO_W(DEST_X_END, x + width);
+    W_IO_W(DEST_Y_END, y + height);
+    flushWrites();
+}
+
+static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
+                         __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(ULONG pen),
+                         __REGD5(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE,
+          "\nx %ld, y %ld, w %ld, h %ld\npen %08lx, mask 0x%lx fmt %ld\n"
+          "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+          (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)pen, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
+          (ULONG)ri->Memory);
+
+    if (!setDstBuffer(bi, ri, fmt)) {
+        return;
+    }
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (height > 0x800) {
+        D(WARN, "FillRect: height %ld exceeds MULTI_FUNC range\n", (ULONG)height);
+        return;
+    }
+
+    if (cd->GEOp != FILLRECT) {
+        cd->GEOp       = FILLRECT;
+        cd->GEdrawMode = 0xFF;
+
+        waitFifo(bi, 3);
+        REGBASE();
+
+        W_IO_W(DP_CONFIG, DP_CONFIG_REPLACE);
+        /* 8514/A path: foreground color source, replace mix (REG688000-15 §8-24, §8-40) */
+        W_IO_W(FRGD_MIX, 0x0027);
+        W_IO_W(BKGD_MIX, 0x0027);
+    }
+
+    if (cd->GEfgPen != pen) {
+        cd->GEfgPen    = pen;
+        cd->GEdrawMode = 0xFF;
+
+        pen = penToColor(pen, fmt);
+
+        waitFifo(bi, 1);
+        REGBASE();
+        W_IO_W(FRGD_COLOR, pen);
+    }
+
+    setWriteMask(bi, mask, fmt, 0);
+    drawRect(bi, x, y, width, height);
+}
+
+static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
+                           __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask),
+                           __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE,
+          "\nx %ld, y %ld, w %ld, h %ld\nmask 0x%lx fmt %ld\n"
+          "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+          (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
+          (ULONG)ri->Memory);
+
+    if (!setDstBuffer(bi, ri, fmt)) {
+        return;
+    }
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != INVERTRECT) {
+        cd->GEOp       = INVERTRECT;
+        cd->GEdrawMode = 0xFF;
+
+        waitFifo(bi, 2);
+        REGBASE();
+
+        W_IO_W(DP_CONFIG, DP_CONFIG_REPLACE);
+        /* 8514/A path: foreground color source, NOT destination (REG688000-15 §8-24) */
+        W_IO_W(FRGD_MIX, 0x0020);
+    }
+
+    setWriteMask(bi, mask, fmt, 0);
+    drawRect(bi, x, y, width, height);
+}
+
+/*
+ * Screen-to-screen copy via the Mach32 extended blit engine (REG688000-15 §9-38..9-40).
+ * DEST_Y_END triggers the operation; direction is implicit from coordinate ordering.
+ */
+static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD srcX),
+                         __REGD1(WORD srcY), __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
+                         __REGD5(WORD height), __REGD6(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE,
+          "\nsx %ld, sy %ld, dx %ld, dy %ld, w %ld, h %ld\n"
+          "mask 0x%lx fmt %ld\nri->bytesPerRow %ld, ri->memory 0x%lx\n",
+          (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt,
+          (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
+
+    if (!setDstBuffer(bi, ri, fmt)) {
+        return;
+    }
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->GEOp != BLITRECT) {
+        cd->GEOp       = BLITRECT;
+        cd->GEdrawMode = 0xFF;
+
+        waitFifo(bi, 3);
+        REGBASE();
+        W_IO_W(DP_CONFIG, DP_CONFIG_BLIT);
+        /* COLOR_SRC must be blit source (11b) to read from VRAM, MIX=replace (REG688000-15 §8-24) */
+        W_IO_W(FRGD_MIX, 0x0067);
+        W_IO_W(BKGD_MIX, 0x0067);
+    }
+
+    setWriteMask(bi, mask, fmt, 0);
+
+    waitFifo(bi, 10);
+    REGBASE();
+
+    if ((dstY > srcY) || (dstY == srcY && dstX > srcX)) {
+        /* Overlap: copy bottom-to-top, right-to-left */
+        W_IO_W(SRC_X_DEST_X, srcX + width);
+        W_IO_W(SRC_X_START, srcX + width);
+        W_IO_W(SRC_Y_DEST_Y, srcY + height - 1);
+        W_IO_W(SRC_X_END, srcX);
+        W_IO_W(SRC_Y_DIR, 0);
+
+        W_IO_W(CUR_X, dstX + width);
+        W_IO_W(DEST_X_START, dstX + width);
+        W_IO_W(CUR_Y, dstY + height - 1);
+        W_IO_W(DEST_X_END, dstX);
+        W_IO_W(DEST_Y_END, dstY - 1);
+    } else {
+        /* No overlap risk: copy top-to-bottom, left-to-right */
+        W_IO_W(SRC_X_DEST_X, srcX);
+        W_IO_W(SRC_X_START, srcX);
+        W_IO_W(SRC_Y_DEST_Y, srcY);
+        W_IO_W(SRC_X_END, srcX + width);
+        W_IO_W(SRC_Y_DIR, 1);
+
+        W_IO_W(CUR_X, dstX);
+        W_IO_W(DEST_X_START, dstX);
+        W_IO_W(CUR_Y, dstY);
+        W_IO_W(DEST_X_END, dstX + width);
+        W_IO_W(DEST_Y_END, dstY + height);
+    }
+    flushWrites();
+}
+
+/*
+ * VRAM size vs aperture: MEM_CFG[1:0] selects PCI aperture (0=off, 1=1MB, 2=4MB; §9-75).
+ * Physical VRAM may be smaller than the BAR; it typically wraps at a power of two.
+ * SUBSYS_STATUS[7] is only a 512K/1M strap hint (§8-20), not total VRAM.
+ */
+static ULONG probeFramebufferSize(BoardInfo_t *bi)
+{
+    volatile UBYTE *base = (volatile UBYTE *)bi->MemoryBase;
+    ULONG aperture       = bi->MemorySize;
+
+    if (base == NULL || aperture < 65536)
+        return 0;
+    if ((ULONG)base & 3) {
+        D(WARN, "Framebuffer base %p not ULONG-aligned; skipping VRAM probe\n", (APTR)base);
+        return 0;
+    }
+
+    static const ULONG kSteps[] = {
+        512 * 1024,
+        1024 * 1024,
+        2 * 1024 * 1024,
+        4 * 1024 * 1024,
+    };
+
+    for (unsigned i = 0; i < 4; i++) {
+        ULONG step = kSteps[i];
+        if (step > aperture)
+            continue;
+
+        volatile ULONG *p0 = (volatile ULONG *)(base + 0);
+        volatile ULONG *p1 = (volatile ULONG *)(base + step);
+        ULONG s0           = *p0;
+        ULONG s1           = *p1;
+        *p0                = 0x11111111;
+        *p1                = 0x22222222;
+        flushWrites();
+        ULONG r0 = *p0;
+        *p0      = s0;
+        *p1      = s1;
+
+        /* If offset `step` aliases to offset 0, the last write wins at offset 0. */
+        if (r0 == 0x22222222) {
+            return step;
+        }
+    }
+
+    return aperture;
+}
+
+static void logMemoryInfo(BoardInfo_t *bi)
+{
+    REGBASE();
+
+    UWORD mem = R_IO_W(MEM_CFG);
+    UWORD sub = R_IO_W(SUBSYS_STATUS);
+
+    ULONG sel = mem & MEM_APERT_SEL_MASK;
+    ULONG loc = (mem & MEM_APERT_LOC_MASK) >> MEM_APERT_LOC_SHIFT;
+
+    const char *apStr = "?";
+    if (sel == MEM_APERT_SEL_OFF)
+        apStr = "off";
+    else if (sel == MEM_APERT_SEL_1MB)
+        apStr = "1MB";
+    else if (sel == MEM_APERT_SEL_4MB)
+        apStr = "4MB";
+
+    D(ALWAYS, "MEM_CFG=0x%04lX: aperture %s, MEM_APERT_LOC=0x%02lx (1MB page index)\n", (ULONG)mem, apStr, loc);
+
+    D(ALWAYS, "SUBSYS_STATUS[MEM_SIZE strap]: %s\n", (sub & SUBSYS_MEMSIZE_BIT) ? "1M-class" : "512K-class");
+
+    {
+        ChipData_t *cd = getChipData(bi);
+        D(ALWAYS, "Framebuffer probe: populated VRAM ~%lu KB \n", bi->MemorySize / 1024UL);
+    }
+}
+
+BOOL InitChip(__REGA0(struct BoardInfo *bi))
+{
+    DFUNC(ALWAYS, "\n");
+
+    REGBASE();
+
+    {
+        ChipData_t *cd = getChipData(bi);
+        cd->GEfgPen    = ~0UL;
+        cd->GEbgPen    = 0;
+        cd->GEmask     = 0xFF;
+        cd->GEdrawMode = 0xFF;
+        cd->GEOp       = 0; /* BlitterOp_t None */
+        cd->MemFormat  = 0;
+        memset(&cd->dstBuffer, 0, sizeof(cd->dstBuffer));
+    }
+
+    bi->GraphicsControllerType = GCT_ATIRV100;
+    bi->PaletteChipType        = PCT_Unknown;
+    bi->Flags |= BIF_GRANTDIRECTACCESS | BIF_BLITTER | BIF_HARDWARESPRITE;
+    bi->RGBFormats =
+        RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_R5G6B5 | RGBFF_R5G5B5 | RGBFF_A8B8G8R8 | RGBFF_B8G8R8A8;
+
+    getCardData(bi)->AllocCardMemDefault = bi->AllocCardMem;
+    bi->AllocCardMem                     = AllocCardMem;
+
+    bi->SetGC                = SetGC;
+    bi->SetPanning           = SetPanning;
+    bi->CalculateBytesPerRow = CalculateBytesPerRow;
+    bi->CalculateMemory      = CalculateMemory;
+    bi->GetCompatibleFormats = GetCompatibleFormats;
+    bi->SetDAC               = SetDAC;
+    bi->SetColorArray        = SetColorArray;
+    bi->SetDisplay           = SetDisplay;
+    bi->SetMemoryMode        = SetMemoryMode;
+    bi->SetWriteMask         = SetWriteMask;
+    bi->SetReadPlane         = SetReadPlane;
+    bi->SetClearMask         = SetClearMask;
+    bi->ResolvePixelClock    = ResolvePixelClock;
+    bi->GetPixelClock        = GetPixelClock;
+    bi->SetClock             = SetClock;
+    bi->SetDPMSLevel         = SetDPMSLevel;
+
+    bi->WaitVerticalSync = WaitVerticalSync;
+    bi->GetVSyncState    = GetVSyncState;
+
+    bi->SetSprite         = SetSprite;
+    bi->SetSpritePosition = SetSpritePosition;
+    bi->SetSpriteImage    = SetSpriteImage;
+    bi->SetSpriteColor    = SetSpriteColor;
+
+    bi->WaitBlitter = WaitBlitter;
+    bi->BlitRect    = BlitRect;
+    bi->InvertRect  = InvertRect;
+    bi->FillRect    = FillRect;
+    // bi->BlitTemplate           = bi->BlitTemplateDefault;
+    // bi->BlitPlanar2Chunky      = bi->BlitPlanar2ChunkyDefault;
+    // bi->BlitRectNoMaskComplete = bi->BlitRectNoMaskCompleteDefault;
+    // bi->DrawLine               = bi->DrawLineDefault;
+    // bi->BlitPattern            = bi->BlitPatternDefault;
+
+    bi->MaxBMWidth  = 2048;
+    bi->MaxBMHeight = 2048;
+
+    bi->BitsPerCannon          = 6;
+    bi->MaxHorValue[PLANAR]    = 2040;
+    bi->MaxHorValue[CHUNKY]    = 2040;
+    bi->MaxHorValue[HICOLOR]   = 2040;
+    bi->MaxHorValue[TRUECOLOR] = 2040;
+    bi->MaxHorValue[TRUEALPHA] = 2040;
+
+    bi->MaxVerValue[PLANAR]    = 2047;
+    bi->MaxVerValue[CHUNKY]    = 2047;
+    bi->MaxVerValue[HICOLOR]   = 2047;
+    bi->MaxVerValue[TRUECOLOR] = 2047;
+    bi->MaxVerValue[TRUEALPHA] = 2047;
+
+    bi->MaxHorResolution[PLANAR]    = 1280;
+    bi->MaxVerResolution[PLANAR]    = 1024;
+    bi->MaxHorResolution[CHUNKY]    = 1280;
+    bi->MaxVerResolution[CHUNKY]    = 1024;
+    bi->MaxHorResolution[HICOLOR]   = 1280;
+    bi->MaxVerResolution[HICOLOR]   = 1024;
+    bi->MaxHorResolution[TRUECOLOR] = 1280;
+    bi->MaxVerResolution[TRUECOLOR] = 1024;
+    bi->MaxHorResolution[TRUEALPHA] = 1280;
+    bi->MaxVerResolution[TRUEALPHA] = 1024;
+
+    bi->PixelClockCount[PLANAR]    = PIXEL_CLOCK_INDEX_COUNT;
+    bi->PixelClockCount[CHUNKY]    = PIXEL_CLOCK_INDEX_COUNT;
+    bi->PixelClockCount[HICOLOR]   = PIXEL_CLOCK_INDEX_COUNT;
+    bi->PixelClockCount[TRUECOLOR] = PIXEL_CLOCK_INDEX_COUNT;
+    bi->PixelClockCount[TRUEALPHA] = PIXEL_CLOCK_INDEX_COUNT;
+
+    W_IO_W(SCRATCH_PAD0, 0xCCCC);
+    UWORD scratch0 = R_IO_W(SCRATCH_PAD0);
+    W_IO_W(SCRATCH_PAD0, 0x5555);
+    UWORD scratch1 = R_IO_W(SCRATCH_PAD0);
+    if (scratch0 != 0xCCCC || scratch1 != 0x5555) {
+        DFUNC(ERROR, "Scratch pad test failed: read 0x%04X and 0x%04X\n", scratch0, scratch1);
+        return FALSE;
+    }
+
+    // dumpMach32Eeprom(bi);
+
+    UWORD chipId     = R_IO_W(CHIP_ID);
+    char chipName[3] = {0};
+    chipName[1]      = (chipId & 0x1F) + 0x41;
+    chipName[0]      = ((chipId >> 5) & 0x1F) + 0x41;
+    ULONG class      = (chipId >> 10) & 3;
+    ULONG revision   = (chipId >> 12) & 0xF;
+
+    D(ALWAYS, "Chip Version detected: Mach32%s, revision %ld, class 0x%lx\n", chipName, revision, class);
+
+    UWORD configStat1 = R_IO_W(CONFIG_STATUS_1);
+    ULONG vgaEnabled  = !(configStat1 & BIT(0));
+    ULONG busType     = (configStat1 >> 1) & 7;
+    ULONG memType     = (configStat1 >> 4) & 7;
+    ULONG chipEnabled = !(configStat1 & BIT(7));
+    ULONG dacType     = (configStat1 >> 9) & 0x7;
+
+    D(ALWAYS, "CONFIG_STATUS_1: VGA %s, bus type 0x%lx, mem type 0x%lx, chip %s, DAC type 0x%lx\n",
+      vgaEnabled ? "enabled" : "disabled", busType, memType, chipEnabled ? "enabled" : "disabled", dacType);
+
+    // DISABLE_VGA, DLY_LATCH_ENA, 16_BIT_IO
+    W_IO_MASK_W(MISC_OPTIONS, BIT(4) | BIT(5) | BIT(7), BIT(4) | BIT(5) | BIT(7));
+
+    // These are some magic values I got from the BIOS that largely get rid of screen corruption
+    W_IO_W(MISC_OPTIONS, (R_IO_W(MISC_OPTIONS) & 0x7F) | 0x9080);
+    W_IO_W(LOCAL_CNTL, (R_IO_W(LOCAL_CNTL) & 0x380) | 0x1401);
+    W_IO_MASK_W(PCI_CNTL, 0x00FF, 0x00C0);           // enable TARGET_ABORT_EN and PCI_DAC_DLY
+    W_IO_MASK_W(MAX_WAITSTATES, (UWORD)~0xFBFF, 0);  // reset magic bit
+    W_IO_MASK_W(MISC_OPTIONS, 0xFF00, 0xF000);  //
+    W_IO_MASK_W(LOCAL_CNTL, BIT(2), BIT(2));  // Enable SHORT_CAS_PULSE_EN
+
+    UWORD configStat2 = R_IO_W(CONFIG_STATUS_2);
+
+    // "Unlock" the Shadow registers. This is not in any way described in the documentation and
+    // I only found out about by looking at SVGALib sources.
+    // Without it, one cannot program the CRTC correctly and won't get proper display timings.
+    W_IO_W(SHADOW_SET, 1);
+    W_IO_W(SHADOW_CTL, 0);
+    W_IO_W(SHADOW_SET, 2);
+    W_IO_W(SHADOW_CTL, 0);
+    W_IO_W(SHADOW_SET, 0);
+
+    W_IO_W(CLOCK_SEL, PASS_THROUGH_DISABLE | CLK_SEL(0x4) | CLK_DIV | VFIFO_DEPTH(6));
+
+    // Enable Memory Access
+    UWORD memCfg = R_IO_W(MEM_CFG);
+    D(ALWAYS, "PCI memory aperture at 0x%08lX\n", (ULONG)(memCfg >> 4) << 20);
+    W_IO_MASK_W(MEM_CFG, 0x03, 0x02);  // Enable 4MB aperture
+    // W_IO_MASK_W(APERTURE_CNTL, BIT(10) | BIT(11), BIT(10) | BIT(11));  // Zero WaitState write access
+    W_REG(APERTURE_CNTL, 0);
+    W_IO_W(MEM_BNDRY, 0);
+
+    if (!InitRAMDAC(bi, dacType)) {
+        DFUNC(ERROR, "RAMDAC initialization failed\n");
+        return FALSE;
+    }
+
+    // Reset Graphics Engine GE, disable Interrupts
+    W_IO_W(SUBSYS_CNTL, 0x800f);
+    delayMilliSeconds(5);
+    W_IO_W(SUBSYS_CNTL, 0x400f);
+
+    R_IO_W(SUBSYS_STATUS);
+
+    /* GE_X_CONTROL[1:0] = 10 (reserved), GE_Y_CONTROL[3:2] = 01 (linear) — REG688000-15 §8-17 */
+    W_BEE8(MEM_CNTL, 0x6);
+
+    /* Open scissors and set PIX_CNTL so the GE can actually write pixels (§8-43..8-50). */
+    W_BEE8(SCISSORS_T, 0);
+    W_BEE8(SCISSORS_L, 0);
+    W_BEE8(SCISSORS_B, 0x7FF);
+    W_BEE8(SCISSORS_R, 0x7FF);
+    W_IO_W(SCISSOR_TOP, 0);
+    W_IO_W(SCISSOR_LEFT, 0);
+    W_IO_W(SCISSOR_BOTTOM, 0x7FF);
+    W_IO_W(SCISSOR_RIGHT, 0x7FF);
+    W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
+
+    /* DP_CONFIG: extended data path defaults — set once after GE reset.
+     * 8514/A CMD operations use FRGD_MIX/BKGD_MIX for color source + mix function,
+     * but DP_CONFIG.DRAW must be enabled and MONO_SRC = always-1 for solid fills. */
+    W_IO_W(DP_CONFIG, DP_CONFIG_REPLACE);
+    W_IO_W(ALU_FG_FN, 7);
+    W_IO_W(DEST_CMP_FN, 0);
+    W_IO_W(WRT_MASK, 0xFFFF);
+
+    {
+        ULONG pciBarBytes = bi->MemorySize;
+        ULONG probed      = probeFramebufferSize(bi);
+        if (!probed) {
+            DFUNC(ERROR, "Failed to determine framebuffer size\n");
+            return FALSE;
+        }
+        bi->MemorySize = probed;
+    }
+
+    /* 64×64 @ 2 bpp = 1024 bytes. Reserve at end of linear aperture. The hardware cursor base
+     * must be DWORD-aligned: CURSOR_OFFSET is programmed in DWORDs from display base (see
+     * writeCursorAddress). Aligning the framebuffer end to 64 bytes keeps it DWORD-aligned. */
+    const ULONG maxSpriteBuffersSize = (64UL * 64UL * 2UL / 8UL);
+    ULONG fbLen                      = bi->MemorySize - maxSpriteBuffersSize;
+    fbLen &= ~(63UL); /* 64-byte (and thus DWORD) aligned; required for CURSOR_OFFSET in DWORDs */
+    bi->MemorySize       = fbLen;
+    bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
+
+    logMemoryInfo(bi);
+
+    DFUNC(ALWAYS, "Initialization complete\n");
+    return TRUE;
+}
+
+#ifdef TESTEXE
+
+#include <libraries/openpci.h>
+#include <proto/openpci.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <settings.h>
+
+extern struct UtilityBase *UtilityBase;
+
+#define PCI_VENDOR_ATI    0x1002
+#define PCI_DEVICE_MACH32 0x4158
+
+struct Library *OpenPciBase = NULL;
+
+/* Lives for the whole test run; SetGC/SetPanning keep pointers into ModeInfo. */
+static struct ModeInfo s_mode640x480;
+
+/*
+ * Byte-wide stores: on BE hosts + PCI VRAM, byte enables may not map 1:1 to linear
+ * chunky order (you often see 16-bit lane duplication in a hex dump).
+ */
+static void testFillPattern8bppBytes(BoardInfo_t *bi, UWORD width, UWORD height)
+{
+    volatile UBYTE *mem = (volatile UBYTE *)bi->MemoryBase;
+    UWORD bpr           = bi->CalculateBytesPerRow(bi, width, height, bi->ModeInfo, RGBFB_CLUT);
+
+    /* First 16 lines: horizontal 0-255 ramp (repeating) to judge palette precision */
+    UWORD gradientRows = 16;
+    if (gradientRows > height)
+        gradientRows = height;
+    for (UWORD y = 0; y < gradientRows; y++) {
+        for (UWORD x = 0; x < width; x++) {
+            mem[(ULONG)y * (ULONG)bpr + (ULONG)x] = (UBYTE)(x & 0xFF);
+        }
+    }
+
+    for (UWORD y = gradientRows; y < height; y++) {
+        for (UWORD x = 0; x < width; x++) {
+            mem[(ULONG)y * (ULONG)bpr + (ULONG)x] = (UBYTE)(x ^ y);
+        }
+    }
+}
+
+static UBYTE readPixel8(BoardInfo_t *bi, UWORD bpr, UWORD x, UWORD y)
+{
+    volatile UBYTE *mem = (volatile UBYTE *)bi->MemoryBase;
+    return mem[(ULONG)y * (ULONG)bpr + (ULONG)x];
+}
+
+static int verifyRect8(BoardInfo_t *bi, UWORD bpr, UWORD rx, UWORD ry, UWORD rw, UWORD rh, UBYTE expected,
+                       const char *label)
+{
+    int errors = 0;
+    /* Sample a few points: corners + center */
+    static const char *posNames[] = {"TL", "TR", "BL", "BR", "center"};
+    UWORD xs[]                    = {rx, (UWORD)(rx + rw - 1), rx, (UWORD)(rx + rw - 1), (UWORD)(rx + rw / 2)};
+    UWORD ys[]                    = {ry, ry, (UWORD)(ry + rh - 1), (UWORD)(ry + rh - 1), (UWORD)(ry + rh / 2)};
+
+    for (int i = 0; i < 5; i++) {
+        UBYTE got = readPixel8(bi, bpr, xs[i], ys[i]);
+        UBYTE bg  = (UBYTE)(xs[i] ^ ys[i]);
+        if (got != expected) {
+            D(0,
+              "  FAIL %s %s (%ld,%ld): expected 0x%02lx, got 0x%02lx (bg was 0x%02lx, ~bg=0x%02lx, bg^pen=0x%02lx)\n",
+              label, posNames[i], (ULONG)xs[i], (ULONG)ys[i], (ULONG)expected, (ULONG)got, (ULONG)bg, (ULONG)(UBYTE)~bg,
+              (ULONG)(UBYTE)(bg ^ expected));
+            errors++;
+        }
+    }
+    if (!errors)
+        D(0, "  PASS %s: all 5 samples = 0x%02lx\n", label, (ULONG)expected);
+    return errors;
+}
+
+/*
+ * Hardware FillRect + InvertRect test.  The CPU XOR pattern stays visible as the
+ * background; GE fills only cover partial regions so you can see both CPU and GE
+ * output side by side.  Identity palette: pen value == grey level.
+ */
+static void testFillRectClut8bpp(BoardInfo_t *bi)
+{
+    struct RenderInfo ri;
+
+    memset(&ri, 0, sizeof(ri));
+    ri.Memory      = bi->MemoryBase;
+    ri.BytesPerRow = bi->CalculateBytesPerRow(bi, 640, 480, bi->ModeInfo, RGBFB_CLUT);
+    ri.RGBFormat   = RGBFB_CLUT;
+    UWORD bpr      = ri.BytesPerRow;
+
+    if (bi->FillRect == NULL) {
+        D(0, "TestMach32: FillRect not installed; skipping GE fill test\n");
+        return;
+    }
+
+    /* Verify XOR background is intact before GE fills */
+    UBYTE bgSample = readPixel8(bi, bpr, 100, 100);
+    D(0, "TestMach32: pre-fill bg check at (100,100): got 0x%02lx, expected 0x%02lx (x^y)\n", (ULONG)bgSample,
+      (ULONG)(UBYTE)(100 ^ 100));
+
+    D(0, "TestMach32: FillRect — two nested rects on XOR background (0x80 / 0xFF)\n");
+
+    bi->FillRect(bi, &ri, 80, 60, 480, 360, 0x80, 0xFF, RGBFB_CLUT);
+    bi->WaitBlitter(bi);
+    verifyRect8(bi, bpr, 80, 60, 480, 360, 0x80, "FillRect pen=0x80");
+
+    bi->FillRect(bi, &ri, 160, 120, 320, 240, 0xFF, 0xFF, RGBFB_CLUT);
+    bi->WaitBlitter(bi);
+    verifyRect8(bi, bpr, 160, 120, 320, 240, 0xFF, "FillRect pen=0xFF");
+
+    /* Verify outer fill region (between the two rects) still has pen 0x80 */
+    verifyRect8(bi, bpr, 80, 60, 80, 60, 0x80, "outer region still 0x80");
+
+    /* Verify untouched background outside all fills */
+    UBYTE bgAfter = readPixel8(bi, bpr, 10, 10);
+    D(0, "  bg after fills at (10,10): got 0x%02lx, expected 0x%02lx (x^y)\n", (ULONG)bgAfter, (ULONG)(UBYTE)(10 ^ 10));
+
+    if (bi->InvertRect) {
+        D(0, "TestMach32: InvertRect — 200x100 in white region (0xFF -> 0x00 = black)\n");
+        bi->InvertRect(bi, &ri, 220, 190, 200, 100, 0xFF, RGBFB_CLUT);
+        bi->WaitBlitter(bi);
+        verifyRect8(bi, bpr, 220, 190, 200, 100, 0x00, "InvertRect 0xFF->0x00");
+    }
+
+    if (bi->BlitRect) {
+        /* Forward blit (dstY < srcY): copy 0x80 region to bottom of screen */
+        D(0, "TestMach32: BlitRect — fwd copy 100x60 from (80,60) to (10,400)\n");
+        bi->BlitRect(bi, &ri, 80, 60, 10, 400, 100, 60, 0xFF, RGBFB_CLUT);
+        bi->WaitBlitter(bi);
+        verifyRect8(bi, bpr, 10, 400, 100, 60, 0x80, "BlitRect fwd 0x80");
+
+        /* Overlapping blit: shift the 0x80 region down by 20 pixels */
+        D(0, "TestMach32: BlitRect — overlap 100x60 from (80,60) to (80,80)\n");
+        bi->BlitRect(bi, &ri, 80, 60, 80, 80, 100, 60, 0xFF, RGBFB_CLUT);
+        bi->WaitBlitter(bi);
+        verifyRect8(bi, bpr, 80, 80, 100, 60, 0x80, "BlitRect overlap dst");
+
+        /* Reverse blit (dstY > srcY): copy 0xFF region to far corner */
+        D(0, "TestMach32: BlitRect — rev copy 80x50 from (200,130) to (540,10)\n");
+        bi->BlitRect(bi, &ri, 200, 130, 540, 10, 80, 50, 0xFF, RGBFB_CLUT);
+        bi->WaitBlitter(bi);
+        verifyRect8(bi, bpr, 540, 10, 80, 50, 0xFF, "BlitRect rev 0xFF");
+    }
+}
+
+/* Linear scan of probeFramebufferSize() range; PCI BAR is often larger (e.g. 4 MB decode vs 1 MB RAM). */
+#define VRAM_TEST_LOG_MAX 32
+
+static INLINE UBYTE vramTestBytePat(ULONG off)
+{
+    return (UBYTE)(off ^ (off >> 8) ^ (off >> 16) ^ (off >> 24) ^ 0x5Au);
+}
+
+static INLINE UWORD vramTestWordPat(ULONG off)
+{
+    ULONG i = off >> 1;
+    return (UWORD)(i ^ (i >> 8) ^ (i >> 16) ^ 0xACE1u);
+}
+
+static INLINE ULONG vramTestDwordPat(ULONG off)
+{
+    ULONG i = off >> 2;
+    return i ^ (i << 11) ^ (i >> 7) ^ 0xCAFEBABEu;
+}
+
+static int testVramScanBytes(UBYTE *base, ULONG len, int *logBudget)
+{
+    int err           = 0;
+    volatile UBYTE *m = (volatile UBYTE *)base;
+
+    for (ULONG off = 0; off < len; off++) {
+        UBYTE w = vramTestBytePat(off);
+        m[off]  = w;
+        flushWrites();
+        UBYTE r = m[off];
+        if (r != w) {
+            err++;
+            if (*logBudget > 0) {
+                D(ERROR, "  VRAM byte off 0x%08lX: wrote 0x%02lX read 0x%02lX\n", off, (ULONG)w, (ULONG)r);
+                (*logBudget)--;
+            }
+        }
+    }
+    return err;
+}
+
+static int testVramScanWords(UBYTE *base, ULONG len, int *logBudget)
+{
+    int err          = 0;
+    ULONG lenAligned = len & ~1UL;
+    volatile UWORD *m;
+
+    for (ULONG off = 0; off + 2UL <= lenAligned; off += 2UL) {
+        UWORD w = vramTestWordPat(off);
+        m       = (volatile UWORD *)(base + off);
+        *m      = w;
+        flushWrites();
+        UWORD r = *m;
+        if (r != w) {
+            err++;
+            if (*logBudget > 0) {
+                D(ERROR, "  VRAM word off 0x%08lX: wrote 0x%04lX read 0x%04lX\n", off, (ULONG)w, (ULONG)r);
+                (*logBudget)--;
+            }
+        }
+    }
+    return err;
+}
+
+static int testVramScanDwords(UBYTE *base, ULONG len, int *logBudget)
+{
+    int err          = 0;
+    ULONG lenAligned = len & ~3UL;
+    volatile ULONG *m;
+
+    for (ULONG off = 0; off + 4UL <= lenAligned; off += 4UL) {
+        ULONG w = vramTestDwordPat(off);
+        m       = (volatile ULONG *)(base + off);
+        *m      = w;
+        flushWrites();
+        ULONG r = *m;
+        if (r != w) {
+            err++;
+            if (*logBudget > 0) {
+                D(ERROR, "  VRAM dword off 0x%08lX: wrote 0x%08lX read 0x%08lX XOR 0x%08lX\n", off, w, r, w ^ r);
+                (*logBudget)--;
+            }
+        }
+    }
+    return err;
+}
+
+static int testVramByteRoundtrip(BoardInfo_t *bi, ULONG vramBytes)
+{
+    int logLeft = VRAM_TEST_LOG_MAX;
+    int errors  = 0;
+
+    if (vramBytes == 0) {
+        D(WARN, "TestMach32: VRAM UBYTE scan skipped (zero probe length)\n");
+        return 0;
+    }
+
+    D(INFO, "TestMach32: VRAM UBYTE full scan [0 .. 0x%08lX) (%lu bytes, probed VRAM)\n", vramBytes, vramBytes);
+    errors = testVramScanBytes(bi->MemoryBase, vramBytes, &logLeft);
+
+    if (errors == 0) {
+        D(INFO, "TestMach32: VRAM UBYTE scan — all %lu bytes match\n", vramBytes);
+    } else {
+        D(ERROR, "TestMach32: VRAM UBYTE scan — %d mismatches (first %d logged)\n", errors,
+          VRAM_TEST_LOG_MAX - logLeft);
+    }
+
+    return errors;
+}
+
+static int testVramWordRoundtrip(BoardInfo_t *bi, ULONG vramBytes)
+{
+    int logLeft = VRAM_TEST_LOG_MAX;
+    int errors  = 0;
+    ULONG words = vramBytes >> 1;
+
+    if (vramBytes < 2UL) {
+        D(WARN, "TestMach32: VRAM UWORD scan skipped (probed length < 2 bytes)\n");
+        return 0;
+    }
+
+    D(INFO, "TestMach32: VRAM UWORD full scan [0 .. 0x%08lX) (%lu words, probed VRAM)\n", vramBytes & ~1UL, words);
+    errors = testVramScanWords(bi->MemoryBase, vramBytes, &logLeft);
+
+    if (errors == 0) {
+        D(INFO, "TestMach32: VRAM UWORD scan — all %lu words match\n", words);
+    } else {
+        D(ERROR, "TestMach32: VRAM UWORD scan — %d mismatches (first %d logged)\n", errors,
+          VRAM_TEST_LOG_MAX - logLeft);
+    }
+
+    return errors;
+}
+
+static int testVramLongwordRoundtrip(BoardInfo_t *bi, ULONG vramBytes)
+{
+    int logLeft  = VRAM_TEST_LOG_MAX;
+    int errors   = 0;
+    ULONG dwords = vramBytes >> 2;
+
+    if (vramBytes < 4UL) {
+        D(WARN, "TestMach32: VRAM ULONG scan skipped (probed length < 4 bytes)\n");
+        return 0;
+    }
+
+    D(INFO, "TestMach32: VRAM ULONG full scan [0 .. 0x%08lX) (%lu dwords, probed VRAM)\n", vramBytes & ~3UL, dwords);
+    errors = testVramScanDwords(bi->MemoryBase, vramBytes, &logLeft);
+
+    if (errors == 0) {
+        D(INFO, "TestMach32: VRAM ULONG scan — all %lu dwords match\n", dwords);
+    } else {
+        D(ERROR, "TestMach32: VRAM ULONG scan — %d mismatches (first %d logged)\n", errors,
+          VRAM_TEST_LOG_MAX - logLeft);
+    }
+
+    return errors;
+}
+
+static void fillModeInfo640x480(struct ModeInfo *mi)
+{
+    memset(mi, 0, sizeof(*mi));
+    mi->Width  = 640;
+    mi->Height = 480;
+    mi->Depth  = 8;
+    /* VGA 640x480 @ ~60 Hz, ~25.175 MHz; Hor/Ver fields match Mach64 / programCrtc conventions */
+    mi->HorTotal     = 800;
+    mi->HorBlankSize = 160;
+    mi->HorSyncStart = 16;
+    mi->HorSyncSize  = 96;
+    mi->VerTotal     = 525;
+    mi->VerBlankSize = 45;
+    mi->VerSyncStart = 10;
+    mi->VerSyncSize  = 2;
+}
+
+static void setup640x480Screen(struct BoardInfo *bi)
+{
+    static struct ModeInfo mode = {.Width        = 640,
+                                   .Height       = 480,
+                                   .Depth        = 8,
+                                   .Flags        = GMF_HPOLARITY | GMF_VPOLARITY,
+                                   .HorTotal     = 800,
+                                   .HorBlankSize = 0,
+                                   .HorSyncStart = 16,
+                                   .HorSyncSize  = 96,
+                                   .VerTotal     = 525,
+                                   .VerBlankSize = 0,
+                                   .VerSyncStart = 10,
+                                   .VerSyncSize  = 2,
+                                   .PixelClock   = 25175000};
+
+    bi->RGBFormat = RGBFB_CLUT;
+    bi->Depth     = 8;
+
+    bi->SetMemoryMode(bi, RGBFB_CLUT);
+    bi->SetDAC(bi, 0, RGBFB_CLUT);
+
+    bi->ResolvePixelClock(bi, &mode, 25175000UL, RGBFB_CLUT);
+    bi->ModeInfo = &mode;
+
+    bi->SetClock(bi);
+    bi->SetGC(bi, &mode, TRUE);
+
+    {
+        DFUNC(0, "SetColorArray\n");
+        UBYTE colors[256 * 3];
+        for (int c = 0; c < 256; c++) {
+            bi->CLUT[c].Red   = c;
+            bi->CLUT[c].Green = c;
+            bi->CLUT[c].Blue  = c;
+        }
+        bi->SetColorArray(bi, 0, 256);
+
+        /* Readback a few palette entries to verify DAC precision */
+        REGBASE();
+        UBYTE testEntries[] = {1, 63, 64, 127, 128, 129, 200, 255};
+        for (int i = 0; i < (int)(sizeof(testEntries) / sizeof(testEntries[0])); i++) {
+            UBYTE idx = testEntries[i];
+            W_REG(DAC_R_INDEX, idx);
+            delayMicroSeconds(2);
+            UBYTE r = R_REG(DAC_DATA);
+            UBYTE g = R_REG(DAC_DATA);
+            UBYTE b = R_REG(DAC_DATA);
+            D(0, "  palette[%ld] readback: R=%ld G=%ld B=%ld (expected %ld)\n", (ULONG)idx, (ULONG)r, (ULONG)g,
+              (ULONG)b, (ULONG)idx);
+        }
+    }
+
+    bi->SetPanning(bi, bi->MemoryBase, 640, 480, 0, 0, RGBFB_CLUT);
+    bi->SetDisplay(bi, TRUE);
+}
+
+static void onSigInt(int dummy)
+{
+    (void)dummy;
+    if (OpenPciBase) {
+        CloseLibrary(OpenPciBase);
+        OpenPciBase = NULL;
+    }
+    abort();
+}
+
+int main(void)
+{
+    signal(SIGINT, onSigInt);
+
+    int rval = EXIT_FAILURE;
+
+    if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
+        D(ERROR, "TestMach32: cannot open openpci.library v%ld+\n", MIN_OPENPCI_VERSION);
+        return EXIT_FAILURE;
+    }
+
+    struct pci_dev *board     = NULL;
+    struct TagItem findTags[] = {{PRM_Vendor, PCI_VENDOR_ATI}, {PRM_Device, PCI_DEVICE_MACH32}, {TAG_END, 0}};
+
+    while ((board = FindBoardA(board, findTags)) != NULL) {
+        ULONG Device = 0, Revision = 0, Memory0Size = 0;
+        APTR Memory0 = NULL, legacyIOBase = NULL;
+
+        GetBoardAttrs(board, PRM_Device, (Tag)&Device, PRM_Revision, (Tag)&Revision, PRM_MemoryAddr0, (Tag)&Memory0,
+                      PRM_MemorySize0, (Tag)&Memory0Size, PRM_LegacyIOSpace, (Tag)&legacyIOBase, TAG_END);
+
+        if (Device != PCI_DEVICE_MACH32) {
+            continue;
+        }
+
+        D(0, "TestMach32: Mach32 PCI device rev %lu, BAR0 %p size %lu\n", Revision, Memory0, Memory0Size);
+
+        pci_write_config_word(PCI_COMMAND,
+                              (UWORD)(pci_read_config_word(PCI_COMMAND, board) | PCI_COMMAND_MEMORY | PCI_COMMAND_IO),
+                              board);
+
+        struct BoardInfo boardInfo;
+        memset(&boardInfo, 0, sizeof(boardInfo));
+        struct BoardInfo *bi = &boardInfo;
+
+        bi->ExecBase                  = SysBase;
+        bi->UtilBase                  = (struct Library *)UtilityBase;
+        getCardData(bi)->OpenPciBase  = OpenPciBase;
+        getCardData(bi)->board        = board;
+        getCardData(bi)->legacyIOBase = (volatile UBYTE *)legacyIOBase + REGISTER_OFFSET;
+        bi->RegisterBase              = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
+        bi->MemoryBase                = (UBYTE *)Memory0;
+        bi->MemorySize                = Memory0Size;
+
+        if (Memory0Size > 0) {
+            setCacheMode(bi, (UBYTE *)Memory0, Memory0Size, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED,
+                         CACHEFLAGS);
+        }
+
+        if (!InitChip(bi)) {
+            D(ERROR, "TestMach32: InitChip failed\n");
+            goto done;
+        }
+
+        D(INFO, "TestMach32: VRAM linear scans use probe=%lu KB \n", bi->MemorySize / 1024UL);
+
+        D(INFO, "TestMach32: programming 640x480 CLUT / VGA timings + identity palette\n");
+        setup640x480Screen(bi);
+
+        D(INFO, "TestMach32: VRAM XOR byte fill at %p (CPU)\n", bi->MemoryBase);
+        testFillPattern8bppBytes(bi, 640, 480);
+        bi->WaitBlitter(bi);
+
+        testFillRectClut8bpp(bi);
+
+        {
+            const ULONG vramScanBytes = bi->MemorySize;
+
+            int memErr = testVramLongwordRoundtrip(bi, vramScanBytes);
+            memErr += testVramWordRoundtrip(bi, vramScanBytes);
+            memErr += testVramByteRoundtrip(bi, vramScanBytes);
+
+            if (memErr) {
+                D(ERROR, "TestMach32: VRAM byte/word/dword full-scan test(s) failed\n");
+                rval = EXIT_FAILURE;
+            } else {
+                rval = EXIT_SUCCESS;
+            }
+        }
+        goto done;
+    }
+
+    D(ERROR, "TestMach32: no PCI Mach32 (0x4158) found\n");
+
+done:
+    if (OpenPciBase) {
+        CloseLibrary(OpenPciBase);
+        OpenPciBase = NULL;
+    }
+    return rval;
+}
+#endif /* TESTEXE */
