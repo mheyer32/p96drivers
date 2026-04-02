@@ -521,7 +521,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     W_MMIO_L(CRTC_H_SYNC_STRT_WID, crtcHSyncStrtWid);
 
     UWORD vTotal = TO_SCANLINES(mi->VerTotal) - 1;
-    D(VERBOSE, "VTotal %ld\n", (ULONG)vTotal) - 1;
+    D(VERBOSE, "VTotal %ld\n", (ULONG)vTotal);
     UWORD vDisp = TO_SCANLINES(mi->Height) - 1;
     W_MMIO_L(CRTC_V_TOTAL_DISP, CRTC_V_TOTAL(vTotal) | CRTC_V_DISP(vDisp));
 
