@@ -919,53 +919,51 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     flushWrites();
 }
 
-/*
- * VRAM size vs aperture: MEM_CFG[1:0] selects PCI aperture (0=off, 1=1MB, 2=4MB; §9-75).
- * Physical VRAM may be smaller than the BAR; it typically wraps at a power of two.
- * SUBSYS_STATUS[7] is only a 512K/1M strap hint (§8-20), not total VRAM.
- */
 static ULONG probeFramebufferSize(BoardInfo_t *bi)
 {
     volatile UBYTE *base = (volatile UBYTE *)bi->MemoryBase;
-    ULONG aperture       = bi->MemorySize;
 
-    if (base == NULL || aperture < 65536)
-        return 0;
-    if ((ULONG)base & 3) {
-        D(WARN, "Framebuffer base %p not ULONG-aligned; skipping VRAM probe\n", (APTR)base);
-        return 0;
-    }
+    LOCAL_SYSBASE();
+    REGBASE();
 
-    static const ULONG kSteps[] = {
-        512 * 1024,
-        1024 * 1024,
-        2 * 1024 * 1024,
-        4 * 1024 * 1024,
-    };
+    ULONG lastSize = 0;
 
-    for (unsigned i = 0; i < 4; i++) {
-        ULONG step = kSteps[i];
-        if (step > aperture)
-            continue;
+    for (int i = 0; i < 4; ++i) {
+        ULONG size = 1 << (19 + i);
+
+        W_IO_MASK_W(MISC_OPTIONS, MEM_SIZE_ALIAS_MASK, MEM_SIZE_ALIAS(i));
 
         volatile ULONG *p0 = (volatile ULONG *)(base + 0);
-        volatile ULONG *p1 = (volatile ULONG *)(base + step);
-        ULONG s0           = *p0;
-        ULONG s1           = *p1;
-        *p0                = 0x11111111;
-        *p1                = 0x22222222;
-        flushWrites();
-        ULONG r0 = *p0;
-        *p0      = s0;
-        *p1      = s1;
+        volatile ULONG *p1 = (volatile ULONG *)(base + lastSize);
+        volatile ULONG *p2 = (volatile ULONG *)(base + size) - 1;  // last DWORD;
+        ULONG p0Val        = (ULONG)(base + lastSize);
+        *p0                = p0Val;
+        *p1                = 0xCAFEBABE;
+        *p2                = 0xBAADF00D;
 
-        /* If offset `step` aliases to offset 0, the last write wins at offset 0. */
-        if (r0 == 0x22222222) {
-            return step;
+        CacheClearU();
+
+        ULONG p0chk = *p0;
+        ULONG p1chk = *p1;
+        ULONG p2chk = *p2;
+
+        if ((lastSize && p0chk != p0Val) || p1chk != 0xCAFEBABE || p2chk != 0xBAADF00D) {
+            DFUNC(INFO, "VRAM probe: pattern at offset %lu not visible (got 0x%08lX/ 0x%08lX)\n", (ULONG)size,
+                  (ULONG)p0chk, (ULONG)p1chk);
+            // Current size failed, return the last size which worked.
+            if (i > 0) {
+                // Reset memSize to last size that worked. I noticed that the MEM_SIZE_ALIAS needs to match
+                // the size of the VRAM, it cannot be larger. Maybe this ergister is used to control the addressing
+                // scheme for the physical chips on board.
+                W_IO_MASK_W(MISC_OPTIONS, MEM_SIZE_ALIAS_MASK, MEM_SIZE_ALIAS(i - 1));
+            }
+            return lastSize;
         }
+
+        lastSize = size;
     }
 
-    return aperture;
+    return lastSize;
 }
 
 static void logMemoryInfo(BoardInfo_t *bi)
@@ -978,22 +976,13 @@ static void logMemoryInfo(BoardInfo_t *bi)
     ULONG sel = mem & MEM_APERT_SEL_MASK;
     ULONG loc = (mem & MEM_APERT_LOC_MASK) >> MEM_APERT_LOC_SHIFT;
 
-    const char *apStr = "?";
-    if (sel == MEM_APERT_SEL_OFF)
-        apStr = "off";
-    else if (sel == MEM_APERT_SEL_1MB)
-        apStr = "1MB";
-    else if (sel == MEM_APERT_SEL_4MB)
-        apStr = "4MB";
+    const char *apStr[] = {"off", "1MB", "4MB"};
 
-    D(ALWAYS, "MEM_CFG=0x%04lX: aperture %s, MEM_APERT_LOC=0x%02lx (1MB page index)\n", (ULONG)mem, apStr, loc);
+    D(ALWAYS, "MEM_CFG=0x%04lX: aperture %s, MEM_APERT_LOC=0x%02lx (1MB page index)\n", (ULONG)mem, apStr[sel], loc);
 
     D(ALWAYS, "SUBSYS_STATUS[MEM_SIZE strap]: %s\n", (sub & SUBSYS_MEMSIZE_BIT) ? "1M-class" : "512K-class");
 
-    {
-        ChipData_t *cd = getChipData(bi);
-        D(ALWAYS, "Framebuffer probe: populated VRAM ~%lu KB \n", bi->MemorySize / 1024UL);
-    }
+    D(ALWAYS, "Framebuffer probe: populated VRAM ~%lu KB \n", bi->MemorySize / 1024UL);
 }
 
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
@@ -1187,8 +1176,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_IO_W(WRT_MASK, 0xFFFF);
 
     {
-        ULONG pciBarBytes = bi->MemorySize;
-        ULONG probed      = probeFramebufferSize(bi);
+        ULONG probed = probeFramebufferSize(bi);
         if (!probed) {
             DFUNC(ERROR, "Failed to determine framebuffer size\n");
             return FALSE;

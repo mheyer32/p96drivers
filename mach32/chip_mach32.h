@@ -253,6 +253,10 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define DRAW_PIXEL_SIZE_MASK      BIT(15)
 #define DRAW_PIXEL_SIZE           BIT(15)
 
+// MISC_OPTIONS register
+#define MEM_SIZE_ALIAS_MASK (0x3 << 2)
+#define MEM_SIZE_ALIAS(x)   ((x) << 2)
+
 #define W_BEE8(idx, value) W_IO_W(0xBEE8, ((idx << 12) | (value)))
 
 static inline void readModifyWrite(const BoardInfo_t *bi, LONG readReg, LONG writeReg, UWORD mask, UWORD value,
