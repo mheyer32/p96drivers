@@ -24,15 +24,42 @@ ULONG HzForClockIndex(ULONG index)
     return (ULONG)centi * 10000UL;
 }
 
-LONG ResolveModeInfoPixelClock(struct ModeInfo *mi, ULONG targetHz)
+static BOOL hicolorMatchDoublesSynthesizerHz(RGBFTYPE fmt)
 {
-    DFUNC(VERBOSE, "targetHz=%lu\n", targetHz);
+    switch (fmt) {
+    case RGBFB_R5G6B5PC:
+    case RGBFB_R5G5B5PC:
+    case RGBFB_B5G6R5PC:
+    case RGBFB_B5G5R5PC:
+    case RGBFB_R5G6B5:
+    case RGBFB_R5G5B5:
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
+ULONG HzForClockIndexAsLogicalDotsPerSecond(ULONG index, RGBFTYPE format)
+{
+    ULONG raw = HzForClockIndex(index);
+    if (hicolorMatchDoublesSynthesizerHz(format))
+        return raw / 2UL;
+    return raw;
+}
+
+LONG ResolveModeInfoPixelClock(struct ModeInfo *mi, ULONG targetHz, RGBFTYPE format)
+{
+    DFUNC(VERBOSE, "targetHz=%lu fmt=%ld\n", targetHz, (ULONG)format);
 
     UWORD bestErr  = 0xFFFF;
     WORD bestIndex = 0;
 
-    UWORD target10Khz =
-        (ULONG)(targetHz + 5000UL) / 10000UL; /* Round to nearest 10 kHz, same units as pixel_clock_sorted_centi_mhz. */
+    /* Logical dots/s stays in mi->PixelClock; HiColor (Bt481 etc.) matches synthesizer at ~2× (svgalib.mach32 §12). */
+    ULONG matchHz = targetHz;
+    if (hicolorMatchDoublesSynthesizerHz(format))
+        matchHz = targetHz * 2UL;
+
+    UWORD target10Khz = (ULONG)(matchHz + 5000UL) / 10000UL;
 
     for (WORD i = 0; i < PIXEL_CLOCK_INDEX_COUNT; i++) {
         UWORD freq10khz = ati1811_1_10Khz[i];
@@ -44,11 +71,11 @@ LONG ResolveModeInfoPixelClock(struct ModeInfo *mi, ULONG targetHz)
         }
     }
 
-    DFUNC(VERBOSE, "bestIndex=%ld, achievedHz=%lu\n", (ULONG)bestIndex, HzForClockIndex(bestIndex));
+    DFUNC(VERBOSE, "bestIndex=%ld, synthHz=%lu logicalDotsPerS=%lu\n", (ULONG)bestIndex, HzForClockIndex((ULONG)bestIndex),
+          targetHz);
 
-    UBYTE selEnc   = ati1811_1_clkIndices[bestIndex];
-    UWORD centiAch = ati1811_1_10Khz[bestIndex];
-    mi->PixelClock = (ULONG)centiAch * 10000UL;
+    UBYTE selEnc = ati1811_1_clkIndices[bestIndex];
+    mi->PixelClock = targetHz;
 
     /* Use the Tseng-style ModeInfo union members: pll1.Clock / pll2.ClockDivide. */
     mi->pll1.Clock       = selEnc;
@@ -99,10 +126,6 @@ static UBYTE vfifoDepthForFormat(RGBFTYPE fmt)
         return 6;
     case RGBFB_R5G6B5PC:
     case RGBFB_R5G5B5PC:
-    case RGBFB_B5G6R5PC:
-    case RGBFB_B5G5R5PC:
-    case RGBFB_R5G6B5:
-    case RGBFB_R5G5B5:
         return 9;
     default:
         return 14;
@@ -200,7 +223,7 @@ BOOL initBt481(BoardInfo_t *bi)
     UBYTE sig = R_REG(DAC_MASK);
 
     // BT481_CMD_B_SIGNATURE will on ly be there once, during power up.
-    if (sig != BT481_CMD_B_SIGNATURE && sig != (BT481_CMD_B_7_5_IRE | BT481_CMD_B_8BIT_DAC)) {
+    if (sig != BT481_CMD_B_SIGNATURE && sig != (BT481_CMD_B_7_5_IRE | BT481_CMD_B_8BIT_DAC) && sig != BT481_CMD_B_7_5_IRE) {
         DFUNC(ERROR, "Bt481 init failed: expected signature 0x%02x, got 0x%02x\n", BT481_CMD_B_SIGNATURE, sig);
         bt481_exitExtended(bi);
 
@@ -243,11 +266,9 @@ static void bt481_setDac(BoardInfo_t *bi, RGBFTYPE format)
     UBYTE dacMode = 0;  // CLUT
     switch (format) {
     case RGBFB_R5G6B5PC:
-    case RGBFB_R5G6B5:
         dacMode = BT481_MODE(0b1110);  // 5:6:5 Single Edge mode
         break;
     case RGBFB_R5G5B5PC:
-    case RGBFB_R5G5B5:
         dacMode = BT481_MODE(0b1010);  // 5:5:5 Single Edge mode
         break;
     case RGBFB_R8G8B8:
@@ -255,6 +276,7 @@ static void bt481_setDac(BoardInfo_t *bi, RGBFTYPE format)
         break;
     case RGBFB_B8G8R8:
         dacMode = BT481_MODE(0b1111) | BT481_BGR;  // 8:8:8 Single Edge mode
+        break;
     case RGBFB_R8G8B8A8:
         dacMode = BT481_MODE(0b1001);  // 8:8:8 Dual Edge mode
         break;

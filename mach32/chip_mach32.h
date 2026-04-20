@@ -236,8 +236,11 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define VFIFO_DEPTH(x)            ((x) << 8)
 
 // EXT_GE_CONFIG register
-#define PIXEL_WIDTH_MASK          (0x3 << 4)
-#define PIXEL_WIDTH(x)            ((x) << 4)
+#define PIXEL_WIDTH_MASK (0x3 << 4)
+#define PIXEL_WIDTH(x)   ((x) << 4)
+
+#define EXT_GE_16BIT_555 0u /* (5,5,5) R14:10 G9:5 B4:0 */
+#define EXT_GE_16BIT_565 1u /* (5,6,5) R15:11 G10:5 B4:0 */
 #define _16_BIT_COLOR_MODE_MASK   (0x3 << 6)
 #define _16_BIT_COLOR_MODE(x)     ((x) << 6)
 #define _24_BIT_COLOR_CONFIG_MASK (1 << 9)
