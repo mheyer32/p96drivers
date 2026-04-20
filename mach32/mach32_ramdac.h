@@ -37,6 +37,8 @@ typedef struct RamdacOps
 BOOL InitRAMDAC(struct BoardInfo *bi, DACType dacType);
 
 ULONG HzForClockIndex(ULONG index);
-LONG ResolveModeInfoPixelClock(struct ModeInfo *mi, ULONG targetHz);
+/* Logical dots/s for P96; HiColor indices encode ~2× synthesizer rate (Bt481 / REG688000-style). */
+ULONG HzForClockIndexAsLogicalDotsPerSecond(ULONG index, RGBFTYPE format);
+LONG ResolveModeInfoPixelClock(struct ModeInfo *mi, ULONG targetHz, RGBFTYPE format);
 
 #endif  // MACH32_RAMDAC_H

@@ -243,9 +243,10 @@ void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __RE
     bi->ModeInfo = mi;
     bi->Border   = border;
 
-    DFUNC(INFO, "SetGC %lux%u HT=%u HB=%u HS=%u HW=%u VT"
-          "=%u VB=%u VS=%u VW=%u border=%d\n", (ULONG)mi->Width,
-          (ULONG)mi->Height, (ULONG)mi->HorTotal, (ULONG)mi->HorBlankSize, (ULONG)mi->HorSyncStart,
+    DFUNC(INFO,
+          "SetGC %lux%u HT=%u HB=%u HS=%u HW=%u VT"
+          "=%u VB=%u VS=%u VW=%u border=%d\n",
+          (ULONG)mi->Width, (ULONG)mi->Height, (ULONG)mi->HorTotal, (ULONG)mi->HorBlankSize, (ULONG)mi->HorSyncStart,
           (ULONG)mi->HorSyncSize, (ULONG)mi->VerTotal, (ULONG)mi->VerBlankSize, (ULONG)mi->VerSyncStart,
           (ULONG)mi->VerSyncSize, (int)border);
 
@@ -454,34 +455,22 @@ void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RG
         config = PIXEL_WIDTH(1);
         break;
     case RGBFB_R5G5B5PC:
-    case RGBFB_R5G5B5:
-        config = PIXEL_WIDTH(2) | _16_BIT_COLOR_MODE(0);
-        break;
+        config = PIXEL_WIDTH(2) | _16_BIT_COLOR_MODE(EXT_GE_16BIT_555);
         break;
     case RGBFB_R5G6B5PC:
-    case RGBFB_R5G6B5:
-        config = PIXEL_WIDTH(2) | _16_BIT_COLOR_MODE(1);
-        break;
-        ;
+        config = PIXEL_WIDTH(2) | _16_BIT_COLOR_MODE(EXT_GE_16BIT_565);
         break;
     case RGBFB_R8G8B8:
         config = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(0) | _24_BIT_COLOR_ORDER(0);
         break;
-        ;
-        break;
     case RGBFB_B8G8R8:
         config = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(0) | _24_BIT_COLOR_ORDER(1);
         break;
-        ;
     case RGBFB_R8G8B8A8:
         config = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(1) | _24_BIT_COLOR_ORDER(0);
         break;
-        ;
-        break;
     case RGBFB_B8G8R8A8:
         config = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(1) | _24_BIT_COLOR_ORDER(1);
-        break;
-        ;
         break;
     default:
         break;
@@ -542,8 +531,7 @@ LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInf
 {
     DFUNC(CHATTY, "mi=0x%lx target=%lu fmt=%ld\n", (ULONG)mi, pixelClock, (ULONG)RGBFormat);
     (void)bi;
-    (void)RGBFormat;
-    return ResolveModeInfoPixelClock(mi, pixelClock);
+    return ResolveModeInfoPixelClock(mi, pixelClock, RGBFormat);
 }
 
 ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(ULONG index),
@@ -551,9 +539,9 @@ ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *
 {
     DFUNC(VERBOSE, "index=%lu fmt=%ld\n", index, (ULONG)format);
 
-    ULONG pixelClock = HzForClockIndex(index);
+    ULONG pixelClock = HzForClockIndexAsLogicalDotsPerSecond(index, format);
 
-    D(VERBOSE, "Pixel clock for index %lu is %lu Hz\n", index, pixelClock);
+    D(VERBOSE, "Pixel clock for index %lu is %lu Hz (logical dots/s)\n", index, pixelClock);
 
     return pixelClock;
 }
@@ -643,6 +631,7 @@ static UBYTE bytesPerPixelForFmt(RGBFTYPE fmt)
     return bppForRgbFormat(fmt);
 }
 
+//FIXME: refactor to unify with SetDAC
 static void computeGEConfig(RGBFTYPE fmt, UWORD *maskOut, UWORD *valOut)
 {
     *maskOut = DRAW_PIXEL_SIZE_MASK | PIXEL_WIDTH_MASK | _16_BIT_COLOR_MODE_MASK | _24_BIT_COLOR_CONFIG_MASK |
@@ -654,12 +643,10 @@ static void computeGEConfig(RGBFTYPE fmt, UWORD *maskOut, UWORD *valOut)
         cfg = PIXEL_WIDTH(1);
         break;
     case RGBFB_R5G5B5PC:
-    case RGBFB_R5G5B5:
-        cfg = PIXEL_WIDTH(2) | _16_BIT_COLOR_MODE(0);
+        cfg = PIXEL_WIDTH(2) | _16_BIT_COLOR_MODE(EXT_GE_16BIT_555);
         break;
     case RGBFB_R5G6B5PC:
-    case RGBFB_R5G6B5:
-        cfg = PIXEL_WIDTH(2) | _16_BIT_COLOR_MODE(1);
+        cfg = PIXEL_WIDTH(2) | _16_BIT_COLOR_MODE(EXT_GE_16BIT_565);
         break;
     case RGBFB_R8G8B8:
         cfg = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(0) | _24_BIT_COLOR_ORDER(0);
@@ -677,6 +664,8 @@ static void computeGEConfig(RGBFTYPE fmt, UWORD *maskOut, UWORD *valOut)
         cfg = PIXEL_WIDTH(1);
         break;
     }
+    // Important: by setting this bit, we can set the draw engine's format differently from the display
+    // format!
     cfg |= DRAW_PIXEL_SIZE;
     *valOut = cfg;
 }
@@ -690,9 +679,6 @@ static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
     case RGBFB_R5G6B5PC:
     case RGBFB_R5G5B5PC:
         pen = swapw((UWORD)pen);
-        /* fallthrough */
-    case RGBFB_R5G6B5:
-    case RGBFB_R5G5B5:
         pen |= pen << 16;
         break;
     case RGBFB_CLUT:
