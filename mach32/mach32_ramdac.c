@@ -24,27 +24,32 @@ ULONG HzForClockIndex(ULONG index)
     return (ULONG)centi * 10000UL;
 }
 
-static BOOL hicolorMatchDoublesSynthesizerHz(RGBFTYPE fmt)
+/* Bt481 / REG688000: HiColor uses ~2× synthesizer vs logical dot rate; 24/32 bpp truecolor uses ~3×. */
+static ULONG logicalToSynthHzMultiplier(RGBFTYPE fmt)
 {
     switch (fmt) {
     case RGBFB_R5G6B5PC:
     case RGBFB_R5G5B5PC:
-    case RGBFB_B5G6R5PC:
-    case RGBFB_B5G5R5PC:
-    case RGBFB_R5G6B5:
-    case RGBFB_R5G5B5:
-        return TRUE;
+        return 2;
+    case RGBFB_R8G8B8:
+    case RGBFB_B8G8R8:
+    case RGBFB_R8G8B8A8:
+    case RGBFB_B8G8R8A8:
+    case RGBFB_A8R8G8B8:
+    case RGBFB_A8B8G8R8:
+        return 3;
     default:
-        return FALSE;
+        return 1;
     }
 }
 
 ULONG HzForClockIndexAsLogicalDotsPerSecond(ULONG index, RGBFTYPE format)
 {
-    ULONG raw = HzForClockIndex(index);
-    if (hicolorMatchDoublesSynthesizerHz(format))
-        return raw / 2UL;
-    return raw;
+    ULONG raw   = HzForClockIndex(index);
+    ULONG mult  = logicalToSynthHzMultiplier(format);
+    if (mult <= 1)
+        return raw;
+    return raw / mult;
 }
 
 LONG ResolveModeInfoPixelClock(struct ModeInfo *mi, ULONG targetHz, RGBFTYPE format)
@@ -54,10 +59,7 @@ LONG ResolveModeInfoPixelClock(struct ModeInfo *mi, ULONG targetHz, RGBFTYPE for
     UWORD bestErr  = 0xFFFF;
     WORD bestIndex = 0;
 
-    /* Logical dots/s stays in mi->PixelClock; HiColor (Bt481 etc.) matches synthesizer at ~2× (svgalib.mach32 §12). */
-    ULONG matchHz = targetHz;
-    if (hicolorMatchDoublesSynthesizerHz(format))
-        matchHz = targetHz * 2UL;
+    ULONG matchHz = targetHz * logicalToSynthHzMultiplier(format);
 
     UWORD target10Khz = (ULONG)(matchHz + 5000UL) / 10000UL;
 
@@ -127,6 +129,13 @@ static UBYTE vfifoDepthForFormat(RGBFTYPE fmt)
     case RGBFB_R5G6B5PC:
     case RGBFB_R5G5B5PC:
         return 9;
+    case RGBFB_R8G8B8:
+    case RGBFB_B8G8R8:
+    case RGBFB_R8G8B8A8:
+    case RGBFB_B8G8R8A8:
+    case RGBFB_A8R8G8B8:
+    case RGBFB_A8B8G8R8:
+        return 15;
     default:
         return 14;
     }
@@ -230,9 +239,10 @@ BOOL initBt481(BoardInfo_t *bi)
         return FALSE;
     }
 
-    UBYTE cmdB = BT481_CMD_B_7_5_IRE;
-    if (bi->BitsPerCannon == 8)
+    UBYTE cmdB = BT481_CMD_B_7_5_IRE; // FIXME: eventually make it configurable via ToolTypes
+    if (bi->BitsPerCannon == 8) {
         cmdB |= BT481_CMD_B_8BIT_DAC;
+    }
 
     delayMicroSeconds(2);
     bt481_writeCommandRegisterB(bi, cmdB);
@@ -272,16 +282,14 @@ static void bt481_setDac(BoardInfo_t *bi, RGBFTYPE format)
         dacMode = BT481_MODE(0b1010);  // 5:5:5 Single Edge mode
         break;
     case RGBFB_R8G8B8:
-        dacMode = BT481_MODE(0b1111);  // 8:8:8 Single Edge mode
+    case RGBFB_R8G8B8A8:
+    case RGBFB_A8R8G8B8:
+        dacMode = BT481_MODE(0b1111);  // 8:8:8 Single Edge
         break;
     case RGBFB_B8G8R8:
-        dacMode = BT481_MODE(0b1111) | BT481_BGR;  // 8:8:8 Single Edge mode
-        break;
-    case RGBFB_R8G8B8A8:
-        dacMode = BT481_MODE(0b1001);  // 8:8:8 Dual Edge mode
-        break;
     case RGBFB_B8G8R8A8:
-        dacMode = BT481_MODE(0b1001) | BT481_BGR;  // 8:8:8 Dual Edge mode
+    case RGBFB_A8B8G8R8:
+        dacMode = BT481_MODE(0b1111) | BT481_BGR;  // 8:8:8 Single Edge, BGR order
         break;
     default:
         break;

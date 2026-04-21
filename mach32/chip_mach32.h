@@ -4,6 +4,10 @@
 #include "common.h"
 #include "mach32_ramdac.h"
 
+#define MACH32_SUPPORTED_RGBFF (RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_R8G8B8 | RGBFF_B8G8R8)
+/*    | RGBFF_A8R8G8B8 |           \
+     RGBFF_A8B8G8R8 | RGBFF_R8G8B8A8 | RGBFF_B8G8R8A8*/
+
 typedef struct ChipData
 {
     const struct RamdacOps *ramdacOps;
@@ -239,8 +243,8 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define PIXEL_WIDTH_MASK (0x3 << 4)
 #define PIXEL_WIDTH(x)   ((x) << 4)
 
-#define EXT_GE_16BIT_555 0u /* (5,5,5) R14:10 G9:5 B4:0 */
-#define EXT_GE_16BIT_565 1u /* (5,6,5) R15:11 G10:5 B4:0 */
+#define EXT_GE_16BIT_555          0u /* (5,5,5) R14:10 G9:5 B4:0 */
+#define EXT_GE_16BIT_565          1u /* (5,6,5) R15:11 G10:5 B4:0 */
 #define _16_BIT_COLOR_MODE_MASK   (0x3 << 6)
 #define _16_BIT_COLOR_MODE(x)     ((x) << 6)
 #define _24_BIT_COLOR_CONFIG_MASK (1 << 9)
@@ -255,6 +259,9 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define DISPLAY_PIXEL_SIZE        BIT(11)
 #define DRAW_PIXEL_SIZE_MASK      BIT(15)
 #define DRAW_PIXEL_SIZE           BIT(15)
+/* EXT_GE_CONFIG[8]: display-path mux; keep cleared for Brooktree Bt481 (no parallel pixel mux). */
+#define MULTIPLEX_PIXELS_MASK BIT(8)
+#define MULTIPLEX_PIXELS      BIT(8)
 
 // MISC_OPTIONS register
 #define MEM_SIZE_ALIAS_MASK (0x3 << 2)
