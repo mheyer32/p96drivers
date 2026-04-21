@@ -429,7 +429,7 @@ ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
     (void)bi;
     if (format == RGBFB_NONE)
         return 0;
-    return RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC;
+    return MACH32_SUPPORTED_RGBFF;
 }
 
 void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE format))
@@ -438,16 +438,15 @@ void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RG
     (void)region;
     const RamdacOps_t *ops = getConstChipData(bi)->ramdacOps;
 
-    UWORD dac8 = (bi->BitsPerCannon == 8) ? DAC_8BIT_EN : 0;
+    UWORD dac8 = (format == RGBFB_CLUT && bi->BitsPerCannon == 8) ? DAC_8BIT_EN : 0;
 
-    // Docs suggest changing the DAC in 8bit mode only
     W_EXT_GE_CONFIG_MASK(DISPLAY_PIXEL_SIZE_MASK | PIXEL_WIDTH_MASK | _16_BIT_COLOR_MODE_MASK |
-                             _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK,
+                             _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK |
+                             MULTIPLEX_PIXELS_MASK,
                          PIXEL_WIDTH(1) | DISPLAY_PIXEL_SIZE | dac8);
 
     ops->setDac(bi, format);
 
-    UBYTE bpp    = bppForRgbFormat(format);
     UWORD config = 0;
 
     switch (format) {
@@ -472,19 +471,29 @@ void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RG
     case RGBFB_B8G8R8A8:
         config = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(1) | _24_BIT_COLOR_ORDER(1);
         break;
+    case RGBFB_A8R8G8B8:
+        config = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(1) | _24_BIT_COLOR_ORDER(0);
+        break;
+    case RGBFB_A8B8G8R8:
+        config = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(1) | _24_BIT_COLOR_ORDER(1);
+        break;
     default:
         break;
     }
     config |= DISPLAY_PIXEL_SIZE | dac8;
 
     W_EXT_GE_CONFIG_MASK(DISPLAY_PIXEL_SIZE_MASK | PIXEL_WIDTH_MASK | _16_BIT_COLOR_MODE_MASK |
-                             _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK,
+                             _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK |
+                             MULTIPLEX_PIXELS_MASK,
                          config);
 }
 
 void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count))
 {
     DFUNC(VERBOSE, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
+
+    if (bi->RGBFormat != RGBFB_CLUT)
+        return;
 
     REGBASE();
     LOCAL_SYSBASE();
@@ -635,7 +644,7 @@ static UBYTE bytesPerPixelForFmt(RGBFTYPE fmt)
 static void computeGEConfig(RGBFTYPE fmt, UWORD *maskOut, UWORD *valOut)
 {
     *maskOut = DRAW_PIXEL_SIZE_MASK | PIXEL_WIDTH_MASK | _16_BIT_COLOR_MODE_MASK | _24_BIT_COLOR_CONFIG_MASK |
-               _24_BIT_COLOR_ORDER_MASK;
+               _24_BIT_COLOR_ORDER_MASK | MULTIPLEX_PIXELS_MASK;
     UWORD cfg = 0;
 
     switch (fmt) {
@@ -660,6 +669,12 @@ static void computeGEConfig(RGBFTYPE fmt, UWORD *maskOut, UWORD *valOut)
     case RGBFB_B8G8R8A8:
         cfg = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(1) | _24_BIT_COLOR_ORDER(1);
         break;
+    case RGBFB_A8R8G8B8:
+        cfg = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(1) | _24_BIT_COLOR_ORDER(0);
+        break;
+    case RGBFB_A8B8G8R8:
+        cfg = PIXEL_WIDTH(3) | _24_BIT_COLOR_CONFIG(1) | _24_BIT_COLOR_ORDER(1);
+        break;
     default:
         cfg = PIXEL_WIDTH(1);
         break;
@@ -673,13 +688,22 @@ static void computeGEConfig(RGBFTYPE fmt, UWORD *maskOut, UWORD *valOut)
 static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 {
     switch (fmt) {
+    case RGBFB_B8G8R8:
     case RGBFB_B8G8R8A8:
+        pen = swapl(pen);
+        break;
+    case RGBFB_A8B8G8R8:
         pen = swapl(pen);
         break;
     case RGBFB_R5G6B5PC:
     case RGBFB_R5G5B5PC:
         pen = swapw((UWORD)pen);
         pen |= pen << 16;
+        break;
+    case RGBFB_R8G8B8:
+    case RGBFB_R8G8B8A8:
+    case RGBFB_A8R8G8B8:
+        pen &= 0xFFFFFFu;
         break;
     case RGBFB_CLUT:
         pen = (pen & 0xFF) | ((pen & 0xFF) << 8) | ((pen & 0xFF) << 16) | ((pen & 0xFF) << 24);
@@ -719,13 +743,15 @@ static BOOL setDstBuffer(BoardInfo_t *bi, const struct RenderInfo *ri, RGBFTYPE 
     cd->dstBuffer = *ri;
 
     UBYTE bpp = bytesPerPixelForFmt(fmt);
-    if (bpp == 0 || bpp > 2) {
-        return FALSE;
-    }
-    BYTE bppLog2 = (bpp == 2) ? 1 : 0;
 
-    UWORD pitch    = (UWORD)ri->BytesPerRow >> (bppLog2 + 3);
-    ULONG offWords = encodeSkip2YL(getMemoryOffset(bi, ri->Memory) >> 2);
+    UWORD pitch;
+    if (bpp <= 2) {
+        BYTE bppLog2 = (bpp == 2) ? 1 : 0;
+        pitch        = (UWORD)ri->BytesPerRow >> (bppLog2 + 3);
+    } else {
+        pitch = (UWORD)(ri->BytesPerRow / (8u * (ULONG)bpp));
+    }
+    ULONG offWords = getMemoryOffset(bi, ri->Memory) >> 2;
 
     waitFifo(bi, 4);
     REGBASE();
@@ -767,16 +793,18 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)pen, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
           (ULONG)ri->Memory);
 
+    UBYTE bpp = getBPP(fmt);
+    if (bpp != 1 && bpp != 2) {
+        DFUNC(INFO, "Fallback to FillRectDefault\n");
+        bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
+        return;
+    }
+
     if (!setDstBuffer(bi, ri, fmt)) {
         return;
     }
 
     ChipData_t *cd = getChipData(bi);
-
-    if (height > 0x800) {
-        D(WARN, "FillRect: height %ld exceeds MULTI_FUNC range\n", (ULONG)height);
-        return;
-    }
 
     if (cd->GEOp != FILLRECT) {
         cd->GEOp       = FILLRECT;
@@ -795,7 +823,8 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         cd->GEfgPen    = pen;
         cd->GEdrawMode = 0xFF;
 
-        pen = penToColor(pen, fmt);
+        ULONG rawPen = pen;
+        pen          = penToColor(pen, fmt);
 
         waitFifo(bi, 1);
         REGBASE();
@@ -804,6 +833,8 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     setWriteMask(bi, mask, fmt, 0);
     drawRect(bi, x, y, width, height);
+
+    flushWrites();
 }
 
 static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
@@ -815,6 +846,13 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
           "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
           (ULONG)ri->Memory);
+
+    UBYTE bpp = getBPP(fmt);
+    if (bpp != 1 && bpp != 2) {
+        DFUNC(INFO, "Fallback to InvertRectDefault\n");
+        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, fmt);
+        return;
+    }
 
     if (!setDstBuffer(bi, ri, fmt)) {
         return;
@@ -836,6 +874,8 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
 
     setWriteMask(bi, mask, fmt, 0);
     drawRect(bi, x, y, width, height);
+
+    flushWrites();
 }
 
 /*
@@ -851,6 +891,13 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
           "mask 0x%lx fmt %ld\nri->bytesPerRow %ld, ri->memory 0x%lx\n",
           (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt,
           (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
+
+    UBYTE bpp = getBPP(fmt);
+    if (bpp != 1 && bpp != 2) {
+        DFUNC(INFO, "Fallback to BlitRectDefault\n");
+        bi->BlitRectDefault(bi, ri, srcX, srcY, dstX, dstY, width, height, mask, fmt);
+        return;
+    }
 
     if (!setDstBuffer(bi, ri, fmt)) {
         return;
@@ -991,8 +1038,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->GraphicsControllerType = GCT_ATIRV100;
     bi->PaletteChipType        = PCT_Unknown;
     bi->Flags |= BIF_GRANTDIRECTACCESS | BIF_BLITTER | BIF_HARDWARESPRITE;
-    bi->RGBFormats =
-        RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_R5G6B5 | RGBFF_R5G5B5 | RGBFF_A8B8G8R8 | RGBFF_B8G8R8A8;
+    bi->RGBFormats = MACH32_SUPPORTED_RGBFF;
 
     getCardData(bi)->AllocCardMemDefault = bi->AllocCardMem;
     bi->AllocCardMem                     = AllocCardMem;
