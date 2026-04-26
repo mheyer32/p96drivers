@@ -592,6 +592,7 @@ static INLINE void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
 #define R_IO_W(reg)        readRegW(RegBase, reg, #reg)
 #define R_IO_L(reg)        readRegL(RegBase, reg, #reg)
 #define W_IO_W(reg, value) writeRegW(RegBase, reg, value, #reg)
+#define W_IO_NOSWAP_W(reg, value) writeRegWNoSwap(RegBase, reg, value, #reg)
 #define W_IO_MASK_W(reg, mask, value) writeRegMask_W(RegBase, reg, mask, value, #reg)
 #define W_IO_L(reg, value) writeRegL(RegBase, reg, value, #reg)
 #define TST_IO_W(reg, mask)     ((readRegWNoSwap(RegBase, reg, #reg) & SWAPW_IO(mask)) != 0)
