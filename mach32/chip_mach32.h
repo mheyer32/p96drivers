@@ -126,6 +126,8 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define PATT_DATA_INDEX     0x82EE  /* R/W */
 #define PATT_INDEX          0xD6EE  /* W */
 #define PATT_LENGTH         0xD2EE  /* W — same index as R_V_SYNC_WID (R) */
+/* Linear mono/color pattern: PATT_LENGTH[4:0] = (pixel_length - 1); bits 7,15 clear — §9-60 */
+#define PATT_LENGTH_MONO16  15u     /* 16-pixel line stipple */
 #define PCI_CNTL            0x22EE  /* R/W — “DAC_CONT (PCI)” in appendix */
 #define PIX_TRANS           0xE2E8  /* R/W */
 #define R_EXT_GE_CONFIG     0x8EEE  /* R — same index as PATT_DATA (W) */
@@ -195,6 +197,7 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define DRAW_RW_WRITE              0x0001
 #define DRAW_PIXEL_MODE_SINGLE     0x0000
 #define DRAW_PIXEL_MODE_NIBBLE     0x0002
+#define DRAW_DIR_TYPE_XY           BIT(3) /* 0=DEGREE, 1=XY (REG688000-15 §8-31) */
 #define DRAW_DRAW                  BIT(4)
 #define DRAW_LAST_PEL_OFF          BIT(2)
 #define DRAW_OCTANT_YPOS           BIT(7)
@@ -204,6 +207,7 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define DRAW_DATA_WIDTH_16BIT      BIT(9)
 #define DRAW_LSB_FIRST             BIT(12)
 #define DRAW_OPCODE_NOOP           0
+#define DRAW_OPCODE_LINE           (1 << 13)
 #define DRAW_OPCODE_FILL_RECT_HOR  (2 << 13)
 #define DRAW_OPCODE_FILL_RECT_VPIX (3 << 13)
 #define DRAW_OPCODE_FILL_RECT_VNIB (4 << 13)
@@ -215,6 +219,14 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
  * composed DRAW_* bits above do not yield the same value on all steppings).
  */
 #define CMD_RECT_FILL 0x50B3u
+
+/* LINEDRAW_OPT (A2EE R/W): REG688000-15 §9-21–9-22 */
+#define LINEDRAW_OPT_POLY_MODE    BIT(0)
+#define LINEDRAW_OPT_LAST_PEL_OFF BIT(2)
+#define LINEDRAW_OPT_DIR_TYPE     BIT(3) /* 0=Bresenham/Octant, 1=Length/Degree */
+#define LINEDRAW_OPT_OCTANT_XDIR  BIT(5)
+#define LINEDRAW_OPT_OCTANT_YMAJ  BIT(6)
+#define LINEDRAW_OPT_OCTANT_YDIR  BIT(7)
 
 /* DP_CONFIG (CEEE W) — REG688000-15 §9-14..9-16 */
 #define DP_CONFIG_RW_WRITE         BIT(0) /* 0=read trajectory, 1=write trajectory */
