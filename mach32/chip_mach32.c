@@ -1335,6 +1335,82 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     drawRect(bi, x, y, width, height);
 }
 
+static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGA2(struct Line *line),
+                         __REGD0(UBYTE mask), __REGD7(RGBFTYPE fmt))
+{
+    DFUNC(VERBOSE, "\n");
+
+    UBYTE bpp = getBPP(fmt);
+    if (bpp > 2) {
+        bi->DrawLineDefault(bi, ri, line, mask, fmt);
+        return;
+    }
+
+    if (!setDstBuffer(bi, ri, fmt)) {
+        return;
+    }
+
+    ChipData_t *cd = getChipData(bi);
+    if (cd->GEOp != LINE) {
+        cd->GEOp       = LINE;
+        cd->GEdrawMode = 0xFF;
+
+        waitFifo(bi, 3);
+        REGBASE();
+        /* Disable special pre-clip modes by default. */
+        W_IO_W(LINEDRAW_OPT, 0);
+        W_IO_W(PATT_LENGTH, (UWORD)PATT_LENGTH_MONO16);
+        W_IO_W(DP_CONFIG, DP_CONFIG_REPLACE);
+    }
+
+    setDrawMode(bi, line->FgPen, line->BgPen, line->DrawMode, fmt);
+    setWriteMask(bi, mask, fmt, 0);
+
+    BOOL solid = (line->LinePtrn == 0xFFFFu);
+
+    WORD absMAX = myabs(line->lDelta);
+    WORD absMIN = myabs(line->sDelta);
+
+    WORD axialStep = 2 * absMIN;
+    WORD errTerm   = axialStep - absMAX;
+    WORD diagStep  = axialStep - 2 * absMAX;
+    UWORD count    = line->Length;
+
+    UWORD octant = 0;
+    if (line->dX > 0) {
+        octant |= LINEDRAW_OPT_OCTANT_XDIR;
+    }
+    if (line->dY > 0) {
+        octant |= LINEDRAW_OPT_OCTANT_YDIR;
+    }
+    if (!line->Horizontal) {
+        octant |= LINEDRAW_OPT_OCTANT_YMAJ;
+    }
+
+    REGBASE();
+
+    if (solid) {
+        waitFifo(bi, 8);
+        W_BEE8(PIXEL_CNTL, MASK_BIT_SRC_ONE);
+    } else {
+        waitFifo(bi, 12);
+        W_BEE8(PIXEL_CNTL, MASK_BIT_SRC_PATTEN);
+        W_IO_W(PATT_DATA_INDEX, 0x10);
+        W_IO_NOSWAP_W(PATT_DATA, line->LinePtrn);
+        W_IO_NOSWAP_W(PATT_DATA, line->LinePtrn);
+        W_IO_W(PATT_INDEX, (15 - line->PatternShift) & 15u);
+    }
+
+    W_IO_W(CUR_X, line->X);
+    W_IO_W(CUR_Y, line->Y);
+    W_IO_W(SRC_Y_DEST_Y, axialStep); /* DESTY_AXSTP */
+    W_IO_W(SRC_X_DEST_X, diagStep);  /* DESTX_DIASTP */
+    W_IO_W(ERR_TERM, errTerm /*(UWORD)line->twoSDminusLD*/);
+    W_IO_W(LINEDRAW_OPT, octant); /* DIR_TYPE=0 (Bresenham/Octant), LAST_PEL_OFF=0 */
+    W_IO_W(BRES_COUNT, count);
+    flushWrites();
+}
+
 static ULONG probeFramebufferSize(BoardInfo_t *bi)
 {
     volatile UBYTE *base = (volatile UBYTE *)bi->MemoryBase;
@@ -1462,7 +1538,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->FillRect               = FillRect;
     bi->BlitTemplate           = BlitTemplate;
     // bi->BlitPlanar2Chunky      = bi->BlitPlanar2ChunkyDefault;
-    // bi->DrawLine               = bi->DrawLineDefault;
+    bi->DrawLine    = DrawLine;
     bi->BlitPattern = BlitPattern;
 
     bi->MaxBMWidth  = 2048;
@@ -1696,6 +1772,87 @@ static int verifyRect8(BoardInfo_t *bi, UWORD bpr, UWORD rx, UWORD ry, UWORD rw,
     return errors;
 }
 
+static void makeSolidLine(struct Line *line, WORD x0, WORD y0, WORD x1, WORD y1, UBYTE drawMode, ULONG fgPen)
+{
+    memset(line, 0, sizeof(*line));
+
+    WORD dx = (WORD)(x1 - x0);
+    WORD dy = (WORD)(y1 - y0);
+
+    line->X  = x0;
+    line->Y  = y0;
+    line->dX = dx;
+    line->dY = dy;
+
+    WORD adx = myabs(dx);
+    WORD ady = myabs(dy);
+
+    line->Horizontal = (adx >= ady);
+    line->lDelta     = line->Horizontal ? dx : dy;
+    line->sDelta     = line->Horizontal ? dy : dx;
+
+    line->Length = (UWORD)((UWORD)myabs(line->lDelta) + 1u);
+
+    /* Segment start error term (REG688000-15 §9-37). */
+    WORD absMAX        = myabs(line->lDelta);
+    WORD absMIN        = myabs(line->sDelta);
+    line->twoSDminusLD = (WORD)(2 * absMIN - absMAX - ((dx > 0) ? 1 : 0));
+
+    line->LinePtrn     = 0xFFFF;
+    line->PatternShift = 0;
+    line->FgPen        = fgPen;
+    line->BgPen        = 0;
+    line->DrawMode     = drawMode;
+    line->Xorigin      = x0;
+    line->Yorigin      = y0;
+}
+
+static void makePatternLine(struct Line *line, WORD x0, WORD y0, WORD x1, WORD y1, UBYTE drawMode, ULONG fgPen,
+                            ULONG bgPen, UWORD linePtrn, UWORD patternShift)
+{
+    memset(line, 0, sizeof(*line));
+
+    WORD dx = (WORD)(x1 - x0);
+    WORD dy = (WORD)(y1 - y0);
+
+    line->X  = x0;
+    line->Y  = y0;
+    line->dX = dx;
+    line->dY = dy;
+
+    WORD adx = myabs(dx);
+    WORD ady = myabs(dy);
+
+    line->Horizontal = (adx >= ady);
+    line->lDelta     = line->Horizontal ? dx : dy;
+    line->sDelta     = line->Horizontal ? dy : dx;
+    line->Length     = (UWORD)((UWORD)myabs(line->lDelta) + 1u);
+
+    WORD absMaj        = myabs(line->lDelta);
+    WORD absMin        = myabs(line->sDelta);
+    line->twoSDminusLD = (WORD)(2 * absMin - absMaj - ((dx > 0) ? 1 : 0));
+
+    line->LinePtrn     = linePtrn;
+    line->PatternShift = (UWORD)(patternShift & 15u);
+    line->FgPen        = fgPen;
+    line->BgPen        = bgPen;
+    line->DrawMode     = drawMode;
+    line->Xorigin      = x0;
+    line->Yorigin      = y0;
+}
+
+static int verifyPixel8(BoardInfo_t *bi, UWORD bpr, UWORD x, UWORD y, UBYTE expected, const char *label)
+{
+    UBYTE got = readPixel8(bi, bpr, x, y);
+    if (got != expected) {
+        D(0, "  FAIL %s (%ld,%ld): expected 0x%02lx, got 0x%02lx\n", label, (ULONG)x, (ULONG)y, (ULONG)expected,
+          (ULONG)got);
+        return 1;
+    }
+    D(0, "  PASS %s (%ld,%ld): 0x%02lx\n", label, (ULONG)x, (ULONG)y, (ULONG)got);
+    return 0;
+}
+
 static UBYTE expected8x8MonoPen(const UWORD patt[8], UWORD baseX, UWORD baseY, UWORD x, UWORD y, UBYTE fg, UBYTE bg)
 {
     UBYTE row = (UBYTE)patt[(y - baseY) & 7u];
@@ -1759,6 +1916,56 @@ static void testBlitPattern8x8Mono(BoardInfo_t *bi)
             D(0, "  PASS BlitPattern sample (%lu,%lu): 0x%02lx\n", (ULONG)sx, (ULONG)sy, (ULONG)got);
         }
     }
+}
+
+static void testDrawLineClut8bpp(BoardInfo_t *bi)
+{
+    if (!bi->DrawLine) {
+        D(0, "TestMach32: DrawLine not installed; skipping line test\n");
+        return;
+    }
+
+    struct RenderInfo ri;
+    memset(&ri, 0, sizeof(ri));
+    ri.Memory      = bi->MemoryBase;
+    ri.BytesPerRow = bi->CalculateBytesPerRow(bi, 640, 480, bi->ModeInfo, RGBFB_CLUT);
+    ri.RGBFormat   = RGBFB_CLUT;
+    UWORD bpr      = ri.BytesPerRow;
+
+    /* Ensure a known background under the test area. */
+    bi->FillRect(bi, &ri, 16, 260, 200, 120, 0x11, 0xFF, RGBFB_CLUT);
+    bi->WaitBlitter(bi);
+
+    D(0, "TestMach32: DrawLine — solid lines (fg=0xEE)\n");
+
+    struct Line line;
+
+    /* Horizontal line. */
+    makeSolidLine(&line, 20, 280, 100, 280, JAM2, 0xEE);
+    bi->DrawLine(bi, &ri, &line, 0xFF, RGBFB_CLUT);
+    bi->WaitBlitter(bi);
+    verifyPixel8(bi, bpr, 60, 280, 0xEE, "DrawLine horiz mid");
+
+    /* Vertical line. */
+    makeSolidLine(&line, 120, 270, 120, 340, JAM2, 0xEE);
+    bi->DrawLine(bi, &ri, &line, 0xFF, RGBFB_CLUT);
+    bi->WaitBlitter(bi);
+    verifyPixel8(bi, bpr, 120, 305, 0xEE, "DrawLine vert mid");
+
+    /* 45-degree diagonal. */
+    makeSolidLine(&line, 30, 300, 80, 350, JAM2, 0xEE);
+    bi->DrawLine(bi, &ri, &line, 0xFF, RGBFB_CLUT);
+    bi->WaitBlitter(bi);
+    verifyPixel8(bi, bpr, 55, 325, 0xEE, "DrawLine diag mid");
+
+    /* JAM2 horizontal stipple: 0xAAAA (MSB first along +X), fg/bg match fill so zeros stay visible. */
+    D(0, "TestMach32: DrawLine — patterned horizontal (JAM2 fg=0xEE bg=0x11, LinePtrn=0xAAAA)\n");
+    makePatternLine(&line, 24, 315, 55, 315, JAM2, 0xEE, 0x11, 0xAAAAu, 0);
+    bi->DrawLine(bi, &ri, &line, 0xFF, RGBFB_CLUT);
+    bi->WaitBlitter(bi);
+    /* First pixel along +X: MSB of 0xAAAA = 1 -> fg; second: 0 -> bg */
+    verifyPixel8(bi, bpr, 24, 315, 0xEE, "DrawLine patt horiz bit0");
+    verifyPixel8(bi, bpr, 25, 315, 0x11, "DrawLine patt horiz bit1");
 }
 
 /*
@@ -2344,6 +2551,7 @@ int main(void)
 
         testFillRectClut8bpp(bi);
         testBlitPattern8x8Mono(bi);
+        testDrawLineClut8bpp(bi);
 
         if (TESTMACH32_ENABLE_MEMTEST) {
             const ULONG vramScanBytes = bi->MemorySize;
