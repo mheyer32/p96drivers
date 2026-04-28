@@ -1116,12 +1116,6 @@ static INLINE void REGARGS setDrawMode(BoardInfo_t *bi, ULONG fgPen, ULONG bgPen
     W_IO_W(FRGD_MIX, (UWORD)(fSrc | fMix));
     W_IO_W(BKGD_MIX, (UWORD)(bSrc | bMix));
 }
-
-static INLINE UWORD readUWordUnalignedBE(const UBYTE *p)
-{
-    return (UWORD)((((UWORD)p[0]) << 8) | (UWORD)p[1]);
-}
-
 static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
                              __REGA2(struct Template *template), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
                              __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
@@ -1161,30 +1155,31 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     W_IO_W(SCISSOR_RIGHT, x + width - 1);
 
     /* 16 pixels per PIX_TRANS word. Round up width+offset to 16. */
-    UWORD rol       = (UWORD)(template->XOffset & 15);
-    UWORD blitWidth = (UWORD)((width + rol + 15) & ~15);
+    UWORD rol      = (UWORD)(template->XOffset & 15);
+    WORD blitWidth = (width + rol + 15) & ~15;
 
     /* Set up rectangle; writing DEST_Y_END kicks the engine. */
     drawRect(bi, x, y, blitWidth, height);
 
-    UWORD wordsPerLn   = blitWidth >> 4;
-    UWORD numFifoSlots = wordsPerLn * height + 3;
+    WORD wordsPerLn   = blitWidth >> 4;
+    WORD numFifoSlots = wordsPerLn * height + 3;
     if (numFifoSlots > 16) {
         numFifoSlots = 16;
     }
     waitFifo(bi, numFifoSlots);
-    UWORD usedFifoSlots = 16 - numFifoSlots;
+    WORD usedFifoSlots = 16 - numFifoSlots;
 
     const UBYTE *bitmap = (const UBYTE *)template->Memory;
     bitmap += (template->XOffset >> 4) * 2;
     WORD bitmapPitch = template->BytesPerRow;
 
-    for (UWORD row = 0; row < (UWORD)height; ++row) {
-        const UBYTE *src = bitmap;
+    for (WORD row = 0; row < height; ++row) {
+        const UWORD *src = (UWORD *)bitmap;
         if (!rol) {
-            for (UWORD col = 0; col < wordsPerLn; ++col) {
-                UWORD w = readUWordUnalignedBE(src + col * 2);
-                W_IO_W(PIX_TRANS, w);
+            for (WORD col = 0; col < wordsPerLn; ++col) {
+                UWORD w = src[col];
+                // We set DP_CONFIG_LSB_FIRST.
+                W_IO_NOSWAP_W(PIX_TRANS, w);
 
                 usedFifoSlots = (usedFifoSlots + 1) & 15;
                 if (!usedFifoSlots) {
@@ -1192,11 +1187,12 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
                 }
             }
         } else {
-            for (UWORD col = 0; col < wordsPerLn; ++col) {
-                UWORD w0 = readUWordUnalignedBE(src + col * 2);
-                UWORD w1 = readUWordUnalignedBE(src + (col + 1) * 2);
-                UWORD w  = (UWORD)((w0 << rol) | (w1 >> (16 - rol)));
-                W_IO_W(PIX_TRANS, w);
+            for (WORD col = 0; col < wordsPerLn; ++col) {
+                UWORD w0 = src[col];
+                UWORD w1 = src[col + 1];
+                UWORD w  = (w0 << rol) | (w1 >> (16 - rol));
+                // We set DP_CONFIG_LSB_FIRST.
+                W_IO_NOSWAP_W(PIX_TRANS, w);
 
                 usedFifoSlots = (usedFifoSlots + 1) & 15;
                 if (!usedFifoSlots) {
@@ -1219,22 +1215,22 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
                                           const UBYTE *bitmap, WORD bmPitch, UWORD rol)
 {
     /* 16 pixels per PIX_TRANS word. Round up width+offset to 16. */
-    UWORD blitWidth = (UWORD)((width + rol + 15u) & ~15u);
+    WORD blitWidth = (width + rol + 15) & ~15;
     drawRect(bi, dstX, dstY, blitWidth, height);
 
-    UWORD wordsPerLn   = blitWidth >> 4;
-    UWORD numFifoSlots = wordsPerLn * height + 3;
+    WORD wordsPerLn   = blitWidth >> 4;
+    WORD numFifoSlots = wordsPerLn * height + 3;
     if (numFifoSlots > 16) {
         numFifoSlots = 16;
     }
     waitFifo(bi, numFifoSlots);
-    UWORD usedFifoSlots = 16 - numFifoSlots;
+    WORD usedFifoSlots = 16 - numFifoSlots;
 
     REGBASE();
     if ((ULONG)bitmap == 0) {
-        for (UWORD row = 0; row < (UWORD)height; ++row) {
-            for (UWORD col = 0; col < wordsPerLn; ++col) {
-                W_IO_W(PIX_TRANS, 0);
+        for (WORD row = 0; row < height; ++row) {
+            for (WORD col = 0; col < wordsPerLn; ++col) {
+                W_IO_NOSWAP_W(PIX_TRANS, 0);
                 usedFifoSlots = (usedFifoSlots + 1) & 15;
                 if (!usedFifoSlots) {
                     waitFifo(bi, 16);
@@ -1242,9 +1238,9 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
             }
         }
     } else if ((ULONG)bitmap == 0xFFFFFFFFu) {
-        for (UWORD row = 0; row < (UWORD)height; ++row) {
-            for (UWORD col = 0; col < wordsPerLn; ++col) {
-                W_IO_W(PIX_TRANS, 0xFFFF);
+        for (WORD row = 0; row < height; ++row) {
+            for (WORD col = 0; col < wordsPerLn; ++col) {
+                W_IO_NOSWAP_W(PIX_TRANS, 0xFFFF);
                 usedFifoSlots = (usedFifoSlots + 1) & 15;
                 if (!usedFifoSlots) {
                     waitFifo(bi, 16);
@@ -1252,12 +1248,12 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
             }
         }
     } else {
-        for (UWORD row = 0; row < (UWORD)height; ++row) {
-            const UBYTE *src = bitmap;
+        for (WORD row = 0; row < height; ++row) {
+            const UWORD *src = (UWORD *)bitmap;
             if (!rol) {
                 for (UWORD col = 0; col < wordsPerLn; ++col) {
-                    UWORD w = readUWordUnalignedBE(src + col * 2);
-                    W_IO_W(PIX_TRANS, w);
+                    UWORD w = src[col];
+                    W_IO_NOSWAP_W(PIX_TRANS, w);
 
                     usedFifoSlots = (usedFifoSlots + 1) & 15;
                     if (!usedFifoSlots) {
@@ -1266,10 +1262,10 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
                 }
             } else {
                 for (UWORD col = 0; col < wordsPerLn; ++col) {
-                    UWORD w0 = readUWordUnalignedBE(src + col * 2);
-                    UWORD w1 = readUWordUnalignedBE(src + (col + 1) * 2);
-                    UWORD w  = (UWORD)((w0 << rol) | (w1 >> (16u - rol)));
-                    W_IO_W(PIX_TRANS, w);
+                    UWORD w0 = src[col];
+                    UWORD w1 = src[col + 1];
+                    UWORD w  = (w0 << rol) | (w1 >> (16u - rol));
+                    W_IO_NOSWAP_W(PIX_TRANS, w);
 
                     usedFifoSlots = (usedFifoSlots + 1) & 15;
                     if (!usedFifoSlots) {

@@ -263,23 +263,25 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define DP_COLOR_SRC_BLIT_SRC 3u /* VRAM blit source */
 
 /* Common composed modes used by this driver */
-#define DP_CONFIG_REPLACE                                                                                     \
-    (DP_CONFIG_RW_WRITE | DP_CONFIG_DRAW | DP_CONFIG_DATA_WIDTH_16BIT | DP_CONFIG_BG_SRC(DP_COLOR_SRC_FRGD) | \
-     DP_CONFIG_FG_SRC(DP_COLOR_SRC_FRGD) | DP_CONFIG_MONO_SRC(DP_MONO_SRC_ONE))
+#define DP_CONFIG_REPLACE                                                                     \
+    (DP_CONFIG_RW_WRITE | DP_CONFIG_DRAW | DP_CONFIG_DATA_WIDTH_16BIT | DP_CONFIG_LSB_FIRST | \
+     DP_CONFIG_BG_SRC(DP_COLOR_SRC_FRGD) | DP_CONFIG_FG_SRC(DP_COLOR_SRC_FRGD) | DP_CONFIG_MONO_SRC(DP_MONO_SRC_ONE))
 
-#define DP_CONFIG_BLIT                                                               \
-    (DP_CONFIG_RW_WRITE | DP_CONFIG_DRAW | DP_CONFIG_FG_SRC(DP_COLOR_SRC_BLIT_SRC) | \
-     DP_CONFIG_MONO_SRC(DP_MONO_SRC_ONE))
+#define DP_CONFIG_BLIT                                                                        \
+    (DP_CONFIG_RW_WRITE | DP_CONFIG_DRAW | DP_CONFIG_DATA_WIDTH_16BIT | DP_CONFIG_LSB_FIRST | \
+     DP_CONFIG_FG_SRC(DP_COLOR_SRC_BLIT_SRC) | DP_CONFIG_MONO_SRC(DP_MONO_SRC_ONE))
 
 /* Template blit: like REPLACE, but DP_CONFIG.MONO_SRC=PIX_TRANS. */
-#define DP_CONFIG_TEMPLATE                                                                                    \
-    (DP_CONFIG_RW_WRITE | DP_CONFIG_DRAW | DP_CONFIG_DATA_WIDTH_16BIT | DP_CONFIG_BG_SRC(DP_COLOR_SRC_BKGD) | \
-     DP_CONFIG_FG_SRC(DP_COLOR_SRC_FRGD) | DP_CONFIG_MONO_SRC(DP_MONO_SRC_PIXTRANS))
+#define DP_CONFIG_TEMPLATE                                                                    \
+    (DP_CONFIG_RW_WRITE | DP_CONFIG_DRAW | DP_CONFIG_DATA_WIDTH_16BIT | DP_CONFIG_LSB_FIRST | \
+     DP_CONFIG_BG_SRC(DP_COLOR_SRC_BKGD) | DP_CONFIG_FG_SRC(DP_COLOR_SRC_FRGD) |              \
+     DP_CONFIG_MONO_SRC(DP_MONO_SRC_PIXTRANS))
 
 /* 8x8 mono pattern blit: fg/bg from color regs, mono from pattern regs. */
-#define DP_CONFIG_MONO_PATTERN                                                                                \
-    (DP_CONFIG_RW_WRITE | DP_CONFIG_DRAW | DP_CONFIG_DATA_WIDTH_16BIT | DP_CONFIG_BG_SRC(DP_COLOR_SRC_BKGD) | \
-     DP_CONFIG_FG_SRC(DP_COLOR_SRC_FRGD) | DP_CONFIG_MONO_SRC(DP_MONO_SRC_PATTERN))
+#define DP_CONFIG_MONO_PATTERN                                                                \
+    (DP_CONFIG_RW_WRITE | DP_CONFIG_DRAW | DP_CONFIG_DATA_WIDTH_16BIT | DP_CONFIG_LSB_FIRST | \
+     DP_CONFIG_BG_SRC(DP_COLOR_SRC_BKGD) | DP_CONFIG_FG_SRC(DP_COLOR_SRC_FRGD) |              \
+     DP_CONFIG_MONO_SRC(DP_MONO_SRC_PATTERN))
 
 /* MEM_CFG (5EEE) — REG688000-15 §9-75 (PCI: bits 1:0 and 15:8 only) */
 #define MEM_APERT_SEL_MASK  0x0003u
