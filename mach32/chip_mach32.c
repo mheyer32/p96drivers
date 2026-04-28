@@ -734,9 +734,9 @@ static INLINE void setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fmt, BYTE 
 /* Far-Blit: load dst and src offset/pitch independently via SHADOW_SET[9:8]. */
 static INLINE void setFarBlitBuffer(BoardInfo_t *bi, const struct RenderInfo *ri, RGBFTYPE fmt, UWORD srcOrDst)
 {
-    ChipData_t *cd = getChipData(bi);
+    ChipData_t *cd              = getChipData(bi);
     struct RenderInfo *cachedRi = NULL;
-    UWORD shadowSel = (srcOrDst + 1) << SHADOW_SET_GE_PTR_SHIFT;
+    UWORD shadowSel             = (srcOrDst + 1) << SHADOW_SET_GE_PTR_SHIFT;
 
     /* Keep draw engine's format in sync with pitch/offset programming. */
     setBlitterFormat(bi, fmt);
@@ -1324,13 +1324,13 @@ static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     ChipData_t *cd = getChipData(bi);
     if (cd->GEOp != LINE) {
-        cd->GEOp       = LINE;
-        cd->GEdrawMode = 0xFF;
+        cd->GEOp            = LINE;
+        cd->lineMode        = 0xFF;
+        cd->patternCacheKey = 0x0000;
 
-        waitFifo(bi, 3);
+        waitFifo(bi, 2);
         REGBASE();
         /* Disable special pre-clip modes by default. */
-        W_IO_W(LINEDRAW_OPT, 0);
         W_IO_W(PATT_LENGTH, (UWORD)PATT_LENGTH_MONO16);
         W_IO_W(DP_CONFIG, DP_CONFIG_REPLACE);
     }
@@ -1338,16 +1338,46 @@ static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     setDrawMode(bi, line->FgPen, line->BgPen, line->DrawMode, fmt);
     setWriteMask(bi, mask, fmt, 0);
 
+    REGBASE();
+
     BOOL solid = (line->LinePtrn == 0xFFFFu);
+    if (solid) {
+        if (cd->lineMode != 1) {
+            cd->lineMode = 1;
+            waitFifo(bi, 9);
+            REGBASE();
+            W_BEE8(PIXEL_CNTL, MASK_BIT_SRC_ONE);
+        }
+    } else {
+        UBYTE phase  = (UBYTE)((15u - (line->PatternShift & 15u)) & 15u);
+        BOOL needPat = (cd->linePatternCache != line->LinePtrn);
+        if (cd->lineMode != 0 || needPat) {
+            cd->lineMode         = 0;
+            cd->linePatternCache = line->LinePtrn;
+            waitFifo(bi, 11);
+            REGBASE();
+            W_BEE8(PIXEL_CNTL, MASK_BIT_SRC_PATTEN);
+            W_IO_W(PATT_DATA_INDEX, 0x10);
+            W_IO_NOSWAP_W(PATT_DATA, line->LinePtrn);
+            W_IO_W(PATT_INDEX, (UWORD)phase);
+        } else {
+            waitFifo(bi, 8);
+            W_IO_W(PATT_INDEX, (UWORD)phase);
+        }
+    }
+
+    W_IO_W(CUR_X, line->X);
+    W_IO_W(CUR_Y, line->Y);
 
     WORD absMAX = myabs(line->lDelta);
     WORD absMIN = myabs(line->sDelta);
 
     WORD axialStep = 2 * absMIN;
-    WORD errTerm   = axialStep - absMAX;
-    WORD diagStep  = axialStep - 2 * absMAX;
-    UWORD count    = line->Length;
-
+    W_IO_W(SRC_Y_DEST_Y, axialStep); /* DESTY_AXSTP */
+    WORD diagStep = axialStep - 2 * absMAX;
+    W_IO_W(SRC_X_DEST_X, diagStep); /* DESTX_DIASTP */
+    WORD errTerm = axialStep - absMAX;
+    W_IO_W(ERR_TERM, errTerm /*(UWORD)line->twoSDminusLD*/);
     UWORD octant = 0;
     if (line->dX > 0) {
         octant |= LINEDRAW_OPT_OCTANT_XDIR;
@@ -1358,28 +1388,9 @@ static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     if (!line->Horizontal) {
         octant |= LINEDRAW_OPT_OCTANT_YMAJ;
     }
-
-    REGBASE();
-
-    if (solid) {
-        waitFifo(bi, 8);
-        W_BEE8(PIXEL_CNTL, MASK_BIT_SRC_ONE);
-    } else {
-        waitFifo(bi, 12);
-        W_BEE8(PIXEL_CNTL, MASK_BIT_SRC_PATTEN);
-        W_IO_W(PATT_DATA_INDEX, 0x10);
-        W_IO_NOSWAP_W(PATT_DATA, line->LinePtrn);
-        W_IO_NOSWAP_W(PATT_DATA, line->LinePtrn);
-        W_IO_W(PATT_INDEX, (15 - line->PatternShift) & 15u);
-    }
-
-    W_IO_W(CUR_X, line->X);
-    W_IO_W(CUR_Y, line->Y);
-    W_IO_W(SRC_Y_DEST_Y, axialStep); /* DESTY_AXSTP */
-    W_IO_W(SRC_X_DEST_X, diagStep);  /* DESTX_DIASTP */
-    W_IO_W(ERR_TERM, errTerm /*(UWORD)line->twoSDminusLD*/);
     W_IO_W(LINEDRAW_OPT, octant); /* DIR_TYPE=0 (Bresenham/Octant), LAST_PEL_OFF=0 */
-    W_IO_W(BRES_COUNT, count);
+    UWORD count = line->Length;
+    W_IO_W(BRES_COUNT, count); /* kick off the line drawing */
     flushWrites();
 }
 
@@ -1456,14 +1467,14 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     REGBASE();
 
     {
-        ChipData_t *cd       = getChipData(bi);
-        cd->GEfgPen          = ~0UL;
-        cd->GEbgPen          = 0;
-        cd->GEmask           = 0xFF;
-        cd->GEdrawMode       = 0xFF;
-        cd->GEOp             = 0; /* BlitterOp_t None */
-        cd->GEfmt = ~0UL;
-        cd->patternCacheKey  = 0xFFFFFFFFu;
+        ChipData_t *cd      = getChipData(bi);
+        cd->GEfgPen         = ~0UL;
+        cd->GEbgPen         = 0;
+        cd->GEmask          = 0xFF;
+        cd->GEdrawMode      = 0xFF;
+        cd->GEOp            = 0; /* BlitterOp_t None */
+        cd->GEfmt           = ~0;
+        cd->patternCacheKey = 0xFFFFFFFFu;
         for (int i = 0; i < 8; ++i) {
             cd->patternCache[i] = 0;
         }
