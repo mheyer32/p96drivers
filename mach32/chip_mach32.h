@@ -45,6 +45,24 @@ typedef struct CardData
 STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddata_fits_boardinfo);
 
 /*
+ * Translate Mach32-style sparse coprocessor I/O addresses to the corresponding memory-mapped
+ * register dword offset, relative to 0xFFE00 (the base of the IBM-compatible MMIO window).
+ *
+ * IBM-compatible:  0x02E8 + n*0x0400  -> offset 0x000 + n*4
+ * ATI-extended:    0x02EE + n*0x0400  -> offset 0x100 + n*4
+ */
+static INLINE LONG ioToMmioOffset(UWORD ioAddr)
+{
+    if ((ioAddr & 0x00FF) == 0x00E8) {
+        UWORD d = (UWORD)(ioAddr - 0x02E8);
+        return (LONG)((d >> 10) << 2);
+    } else {
+        UWORD d = (UWORD)(ioAddr - 0x02EE);
+        return 0x100 + (LONG)((d >> 10) << 2);
+    }
+}
+
+/*
  * Mach32 coprocessor I/O indices (16-bit word ports at RegisterBase unless noted).
  * ATI REG688000-15 (1993) §8–9, Appendix A.
  *
@@ -265,7 +283,7 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 /* Common composed modes used by this driver */
 #define DP_CONFIG_REPLACE                                                                     \
     (DP_CONFIG_RW_WRITE | DP_CONFIG_DRAW | DP_CONFIG_DATA_WIDTH_16BIT | DP_CONFIG_LSB_FIRST | \
-     DP_CONFIG_BG_SRC(DP_COLOR_SRC_FRGD) | DP_CONFIG_FG_SRC(DP_COLOR_SRC_FRGD) | DP_CONFIG_MONO_SRC(DP_MONO_SRC_ONE))
+     DP_CONFIG_BG_SRC(DP_COLOR_SRC_BKGD) | DP_CONFIG_FG_SRC(DP_COLOR_SRC_FRGD) | DP_CONFIG_MONO_SRC(DP_MONO_SRC_ONE))
 
 #define DP_CONFIG_BLIT                                                                        \
     (DP_CONFIG_RW_WRITE | DP_CONFIG_DRAW | DP_CONFIG_DATA_WIDTH_16BIT | DP_CONFIG_LSB_FIRST | \
@@ -333,15 +351,16 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define MEM_SIZE_ALIAS_MASK (0x3 << 2)
 #define MEM_SIZE_ALIAS(x)   ((x) << 2)
 
-#define W_BEE8(idx, value) W_IO_W(0xBEE8, ((idx << 12) | (value)))
+#define W_BEE8(idx, value)      W_IO_W(0xBEE8, ((idx << 12) | (value)))
+#define W_MMIO_BEE8(idx, value) W_MMIO_W(ioToMmioOffset(0xBEE8), ((idx << 12) | (value)))
 
 static inline void readModifyWrite(const BoardInfo_t *bi, LONG readReg, LONG writeReg, UWORD mask, UWORD value,
                                    const char *writeRegName)
 {
-    REGBASE();
-    UWORD regValue = readRegWNoSwap(RegBase, readReg, writeRegName);
-    regValue       = (regValue & ~SWAPW_IO(mask)) | SWAPW(value & mask);
-    writeRegWNoSwap(RegBase, writeReg, regValue, writeRegName);
+    MMIOBASE();
+    UWORD regValue = readMMIO_NoSwap_W(MMIOBase, ioToMmioOffset(readReg), writeRegName);
+    regValue       = (regValue & ~SWAPW(mask)) | SWAPW(value & mask);
+    writeMMIO_NoSwap_W(MMIOBase, ioToMmioOffset(writeReg), regValue, writeRegName);
 }
 #define W_EXT_GE_CONFIG_MASK(mask, value) \
     readModifyWrite(bi, R_EXT_GE_CONFIG, EXT_GE_CONFIG, mask, value, "[R_]EXT_GE_CONFIG")
@@ -360,6 +379,33 @@ static inline void readModifyWrite(const BoardInfo_t *bi, LONG readReg, LONG wri
 #define SYN_CONT_SEL BIT(13)
 #define HSYN_CONT    BIT(14)
 #define VSYN_CONT    BIT(15)
+
+#undef W_MMIO_B
+#undef R_MMIO_B
+#undef W_MMIO_MASK_B
+#undef W_MMIO_W
+#undef W_MMIO_MASK_W
+#undef R_MMIO_W
+#undef W_MMIO_L
+#undef W_MMIO_NOSWAP_L
+#undef R_MMIO_L
+#undef TST_MMIO_W
+#undef TST_MMIO_L
+
+#define W_MMIO_B(reg, value)            writeMMIO_B(MMIOBase, ioToMmioOffset(reg), value, #reg)
+#define R_MMIO_B(reg)                   readMMIO_B(MMIOBase, ioToMmioOffset(reg), #reg)
+#define W_MMIO_MASK_B(reg, mask, value) writeMMIOMask_B(MMIOBase, ioToMmioOffset(reg), mask, value, #reg)
+
+#define W_MMIO_W(reg, value)            writeMMIO_W(MMIOBase, ioToMmioOffset(reg), value, #reg)
+#define W_MMIO_NOSWAP_W(reg, value)     writeMMIO_NoSwap_W(MMIOBase, ioToMmioOffset(reg), value, #reg)
+#define W_MMIO_MASK_W(reg, mask, value) writeMMIOMask_W(MMIOBase, ioToMmioOffset(reg), mask, value, #reg)
+#define R_MMIO_W(reg)                   readMMIO_W(MMIOBase, ioToMmioOffset(reg), #reg)
+#define TST_MMIO_W(reg, mask)           ((readMMIO_NoSwap_W(MMIOBase, ioToMmioOffset(reg), #reg) & SWAPW(mask)) != 0)
+
+#define W_MMIO_L(reg, value)        writeMMIO_L(MMIOBase, ioToMmioOffset(reg), value, #reg)
+#define W_MMIO_NOSWAP_L(reg, value) writeMMIO_NoSwap_L(MMIOBase, ioToMmioOffset(reg), value, #reg)
+#define R_MMIO_L(reg)               readMMIO_L(MMIOBase, ioToMmioOffset(reg), #reg)
+#define TST_MMIO_L(reg, mask)       ((readMMIO_NoSwap_L(MMIOBase, reg, #reg) & SWAPL(mask)) != 0)
 
 void dumpMach32Eeprom(BoardInfo_t *bi);
 
