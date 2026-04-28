@@ -441,7 +441,7 @@ UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD widt
     }
 
     // Pitch needs to be 8 pixels aligned
-    width = (width + 7) & ~7;
+    width     = (width + 7) & ~7;
     UWORD bpr = width * bpp;
 
     if (mi && (mi->Flags & GMF_DOUBLESCAN)) {

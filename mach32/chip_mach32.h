@@ -14,11 +14,11 @@ typedef struct ChipData
     ULONG GEbgPen;
     UBYTE GEmask;
     UBYTE GEdrawMode;
-    UBYTE GEOp; /* BlitterOp_t */
-    UBYTE GEfmt; /* (ULONG)RGBFTYPE; ~0 = unknown / invalidated */
+    UBYTE GEOp;                                 /* BlitterOp_t */
+    UBYTE GEfmt;                                /* (ULONG)RGBFTYPE; ~0 = unknown / invalidated */
     struct RenderInfo srcDstRenderInfoCache[2]; /* 0=dst, 1=src */
-    union{
-        UWORD linePatternCache;   /* last LinePtrn written to PATT_DATA for patterned lines */
+    union {
+        UWORD linePatternCache; /* last LinePtrn written to PATT_DATA for patterned lines */
         UBYTE patternCache[8];
     };
     ULONG patternCacheKey;
@@ -132,47 +132,47 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define PATT_INDEX          0xD6EE  /* W */
 #define PATT_LENGTH         0xD2EE  /* W — same index as R_V_SYNC_WID (R) */
 /* Linear mono/color pattern: PATT_LENGTH[4:0] = (pixel_length - 1); bits 7,15 clear — §9-60 */
-#define PATT_LENGTH_MONO16  15u     /* 16-pixel line stipple */
-#define PCI_CNTL            0x22EE  /* R/W — “DAC_CONT (PCI)” in appendix */
-#define PIX_TRANS           0xE2E8  /* R/W */
-#define R_EXT_GE_CONFIG     0x8EEE  /* R — same index as PATT_DATA (W) */
-#define R_H_SYNC_STRT       0xB6EE  /* R — same index as ALU_BG_FN (W) */
-#define R_H_SYNC_WID        0xBAEE  /* R — same index as ALU_FG_FN (W) */
-#define R_H_TOTAL_DISP      0xB2EE  /* R — same index as SRC_X_START (W) */
-#define R_MISC_CNTL         0x92EE  /* R */
-#define R_SRC_X             0xDAEE  /* R — same index as SCISSOR_LEFT (W) */
-#define R_SRC_Y             0xDEEE  /* R — same index as SCISSOR_TOP (W) */
-#define R_V_DISP            0xC6EE  /* R — same index as EXT_SHORT_STROKE (W) */
-#define R_V_SYNC_STRT       0xCAEE  /* R — same index as SCAN_TO_X (W) */
-#define R_V_SYNC_WID        0xD2EE  /* R — same index as PATT_LENGTH (W) */
-#define R_V_TOTAL           0xC2EE  /* R — same index as SRC_Y_DIR (W) */
-#define RD_MASK             0xAEE8  /* W */
-#define SCAN_TO_X           0xCAEE  /* W — same index as R_V_SYNC_STRT (R) */
-#define SCISSOR_BOTTOM      0xE6EE  /* W */
-#define SCISSOR_LEFT        0xDAEE  /* W — same index as R_SRC_X (R) */
-#define SCISSOR_RIGHT       0xE2EE  /* W */
-#define SCISSOR_TOP         0xDEEE  /* W — same index as R_SRC_Y (R) */
-#define SCRATCH_PAD0        0x52EE  /* R/W */
-#define SCRATCH_PAD1        0x56EE  /* R/W */
-#define SHADOW_CTL          0x46EE  /* W */
-#define SHADOW_SET          0x5AEE  /* W */
-#define SHORT_STROKE        0x9EE8  /* W */
-#define SRC_X_DEST_X        0x8EE8  /* W — SRC_X / DEST_X / DIASTP §8-52 */
-#define SRC_X_END           0xBEEE  /* W */
-#define SRC_X_START         0xB2EE  /* W — same index as R_H_TOTAL_DISP (R) */
-#define SRC_Y_DEST_Y        0x8AE8  /* W — SRC_Y / DEST_Y / AXSTP §8-53 */
-#define SRC_Y_DIR           0xC2EE  /* W — same index as R_V_TOTAL (R) */
-#define SUBSYS_CNTL         0x42E8  /* W — same index as SUBSYS_STATUS (R) */
-#define SUBSYS_STATUS       0x42E8  /* R — same index as SUBSYS_CNTL (W) */
-#define V_DISP              0x16E8  /* W */
-#define V_SYNC_STRT         0x1AE8  /* W */
-#define V_SYNC_WID          0x1EE8  /* W */
-#define V_TOTAL             0x12E8  /* W */
-#define VERT_CURSOR_OFFSET  0x1EEF  /* W */
-#define VERT_CURSOR_POSN    0x16EE  /* W — same index as CONFIG_STATUS_2 (R) */
-#define VERT_LINE_CNTR      0xCEEE  /* R — same index as DP_CONFIG (W) */
-#define VERT_OVERSCAN       0x66EE  /* W */
-#define WRT_MASK            0xAAE8  /* W */
+#define PATT_LENGTH_MONO16 15u    /* 16-pixel line stipple */
+#define PCI_CNTL           0x22EE /* R/W — “DAC_CONT (PCI)” in appendix */
+#define PIX_TRANS          0xE2E8 /* R/W */
+#define R_EXT_GE_CONFIG    0x8EEE /* R — same index as PATT_DATA (W) */
+#define R_H_SYNC_STRT      0xB6EE /* R — same index as ALU_BG_FN (W) */
+#define R_H_SYNC_WID       0xBAEE /* R — same index as ALU_FG_FN (W) */
+#define R_H_TOTAL_DISP     0xB2EE /* R — same index as SRC_X_START (W) */
+#define R_MISC_CNTL        0x92EE /* R */
+#define R_SRC_X            0xDAEE /* R — same index as SCISSOR_LEFT (W) */
+#define R_SRC_Y            0xDEEE /* R — same index as SCISSOR_TOP (W) */
+#define R_V_DISP           0xC6EE /* R — same index as EXT_SHORT_STROKE (W) */
+#define R_V_SYNC_STRT      0xCAEE /* R — same index as SCAN_TO_X (W) */
+#define R_V_SYNC_WID       0xD2EE /* R — same index as PATT_LENGTH (W) */
+#define R_V_TOTAL          0xC2EE /* R — same index as SRC_Y_DIR (W) */
+#define RD_MASK            0xAEE8 /* W */
+#define SCAN_TO_X          0xCAEE /* W — same index as R_V_SYNC_STRT (R) */
+#define SCISSOR_BOTTOM     0xE6EE /* W */
+#define SCISSOR_LEFT       0xDAEE /* W — same index as R_SRC_X (R) */
+#define SCISSOR_RIGHT      0xE2EE /* W */
+#define SCISSOR_TOP        0xDEEE /* W — same index as R_SRC_Y (R) */
+#define SCRATCH_PAD0       0x52EE /* R/W */
+#define SCRATCH_PAD1       0x56EE /* R/W */
+#define SHADOW_CTL         0x46EE /* W */
+#define SHADOW_SET         0x5AEE /* W */
+#define SHORT_STROKE       0x9EE8 /* W */
+#define SRC_X_DEST_X       0x8EE8 /* W — SRC_X / DEST_X / DIASTP §8-52 */
+#define SRC_X_END          0xBEEE /* W */
+#define SRC_X_START        0xB2EE /* W — same index as R_H_TOTAL_DISP (R) */
+#define SRC_Y_DEST_Y       0x8AE8 /* W — SRC_Y / DEST_Y / AXSTP §8-53 */
+#define SRC_Y_DIR          0xC2EE /* W — same index as R_V_TOTAL (R) */
+#define SUBSYS_CNTL        0x42E8 /* W — same index as SUBSYS_STATUS (R) */
+#define SUBSYS_STATUS      0x42E8 /* R — same index as SUBSYS_CNTL (W) */
+#define V_DISP             0x16E8 /* W */
+#define V_SYNC_STRT        0x1AE8 /* W */
+#define V_SYNC_WID         0x1EE8 /* W */
+#define V_TOTAL            0x12E8 /* W */
+#define VERT_CURSOR_OFFSET 0x1EEF /* W */
+#define VERT_CURSOR_POSN   0x16EE /* W — same index as CONFIG_STATUS_2 (R) */
+#define VERT_LINE_CNTR     0xCEEE /* R — same index as DP_CONFIG (W) */
+#define VERT_OVERSCAN      0x66EE /* W */
+#define WRT_MASK           0xAAE8 /* W */
 
 /* MULTI_FUNC_CNTL (0xBEE8): minor-axis / height for rectangle fills — REG688000-15 §8-43–8-50 */
 #define MULTI_FUNC_CNTL 0xBEE8
