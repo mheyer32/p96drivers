@@ -42,15 +42,41 @@ const UWORD LibRevision = LIB_REVISION;
 int debugLevel = TELLALL;
 #endif
 
-static void INLINE waitFifo(const BoardInfo_t *bi, UBYTE slots)
+static INLINE UBYTE extFifoSlotsFree(UWORD extFifoStatus)
+{
+    /*
+     * EXT_FIFO_STATUS[15:0] reflects command FIFO occupancy.
+     * 0x0000 -> FIFO empty (all slots free)
+     * 0xFFFF -> FIFO full  (no slots free)
+     */
+    return 16-(UBYTE)__builtin_popcount(extFifoStatus);
+}
+
+static void INLINE waitFifo(BoardInfo_t *bi, UBYTE slots)
 {
     if (!slots) {
         return;
     }
+
+    ChipData_t *cd = getChipData(bi);
+
+    if (cd->fifoSlotsCached >= slots) {
+        cd->fifoSlotsCached -= slots;
+        return;
+    }
+
     flushWrites();
     REGBASE();
-    while ((R_IO_W(EXT_FIFO_STATUS) & 0xffff) > ((ULONG)(0x8000 >> slots)))
-        ;
+    UBYTE freeSlots;
+    do {
+        freeSlots = extFifoSlotsFree(R_IO_W(EXT_FIFO_STATUS));
+    } while (freeSlots < slots);
+
+    if (freeSlots > slots) {
+        cd->fifoSlotsCached = (UBYTE)(freeSlots - slots);
+    } else {
+        cd->fifoSlotsCached = 0;
+    }
 }
 
 static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
@@ -1474,6 +1500,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         cd->GEdrawMode      = 0xFF;
         cd->GEOp            = 0; /* BlitterOp_t None */
         cd->GEfmt           = ~0;
+        cd->fifoSlotsCached = 0;
         cd->patternCacheKey = 0xFFFFFFFFu;
         for (int i = 0; i < 8; ++i) {
             cd->patternCache[i] = 0;

@@ -10,7 +10,6 @@
 
 typedef struct ChipData
 {
-    const struct RamdacOps *ramdacOps;
     ULONG GEfgPen;
     ULONG GEbgPen;
     UBYTE GEmask;
@@ -18,12 +17,14 @@ typedef struct ChipData
     UBYTE GEOp; /* BlitterOp_t */
     UBYTE GEfmt; /* (ULONG)RGBFTYPE; ~0 = unknown / invalidated */
     struct RenderInfo srcDstRenderInfoCache[2]; /* 0=dst, 1=src */
-    ULONG patternCacheKey;
     union{
         UWORD linePatternCache;   /* last LinePtrn written to PATT_DATA for patterned lines */
         UBYTE patternCache[8];
     };
+    ULONG patternCacheKey;
     UBYTE lineMode; /* 0 = invalid, 1 = solid (DP replace + mask=1), 2 = patterned mono stipple */
+    UBYTE fifoSlotsCached;
+    const struct RamdacOps *ramdacOps;
 } ChipData_t;
 
 STATIC_ASSERT(sizeof(ChipData_t) < SIZEOF_MEMBER(BoardInfo_t, ChipData), chipdata_fits_boardinfo);
