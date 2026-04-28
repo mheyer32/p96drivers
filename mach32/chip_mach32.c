@@ -90,6 +90,11 @@ static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
     }
 }
 
+static INLINE ULONG getMemoryOffset(struct BoardInfo *bi, APTR memory)
+{
+    return (ULONG)memory - (ULONG)bi->MemoryBase;
+}
+
 /* 8514/A CRT: horizontal in units of 8 pixels; vertical in lines (see DISP_CNTL Y_CONTROL). */
 static INLINE UWORD toChars(UWORD pixels)
 {
@@ -387,7 +392,7 @@ void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REG
 
     bi->XOffset = xoffset;
     bi->YOffset = yoffset;
-    memOffset   = (ULONG)memory - (ULONG)bi->MemoryBase;
+    memOffset   = getMemoryOffset(bi, memory);
 
     UBYTE bpp = getBPP(format);
     panOffset = (yoffset * width + xoffset) * bpp;
@@ -435,17 +440,17 @@ UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD widt
         bpp = 4;
         break;
     }
+
+    // Pitch needs to be 8 pixels aligned
+    width = (width + 7) & ~7;
     UWORD bpr = width * bpp;
-    return (bpr + 63) & ~63;
 }
 
 APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system),
                       __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
 {
-    // We always overallocate by 8 bytes to be able to align the memory to 8 bytes in CalculateMemory
-    // SGRAM requries 64byte alignment
-    // size += 8;
-    size += 64;
+    // Align offsets to 4 Bytes
+    size += 3;
     return getConstCardData(bi)->AllocCardMemDefault(bi, size, force, system, bytesperrow, mi, format);
 }
 
@@ -456,7 +461,7 @@ APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REG
     (void)bi;
     (void)ri;
     (void)format;
-    return (APTR)(((ptrint_t)mem + 63u) & ~(ptrint_t)63u);
+    return (APTR)(((ULONG)mem + 3) & ~3);
 }
 
 ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
@@ -662,11 +667,6 @@ static ULONG ASM GetVBeamPos(__REGA0(struct BoardInfo *bi))
  * FillRect — same driver-level structure as mach64/chip_mach64.c (setDstBuffer, pen/mask/GEOp cache,
  * drawRect kick). I/O-mapped IBM 8514/A-style engine registers (REG688000-15 §8–9, Appendix A).
  */
-
-static INLINE ULONG getMemoryOffset(struct BoardInfo *bi, APTR memory)
-{
-    return (ULONG)memory - (ULONG)bi->MemoryBase;
-}
 
 // FIXME: refactor to unify with SetDAC
 static void computeGEConfig(RGBFTYPE fmt, UWORD *maskOut, UWORD *valOut)
