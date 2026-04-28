@@ -223,13 +223,19 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     bi->ChipBase                  = ChipBase;
     bi->RegisterBase              = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
     getCardData(bi)->legacyIOBase = bi->RegisterBase;
+    // MMIO registers are in the last 128 DWORD of the 4MB Aperture
+    // assert(memory0Size == 4 * 1024 * 1024);
+    bi->MemoryIOBase = (UBYTE *)memory0 + 4 * 1024 * 1024 - 128 * 4 + MMIOREGISTER_OFFSET;
 
-    bi->MemoryBase = (UBYTE*)memory0;
+    bi->MemoryBase = (UBYTE *)memory0;
     bi->MemorySize = memory0Size;
 
-    /* Registers: PCI legacy I/O only (RegisterBase). No framebuffer BAR MMIO alias. */
-    bi->MemoryIOBase = NULL;
-    setCacheMode(bi, (APTR)memory0, memory0Size, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED, CACHEFLAGS);
+    setCacheMode(bi, (APTR)memory0, memory0Size - 512, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED,
+                 CACHEFLAGS);
+    setCacheMode(bi, (APTR)bi->MemoryIOBase, 512, MAPP_CACHEINHIBIT | MAPP_IO, CACHEFLAGS);
+
+    bi->MemoryIOBase += MMIOREGISTER_OFFSET;
+
 
     D(INFO, "ATIMach32.card calling InitChip...\n");
     if (!InitChip(bi)) {
@@ -275,7 +281,7 @@ int main(void)
 
     struct BoardInfo *bi = &boardInfo;
     bi->ExecBase         = SysBase;
-    bi->UtilBase         = (struct Library*)UtilityBase;
+    bi->UtilBase         = (struct Library *)UtilityBase;
 
     if (!FindCard(bi, NULL)) {
         goto exit;

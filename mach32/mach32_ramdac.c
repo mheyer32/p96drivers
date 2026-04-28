@@ -45,8 +45,8 @@ static ULONG logicalToSynthHzMultiplier(RGBFTYPE fmt)
 
 ULONG HzForClockIndexAsLogicalDotsPerSecond(ULONG index, RGBFTYPE format)
 {
-    ULONG raw   = HzForClockIndex(index);
-    ULONG mult  = logicalToSynthHzMultiplier(format);
+    ULONG raw  = HzForClockIndex(index);
+    ULONG mult = logicalToSynthHzMultiplier(format);
     if (mult <= 1)
         return raw;
     return raw / mult;
@@ -73,10 +73,10 @@ LONG ResolveModeInfoPixelClock(struct ModeInfo *mi, ULONG targetHz, RGBFTYPE for
         }
     }
 
-    DFUNC(VERBOSE, "bestIndex=%ld, synthHz=%lu logicalDotsPerS=%lu\n", (ULONG)bestIndex, HzForClockIndex((ULONG)bestIndex),
-          targetHz);
+    DFUNC(VERBOSE, "bestIndex=%ld, synthHz=%lu logicalDotsPerS=%lu\n", (ULONG)bestIndex,
+          HzForClockIndex((ULONG)bestIndex), targetHz);
 
-    UBYTE selEnc = ati1811_1_clkIndices[bestIndex];
+    UBYTE selEnc   = ati1811_1_clkIndices[bestIndex];
     mi->PixelClock = targetHz;
 
     /* Use the Tseng-style ModeInfo union members: pll1.Clock / pll2.ClockDivide. */
@@ -155,9 +155,9 @@ static void generic_setClock(BoardInfo_t *bi)
     DFUNC(VERBOSE, "SetClock to clock index %ld (/%ld) vfifo=%ld\n", (ULONG)sel, (ULONG)mi->pll2.ClockDivide,
           (ULONG)vfifoDepthForFormat(bi->RGBFormat));
 
-    REGBASE();
-    W_IO_MASK_W(CLOCK_SEL, CLK_SEL_MASK | CLK_DIV_MASK | VFIFO_DEPTH_MASK | PASS_THROUGH_DISABLE_MASK,
-                bits | PASS_THROUGH_DISABLE);
+    MMIOBASE();
+    W_MMIO_MASK_W(CLOCK_SEL, CLK_SEL_MASK | CLK_DIV_MASK | VFIFO_DEPTH_MASK | PASS_THROUGH_DISABLE_MASK,
+                  bits | PASS_THROUGH_DISABLE);
 }
 
 static ULONG generic_setMemoryClock(BoardInfo_t *bi, ULONG clockHz)
@@ -187,8 +187,8 @@ static void bt481_enterExtended(BoardInfo_t *bi)
     // Alternative access mode for cards that have RS2 grounded
     // W_REG(DAC_MASK, 0xFF);
     // Read Pixel Read Mask Register 4 times consecutively, so that the next write will be directed to Command Register
-    // A. R_REG(DAC_MASK); R_REG(DAC_MASK); R_REG(DAC_MASK); R_REG(DAC_MASK); W_REG(DAC_MASK, 0x01); /* Command A: A0=1
-    // → extended set enabled */
+    // A. R_REG(DAC_MASK); R_REG(DAC_MASK); R_REG(DAC_MASK); R_REG(DAC_MASK); W_REG(DAC_MASK, 0x01); /*
+    // Command A: A0=1 → extended set enabled */
 }
 
 static void bt481_exitExtended(BoardInfo_t *bi)
@@ -232,14 +232,15 @@ BOOL initBt481(BoardInfo_t *bi)
     UBYTE sig = R_REG(DAC_MASK);
 
     // BT481_CMD_B_SIGNATURE will on ly be there once, during power up.
-    if (sig != BT481_CMD_B_SIGNATURE && sig != (BT481_CMD_B_7_5_IRE | BT481_CMD_B_8BIT_DAC) && sig != BT481_CMD_B_7_5_IRE) {
+    if (sig != BT481_CMD_B_SIGNATURE && sig != (BT481_CMD_B_7_5_IRE | BT481_CMD_B_8BIT_DAC) &&
+        sig != BT481_CMD_B_7_5_IRE) {
         DFUNC(ERROR, "Bt481 init failed: expected signature 0x%02x, got 0x%02x\n", BT481_CMD_B_SIGNATURE, sig);
         bt481_exitExtended(bi);
 
         return FALSE;
     }
 
-    UBYTE cmdB = BT481_CMD_B_7_5_IRE; // FIXME: eventually make it configurable via ToolTypes
+    UBYTE cmdB = BT481_CMD_B_7_5_IRE;  // FIXME: eventually make it configurable via ToolTypes
     if (bi->BitsPerCannon == 8) {
         cmdB |= BT481_CMD_B_8BIT_DAC;
     }
