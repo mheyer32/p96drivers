@@ -700,10 +700,17 @@ static INLINE void setBlitterFormat(BoardInfo_t *bi, RGBFTYPE fmt)
     cd->GEfmt = f;
 
     WaitBlitter(bi);
-    REGBASE();
     UWORD emask, eval;
     computeGEConfig(fmt, &emask, &eval);
+
+    REGBASE();
     W_EXT_GE_CONFIG_MASK(emask, eval);
+
+    if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
+        cd->GEmask = 0xFF;
+        W_IO_NOSWAP_W(WRT_MASK, 0xFFFF);
+    }
+
     flushWrites();
 }
 
@@ -727,24 +734,15 @@ static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
     return pen;
 }
 
-static INLINE void setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fmt, BYTE waitFifoSlots)
+static INLINE void setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fmt, UBYTE waitFifoSlots)
 {
     ChipData_t *cd = getChipData(bi);
 
-    if (fmt != RGBFB_CLUT) {
-        if (cd->GEmask != 0xFF) {
-            cd->GEmask = 0xFF;
-            waitFifo(bi, waitFifoSlots + 1);
-            REGBASE();
-            W_IO_W(WRT_MASK, 0xFFFF);
-        } else {
-            waitFifo(bi, waitFifoSlots);
-        }
-    } else if (cd->GEmask != mask) {
+    if (fmt == RGBFB_CLUT && cd->GEmask != mask) {
         cd->GEmask = mask;
         waitFifo(bi, waitFifoSlots + 1);
         REGBASE();
-        W_IO_W(WRT_MASK, mask);
+        W_IO_NOSWAP_W(WRT_MASK, ((mask << 8) | mask));
     } else {
         waitFifo(bi, waitFifoSlots);
     }
