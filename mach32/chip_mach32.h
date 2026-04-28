@@ -16,8 +16,8 @@ typedef struct ChipData
     UBYTE GEmask;
     UBYTE GEdrawMode;
     UBYTE GEOp; /* BlitterOp_t */
-    UBYTE MemFormat;
-    struct RenderInfo dstBuffer;
+    UBYTE GEfmt; /* (ULONG)RGBFTYPE; ~0 = unknown / invalidated */
+    struct RenderInfo srcDstRenderInfoCache[2]; /* 0=dst, 1=src */
     ULONG patternCacheKey;
     UBYTE patternCache[8];
 } ChipData_t;
