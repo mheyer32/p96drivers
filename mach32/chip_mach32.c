@@ -49,7 +49,7 @@ static INLINE UBYTE extFifoSlotsFree(UWORD extFifoStatus)
      * 0x0000 -> FIFO empty (all slots free)
      * 0xFFFF -> FIFO full  (no slots free)
      */
-    return 16-(UBYTE)__builtin_popcount(extFifoStatus);
+    return 16 - (UBYTE)__builtin_popcount(extFifoStatus);
 }
 
 static void INLINE waitFifo(BoardInfo_t *bi, UBYTE slots)
@@ -1213,6 +1213,147 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     flushWrites();
 }
 
+static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY, WORD width, WORD height,
+                                          const UBYTE *bitmap, WORD bmPitch, UWORD rol)
+{
+    /* 16 pixels per PIX_TRANS word. Round up width+offset to 16. */
+    UWORD blitWidth = (UWORD)((width + rol + 15u) & ~15u);
+    drawRect(bi, dstX, dstY, blitWidth, height);
+
+    UWORD wordsPerLn   = blitWidth >> 4;
+    UWORD numFifoSlots = wordsPerLn * height + 3;
+    if (numFifoSlots > 16) {
+        numFifoSlots = 16;
+    }
+    waitFifo(bi, numFifoSlots);
+    UWORD usedFifoSlots = 16 - numFifoSlots;
+
+    REGBASE();
+    if ((ULONG)bitmap == 0) {
+        for (UWORD row = 0; row < (UWORD)height; ++row) {
+            for (UWORD col = 0; col < wordsPerLn; ++col) {
+                W_IO_W(PIX_TRANS, 0);
+                usedFifoSlots = (usedFifoSlots + 1) & 15;
+                if (!usedFifoSlots) {
+                    waitFifo(bi, 16);
+                }
+            }
+        }
+    } else if ((ULONG)bitmap == 0xFFFFFFFFu) {
+        for (UWORD row = 0; row < (UWORD)height; ++row) {
+            for (UWORD col = 0; col < wordsPerLn; ++col) {
+                W_IO_W(PIX_TRANS, 0xFFFF);
+                usedFifoSlots = (usedFifoSlots + 1) & 15;
+                if (!usedFifoSlots) {
+                    waitFifo(bi, 16);
+                }
+            }
+        }
+    } else {
+        for (UWORD row = 0; row < (UWORD)height; ++row) {
+            const UBYTE *src = bitmap;
+            if (!rol) {
+                for (UWORD col = 0; col < wordsPerLn; ++col) {
+                    UWORD w = readUWordUnalignedBE(src + col * 2);
+                    W_IO_W(PIX_TRANS, w);
+
+                    usedFifoSlots = (usedFifoSlots + 1) & 15;
+                    if (!usedFifoSlots) {
+                        waitFifo(bi, 16);
+                    }
+                }
+            } else {
+                for (UWORD col = 0; col < wordsPerLn; ++col) {
+                    UWORD w0 = readUWordUnalignedBE(src + col * 2);
+                    UWORD w1 = readUWordUnalignedBE(src + (col + 1) * 2);
+                    UWORD w  = (UWORD)((w0 << rol) | (w1 >> (16u - rol)));
+                    W_IO_W(PIX_TRANS, w);
+
+                    usedFifoSlots = (usedFifoSlots + 1) & 15;
+                    if (!usedFifoSlots) {
+                        waitFifo(bi, 16);
+                    }
+                }
+            }
+            bitmap += bmPitch;
+        }
+    }
+}
+
+static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct BitMap *bm),
+                                  __REGA2(struct RenderInfo *ri), __REGD0(SHORT srcX), __REGD1(SHORT srcY),
+                                  __REGD2(SHORT dstX), __REGD3(SHORT dstY), __REGD4(SHORT width), __REGD5(SHORT height),
+                                  __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
+{
+    DFUNC(VERBOSE,
+          "\nsrcX %ld, srcY %ld, dstX %ld, dstY %ld, w %ld, h %ld"
+          "\nmask 0x%lx minTerm %ld\n"
+          "ri->bytesPerRow %ld, ri->memory 0x%lx\n",
+          (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)minTerm,
+          (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
+
+    if (bm->Depth > 8) {
+        bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
+        return;
+    }
+
+    setFarBlitBuffer(bi, ri, RGBFB_CLUT, 0);
+
+    ChipData_t *cd = getChipData(bi);
+    if (cd->GEOp != BLITPLANAR2CHUNKY) {
+        cd->GEOp       = BLITPLANAR2CHUNKY;
+        cd->GEdrawMode = 0xFF;
+        cd->GEmask     = 0xFF;
+        cd->GEfgPen    = ~0UL;
+        cd->GEbgPen    = 0;
+
+        waitFifo(bi, 2);
+        REGBASE();
+        W_IO_W(DP_CONFIG, DP_CONFIG_TEMPLATE);
+        W_IO_W(WRT_MASK, 0xFFFF);
+    }
+
+    UBYTE mix = minTermToMix[minTerm & 0xF];
+    if (cd->GEdrawMode != minTerm) {
+        cd->GEdrawMode = minTerm;
+        waitFifo(bi, 2);
+        REGBASE();
+        W_IO_W(FRGD_MIX, (UWORD)(CLR_SRC_FRGD_COLOR | mix));
+        W_IO_W(BKGD_MIX, (UWORD)(CLR_SRC_BKGD_COLOR | mix));
+    }
+
+    waitFifo(bi, 3);
+    REGBASE();
+    W_IO_W(FRGD_COLOR, 0xFF);
+    W_IO_W(BKGD_COLOR, 0x00);
+
+    /* Clip padding (and avoid CPU bit-rotation into left margin). */
+    W_IO_W(SCISSOR_RIGHT, dstX + width - 1);
+
+    WORD bmPitch        = bm->BytesPerRow;
+    ULONG bmStartOffset = (ULONG)(srcY * bmPitch) + (ULONG)((srcX >> 4) * 2);
+    UWORD rol           = (UWORD)(srcX & 15);
+
+    for (UBYTE p = 0; p < bm->Depth; ++p) {
+        UBYTE writeMask = (UBYTE)(1u << p);
+        if (!(mask & writeMask)) {
+            continue;
+        }
+
+        setWriteMask(bi, writeMask, RGBFB_CLUT, 0);
+
+        const UBYTE *bitmap = (const UBYTE *)bm->Planes[p];
+        if ((ULONG)bitmap != 0 && (ULONG)bitmap != 0xFFFFFFFFu) {
+            bitmap += bmStartOffset;
+        }
+        performBlitPlanar2ChunkyBlits(bi, dstX, dstY, width, height, bitmap, bmPitch, rol);
+    }
+
+    waitFifo(bi, 1);
+    W_IO_W(SCISSOR_RIGHT, 0x7FF);
+    flushWrites();
+}
+
 static INLINE void REGARGS rotate8x8MonoPattern(UBYTE rows[8], UBYTE offX, UBYTE offY)
 {
     if (offX & 7u) {
@@ -1548,9 +1689,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->InvertRect             = InvertRect;
     bi->FillRect               = FillRect;
     bi->BlitTemplate           = BlitTemplate;
-    // bi->BlitPlanar2Chunky      = bi->BlitPlanar2ChunkyDefault;
-    bi->DrawLine    = DrawLine;
-    bi->BlitPattern = BlitPattern;
+    bi->BlitPlanar2Chunky      = BlitPlanar2Chunky;
+    bi->DrawLine               = DrawLine;
+    bi->BlitPattern            = BlitPattern;
 
     bi->MaxBMWidth  = 2048;
     bi->MaxBMHeight = 2048;
