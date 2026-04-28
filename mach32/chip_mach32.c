@@ -1290,7 +1290,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
           (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)minTerm,
           (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
 
-    if (bm->Depth > 8) {
+    if (width < 64 || height < 64) {
         bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
         return;
     }
@@ -1305,10 +1305,12 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         cd->GEfgPen    = ~0UL;
         cd->GEbgPen    = 0;
 
-        waitFifo(bi, 2);
+        waitFifo(bi, 4);
         REGBASE();
         W_IO_W(DP_CONFIG, DP_CONFIG_TEMPLATE);
         W_IO_W(WRT_MASK, 0xFFFF);
+        W_IO_W(FRGD_COLOR, 0xFF);
+        W_IO_W(BKGD_COLOR, 0x00);
     }
 
     UBYTE mix = minTermToMix[minTerm & 0xF];
@@ -1320,10 +1322,8 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         W_IO_W(BKGD_MIX, (UWORD)(CLR_SRC_BKGD_COLOR | mix));
     }
 
-    waitFifo(bi, 3);
+    waitFifo(bi, 1);
     REGBASE();
-    W_IO_W(FRGD_COLOR, 0xFF);
-    W_IO_W(BKGD_COLOR, 0x00);
 
     /* Clip padding (and avoid CPU bit-rotation into left margin). */
     W_IO_W(SCISSOR_RIGHT, dstX + width - 1);
