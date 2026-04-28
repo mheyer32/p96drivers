@@ -265,7 +265,7 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xp
     }
 
     if (bi->ModeInfo && (bi->ModeInfo->Flags & GMF_DOUBLESCAN)) {
-        spriteY *= 2;
+        // spriteY *= 2;
     }
 
     MMIOBASE();
@@ -396,8 +396,6 @@ void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REG
 
     UBYTE bpp = getBPP(format);
     panOffset = (yoffset * width + xoffset) * bpp;
-
-    pitch     = width / 8;                    // pitch in 8 pixels
     panOffset = (panOffset + memOffset) / 4;  // offset in 32bit words
 
     D(VERBOSE, "panOffset 0x%lx, pitch %ld qwords\n", panOffset, (ULONG)pitch);
@@ -405,6 +403,11 @@ void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REG
     MMIOBASE();
     W_MMIO_W(CRT_OFFSET_LO, panOffset & 0xFFFF);
     W_MMIO_W(CRT_OFFSET_HI, (panOffset >> 16));
+
+    pitch     = width / 8;                    // pitch in 8 pixels
+    // if (bi->ModeInfo && (bi->ModeInfo->Flags & GMF_DOUBLESCAN)) {
+    //     pitch = -pitch;
+    // }
     /* Linear scanout advances by CRT_PITCH once per physical raster line. DISP_CNTL
      * DOUBLE_SCAN (SetGC) shapes the 8514/A line counter for sync/blanking; it does
      * not by itself halve row-increment rate. Line doubling for the framebuffer is
@@ -445,17 +448,31 @@ UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD widt
     UWORD bpr = width * bpp;
 
     if (mi && (mi->Flags & GMF_DOUBLESCAN)) {
+        if (width > 1024) {
+            return 0;
+        }
         bpr <<= 1;
     }
     return bpr;
 }
 
+static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
+                         __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(ULONG pen),
+                         __REGD5(UBYTE mask), __REGD7(RGBFTYPE fmt));
+
 APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system),
                       __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
 {
-    // Align offsets to 4 Bytes
-    size += 3;
-    return getConstCardData(bi)->AllocCardMemDefault(bi, size, force, system, bytesperrow, mi, format);
+    APTR mem = getConstCardData(bi)->AllocCardMemDefault(bi, size, force, system, bytesperrow, mi, format);
+
+    if (mi && (mi->Flags & GMF_DOUBLESCAN)) {
+        struct RenderInfo ri = {.Memory = (APTR)((ULONG)mem + bytesperrow/2), .BytesPerRow = bytesperrow, .RGBFormat = format};
+        WaitBlitter(bi);
+        FillRect(bi, &ri, 0, 0, mi->Width, mi->Height, 0, 0xFF, format);
+        WaitBlitter(bi);
+    }
+
+    return mem;
 }
 
 APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REGD0(struct RenderInfo *ri),
