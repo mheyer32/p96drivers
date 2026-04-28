@@ -418,7 +418,6 @@ UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD widt
     DFUNC(VERBOSE, "width=%lu height=%lu mi=0x%lx fmt=%ld\n", (ULONG)width, (ULONG)height, (ULONG)mi, (ULONG)format);
     (void)bi;
     (void)height;
-    (void)mi;
     UBYTE bpp = 1;
     switch (format) {
     case RGBFB_CLUT:
@@ -444,6 +443,11 @@ UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD widt
     // Pitch needs to be 8 pixels aligned
     width = (width + 7) & ~7;
     UWORD bpr = width * bpp;
+
+    if (mi && (mi->Flags & GMF_DOUBLESCAN)) {
+        bpr <<= 1;
+    }
+    return bpr;
 }
 
 APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system),
