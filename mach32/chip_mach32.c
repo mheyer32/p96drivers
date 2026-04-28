@@ -44,6 +44,9 @@ int debugLevel = TELLALL;
 
 static void INLINE waitFifo(const BoardInfo_t *bi, UBYTE slots)
 {
+    if (!slots) {
+        return;
+    }
     flushWrites();
     REGBASE();
     while ((R_IO_W(EXT_FIFO_STATUS) & 0xffff) > ((ULONG)(0x8000 >> slots)))
@@ -660,6 +663,24 @@ static void computeGEConfig(RGBFTYPE fmt, UWORD *maskOut, UWORD *valOut)
     *valOut = cfg;
 }
 
+static INLINE void setBlitterFormat(BoardInfo_t *bi, RGBFTYPE fmt)
+{
+    ChipData_t *cd = getChipData(bi);
+    ULONG f        = (ULONG)fmt;
+
+    if (cd->GEfmt == f) {
+        return;
+    }
+    cd->GEfmt = f;
+
+    WaitBlitter(bi);
+    REGBASE();
+    UWORD emask, eval;
+    computeGEConfig(fmt, &emask, &eval);
+    W_EXT_GE_CONFIG_MASK(emask, eval);
+    flushWrites();
+}
+
 static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 {
     switch (fmt) {
@@ -703,46 +724,47 @@ static INLINE void setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fmt, BYTE 
     }
 }
 
-static BOOL setDstBuffer(BoardInfo_t *bi, const struct RenderInfo *ri, RGBFTYPE fmt)
+/* SHADOW_SET[9:8] selects which GE_OFFSET/GE_PITCH shadow to load (REG688000-15 “Far-Blit”). */
+#define SHADOW_SET_GE_PTR_SHIFT 8u
+#define SHADOW_SET_GE_PTR_MASK  (3u << SHADOW_SET_GE_PTR_SHIFT)
+#define SHADOW_SET_GE_PTR_BOTH  (0u << SHADOW_SET_GE_PTR_SHIFT)
+#define SHADOW_SET_GE_PTR_DST   (1u << SHADOW_SET_GE_PTR_SHIFT)
+#define SHADOW_SET_GE_PTR_SRC   (2u << SHADOW_SET_GE_PTR_SHIFT)
+
+/* Far-Blit: load dst and src offset/pitch independently via SHADOW_SET[9:8]. */
+static INLINE void setFarBlitBuffer(BoardInfo_t *bi, const struct RenderInfo *ri, RGBFTYPE fmt, UWORD srcOrDst)
 {
     ChipData_t *cd = getChipData(bi);
+    struct RenderInfo *cachedRi = NULL;
+    UWORD shadowSel = (srcOrDst + 1) << SHADOW_SET_GE_PTR_SHIFT;
 
-    if (memcmp(ri, &cd->dstBuffer, sizeof(struct RenderInfo)) == 0) {
-        /* Far-Blit may have left SHADOW_SET selecting a non-default GE ptr shadow. */
-        waitFifo(bi, 1);
-        REGBASE();
-        W_IO_W(SHADOW_SET, 0);
-        return TRUE;
+    /* Keep draw engine's format in sync with pitch/offset programming. */
+    setBlitterFormat(bi, fmt);
+
+    cachedRi = &cd->srcDstRenderInfoCache[srcOrDst];
+    if (memcmp(ri, cachedRi, sizeof(*cachedRi)) == 0) {
+        return;
     }
-
-    WaitBlitter(bi);
-
-    cd->dstBuffer = *ri;
+    *cachedRi = *ri;
 
     UBYTE bppLog2  = getBPPLog2(fmt);
-    UWORD pitch    = (UWORD)ri->BytesPerRow >> (bppLog2 + 3);
+    UWORD pitch    = ri->BytesPerRow >> (bppLog2 + 3);
     ULONG offWords = getMemoryOffset(bi, ri->Memory) >> 2;
 
+    WaitBlitter(bi);
     REGBASE();
-    /* Ensure GE_OFFSET/GE_PITCH hit the default shadow (Far-Blit may have switched it). */
-    W_IO_W(SHADOW_SET, 0);
+    /* Select dst/src shadow for GE_OFFSET/GE_PITCH load. */
+    W_IO_W(SHADOW_SET, shadowSel);
     W_IO_W(GE_PITCH, pitch);
     W_IO_W(GE_OFFSET_LO, offWords);
     W_IO_W(GE_OFFSET_HI, offWords >> 16);
 
-    {
-        UWORD emask, eval;
-        computeGEConfig(fmt, &emask, &eval);
-
-        W_EXT_GE_CONFIG_MASK(emask, eval);
-    }
-
-    return TRUE;
+    flushWrites();
 }
 
 static void drawRect(BoardInfo_t *bi, WORD x, WORD y, WORD width, WORD height)
 {
-    waitFifo(bi, 6);
+    waitFifo(bi, 5);
     REGBASE();
 
     // W_IO_W(SRC_Y_DIR, 1); // FIXME: needed?
@@ -771,9 +793,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         return;
     }
 
-    if (!setDstBuffer(bi, ri, fmt)) {
-        return;
-    }
+    setFarBlitBuffer(bi, ri, fmt, 0);
 
     ChipData_t *cd = getChipData(bi);
 
@@ -802,8 +822,6 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     setWriteMask(bi, mask, fmt, 0);
     drawRect(bi, x, y, width, height);
-
-    flushWrites();
 }
 
 static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
@@ -823,9 +841,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
         return;
     }
 
-    if (!setDstBuffer(bi, ri, fmt)) {
-        return;
-    }
+    setFarBlitBuffer(bi, ri, fmt, 0);
 
     ChipData_t *cd = getChipData(bi);
 
@@ -833,7 +849,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
         cd->GEOp       = INVERTRECT;
         cd->GEdrawMode = 0xFF;
 
-        waitFifo(bi, 3);
+        waitFifo(bi, 2);
         REGBASE();
 
         W_IO_W(DP_CONFIG, DP_CONFIG_REPLACE);
@@ -843,8 +859,6 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
 
     setWriteMask(bi, mask, fmt, 0);
     drawRect(bi, x, y, width, height);
-
-    flushWrites();
 }
 
 /*
@@ -868,9 +882,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         return;
     }
 
-    if (!setDstBuffer(bi, ri, fmt)) {
-        return;
-    }
+    setFarBlitBuffer(bi, ri, fmt, 0);
 
     ChipData_t *cd = getChipData(bi);
 
@@ -886,9 +898,8 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         W_IO_W(BKGD_MIX, 0x0067);
     }
 
-    setWriteMask(bi, mask, fmt, 0);
+    setWriteMask(bi, mask, fmt, 10);
 
-    waitFifo(bi, 10);
     REGBASE();
 
     if ((dstY > srcY) || (dstY == srcY && dstX > srcX)) {
@@ -947,30 +958,6 @@ static const UBYTE minTermToMix[16] = {
     MIX_ONE,                      // 1111
 };
 
-/* SHADOW_SET[9:8] selects which GE_OFFSET/GE_PITCH shadow to load (REG688000-15 “Far-Blit”). */
-#define SHADOW_SET_GE_PTR_SHIFT 8u
-#define SHADOW_SET_GE_PTR_MASK  (3u << SHADOW_SET_GE_PTR_SHIFT)
-#define SHADOW_SET_GE_PTR_BOTH  (0u << SHADOW_SET_GE_PTR_SHIFT)
-#define SHADOW_SET_GE_PTR_DST   (1u << SHADOW_SET_GE_PTR_SHIFT)
-#define SHADOW_SET_GE_PTR_SRC   (2u << SHADOW_SET_GE_PTR_SHIFT)
-
-static INLINE void setFarBlitBuffer(BoardInfo_t *bi, const struct RenderInfo *ri, RGBFTYPE fmt, UWORD shadowSel)
-{
-    UBYTE bppLog2  = getBPPLog2(fmt);
-    UWORD pitch    = ri->BytesPerRow >> (bppLog2 + 3);
-    ULONG offWords = getMemoryOffset(bi, ri->Memory) >> 2;
-
-    waitFifo(bi, 4);
-    REGBASE();
-
-    /* Select dst/src shadow for GE_OFFSET/GE_PITCH load. */
-    W_IO_W(SHADOW_SET, shadowSel);
-
-    W_IO_W(GE_PITCH, pitch);
-    W_IO_W(GE_OFFSET_LO, offWords);
-    W_IO_W(GE_OFFSET_HI, offWords >> 16);
-}
-
 static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri),
                                        __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY),
                                        __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
@@ -994,20 +981,8 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         return;
     }
 
-    /* Program pixel format once (common). */
-    {
-        UWORD emask, eval;
-        computeGEConfig(fmt, &emask, &eval);
-        W_EXT_GE_CONFIG_MASK(emask, eval);
-    }
-
-    /* Far-Blit: load dst and src offset/pitch independently via SHADOW_SET[9:8]. */
-    setFarBlitBuffer(bi, dri, fmt, SHADOW_SET_GE_PTR_DST);
-    setFarBlitBuffer(bi, sri, fmt, SHADOW_SET_GE_PTR_SRC);
-    // {
-    //     REGBASE();
-    //     W_IO_W(SHADOW_SET, SHADOW_SET_GE_PTR_BOTH);
-    // }
+    setFarBlitBuffer(bi, dri, fmt, 0);
+    setFarBlitBuffer(bi, sri, fmt, 1);
 
     ChipData_t *cd = getChipData(bi);
 
@@ -1017,7 +992,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         cd->GEdrawMode = 0xFF; /* invalidate minterm cache */
         cd->GEmask     = 0xFF;
 
-        waitFifo(bi, 4);
+        waitFifo(bi, 3);
 
         W_IO_W(DP_CONFIG, DP_CONFIG_BLIT);
         W_IO_W(ALU_BG_FN, MIX_ZERO);
@@ -1136,9 +1111,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         return;
     }
 
-    if (!setDstBuffer(bi, ri, fmt)) {
-        return;
-    }
+    setFarBlitBuffer(bi, ri, fmt, 0);
 
     REGBASE();
 
@@ -1153,7 +1126,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     }
 
     setDrawMode(bi, template->FgPen, template->BgPen, template->DrawMode, fmt);
-    setWriteMask(bi, mask, fmt, 3);
+    setWriteMask(bi, mask, fmt, 1);
 
     /* Clip padding (and avoid CPU bit-rotation into left margin). */
     // W_IO_W(SCISSOR_LEFT, x);
@@ -1206,10 +1179,13 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         bitmap += bitmapPitch;
     }
 
+    if (!usedFifoSlots) {
+        waitFifo(bi, 1);
+    }
     // W_IO_W(SCISSOR_LEFT, 0);
     W_IO_W(SCISSOR_RIGHT, 0x7FF);
+    flushWrites();
 }
-
 
 static INLINE void REGARGS rotate8x8MonoPattern(UBYTE rows[8], UBYTE offX, UBYTE offY)
 {
@@ -1254,9 +1230,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         return;
     }
 
-    if (!setDstBuffer(bi, ri, fmt)) {
-        return;
-    }
+    setFarBlitBuffer(bi, ri, fmt, 0);
 
     UWORD patternHeight = (UWORD)(1u << pattern->Size);
     const UWORD *src    = (const UWORD *)pattern->Memory;
@@ -1323,7 +1297,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         W_IO_W(PATT_DATA_INDEX, 0x10);
         /*
          * Empirically, some Mach32 variants appear to interpret the two bytes of each PATT_DATA word as two
-         * successive 8-bit pattern rows in 8x8 mode (low byte first). 
+         * successive 8-bit pattern rows in 8x8 mode (low byte first).
          * So pack two 8-bit rows per register word: low=row0, high=row1, etc.
          */
         UWORD *pattData = (UWORD *)cd->patternCache;
@@ -1346,9 +1320,7 @@ static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         return;
     }
 
-    if (!setDstBuffer(bi, ri, fmt)) {
-        return;
-    }
+    setFarBlitBuffer(bi, ri, fmt, 0);
 
     ChipData_t *cd = getChipData(bi);
     if (cd->GEOp != LINE) {
@@ -1484,18 +1456,19 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     REGBASE();
 
     {
-        ChipData_t *cd      = getChipData(bi);
-        cd->GEfgPen         = ~0UL;
-        cd->GEbgPen         = 0;
-        cd->GEmask          = 0xFF;
-        cd->GEdrawMode      = 0xFF;
-        cd->GEOp            = 0; /* BlitterOp_t None */
-        cd->MemFormat       = 0;
-        cd->patternCacheKey = 0xFFFFFFFFu;
+        ChipData_t *cd       = getChipData(bi);
+        cd->GEfgPen          = ~0UL;
+        cd->GEbgPen          = 0;
+        cd->GEmask           = 0xFF;
+        cd->GEdrawMode       = 0xFF;
+        cd->GEOp             = 0; /* BlitterOp_t None */
+        cd->GEfmt = ~0UL;
+        cd->patternCacheKey  = 0xFFFFFFFFu;
         for (int i = 0; i < 8; ++i) {
             cd->patternCache[i] = 0;
         }
-        memset(&cd->dstBuffer, 0, sizeof(cd->dstBuffer));
+        cd->lineMode = 0xFF;
+        memset(&cd->srcDstRenderInfoCache, 0, sizeof(cd->srcDstRenderInfoCache));
     }
 
     bi->GraphicsControllerType = GCT_ATIRV100;
