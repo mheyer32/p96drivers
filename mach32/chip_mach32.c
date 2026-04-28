@@ -25,7 +25,7 @@ typedef ULONG ptrint_t;
 /******************************************************************************/
 
 const char LibName[]     = "ATIMach32.chip";
-const char LibIdString[] = "ATI Mach32 Picasso96 chip driver version 0.1 (skeleton)";
+const char LibIdString[] = "ATI Mach32 Picasso96 chip driver";
 
 #ifndef LIB_VERSION
 #define LIB_VERSION 1
@@ -465,15 +465,13 @@ APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REG
     (void)bi;
     (void)ri;
     (void)format;
-    return (APTR)(((ULONG)mem + 3) & ~3);
+    return mem;
 }
 
 ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
 {
     DFUNC(VERBOSE, "fmt=%ld\n", (ULONG)format);
     (void)bi;
-    if (format == RGBFB_NONE)
-        return 0;
     return MACH32_SUPPORTED_RGBFF;
 }
 
@@ -667,11 +665,6 @@ static ULONG ASM GetVBeamPos(__REGA0(struct BoardInfo *bi))
     return R_IO_W(VERT_LINE_CNTR) & 0x7FF;
 }
 
-/*
- * FillRect — same driver-level structure as mach64/chip_mach64.c (setDstBuffer, pen/mask/GEOp cache,
- * drawRect kick). I/O-mapped IBM 8514/A-style engine registers (REG688000-15 §8–9, Appendix A).
- */
-
 // FIXME: refactor to unify with SetDAC
 static void computeGEConfig(RGBFTYPE fmt, UWORD *maskOut, UWORD *valOut)
 {
@@ -786,8 +779,6 @@ static INLINE void setFarBlitBuffer(BoardInfo_t *bi, const struct RenderInfo *ri
     W_IO_W(GE_PITCH, pitch);
     W_IO_W(GE_OFFSET_LO, offWords);
     W_IO_W(GE_OFFSET_HI, offWords >> 16);
-
-    flushWrites();
 }
 
 static void drawRect(BoardInfo_t *bi, WORD x, WORD y, WORD width, WORD height)
@@ -815,7 +806,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
           (ULONG)ri->Memory);
 
     UBYTE bpp = getBPP(fmt);
-    if (bpp != 1 && bpp != 2) {
+    if (bpp > 2) {
         DFUNC(INFO, "Fallback to FillRectDefault\n");
         bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, fmt);
         return;
@@ -839,10 +830,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
     if (cd->GEfgPen != pen) {
         cd->GEfgPen = pen;
-
-        ULONG rawPen = pen;
-        pen          = penToColor(pen, fmt);
-
+        pen         = penToColor(pen, fmt);
         waitFifo(bi, 1);
         REGBASE();
         W_IO_W(FRGD_COLOR, pen);
@@ -1619,9 +1607,7 @@ static void logMemoryInfo(BoardInfo_t *bi)
     const char *apStr[] = {"off", "1MB", "4MB"};
 
     D(ALWAYS, "MEM_CFG=0x%04lX: aperture %s, MEM_APERT_LOC=0x%02lx (1MB page index)\n", (ULONG)mem, apStr[sel], loc);
-
     D(ALWAYS, "SUBSYS_STATUS[MEM_SIZE strap]: %s\n", (sub & SUBSYS_MEMSIZE_BIT) ? "1M-class" : "512K-class");
-
     D(ALWAYS, "Framebuffer probe: populated VRAM ~%lu KB \n", bi->MemorySize / 1024UL);
 }
 
@@ -1801,7 +1787,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     /* GE_X_CONTROL[1:0] = 10 (reserved), GE_Y_CONTROL[3:2] = 01 (linear) — REG688000-15 §8-17 */
     W_BEE8(MEM_CNTL, 0x6);
 
-    /* Open scissors and set PIX_CNTL so the GE can actually write pixels (§8-43..8-50). */
     W_BEE8(SCISSORS_T, 0);
     W_BEE8(SCISSORS_L, 0);
     W_BEE8(SCISSORS_B, 0x7FF);
@@ -1812,9 +1797,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     W_IO_W(SCISSOR_RIGHT, 0x7FF);
     W_BEE8(PIXEL_CNTL, MASK_BIT_SRC_ONE);
 
-    /* DP_CONFIG: extended data path defaults — set once after GE reset.
-     * 8514/A CMD operations use FRGD_MIX/BKGD_MIX for color source + mix function,
-     * but DP_CONFIG.DRAW must be enabled and MONO_SRC = always-1 for solid fills. */
     W_IO_W(DP_CONFIG, DP_CONFIG_REPLACE);
     W_IO_W(ALU_FG_FN, 7);
     W_IO_W(DEST_CMP_FN, 0);
