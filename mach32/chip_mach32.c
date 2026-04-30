@@ -400,8 +400,6 @@ void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REG
     panOffset = (yoffset * width + xoffset) * bpp;
     panOffset = (panOffset + memOffset) / 4;  // offset in 32bit words
 
-    D(VERBOSE, "panOffset 0x%lx, pitch %ld qwords\n", panOffset, (ULONG)pitch);
-
     REGBASE();
     W_IO_W(CRT_OFFSET_LO, panOffset & 0xFFFF);
     W_IO_W(CRT_OFFSET_HI, (panOffset >> 16));
@@ -415,6 +413,8 @@ void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REG
      * not by itself halve row-increment rate. Line doubling for the framebuffer is
      * usually tied to the VGA CRTC path (e.g. CR9 doublescan) or other fetch control. */
     W_IO_W(CRT_PITCH, pitch);
+
+    D(VERBOSE, "panOffset 0x%lx, pitch %ld qwords\n", panOffset, (ULONG)pitch);
 }
 
 UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
@@ -467,7 +467,7 @@ APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD
 {
     APTR mem = getConstCardData(bi)->AllocCardMemDefault(bi, size, force, system, bytesperrow, mi, format);
 
-    if (mi && (mi->Flags & GMF_DOUBLESCAN)) {
+    if (mem && mi && (mi->Flags & GMF_DOUBLESCAN)) {
         struct RenderInfo ri = {.Memory = (APTR)((ULONG)mem + bytesperrow/2), .BytesPerRow = bytesperrow, .RGBFormat = format};
         WaitBlitter(bi);
         FillRect(bi, &ri, 0, 0, mi->Width, mi->Height, 0, 0xFF, format);
@@ -1235,6 +1235,7 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
 
     REGBASE();
     if ((ULONG)bitmap == 0) {
+        //FIXME: use blitter fill instead
         for (WORD row = 0; row < height; ++row) {
             for (WORD col = 0; col < wordsPerLn; ++col) {
                 W_IO_NOSWAP_W(PIX_TRANS, 0);
@@ -1245,6 +1246,7 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
             }
         }
     } else if ((ULONG)bitmap == 0xFFFFFFFFu) {
+        //FIXME: use blitter fill instead
         for (WORD row = 0; row < height; ++row) {
             for (WORD col = 0; col < wordsPerLn; ++col) {
                 W_IO_NOSWAP_W(PIX_TRANS, 0xFFFF);
