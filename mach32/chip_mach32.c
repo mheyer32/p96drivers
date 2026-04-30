@@ -1383,6 +1383,74 @@ static INLINE void REGARGS rotate8x8MonoPattern(UBYTE rows[8], UBYTE offX, UBYTE
     }
 }
 
+static INLINE UWORD REGARGS rotate16(UWORD v, UBYTE r)
+{
+    r &= 15u;
+    if (!r) {
+        return v;
+    }
+    return (UWORD)((v << r) | (v >> (16u - r)));
+}
+
+static void REGARGS BlitPatternNon8x8(BoardInfo_t *bi, struct RenderInfo *ri, struct Pattern *pattern, WORD x, WORD y,
+                                      WORD width, WORD height, UBYTE mask, RGBFTYPE fmt)
+{
+    setFarBlitBuffer(bi, ri, fmt, 0);
+
+    REGBASE();
+
+    ChipData_t *cd = getChipData(bi);
+    if (cd->GEOp != BLITTEMPLATE) {
+        cd->GEOp       = BLITTEMPLATE;
+        cd->GEdrawMode = 0xFF;
+
+        waitFifo(bi, 1);
+        W_IO_W(DP_CONFIG, DP_CONFIG_TEMPLATE);
+    }
+
+    setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
+    setWriteMask(bi, mask, fmt, 1);
+
+    /* Clip padding from our 16px expansion. */
+    W_IO_W(SCISSOR_RIGHT, x + width - 1);
+
+    UWORD patternHeight = (UWORD)(1u << pattern->Size);
+    const UWORD *src    = (const UWORD *)pattern->Memory;
+
+    UBYTE pattOffX = pattern->XOffset;
+    UWORD pattOffY = pattern->YOffset;
+
+    WORD blitWidth = (width + 15) & ~15;
+    drawRect(bi, x, y, blitWidth, height);
+
+    WORD wordsPerLn   = blitWidth >> 4;
+    WORD numFifoSlots = wordsPerLn * height + 3;
+    if (numFifoSlots > 16) {
+        numFifoSlots = 16;
+    }
+    waitFifo(bi, numFifoSlots);
+    WORD usedFifoSlots = 16 - numFifoSlots;
+
+    for (WORD row = 0; row < height; ++row) {
+        UWORD patRow = src[(pattOffY + row) & (patternHeight - 1u)];
+        UWORD w      = rotate16(patRow, pattOffX);
+        for (WORD col = 0; col < wordsPerLn; ++col) {
+            W_IO_NOSWAP_W(PIX_TRANS, w);
+
+            usedFifoSlots = (usedFifoSlots + 1) & 15;
+            if (!usedFifoSlots) {
+                waitFifo(bi, 16);
+            }
+        }
+    }
+
+    if (!usedFifoSlots) {
+        waitFifo(bi, 1);
+    }
+    W_IO_W(SCISSOR_RIGHT, 0x7FF);
+    flushWrites();
+}
+
 static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
                             __REGA2(struct Pattern *pattern), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
                             __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
@@ -1399,11 +1467,6 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         return;
     }
 
-    if (pattern->Size > 3) {
-        bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, fmt);
-        return;
-    }
-
     setFarBlitBuffer(bi, ri, fmt, 0);
 
     UWORD patternHeight = (UWORD)(1u << pattern->Size);
@@ -1412,13 +1475,14 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     BOOL is8x8 = TRUE;
     for (UWORD i = 0; i < patternHeight; ++i) {
         UWORD row = src[i];
-        if ((UBYTE)row != (UBYTE)(row >> 8)) {
+        // Left and right byte (8 pixels) must match, as well as vertically
+        if ((UBYTE)row != (UBYTE)(row >> 8) || row != src[i & 7]) {
             is8x8 = FALSE;
             break;
         }
     }
     if (!is8x8) {
-        bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, fmt);
+        BlitPatternNon8x8(bi, ri, pattern, x, y, width, height, mask, fmt);
         return;
     }
 
