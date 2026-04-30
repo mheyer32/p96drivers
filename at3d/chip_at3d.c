@@ -18,8 +18,8 @@
 
 #include <SDI_stdarg.h>
 
-#ifdef DBG
-#ifdef TESTEXE
+#if defined(DBG) && !defined(AT3D_EMBEDDED_CHIP)
+#if defined(TESTEXE) && !defined(AT3D_EMBEDDED_CHIP)
 int debugLevel = VERBOSE;
 #else
 int debugLevel = VERBOSE;
@@ -32,7 +32,7 @@ int debugLevel = VERBOSE;
 /*                                                                            */
 /******************************************************************************/
 
-#ifndef TESTEXE
+#if !defined(TESTEXE) && !defined(AT3D_EMBEDDED_CHIP)
 const char LibName[]     = "AT3D.chip";
 const char LibIdString[] = "Alliance ProMotion AT3D Picasso96 chip driver version 1.0";
 
@@ -3116,7 +3116,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef TESTEXE
+#if defined(TESTEXE) && !defined(AT3D_EMBEDDED_CHIP)
 
 #include <hardware/blit.h>
 #include <signal.h>

@@ -161,7 +161,6 @@ all : S3Trio64V2.chip \
       TestMach64Card \
       TestS3Trio64Plus \
       TestS3TrioCard \
-      AT3D.chip \
       AT3D.card \
       TestAT3D \
       TestAT3DCard \
@@ -370,19 +369,25 @@ $(eval $(call make_exe,TestAT3D,$(BUILDDIR)testat3d/, ${AT3D_TESTEXE_SRC}))
 
 AT3DCARD_SRC = common.c \
                card_common.c \
+               at3d/chip_at3d.c \
+               edid_common.c \
                at3d/card_at3d.c \
                at3d/at3d_common.c \
+               at3d/at3d_i2c.c \
                card_library.c
 
-AT3D.card : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -DOPENPCI=1
+AT3D.card : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -DOPENPCI=1 -DAT3D_EMBEDDED_CHIP=1
 $(eval $(call make_driver,AT3D.card,$(BUILDDIR)at3dcard/, ${AT3DCARD_SRC}))
 
 AT3DCARD_TESTEXE_SRC = common.c \
                        card_common.c \
+                       at3d/chip_at3d.c \
+                       edid_common.c \
                        at3d/at3d_common.c \
+                       at3d/at3d_i2c.c \
                        at3d/card_at3d.c
 
-TestAT3DCard : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -DOPENPCI=1 -DTESTEXE 
+TestAT3DCard : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -DOPENPCI=1 -DAT3D_EMBEDDED_CHIP=1
 $(eval $(call make_exe,TestAT3DCard,$(BUILDDIR)testat3dcard/, ${AT3DCARD_TESTEXE_SRC}))
 
 
