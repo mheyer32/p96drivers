@@ -44,14 +44,28 @@ const UWORD LibRevision = LIB_REVISION;
 int debugLevel = TELLALL;
 #endif
 
-static INLINE UBYTE extFifoSlotsFree(UWORD extFifoStatus)
+static INLINE UBYTE countFreeSlots(UWORD s)
 {
-    /*
-     * EXT_FIFO_STATUS[15:0] reflects command FIFO occupancy.
-     * 0x0000 -> FIFO empty (all slots free)
-     * 0xFFFF -> FIFO full  (no slots free)
-     */
-    return 16 - (UBYTE)__builtin_popcount(extFifoStatus);
+    if (!s) {
+        return 16;
+    }
+    UBYTE free = 0;
+    if (!(s & 0xFF00)) {
+        free += 8;
+        s <<= 8;
+    }
+    if (!(s & 0xF000)) {
+        free += 4;
+        s <<= 4;
+    }
+    if (!(s & 0xC000)) {
+        free += 2;
+        s <<= 2;
+    }
+    if (!(s & 0x8000)) {
+        free += 1;
+    }
+    return free;
 }
 
 static void INLINE waitFifo(BoardInfo_t *bi, UBYTE slots)
@@ -71,7 +85,7 @@ static void INLINE waitFifo(BoardInfo_t *bi, UBYTE slots)
     REGBASE();
     UBYTE freeSlots;
     do {
-        freeSlots = extFifoSlotsFree(R_IO_W(EXT_FIFO_STATUS));
+        freeSlots = countFreeSlots(R_IO_W(EXT_FIFO_STATUS));
     } while (freeSlots < slots);
 
     if (freeSlots > slots) {
