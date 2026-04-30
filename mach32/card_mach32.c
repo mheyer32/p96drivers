@@ -7,9 +7,10 @@
 #include <exec/nodes.h>
 #include <exec/types.h>
 #include <proto/exec.h>
-#include <proto/picasso96_chip.h>
 #include <proto/utility.h>
 #include <utility/tagitem.h>
+
+BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
 #define OPENPCI_SWAP
 #include <libraries/openpci.h>
@@ -32,8 +33,6 @@ const UWORD LibRevision = LIB_REVISION;
 #ifdef DBG
 int debugLevel = VERBOSE;
 #endif
-
-#define CHIP_NAME_MACH32 "picasso96/ATIMach32.chip"
 
 #define VENDOR_ID_ATI    0x1002
 #define DEVICE_ID_MACH32 0x4158
@@ -214,13 +213,6 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         pci_write_config_word(PCI_COMMAND, cmd | PCI_COMMAND_MEMORY | PCI_COMMAND_IO, cd->board);
     }
 
-    struct ChipBase *ChipBase = NULL;
-    if (!(ChipBase = (struct ChipBase *)OpenLibrary(CHIP_NAME_MACH32, 0))) {
-        D(ERROR, "Could not open chip library %s\n", CHIP_NAME_MACH32);
-        return FALSE;
-    }
-
-    bi->ChipBase                  = ChipBase;
     bi->RegisterBase              = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
     getCardData(bi)->legacyIOBase = bi->RegisterBase;
 
@@ -233,8 +225,6 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 
     D(INFO, "ATIMach32.card calling InitChip...\n");
     if (!InitChip(bi)) {
-        CloseLibrary((struct Library *)ChipBase);
-        bi->ChipBase = NULL;
         releaseCard(bi);
         DFUNC(ERROR, "InitChip() failed\n");
         return FALSE;
