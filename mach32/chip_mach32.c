@@ -418,7 +418,7 @@ void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REG
     W_IO_W(CRT_OFFSET_LO, panOffset & 0xFFFF);
     W_IO_W(CRT_OFFSET_HI, (panOffset >> 16));
 
-    pitch     = width / 8;                    // pitch in 8 pixels
+    pitch = width / 8;  // pitch in 8 pixels
     // if (bi->ModeInfo && (bi->ModeInfo->Flags & GMF_DOUBLESCAN)) {
     //     pitch = -pitch;
     // }
@@ -482,7 +482,8 @@ APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD
     APTR mem = getConstCardData(bi)->AllocCardMemDefault(bi, size, force, system, bytesperrow, mi, format);
 
     if (mem && mi && (mi->Flags & GMF_DOUBLESCAN)) {
-        struct RenderInfo ri = {.Memory = (APTR)((ULONG)mem + bytesperrow/2), .BytesPerRow = bytesperrow, .RGBFormat = format};
+        struct RenderInfo ri = {
+            .Memory = (APTR)((ULONG)mem + bytesperrow / 2), .BytesPerRow = bytesperrow, .RGBFormat = format};
         WaitBlitter(bi);
         FillRect(bi, &ri, 0, 0, mi->Width, mi->Height, 0, 0xFF, format);
         WaitBlitter(bi);
@@ -740,8 +741,6 @@ static INLINE void setBlitterFormat(BoardInfo_t *bi, RGBFTYPE fmt)
         cd->GEmask = 0xFF;
         W_IO_NOSWAP_W(WRT_MASK, 0xFFFF);
     }
-
-    flushWrites();
 }
 
 static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
@@ -845,8 +844,6 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         return;
     }
 
-    setFarBlitBuffer(bi, ri, fmt, 0);
-
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEOp != FILLRECT) {
@@ -869,6 +866,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         W_IO_W(FRGD_COLOR, pen);
     }
 
+    setFarBlitBuffer(bi, ri, fmt, 0);
     setWriteMask(bi, mask, fmt, 0);
     drawRect(bi, x, y, width, height);
 }
@@ -890,8 +888,6 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
         return;
     }
 
-    setFarBlitBuffer(bi, ri, fmt, 0);
-
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEOp != INVERTRECT) {
@@ -906,14 +902,11 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
         W_IO_W(FRGD_MIX, 0x0020);
     }
 
+    setFarBlitBuffer(bi, ri, fmt, 0);
     setWriteMask(bi, mask, fmt, 0);
     drawRect(bi, x, y, width, height);
 }
 
-/*
- * Screen-to-screen copy via the Mach32 extended blit engine (REG688000-15 §9-38..9-40).
- * DEST_Y_END triggers the operation; direction is implicit from coordinate ordering.
- */
 static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD srcX),
                          __REGD1(WORD srcY), __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
                          __REGD5(WORD height), __REGD6(UBYTE mask), __REGD7(RGBFTYPE fmt))
@@ -931,8 +924,6 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         return;
     }
 
-    setFarBlitBuffer(bi, ri, fmt, 0);
-
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEOp != BLITRECT) {
@@ -947,6 +938,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
         W_IO_W(BKGD_MIX, 0x0067);
     }
 
+    setFarBlitBuffer(bi, ri, fmt, 0);
     setWriteMask(bi, mask, fmt, 10);
 
     REGBASE();
@@ -1030,9 +1022,6 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         return;
     }
 
-    setFarBlitBuffer(bi, dri, fmt, 0);
-    setFarBlitBuffer(bi, sri, fmt, 1);
-
     ChipData_t *cd = getChipData(bi);
 
     REGBASE();
@@ -1056,6 +1045,9 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         UWORD mix = minTermToMix[opCode & 0xF];
         W_IO_W(ALU_FG_FN, mix);
     }
+
+    setFarBlitBuffer(bi, dri, fmt, 0);
+    setFarBlitBuffer(bi, sri, fmt, 1);
 
     BOOL overlap = (sri->Memory == dri->Memory) && (sri->BytesPerRow == dri->BytesPerRow);
 
@@ -1137,6 +1129,7 @@ static INLINE void REGARGS setDrawMode(BoardInfo_t *bi, ULONG fgPen, ULONG bgPen
     W_IO_W(FRGD_MIX, (UWORD)(fSrc | fMix));
     W_IO_W(BKGD_MIX, (UWORD)(bSrc | bMix));
 }
+
 static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
                              __REGA2(struct Template *template), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
                              __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
@@ -1154,8 +1147,6 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         return;
     }
 
-    setFarBlitBuffer(bi, ri, fmt, 0);
-
     REGBASE();
 
     ChipData_t *cd = getChipData(bi);
@@ -1168,6 +1159,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         W_IO_W(DP_CONFIG, DP_CONFIG_TEMPLATE);
     }
 
+    setFarBlitBuffer(bi, ri, fmt, 0);
     setDrawMode(bi, template->FgPen, template->BgPen, template->DrawMode, fmt);
     setWriteMask(bi, mask, fmt, 1);
 
@@ -1249,7 +1241,7 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
 
     REGBASE();
     if ((ULONG)bitmap == 0) {
-        //FIXME: use blitter fill instead
+        // FIXME: use blitter fill instead
         for (WORD row = 0; row < height; ++row) {
             for (WORD col = 0; col < wordsPerLn; ++col) {
                 W_IO_NOSWAP_W(PIX_TRANS, 0);
@@ -1260,7 +1252,7 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
             }
         }
     } else if ((ULONG)bitmap == 0xFFFFFFFFu) {
-        //FIXME: use blitter fill instead
+        // FIXME: use blitter fill instead
         for (WORD row = 0; row < height; ++row) {
             for (WORD col = 0; col < wordsPerLn; ++col) {
                 W_IO_NOSWAP_W(PIX_TRANS, 0xFFFF);
@@ -1318,8 +1310,6 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         return;
     }
 
-    setFarBlitBuffer(bi, ri, RGBFB_CLUT, 0);
-
     ChipData_t *cd = getChipData(bi);
     if (cd->GEOp != BLITPLANAR2CHUNKY) {
         cd->GEOp       = BLITPLANAR2CHUNKY;
@@ -1344,6 +1334,8 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
         W_IO_W(FRGD_MIX, (UWORD)(CLR_SRC_FRGD_COLOR | mix));
         W_IO_W(BKGD_MIX, (UWORD)(CLR_SRC_BKGD_COLOR | mix));
     }
+
+    setFarBlitBuffer(bi, ri, RGBFB_CLUT, 0);
 
     waitFifo(bi, 1);
     REGBASE();
@@ -1481,8 +1473,6 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         return;
     }
 
-    setFarBlitBuffer(bi, ri, fmt, 0);
-
     UWORD patternHeight = (UWORD)(1u << pattern->Size);
     const UWORD *src    = (const UWORD *)pattern->Memory;
 
@@ -1509,13 +1499,14 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         // last uploaded is stil there.
         cd->patternCacheKey = 0xFFFFFFFFu;
 
-        waitFifo(bi, 1);
+        waitFifo(bi, 2);
         REGBASE();
         W_IO_W(DP_CONFIG, DP_CONFIG_MONO_PATTERN);
         // 8x8 Mono Pattern Enable
         W_IO_W(PATT_LENGTH, BIT(7));
     }
 
+    setFarBlitBuffer(bi, ri, fmt, 0);
     setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
     setWriteMask(bi, mask, fmt, 0);
 
@@ -1925,6 +1916,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     return TRUE;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////
 #if defined(TESTEXE) && (!defined(__clang__) || defined(__m68k__))
 
 #include <libraries/openpci.h>
