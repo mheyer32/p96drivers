@@ -380,17 +380,6 @@ static INLINE UWORD REGARGS readMMIO_W(volatile UBYTE *mmiobase, LONG regOffset,
     return value;
 }
 
-static INLINE UWORD REGARGS readMMIO_NoSwap_W(volatile UBYTE *mmiobase, LONG regOffset, const char *regName)
-{
-    flushWrites();
-    UWORD value = *(volatile UWORD *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET));
-    asm volatile("" ::"r"(value));
-
-    D(VERBOSE, "R %s -> 0x%04lx\n", (ULONG)regName, (ULONG)SWAPW(value));
-
-    return value;
-}
-
 static INLINE ULONG read_L(volatile UBYTE *addr)
 {
     flushWrites();
@@ -429,13 +418,6 @@ static INLINE void REGARGS writeMMIO_W(volatile UBYTE *mmiobase, LONG regOffset,
     D(VERBOSE, "W %s <- 0x%04lx\n", regName, (LONG)value);
     *(volatile UWORD *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPW(value);
 }
-
-static INLINE void REGARGS writeMMIO_NoSwap_W(volatile UBYTE *regbase, LONG reg, UWORD value, const char *regName)
-{
-    D(VERBOSE, "W %s <- 0x%04lx\n", regName, SWAPW(value));
-    *(volatile UWORD *)(regbase + (reg - MMIOREGISTER_OFFSET)) = value;
-}
-
 
 static INLINE void REGARGS writeMMIOMask_B(volatile UBYTE *mmioBase, LONG regOffset, UBYTE mask, UBYTE value,
                                            const char *regName)
