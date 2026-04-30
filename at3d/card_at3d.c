@@ -7,7 +7,6 @@
 #include <exec/types.h>
 #include <proto/exec.h>
 #include <proto/openpci.h>
-#include <proto/picasso96_chip.h>
 #include <proto/timer.h>
 #include <proto/utility.h>
 #include <utility/tagitem.h>
@@ -33,7 +32,7 @@ const UWORD LibRevision  = LIB_REVISION;
 int debugLevel = VERBOSE;
 #endif
 
-#define CHIP_NAME_AT3D "picasso96/AT3D.chip"
+BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
 BOOL releaseCard(__REGA0(struct BoardInfo *bi))
 {
@@ -210,15 +209,6 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         D(ERROR, "AT3D.card: could not init card\n");
         return FALSE;
     }
-
-    struct ChipBase *ChipBase = NULL;
-
-    if (!(ChipBase = (struct ChipBase *)OpenLibrary(CHIP_NAME_AT3D, 0))) {
-        D(ERROR, "AT3D.card: could not open chip library %s\n", CHIP_NAME_AT3D);
-        return FALSE;
-    }
-
-    bi->ChipBase = ChipBase;
 
     D(INFO, "calling init chip...\n");
     if (!InitChip(bi)) {
