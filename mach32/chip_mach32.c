@@ -24,6 +24,7 @@ typedef ULONG ptrint_t;
 
 /******************************************************************************/
 
+#ifndef MACH32_EMBEDDED_CHIP
 const char LibName[]     = "ATIMach32.chip";
 const char LibIdString[] = "ATI Mach32 Picasso96 chip driver";
 
@@ -35,10 +36,11 @@ const char LibIdString[] = "ATI Mach32 Picasso96 chip driver";
 #endif
 const UWORD LibVersion  = LIB_VERSION;
 const UWORD LibRevision = LIB_REVISION;
+#endif
 
 /******************************************************************************/
 
-#ifdef DBG
+#if defined(DBG) && !defined(MACH32_EMBEDDED_CHIP)
 int debugLevel = TELLALL;
 #endif
 
@@ -2625,6 +2627,7 @@ static void setup640x480Screen(struct BoardInfo *bi)
     bi->SetDisplay(bi, TRUE);
 }
 
+#if defined(TESTEXE) && !defined(MACH32_EMBEDDED_CHIP)
 static void onSigInt(int dummy)
 {
     (void)dummy;
@@ -2731,4 +2734,5 @@ done:
     }
     return rval;
 }
+#endif
 #endif /* TESTEXE */

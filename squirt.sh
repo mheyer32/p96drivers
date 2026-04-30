@@ -13,7 +13,6 @@ ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/S3Vision864.chip
 ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/S3Trio64.card
 ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/Cybervision64.card
 
-${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/ATIMach32.chip
 ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/ATIMach32.card
 ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/ATIMach64.chip
 ${SQUIRT} --dest SYS:libs/picasso96 ${SQUIRT_HOST} $PWD/_bin/ATIMach64.card

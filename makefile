@@ -152,7 +152,6 @@ all : S3Trio64V2.chip \
       S3Vision864.chip \
       S3Trio64.card \
       Cybervision64.card \
-      ATIMach32.chip \
       ATIMach32.card \
       ATIMach64.chip \
       ATIMach64.card \
@@ -323,10 +322,13 @@ $(eval $(call make_driver,ATIMach32.chip,$(BUILDDIR)mach32/, ${ATIMACH32_SRC}))
 
 ATIMACH32CARD_SRC = common.c \
                       card_common.c \
+                      mach32/mach32_ramdac.c \
+                      mach32/mach32_eeprom.c \
+                      mach32/chip_mach32.c \
                       mach32/card_mach32.c \
                       card_library.c
 
-ATIMach32.card : CFLAGS+= -DCONFIG_ATIMACH32 -include mach32/mach32config.h
+ATIMach32.card : CFLAGS+= -DCONFIG_ATIMACH32 -DMACH32_EMBEDDED_CHIP=1 -include mach32/mach32config.h
 $(eval $(call make_driver,ATIMach32.card,$(BUILDDIR)mach32card/, ${ATIMACH32CARD_SRC}))
 
 ATIMACH32_TESTEXE_SRC = common.c \
@@ -339,9 +341,12 @@ $(eval $(call make_exe,TestMach32,$(BUILDDIR)testmach32/, ${ATIMACH32_TESTEXE_SR
 
 TESTATIMACH32CARD_SRC = common.c \
                         card_common.c \
+                        mach32/mach32_ramdac.c \
+                        mach32/mach32_eeprom.c \
+                        mach32/chip_mach32.c \
                         mach32/card_mach32.c
 
-TestMach32Card : CFLAGS+= -DCONFIG_ATIMACH32 -include mach32/mach32config.h
+TestMach32Card : CFLAGS+= -DCONFIG_ATIMACH32 -DMACH32_EMBEDDED_CHIP=1 -include mach32/mach32config.h
 $(eval $(call make_exe,TestMach32Card,$(BUILDDIR)testmach32card/, ${TESTATIMACH32CARD_SRC}))
 
 AT3D_SRC = common.c \
