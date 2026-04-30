@@ -340,7 +340,7 @@ static inline void readModifyWrite(const BoardInfo_t *bi, LONG readReg, LONG wri
 {
     REGBASE();
     UWORD regValue = readRegWNoSwap(RegBase, readReg, writeRegName);
-    regValue       = (regValue & ~SWAPW_IO(mask)) | SWAPW(value & mask);
+    regValue       = (regValue & ~SWAPW_IO(mask)) | SWAPW_IO(value & mask);
     writeRegWNoSwap(RegBase, writeReg, regValue, writeRegName);
 }
 #define W_EXT_GE_CONFIG_MASK(mask, value) \
