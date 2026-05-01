@@ -1765,8 +1765,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->DrawLine               = DrawLine;
     bi->BlitPattern            = BlitPattern;
 
-    bi->MaxBMWidth  = 2048;
-    bi->MaxBMHeight = 2048;
+    bi->MaxBMWidth  = 1536;
+    bi->MaxBMHeight = 1536;
 
     bi->BitsPerCannon          = 6;
     bi->MaxHorValue[PLANAR]    = 2040;
@@ -1781,16 +1781,22 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->MaxVerValue[TRUECOLOR] = 2047;
     bi->MaxVerValue[TRUEALPHA] = 2047;
 
-    bi->MaxHorResolution[PLANAR]    = 1280;
-    bi->MaxVerResolution[PLANAR]    = 1024;
-    bi->MaxHorResolution[CHUNKY]    = 1280;
-    bi->MaxVerResolution[CHUNKY]    = 1024;
-    bi->MaxHorResolution[HICOLOR]   = 1280;
-    bi->MaxVerResolution[HICOLOR]   = 1024;
-    bi->MaxHorResolution[TRUECOLOR] = 1280;
-    bi->MaxVerResolution[TRUECOLOR] = 1024;
-    bi->MaxHorResolution[TRUEALPHA] = 1280;
-    bi->MaxVerResolution[TRUEALPHA] = 1024;
+    // CUR_X/Y and DST_X/y are defined as:
+    // 1. The Current X Position register is used to detennine the starting X coordinate of all
+    //    drawing operations. Values written to this register will be considered to be in the
+    //    range (-512 .. 1535).
+    // 2. Bit 12 which is normally reserved when performing 8514-compatible drawing
+    //    operations is unused when perfonning extended drawing operations.
+    bi->MaxHorResolution[PLANAR]    = 1536;
+    bi->MaxVerResolution[PLANAR]    = 1536;
+    bi->MaxHorResolution[CHUNKY]    = 1536;
+    bi->MaxVerResolution[CHUNKY]    = 1536;
+    bi->MaxHorResolution[HICOLOR]   = 1536;
+    bi->MaxVerResolution[HICOLOR]   = 1536;
+    bi->MaxHorResolution[TRUECOLOR] = 1536;
+    bi->MaxVerResolution[TRUECOLOR] = 1536;
+    bi->MaxHorResolution[TRUEALPHA] = 1536;
+    bi->MaxVerResolution[TRUEALPHA] = 1536;
 
     bi->PixelClockCount[PLANAR]    = PIXEL_CLOCK_INDEX_COUNT;
     bi->PixelClockCount[CHUNKY]    = PIXEL_CLOCK_INDEX_COUNT;
