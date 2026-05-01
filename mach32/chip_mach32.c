@@ -1249,7 +1249,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         waitFifo(bi, 1);
     }
     // W_IO_W(SCISSOR_LEFT, 0);
-    W_IO_W(SCISSOR_RIGHT, 0x7FF);
+    W_IO_W(SCISSOR_RIGHT, 0x600);
     flushWrites();
 }
 
@@ -1392,7 +1392,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     }
 
     waitFifo(bi, 1);
-    W_IO_W(SCISSOR_RIGHT, 0x7FF);
+    W_IO_W(SCISSOR_RIGHT, 0x600);
     flushWrites();
 }
 
@@ -1482,7 +1482,7 @@ static void REGARGS BlitPatternNon8x8(BoardInfo_t *bi, struct RenderInfo *ri, st
     if (!usedFifoSlots) {
         waitFifo(bi, 1);
     }
-    W_IO_W(SCISSOR_RIGHT, 0x7FF);
+    W_IO_W(SCISSOR_RIGHT, 0x600);
     flushWrites();
 }
 
@@ -1916,12 +1916,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     W_BEE8(SCISSORS_T, 0);
     W_BEE8(SCISSORS_L, 0);
-    W_BEE8(SCISSORS_B, 0x7FF);
-    W_BEE8(SCISSORS_R, 0x7FF);
+    W_BEE8(SCISSORS_B, 0x600);
+    W_BEE8(SCISSORS_R, 0x600);
     W_IO_W(SCISSOR_TOP, 0);
     W_IO_W(SCISSOR_LEFT, 0);
-    W_IO_W(SCISSOR_BOTTOM, 0x7FF);
-    W_IO_W(SCISSOR_RIGHT, 0x7FF);
+    W_IO_W(SCISSOR_BOTTOM, 0x600);
+    W_IO_W(SCISSOR_RIGHT, 0x600);
     W_BEE8(PIXEL_CNTL, MASK_BIT_SRC_ONE);
 
     W_IO_W(DP_CONFIG, DP_CONFIG_REPLACE);
