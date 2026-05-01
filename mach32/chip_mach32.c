@@ -175,8 +175,6 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE idx)
 {
     DFUNC(VERBOSE, "idx=%ld r=%ld g=%ld b=%ld fmt=%ld\n", (ULONG)idx, (ULONG)r, (ULONG)g, (ULONG)b, (ULONG)fmt);
 
-    idx = (idx + 1) % 3;
-
     REGBASE();
 
     switch (fmt) {
@@ -184,14 +182,14 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE idx)
     case RGBFB_CLUT:
         if (idx == 0)
             W_REG(CURSOR_COLOR_0, (UBYTE)(17 + idx));
-        else if (idx == 1)
+        else if (idx == 2)
             W_REG(CURSOR_COLOR_1, (UBYTE)(17 + idx));
         break;
     default:
         if (idx == 0) {
             W_REG(CURSOR_COLOR_0, b);
             W_IO_W(EXT_CURSOR_COLOR_0, (UWORD)(((UWORD)(r & 0xF8) << 8) | (UWORD)(g & 0xFC)));
-        } else if (idx == 1) {
+        } else if (idx == 2) {
             W_REG(CURSOR_COLOR_1, b);
             W_IO_W(EXT_CURSOR_COLOR_1, (UWORD)(((UWORD)(r & 0xF8) << 8) | (UWORD)(g & 0xFC)));
         }
