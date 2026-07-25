@@ -444,12 +444,13 @@ static INLINE void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, LONG
 #undef W_IO_L
 #undef W_IO_MASK_L
 
-#define R_IO_L(regIndex) readATIRegisterL(RegBase, ((regIndex##_IO << 10) + getCardData()->ioSparseBase) / 4, #regIndex)
+#define R_IO_L(regIndex) \
+    readATIRegisterL(RegBase, ((regIndex##_IO << 10) + getChipData(bi)->ioSparseBase) / 4, #regIndex)
 #define W_IO_MASK_L(regIndex, mask, value) \
     writeATIRegisterMaskL(RegBase, ((regIndex##_IO << 10) + getChipData(bi)->ioSparseBase) / 4, mask, value, #regIndex)
-#define W_IO_L(regIndex, value)                                                                        \
-    do {                                                                                               \
-        _Static_assert(regIndex < 0x40, "IO only for regs < 0x040");                                   \
+#define W_IO_L(regIndex, value)                                                                                 \
+    do {                                                                                                        \
+        _Static_assert(regIndex < 0x40, "IO only for regs < 0x040");                                            \
         writeATIRegisterL(RegBase, ((regIndex##_IO << 10) + getChipData(bi)->ioSparseBase) / 4, value, #regIndex); \
     } while (0)
 

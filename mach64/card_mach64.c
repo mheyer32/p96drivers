@@ -244,6 +244,13 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     bi->ChipBase                  = ChipBase;
     getCardData(bi)->legacyIOBase = legacyIOBase + REGISTER_OFFSET;
 
+    {
+        /* GX needs PCI IO for sparse CONFIG_CNTL (linear aperture enable);
+         * all families need MEMORY for BAR0 / MMIO. */
+        UWORD cmd = pci_read_config_word(PCI_COMMAND, cd->board);
+        pci_write_config_word(PCI_COMMAND, cmd | PCI_COMMAND_MEMORY | PCI_COMMAND_IO, cd->board);
+    }
+
     // Set up register and memory bases
     if (chipFamily > MACH64GX && !memory1) {
         DFUNC(ERROR, "Cannot find block IO aperture\n");
@@ -267,6 +274,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 
     // Framebuffer is at BAR0
     bi->MemoryBase = (UBYTE *)memory0;
+    setCacheMode(bi, memory0, memory0Size, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED, CACHEFLAGS);
 
     D(INFO, "ATIMach64 calling init chip...\n");
     if (!InitChip(bi)) {

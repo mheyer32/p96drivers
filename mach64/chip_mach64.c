@@ -7,6 +7,7 @@
 #include "edid_common.h"
 
 #include <graphics/rastport.h>
+#include <libraries/openpci.h>
 #include <libraries/pcitags.h>
 #include <proto/openpci.h>
 
@@ -2144,6 +2145,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             D(INFO, "Chip family: %s\n", getChipFamilyName(cd->chipFamily));
         }
 
+        /* Required for BAR decode; GX also needs IO for sparse CONFIG_CNTL. */
+        {
+            UWORD cmd = pci_read_config_word(PCI_COMMAND, board);
+            pci_write_config_word(PCI_COMMAND, cmd | PCI_COMMAND_MEMORY | PCI_COMMAND_IO, board);
+        }
+
         // User-Defines configuration
         UBYTE config    = pci_read_config_byte(0x40, board);
         ULONG prmStatus = pci_read_config_long(0x60, board);
@@ -2234,7 +2241,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     if (cd->chipFamily > MACH64GX) {
         W_MMIO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
     } else {
-        DFUNC(VERBOSE, "XXXXX");
         LEGACYIOBASE();
         W_IO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
     }
