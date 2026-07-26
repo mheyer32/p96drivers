@@ -2032,9 +2032,7 @@ static INLINE void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system),
                       __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
 {
-    // We always overallocate by 8 bytes to be able to align the memory to 8 bytes in CalculateMemory
-    // SGRAM requries 64byte alignment
-    // size += 8;
+    // SGRAM requires 64byte alignment (CalculateMemory)
     size += 64;
     return getConstCardData(bi)->AllocCardMemDefault(bi, size, force, system, bytesperrow, mi, format);
 }
