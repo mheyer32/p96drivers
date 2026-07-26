@@ -389,8 +389,9 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __R
 
     W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_PIX_WIDTH_MASK, CRTC_PIX_WIDTH(g_bitWidths[format]));
     if (format != RGBFB_CLUT) {
-        // I think in Hi-Color modes, the palette acts as gamma ramp
-        struct CLUTEntry colors[256];
+        /* Do not put colors[256] on this stack frame — with BoardInfo on main's
+         * stack, that 768-byte array blows the default 4K CLI stack (Guru). */
+        static struct CLUTEntry colors[256];
         for (int c = 0; c < 256; c++) {
             colors[c].Red   = c;
             colors[c].Green = c;
@@ -583,7 +584,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 }
 
 static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width),
-                           __REGD4(UWORD height), __REGD1(WORD xoffset), __REGD2(WORD yoffset),
+                           __REGD3(UWORD height), __REGD1(WORD xoffset), __REGD2(WORD yoffset),
                            __REGD7(RGBFTYPE format))
 {
     MMIOBASE();
@@ -2391,6 +2392,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #include <string.h>
 
 #define VENDOR_E3B        0xE3B
+/* BoardInfo alone is ~2.5KB on stack; default CLI stack is 4KB. */
+ULONG __stack = 65536;
 #define VENDOR_MATAY      0xAD47
 #define DEVICE_FIRESTORM  200
 #define DEVICE_PROMETHEUS 1
@@ -2559,7 +2562,7 @@ int main()
                         WaitBlitter(bi);
                     }
 
-                    DFUNC(ALWAYS, "Showing %s — check sync (3s)\n", modes[m].name);
+                    DFUNC(ALWAYS, "Showing %s - check sync (3s)\n", modes[m].name);
                     delayMilliSeconds(3000);
                 }
 

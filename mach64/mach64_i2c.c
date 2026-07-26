@@ -60,6 +60,13 @@ BOOL mach64I2cInit(struct BoardInfo *bi)
     // Wait a bit for lines to stabilize
     delayMicroSeconds(10);
 
+    lt_gio = R_BLKIO_L(LT_GIO_REG);
+    /* Stuck-at-0 means wrong aperture / no LT_GIO — bitbang would spam forever. */
+    if (lt_gio == 0) {
+        D(WARN, "LT_GIO readback 0 after init — skipping DDC/I2C\n");
+        return FALSE;
+    }
+
     D(VERBOSE, "I2C bus initialized (LT_GIO=0x%08lx)\n", lt_gio);
     return TRUE;
 }
@@ -259,8 +266,18 @@ const I2COps_t *getI2COps(struct BoardInfo *bi)
 BOOL queryEDID(struct BoardInfo *bi)
 {
     ChipData_t *cd = getChipData(bi);
+#ifdef TESTEXE
+    /* Standalone chip test: skip DDC — bad LT_GIO paths flood printf and smash the stack. */
+    cd->i2cOps = NULL;
+    D(INFO, "TESTEXE: skipping EDID/I2C\n");
+    return TRUE;
+#else
     // Initialize I2C operations for EDID support (GT and higher only)
     if (cd->chipFamily == MACH64GT || cd->chipFamily == MACH64GM) {
+        if (!mach64I2cInit(bi)) {
+            cd->i2cOps = NULL;
+            return TRUE;
+        }
         cd->i2cOps = &mach64_i2c_ops;
         D(INFO, "I2C operations initialized for EDID support\n");
 
@@ -277,4 +294,5 @@ BOOL queryEDID(struct BoardInfo *bi)
     }
 
     return TRUE;
+#endif
 }
