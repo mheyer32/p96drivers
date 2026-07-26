@@ -124,6 +124,8 @@ static inline ULONG minu(ULONG x, ULONG y)
 
 static inline ULONG ceilDivu(ULONG x, ULONG y)
 {
+    if (!y)
+        return 0;
     return (x + y - 1) / y;
 }
 
