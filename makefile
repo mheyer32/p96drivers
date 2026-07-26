@@ -37,7 +37,7 @@ ifeq ($(strip $(LIB_REVISION)),)
 LIB_REVISION := 0
 endif
 
-BUILDFLAGS = -noixemul -mregparm=4 -msmall-code -m68020-60 -mtune=68030 -g -ggdb
+BUILDFLAGS = -noixemul -mregparm=4 -msmall-code -m68020-60 -mtune=68030 -fno-builtin-strlen -ffreestanding -g -ggdb
 
 ifeq ($(DEBUG),1)
     CFLAGS += -DDBG
