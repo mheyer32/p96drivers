@@ -12,8 +12,6 @@
 #include <proto/openpci.h>
 #endif
 
-#include <string.h>
-
 /* Keep this file buildable on old native compilers (no <stdint.h>).
  * clangd parses on the host where pointers may be wider than ULONG. */
 #if defined(__clang__) && !defined(__m68k__)
@@ -783,6 +781,27 @@ static INLINE void setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fmt, UBYTE
 #define SHADOW_SET_GE_PTR_SRC   (2u << SHADOW_SET_GE_PTR_SHIFT)
 
 /* Far-Blit: load dst and src offset/pitch independently via SHADOW_SET[9:8]. */
+static void myMemset(APTR dst, UBYTE val, ULONG len)
+{
+    UBYTE *p = (UBYTE *)dst;
+    while (len--) {
+        *p++ = val;
+    }
+}
+
+static int myMemcmp(CONST_APTR a, CONST_APTR b, ULONG len)
+{
+    const UBYTE *p = (const UBYTE *)a;
+    const UBYTE *q = (const UBYTE *)b;
+    while (len--) {
+        if (*p != *q)
+            return (int)*p - (int)*q;
+        p++;
+        q++;
+    }
+    return 0;
+}
+
 static INLINE void setFarBlitBuffer(BoardInfo_t *bi, const struct RenderInfo *ri, RGBFTYPE fmt, UWORD srcOrDst)
 {
     ChipData_t *cd              = getChipData(bi);
@@ -793,7 +812,7 @@ static INLINE void setFarBlitBuffer(BoardInfo_t *bi, const struct RenderInfo *ri
     setBlitterFormat(bi, fmt);
 
     cachedRi = &cd->srcDstRenderInfoCache[srcOrDst];
-    if (memcmp(ri, cachedRi, sizeof(*cachedRi)) == 0) {
+    if (myMemcmp(ri, cachedRi, sizeof(*cachedRi)) == 0) {
         return;
     }
     *cachedRi = *ri;
@@ -1719,7 +1738,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             cd->patternCache[i] = 0;
         }
         cd->lineMode = 0xFF;
-        memset(&cd->srcDstRenderInfoCache, 0, sizeof(cd->srcDstRenderInfoCache));
+        myMemset(&cd->srcDstRenderInfoCache, 0, sizeof(cd->srcDstRenderInfoCache));
     }
 
     bi->GraphicsControllerType = GCT_ATIRV100;
