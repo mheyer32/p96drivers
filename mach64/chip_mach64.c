@@ -900,6 +900,9 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
             *cursor++ = 0xAAAAAAAA;
         }
     }
+
+    LOCAL_SYSBASE();
+    CacheClearU();
 }
 
 #define CUR_CLR_8(x)   (x)
