@@ -513,8 +513,13 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     UWORD hSyncStart = TO_CHARS(mi->HorSyncStart + mi->Width) - 1;
     D(VERBOSE, "HSync start %ld\n", (ULONG)hSyncStart);
 
+    /* HorSyncSize is in pixels; CRTC_H_SYNC_WID is in characters. */
+    UWORD hSyncWid = TO_CHARS(mi->HorSyncSize);
+    if (hSyncWid == 0) {
+        hSyncWid = 1;
+    }
     ULONG crtcHSyncStrtWid =
-        CRTC_H_SYNC_STRT(hSyncStart) | CRTC_H_SYNC_STRT_HI(hSyncStart >> 8) | CRTC_H_SYNC_WID(mi->HorSyncSize);
+        CRTC_H_SYNC_STRT(hSyncStart) | CRTC_H_SYNC_STRT_HI(hSyncStart >> 8) | CRTC_H_SYNC_WID(hSyncWid);
 
     if (modeFlags & GMF_HPOLARITY) {
         crtcHSyncStrtWid |= CRTC_H_SYNC_POL;
