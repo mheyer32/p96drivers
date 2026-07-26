@@ -96,39 +96,53 @@ void WritePLL(BoardInfo_t *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllData)
 
 ULONG computeFrequencyKhz10(UWORD RefFreq, UWORD FBDiv, UWORD RefDiv, UBYTE PostDiv)
 {
+    if (!RefDiv || !PostDiv) {
+        return 0;
+    }
     return ((ULONG)2 * RefFreq * FBDiv) / (RefDiv * PostDiv);
 }
 
 ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues, const UBYTE *postDividers)
 {
     const ChipSpecific_t *cs = getConstChipSpecific(bi);
-    return computeFrequencyKhz10(cs->referenceFrequency, pllValues->N, cs->referenceDivider,
-                                 postDividers[pllValues->Pidx]);
+    UBYTE postDiv            = postDividers[pllValues->Pidx];
+    if (!cs->referenceDivider || !postDiv) {
+        return 0;
+    }
+    return computeFrequencyKhz10(cs->referenceFrequency, pllValues->N, cs->referenceDivider, postDiv);
 }
 
 static BOOL inline isGoodVCOFrequency(ULONG freqKhz10)
 {
-    // return freqKhz10 >= 11800 && freqKhz10 <= 23500;
-    return freqKhz10 >= 10000 && freqKhz10 <= 20000;
+    /* Match computePLLValues clamp (235 MHz) and CT/GT VCO window. */
+    return freqKhz10 >= 10000 && freqKhz10 <= 23500;
 }
+
+#ifndef MACH64_PCLK_MIN_FLOOR
+/* 0 = ROM minPClock (allows ~12.6 MHz 320x200); non-zero = hard floor in 10kHz units. */
+#define MACH64_PCLK_MIN_FLOOR 0
+#endif
 
 ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *postDividers, WORD numPostDividers,
                        PLLValue_t *pllValues)
 {
     DFUNC(CHATTY, "targetFrequency: %ld0 KHz\n", freqKhz10);
 
-    // Clamp frequency to valid range
-    if (freqKhz10 < 1475) {
-        freqKhz10 = 1475;
-    }
-    //FIXME: this is dependent on the PLL, thus chip dependent
-    if (freqKhz10 > 23500) {
-        freqKhz10 = 23500;
-    }
-
     const ChipSpecific_t *cs = getConstChipSpecific(bi);
     UWORD M                  = cs->referenceDivider;
     UWORD R                  = cs->referenceFrequency;
+
+    /* 0 = use ROM minPClock (repro for low-floor regression); else hard floor in 10kHz units. */
+    ULONG floor = MACH64_PCLK_MIN_FLOOR;
+    if (floor == 0) {
+        floor = cs->minPClock ? cs->minPClock : 1;
+    }
+    if (freqKhz10 < floor) {
+        freqKhz10 = floor;
+    }
+    if (freqKhz10 > 23500) {
+        freqKhz10 = 23500;
+    }
 
     // T = 2 * R * N / (M * P)
     // N = T * M * P / (2 * R)
@@ -201,33 +215,57 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
 
     const ChipData_t *cd = getConstChipData(bi);
     ChipSpecific_t *cs   = getChipSpecific(bi);
-    UWORD maxNumEntries  = (cs->maxPClock + 99) / 100 - (cs->minPClock + 99) / 100;
 
-    D(VERBOSE, "Number of Pixelclocks %ld\n", maxNumEntries);
+    if (cs->maxPClock <= cs->minPClock) {
+        DFUNC(ERROR, "invalid PCLK range min=%ld max=%ld\n", (ULONG)cs->minPClock, (ULONG)cs->maxPClock);
+        return;
+    }
+
+    /* One entry per minFreq step, plus room for the optional maxPClock squeeze. */
+    UWORD maxNumEntries = (UWORD)((cs->maxPClock - cs->minPClock) / 100u + 2u);
+
+    D(VERBOSE, "Number of Pixelclocks %ld (PCLK %ld..%ld)\n", (ULONG)maxNumEntries, (ULONG)cs->minPClock,
+      (ULONG)cs->maxPClock);
 
     // FIXME: there's no free... is there ever a time a chip driver gets expunged?
     PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_PUBLIC);
-    cs->vclkPllValues     = pllValues;
+    if (!pllValues) {
+        DFUNC(ERROR, "AllocVec pllValues failed\n");
+        return;
+    }
+    cs->vclkPllValues = pllValues;
 
-    UWORD minFreq = cs->minPClock;
-    UWORD maxFreq = cs->maxPClock;
-    UWORD e       = 0;
-    while(minFreq < maxFreq){
+    UWORD minFreq    = cs->minPClock;
+    UWORD maxFreq    = cs->maxPClock;
+    UWORD e          = 0;
+    UWORD failStreak = 0;
+    while (minFreq < maxFreq && e < maxNumEntries) {
         ULONG frequency = computePLLValues(bi, minFreq, multipliers, numMultipliers, &pllValues[e]);
         if (!frequency) {
-            DFUNC(ERROR, "Unable to compute PLL values for %ld0 KHz\n", minFreq);
+            /* Gaps exist between post-div ranges; skip. Stop after consecutive high-end failures. */
+            D(CHATTY, "skip unachievable PCLK %ld0 KHz\n", (ULONG)minFreq);
+            if (e > 0 && ++failStreak >= 3) {
+                break;
+            }
         } else {
-            DFUNC(CHATTY, "Pixelclock %03ld %09ldHz --> %09ldHz: \n\n", (ULONG)e,  minFreq * 10000, frequency * 10000);
+            DFUNC(CHATTY, "Pixelclock %03ld %09ldHz --> %09ldHz: \n\n", (ULONG)e, (ULONG)minFreq * 10000,
+                  frequency * 10000);
+            failStreak = 0;
             ++e;
         }
         minFreq += 100;
     }
-    // See if we can squeeze the max frequency still in there
-    if (e < maxNumEntries - 1 && minFreq < cs->maxPClock) {
+    if (e < maxNumEntries) {
         ULONG frequency = computePLLValues(bi, cs->maxPClock, multipliers, numMultipliers, &pllValues[e]);
         if (frequency) {
             ++e;
         }
+    }
+
+    if (e == 0) {
+        DFUNC(ERROR, "PLL table empty (PCLK %ld..%ld, R=%ld M=%ld)\n", (ULONG)cs->minPClock,
+              (ULONG)cs->maxPClock, (ULONG)cs->referenceFrequency, (ULONG)cs->referenceDivider);
+        return;
     }
 
     ULONG maxHiColorFreq = cd->chipFamily <= MACH64VT ? 8000 : cs->maxPClock;
@@ -249,6 +287,8 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
             bi->PixelClockCount[TRUEALPHA]++;
         }
     }
+
+    DFUNC(VERBOSE, "built %ld clocks, CHUNKY count %ld\n", (ULONG)e, bi->PixelClockCount[CHUNKY]);
 }
 
 void WriteDefaultRegList(const BoardInfo_t *bi, const UWORD *defaultRegs, int numRegs)
