@@ -686,6 +686,12 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
 
     UWORD targetFreq = pixelClock / 10000;
 
+    if (bi->PixelClockCount[CHUNKY] == 0 || !cs->vclkPllValues || !cs->computeVCLKFrequency) {
+        DFUNC(ERROR, "PLL table not initialized\n");
+        mi->PixelClock = 0;
+        return 0;
+    }
+
     // find pixel clock in pllValues via bisection
     UWORD upper     = bi->PixelClockCount[CHUNKY] - 1;
     UWORD upperFreq = cs->computeVCLKFrequency(bi, &cs->vclkPllValues[upper]);
@@ -703,10 +709,20 @@ static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct
             upperFreq = middleFreq;
         }
     }
-    // Return the best match between upper and lower
-    if (targetFreq - lowerFreq > upperFreq - targetFreq) {
-        lower     = upper;
-        lowerFreq = upperFreq;
+    // Return the closest of upper/lower (signed; avoids UWORD underflow when target < lower)
+    {
+        LONG dLower = (LONG)targetFreq - (LONG)lowerFreq;
+        LONG dUpper = (LONG)upperFreq - (LONG)targetFreq;
+        if (dLower < 0) {
+            dLower = -dLower;
+        }
+        if (dUpper < 0) {
+            dUpper = -dUpper;
+        }
+        if (dLower > dUpper) {
+            lower     = upper;
+            lowerFreq = upperFreq;
+        }
     }
 
     mi->PixelClock = lowerFreq * 10000;
