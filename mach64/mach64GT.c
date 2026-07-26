@@ -3,11 +3,6 @@
 #include "common.h"
 #include "mach64_common.h"
 
-static ULONG computeVCLKFrequencyKhz10_GT(const struct BoardInfo *bi, const struct PLLValue *pllValues)
-{
-    return computeFrequencyKhz10FromPllValue(bi, pllValues, g_VPLLPostDivider);
-}
-
 static const UWORD defaultRegs_GT[] = {0x00a2, 0x7b33,   // BUS_CNTL upper
                                        0x00a0, 0x0000,   // BUS_CNTL lower
                                        0x0018, 0x0000,   // CRTC_INT_CNTL lower
@@ -46,11 +41,21 @@ static const UWORD defaultRegs_GT[] = {0x00a2, 0x7b33,   // BUS_CNTL upper
                                        0x007c, 0x3800,   // HW_DEBUG lower
                                        0x007e, 0x0084};  // HW_DEBUG upper
 
-const UBYTE g_VPLLPostDivider[] = {1, 2, 3, 4, 5, 6, 8, 12};
+/* Primary VCLK post-div: VCLK0_POST[1:0] + ALT_VCLK0_POST (PLL_EXT_CNTL bit4).
+ * PRG-215R3 App.J: without ALT, codes 00/01/10/11 = ÷1/2/4/8.
+ * LT/XL RRG: ALT selects the alternate set; XFree86 ATI264xTPostDividers is
+ * code 0..7 -> {1,2,4,8,3,0,6,12} (code 5 unused). Do not use ÷5 here — that
+ * encoding appears only on LT V2CLK_POST_DIV, not primary VCLK. */
+const UBYTE g_VPLLPostDivider[] = {1, 2, 3, 4, 6, 8, 12};
 
 const UBYTE g_VPLLPostDividerCodes[] = {
-    // *1,    *2,    *3,    *4,    *5,    *6,    *8,   *12
-    0b000, 0b001, 0b100, 0b010, 0b101, 0b110, 0b011, 0b111};
+    // *1,    *2,    *3,    *4,    *6,    *8,   *12
+    0b000, 0b001, 0b100, 0b010, 0b110, 0b011, 0b111};
+
+static ULONG computeVCLKFrequencyKhz10_GT(const struct BoardInfo *bi, const struct PLLValue *pllValues)
+{
+    return computeFrequencyKhz10FromPllValue(bi, pllValues, g_VPLLPostDivider);
+}
 
 static const UBYTE g_MPLLPostDividers[] = {1, 2, 3, 4, 8};
 
@@ -441,11 +446,14 @@ void ASM SetClock_GT(__REGA0(struct BoardInfo *bi))
 
 #ifdef DBG
     const ChipSpecific_t *cs = getConstChipSpecific(bi);
-    ULONG minVClkKhz10       = 2 * cs->referenceFrequency * 128 / (cs->referenceDivider * 8);
+    UBYTE maxPost            = g_VPLLPostDivider[ARRAY_SIZE(g_VPLLPostDivider) - 1];
+    ULONG minVClkKhz10       = 2 * cs->referenceFrequency * 128 / (cs->referenceDivider * maxPost);
+    if (cs->minPClock && cs->minPClock > minVClkKhz10)
+        minVClkKhz10 = cs->minPClock;
 
-    D(CHATTY, "minimm VCLK %ldHz\n", minVClkKhz10 * 10000);
+    D(CHATTY, "minimum VCLK %ldHz\n", minVClkKhz10 * 10000);
     if (pixelClock < minVClkKhz10 * 10000) {
-        DFUNC(ERROR, "PixelClock %ldHz is too low, minimum is %ldHz\n", pixelClock, minVClkKhz10 * 100000);
+        DFUNC(ERROR, "PixelClock %ldHz is too low, minimum is %ldHz\n", pixelClock, minVClkKhz10 * 10000);
         return;
     }
 
@@ -458,6 +466,10 @@ void ASM SetClock_GT(__REGA0(struct BoardInfo *bi))
     WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, PLL_PRESET);
 
     WRITE_PLL(PLL_VCLK0_FB_DIV, mi->pll1.Numerator);
+    if (mi->pll2.Denominator >= ARRAY_SIZE(g_VPLLPostDivider)) {
+        DFUNC(ERROR, "SetClock_GT: Pidx %ld out of range\n", (ULONG)mi->pll2.Denominator);
+        return;
+    }
     BYTE postDivCode = g_VPLLPostDividerCodes[mi->pll2.Denominator];
     WRITE_PLL_MASK(PLL_VCLK_POST_DIV, VCLK0_POST_MASK, VCLK0_POST(postDivCode));
 
@@ -578,11 +590,22 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     ULONG xNumerator   = xclkFBDiv * vclkPostDiv * w;
     ULONG xDenominator = vclkFBDiv * xclkPostDiv * bpp;
 
+    if (!xNumerator || !xDenominator) {
+        DFUNC(ERROR, "AdjustDSP: zero ratio terms (vFB=%ld vPost=%ld xFB=%ld xPost=%ld bpp=%ld)\n",
+              (ULONG)vclkFBDiv, (ULONG)vclkPostDiv, xclkFBDiv, xclkPostDiv, bpp);
+        return;
+    }
+
     // float y = (float)xNumerator / (float)xDenominator;
 
     while (!((xNumerator | xDenominator) & 1)) {
         xNumerator >>= 1;
         xDenominator >>= 1;
+    }
+
+    if (!xDenominator) {
+        DFUNC(ERROR, "AdjustDSP: denominator collapsed to 0\n");
+        return;
     }
 
     D(VERBOSE, "MCLK %ld0Khz, VCLK %ld0Khz, %ld numerator %ld denominator, x: %ld\n",
@@ -599,12 +622,19 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     int b1 = numBits((xNumerator * d) / xDenominator);
 
     int p = max(b1 - 5, bx - 3);
+    /* DSP_PRECISION / shift fields are small; keep ASL amounts non-negative. */
+    if (p < 0)
+        p = 0;
+    if (p > 6)
+        p = 6;
 
     int shift = 6 - p;
 
     D(VERBOSE, "bx: %ld, b1: %ld, p: %ld, shift: %ld\n", bx, b1, p, shift);
 
     ULONG f = minu((xDenominator << (5 + p)) / xNumerator, d);
+    if (f < 1)
+        f = 1;
 
     ULONG roff = ceilDivu((xNumerator * (f - 1)) << shift, xDenominator);
 
