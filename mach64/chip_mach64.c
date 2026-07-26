@@ -35,7 +35,7 @@ const UWORD LibRevision = LIB_REVISION;
 
 /*******************************************************************************/
 
-int debugLevel = TELLALL;
+int debugLevel = VERBOSE;
 
 static const UBYTE g_bitWidths[] = {
     COLOR_DEPTH_4,   // RGBFB_NONE 4bit
@@ -520,7 +520,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     }
     ULONG crtcHSyncStrtWid =
         CRTC_H_SYNC_STRT(hSyncStart) | CRTC_H_SYNC_STRT_HI(hSyncStart >> 8) | CRTC_H_SYNC_WID(hSyncWid);
-
     if (modeFlags & GMF_HPOLARITY) {
         crtcHSyncStrtWid |= CRTC_H_SYNC_POL;
     }
@@ -917,6 +916,7 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
         }
     }
 
+    /* Same as S3: CPU writes to VRAM can be posted; flush before HW cursor samples. */
     LOCAL_SYSBASE();
     CacheClearU();
 }
@@ -2421,8 +2421,6 @@ int main()
         goto exit;
     }
 
-    ULONG dmaSize = 128 * 1024;
-
     struct pci_dev *board = NULL;
 
     D(0, "Looking for Mach64 card...\n");
@@ -2442,7 +2440,6 @@ int main()
         if (family != UNKNOWN) {
             D(ALWAYS, "ATI %s found\n", getChipFamilyName(family));
 
-            // Write PCI COMMAND register to enable IO and Memory access
             pci_write_config_word(PCI_COMMAND, PCI_COMMAND_MEMORY | PCI_COMMAND_IO, board);
 
             D(INFO, "MemoryBase 0x%08lx, MemorySize %lu, BlockIOBase 0x%08lx, Aux MMIO Base 0x%08lx\n", Memory0,
@@ -2465,7 +2462,6 @@ int main()
 
             getCardData(bi)->legacyIOBase = legacyIOBase + REGISTER_OFFSET;
 
-            // Block IO is in BAR1
             if (family >= MACH64VT) {
                 if (!Memory1) {
                     D(ERROR, "Cannot find block IO Aperture\n");
@@ -2478,17 +2474,14 @@ int main()
             }
 
             if (Memory2) {
-                // Use Auxiliary Aperture for MMIO if available
                 D(INFO, "Using auxiliary register aperture at 0x%08lx\n", Memory2);
                 bi->MemoryIOBase = (BYTE *)Memory2 + 1024 + MMIOREGISTER_OFFSET;
                 setCacheMode(bi, Memory2, Memory2Size, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
             } else {
-                // MMIO registers are in top 1kb of the first 8mb memory window
                 D(INFO, "Using regular MMIO aperture at 0x%08lx\n", (BYTE *)Memory0 + 0x800000 - 1024);
                 bi->MemoryIOBase = (BYTE *)Memory0 + 0x800000 - 1024 + MMIOREGISTER_OFFSET;
                 setCacheMode(bi, (BYTE *)Memory0 + 0x800000 - 1024, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
             }
-            // Framebuffer is at address 0x0
             bi->MemoryBase = Memory0;
 
             D(0, "Mach64 init chip....\n");
@@ -2502,90 +2495,110 @@ int main()
             bi->MemorySpaceBase = Memory0;
             bi->MemorySpaceSize = Memory0Size;
 
-            {
-                DFUNC(ALWAYS, "SetDisplay OFF\n");
-                bi->SetDisplay(bi, FALSE);
-            }
+            bi->SetDisplay(bi, FALSE);
 
             {
-                // test 640x480 screen
-                struct ModeInfo mi;
+                struct {
+                    const char *name;
+                    UWORD w, h, hTot, hSyncStart, hSyncSize, vTot, vSyncStart, vSyncSize;
+                    ULONG pclk;
+                    UBYTE flags;
+                } modes[] = {
+                    {"640x480", 640, 480, 800, 16, 96, 525, 10, 2, 25175000, GMF_HPOLARITY | GMF_VPOLARITY},
+                    {"800x600", 800, 600, 1056, 40, 128, 628, 1, 4, 40000000, 0},
+                    {"1024x768", 1024, 768, 1344, 24, 136, 806, 3, 6, 65000000, GMF_HPOLARITY | GMF_VPOLARITY},
+                    /* ~12.6 MHz; V*2 CRTC + CRTC_DBL_SCAN (logical FB Height) */
+                    {"320x200d", 320, 200, 400, 16, 48, 224, 6, 1, 12587500,
+                     GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY},
+                    {"1024x384d", 1024, 384, 1344, 24, 136, 403, 3, 3, 65000000,
+                     GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY},
+                };
 
-                mi.Depth            = 8;
-                mi.Flags            = 0;
-                mi.Height           = 480;
-                mi.Width            = 680;
-                mi.HorBlankSize     = 0;
-                mi.HorEnableSkew    = 0;
-                mi.HorSyncSize      = 96;
-                mi.HorSyncStart     = 16;
-                mi.HorTotal         = 800;
-                mi.PixelClock       = 25175000;
-                mi.pll1.Numerator   = 190;
-                mi.pll2.Denominator = 2;
-                mi.VerBlankSize     = 0;
-                mi.VerSyncSize      = 2;
-                mi.VerSyncStart     = 10;
-                mi.VerTotal         = 525;
+                static struct ModeInfo testMi;
 
-                bi->ModeInfo = &mi;
+                for (int m = 0; m < (int)(sizeof(modes) / sizeof(modes[0])); ++m) {
+                    memset(&testMi, 0, sizeof(testMi));
+                    testMi.Depth        = 8;
+                    testMi.Flags        = modes[m].flags;
+                    testMi.Width        = modes[m].w;
+                    testMi.Height       = modes[m].h;
+                    testMi.HorTotal     = modes[m].hTot;
+                    testMi.HorSyncStart = modes[m].hSyncStart;
+                    testMi.HorSyncSize  = modes[m].hSyncSize;
+                    testMi.VerTotal     = modes[m].vTot;
+                    testMi.VerSyncStart = modes[m].vSyncStart;
+                    testMi.VerSyncSize  = modes[m].vSyncSize;
+                    testMi.PixelClock   = modes[m].pclk;
 
-                ULONG index = bi->ResolvePixelClock(bi, &mi, mi.PixelClock, RGBFB_CLUT);
+                    bi->ModeInfo = &testMi;
+                    bi->SetDisplay(bi, FALSE);
+                    bi->ResolvePixelClock(bi, &testMi, testMi.PixelClock, RGBFB_CLUT);
+                    if (bi->SetClock) {
+                        bi->SetClock(bi);
+                    }
+                    bi->SetGC(bi, &testMi, FALSE);
 
-                DFUNC(ALWAYS, "SetClock\n");
+                    for (int c = 0; c < 256; c++) {
+                        bi->CLUT[c].Red = bi->CLUT[c].Green = bi->CLUT[c].Blue = (UBYTE)c;
+                    }
+                    bi->SetColorArray(bi, 0, 256);
+                    bi->SetDAC(bi, 0, RGBFB_CLUT);
+                    bi->SetPanning(bi, bi->MemoryBase, modes[m].w, modes[m].h, 0, 0, RGBFB_CLUT);
+                    bi->SetDisplay(bi, TRUE);
 
+                    {
+                        struct RenderInfo ri;
+                        /* Logical Height only; CRTC_DBL_SCAN stretches on the CRT. */
+                        ri.Memory      = bi->MemoryBase;
+                        ri.BytesPerRow = modes[m].w;
+                        ri.RGBFormat   = RGBFB_CLUT;
+                        FillRect(bi, &ri, 0, 0, (WORD)modes[m].w, (WORD)modes[m].h,
+                                 (ULONG)(0x40 + m * 0x30), 0xFF, RGBFB_CLUT);
+                        FillRect(bi, &ri, (WORD)(modes[m].w / 4), (WORD)(modes[m].h / 4),
+                                 (WORD)(modes[m].w / 2), (WORD)(modes[m].h / 2), 0xFF, 0xFF, RGBFB_CLUT);
+                        WaitBlitter(bi);
+                    }
+
+                    DFUNC(ALWAYS, "Showing %s — check sync (3s)\n", modes[m].name);
+                    delayMilliSeconds(3000);
+                }
+
+                memset(&testMi, 0, sizeof(testMi));
+                testMi.Depth        = 8;
+                testMi.Flags        = GMF_HPOLARITY | GMF_VPOLARITY;
+                testMi.Width        = 640;
+                testMi.Height       = 480;
+                testMi.HorTotal     = 800;
+                testMi.HorSyncStart = 16;
+                testMi.HorSyncSize  = 96;
+                testMi.VerTotal     = 525;
+                testMi.VerSyncStart = 10;
+                testMi.VerSyncSize  = 2;
+                testMi.PixelClock   = 25175000;
+                bi->ModeInfo        = &testMi;
+                bi->ResolvePixelClock(bi, &testMi, testMi.PixelClock, RGBFB_CLUT);
                 if (bi->SetClock) {
                     bi->SetClock(bi);
-                } else {
-                    DFUNC(ERROR, "SetClock not implemented for this chip family\n");
                 }
-
-                DFUNC(ALWAYS, "SetGC\n");
-
-                bi->SetGC(bi, &mi, TRUE);
-            }
-            {
-                DFUNC(ALWAYS, "SetDAC\n");
+                bi->SetGC(bi, &testMi, FALSE);
                 bi->SetDAC(bi, 0, RGBFB_CLUT);
-            }
-            {
-                bi->SetSprite(bi, FALSE, RGBFB_CLUT);
-            }
-
-            {
-                DFUNC(0, "SetColorArray\n");
-                UBYTE colors[256 * 3];
-                for (int c = 0; c < 256; c++) {
-                    bi->CLUT[c].Red   = c;
-                    bi->CLUT[c].Green = c;
-                    bi->CLUT[c].Blue  = c;
-                }
-                bi->SetColorArray(bi, 0, 256);
-            }
-            {
                 bi->SetPanning(bi, bi->MemoryBase, 640, 480, 0, 0, RGBFB_CLUT);
-            }
-            {
-                DFUNC(ALWAYS, "SetDisplay ON\n");
                 bi->SetDisplay(bi, TRUE);
             }
 
-            for (int y = 0; y < 480; y++) {
-                for (int x = 0; x < 640; x++) {
-                    *(volatile UBYTE *)(bi->MemoryBase + y * 640 + x) = x;
-                }
+            bi->SetSprite(bi, FALSE, RGBFB_CLUT);
+            for (int c = 0; c < 256; c++) {
+                bi->CLUT[c].Red = bi->CLUT[c].Green = bi->CLUT[c].Blue = (UBYTE)c;
             }
-
-            struct RenderInfo ri;
-            ri.Memory      = bi->MemoryBase;
-            ri.BytesPerRow = 640;
-            ri.RGBFormat   = RGBFB_CLUT;
+            bi->SetColorArray(bi, 0, 256);
 
             {
-                bi->FillRect(bi, &ri, 100, 100, 640 - 200, 480 - 200, 0xFF, 0xFF, RGBFB_CLUT);
-            }
+                struct RenderInfo ri;
+                ri.Memory      = bi->MemoryBase;
+                ri.BytesPerRow = 640;
+                ri.RGBFormat   = RGBFB_CLUT;
+                FillRect(bi, &ri, 100, 100, 440, 280, 0xFF, 0xFF, RGBFB_CLUT);
 
-            {
                 UWORD patternData[] = {0xAAAA, 0x5555, 0x3333, 0xCCCC};
                 struct Pattern pattern;
                 pattern.BgPen    = 127;
@@ -2595,25 +2608,14 @@ int main()
                 pattern.Memory   = patternData;
                 pattern.XOffset  = 0;
                 pattern.YOffset  = 0;
-
-                bi->BlitPattern(bi, &ri, &pattern, 150, 150, 640 - 300, 480 - 300, 0xFF, RGBFB_CLUT);
+                BlitPattern(bi, &ri, &pattern, 150, 150, 340, 180, 0xFF, RGBFB_CLUT);
+                WaitBlitter(bi);
             }
 
-            bi->WaitBlitter(bi);
-            // RegisterOwner(cb, board, (struct Node *)ChipBase);
-
-            // if ((dmaSize > 0) && (dmaSize <= bi->MemorySize)) {
-            //     // Place DMA window at end of memory window 0 and page-align it
-            //     ULONG dmaOffset = (bi->MemorySize - dmaSize) & ~(4096 - 1);
-            //     InitDMAMemory(cb, bi->MemoryBase + dmaOffset, dmaSize);
-            //     bi->MemorySize = dmaOffset;
-            //     cb->cb_DMAMemGranted = TRUE;
-            // }
-            // no need to continue - we have found a match
             rval = EXIT_SUCCESS;
             goto exit;
         }
-    }  // while
+    }
 
     D(ERROR, "no Mach64 found.\n");
 
@@ -2625,3 +2627,4 @@ exit:
     return rval;
 }
 #endif  // TESTEXE
+
