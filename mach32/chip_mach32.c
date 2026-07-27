@@ -382,7 +382,7 @@ static UBYTE bppForRgbFormat(RGBFTYPE fmt)
     }
 }
 
-void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width), __REGD4(UWORD height),
+void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width), __REGD3(UWORD height),
                     __REGD1(WORD xoffset), __REGD2(WORD yoffset), __REGD7(RGBFTYPE format))
 {
     DFUNC(INFO,

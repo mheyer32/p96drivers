@@ -1075,7 +1075,7 @@ static INLINE ULONG REGARGS getMemoryOffset(const struct BoardInfo *bi, APTR mem
 }
 
 static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width),
-                           __REGD4(UWORD height), __REGD1(WORD xoffset), __REGD2(WORD yoffset),
+                           __REGD3(UWORD height), __REGD1(WORD xoffset), __REGD2(WORD yoffset),
                            __REGD7(RGBFTYPE format))
 {
     REGBASE();
