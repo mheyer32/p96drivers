@@ -302,7 +302,7 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
     return cd->ramdacOps->setMemoryClock(bi, clockHz);
 }
 
-static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
+static UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
                                   __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
 {
     // Make the bytes per row compatible with the Graphics Engine's presets
@@ -1172,7 +1172,7 @@ static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expect
 }
 
 // FIXME: implement, but make sure to coordinate with SetDPMSLevel
-static void WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL waitForEnd))
+static void ASM WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL waitForEnd))
 {
     DFUNC(VERBOSE, "waitForEnd: %ld\n", (ULONG)waitForEnd);
     REGBASE();

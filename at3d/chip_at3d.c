@@ -1184,7 +1184,7 @@ static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level)
 }
 
 // FIXME: Make sure to coordinate with SetDPMSLevel, does the register signals still get produced?
-static void WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL waitForEnd))
+static void ASM WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL waitForEnd))
 {
     DFUNC(VERBOSE, "waitForEnd: %ld, displayState: 0x%lx\n", (ULONG)waitForEnd, (ULONG)bi->ChipFlags);
 
@@ -2297,8 +2297,8 @@ static void performPlanarPlaneBlit(struct BoardInfo *bi, UWORD width, UWORD heig
 
 /* Planar to chunky: clear destination to 0, then for each plane OR (1<<p) expansion. No per-bit write mask on AT3D. */
 static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct BitMap *bm),
-                                  __REGA2(struct RenderInfo *ri), __REGD0(UWORD srcX), __REGD1(UWORD srcY),
-                                  __REGD2(UWORD dstX), __REGD3(UWORD dstY), __REGD4(UWORD width), __REGD5(UWORD height),
+                                  __REGA2(struct RenderInfo *ri), __REGD0(SHORT srcX), __REGD1(SHORT srcY),
+                                  __REGD2(SHORT dstX), __REGD3(SHORT dstY), __REGD4(SHORT width), __REGD5(SHORT height),
                                   __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
 {
     DFUNC(INFO, "src %ld,%ld dst %ld,%ld w %ld h %ld mask 0x%02lx minTerm 0x%02lx\n", (LONG)srcX, (LONG)srcY,
@@ -2320,7 +2320,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
 
     ASSERT(ri->RGBFormat == RGBFB_CLUT);
 
-    FillRect(bi, ri, (WORD)dstX, (WORD)dstY, (WORD)width, (WORD)height, 0, mask, RGBFB_CLUT);
+    FillRect(bi, ri, dstX, dstY, width, height, 0, mask, RGBFB_CLUT);
 
     DFUNC(INFO, "post Fillrect\n");
 

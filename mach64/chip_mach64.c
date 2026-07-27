@@ -340,7 +340,7 @@ void SetMemoryClock(BoardInfo_t *bi, USHORT kHz10)
 #define DAC_VGA_ADR_EN      BIT(13)
 #define DAC_VGA_ADR_EN_MASK BIT(13)
 
-static UWORD CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
+static UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
                                   __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
 {
     // Pitch is a multiple of 8 bytes
@@ -622,9 +622,11 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     return;
 }
 
-static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *mem), __REGD0(struct RenderInfo *ri),
+static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR memory), __REGD0(struct RenderInfo *ri),
                                 __REGD7(RGBFTYPE format))
 {
+    UBYTE *mem = memory;
+
     DFUNC(VERBOSE, "mem 0x%lx, format %ld\n", mem, (ULONG)format);
     switch (format) {
     case RGBFB_A8R8G8B8:
@@ -666,7 +668,7 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGB
     return compatible;
 }
 
-static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
+static BOOL ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 {
     // Clocking Mode Register (ClK_MODE) (SR1)
     MMIOBASE();
@@ -674,10 +676,12 @@ static void ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
     DFUNC(VERBOSE, " state %ld\n", (ULONG)state);
 
     W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_DISPLAY_DIS_MASK, state ? 0 : CRTC_DISPLAY_DIS);
+
+    return TRUE;
 }
 
-static ULONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
-                                   __REGD0(ULONG pixelClock), __REGD7(RGBFTYPE RGBFormat))
+static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
+                                  __REGD0(ULONG pixelClock), __REGD7(RGBFTYPE RGBFormat))
 {
     DFUNC(CHATTY, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
 
@@ -835,7 +839,7 @@ static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expect
     return (R_MMIO_B(CRTC_INT_CNTL, 0) & CRTC_VBLANK) != 0;
 }
 
-static void WaitVerticalSync(__REGA0(struct BoardInfo *bi)) {}
+static void ASM WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL end)) {}
 
 #define CUR_OFFSET_X(x)   (x)
 #define CUR_OFFSET_X_MASK (0xFFFFF)
