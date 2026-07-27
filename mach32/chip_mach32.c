@@ -7,7 +7,6 @@
 #include <libraries/pcitags.h>
 
 #if OPENPCI
-#define OPENPCI_SWAP
 #include <libraries/openpci.h>
 #include <proto/openpci.h>
 #endif

@@ -12,7 +12,6 @@
 
 BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
-#define OPENPCI_SWAP
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>
 #include <proto/openpci.h>

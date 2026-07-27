@@ -38,6 +38,8 @@ LIB_REVISION := 0
 endif
 
 BUILDFLAGS = -noixemul -mregparm=4 -msmall-code -m68020-60 -mtune=68030 -fno-builtin-strlen -ffreestanding -g -ggdb
+# Prevent the OpenPCI driver from defining its own broken swapl/swapw macros
+BUILDFLAGS += -DOPENPCI_SWAP 
 
 ifeq ($(DEBUG),1)
     CFLAGS += -DDBG

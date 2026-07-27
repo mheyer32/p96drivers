@@ -9,7 +9,6 @@
 #include <exec/types.h>
 #include <graphics/rastport.h>
 
-#define OPENPCI_SWAP  // don't make it define its own SWAP macros
 #include <exec/interrupts.h>
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>

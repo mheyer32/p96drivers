@@ -11,7 +11,6 @@
 #include <hardware/cia.h>
 
 #if OPENPCI
-#define OPENPCI_SWAP  // don't make it define its own SWAP macros
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>
 #include <proto/openpci.h>

@@ -263,7 +263,8 @@ static INLINE REGARGS volatile UBYTE *getMMIOBase(const struct BoardInfo *bi)
 
 static inline void flushWrites()
 {
-    asm volatile("nop");
+    /* Drain 68060 store buffer before a subsequent serialized/IO/VRAM read. */
+    asm volatile("nop" ::: "memory");
 }
 
 static INLINE UBYTE REGARGS readReg(volatile UBYTE *regbase, LONG reg)

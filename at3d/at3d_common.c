@@ -1,6 +1,5 @@
 #include "at3d_common.h"
 
-#define OPENPCI_SWAP  // don't make it define its own SWAP macros
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>
 #include <proto/openpci.h>
