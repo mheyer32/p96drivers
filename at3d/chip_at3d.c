@@ -577,7 +577,7 @@ static void ASM SetClock(__REGA0(struct BoardInfo *bi))
 }
 
 static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(ULONG index),
-                               __REGD1(RGBFTYPE rgbFormat))
+                               __REGD7(RGBFTYPE rgbFormat))
 {
     DFUNC(INFO, "Index: %ld\n", index);
 
