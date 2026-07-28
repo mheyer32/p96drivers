@@ -680,6 +680,24 @@ static BOOL ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
     return TRUE;
 }
 
+static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level))
+{
+    DFUNC(VERBOSE, "level=%ld\n", level);
+
+    static const ULONG dpmsBits[4] = {
+        0,                               /* ON */
+        CRTC_HSYNC_DIS,                  /* STANDBY */
+        CRTC_VSYNC_DIS,                  /* SUSPEND */
+        CRTC_HSYNC_DIS | CRTC_VSYNC_DIS, /* OFF */
+    };
+
+    if (level > 3)
+        level = 3;
+
+    MMIOBASE();
+    W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_HSYNC_DIS | CRTC_VSYNC_DIS, dpmsBits[level]);
+}
+
 static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
                                   __REGD0(ULONG pixelClock), __REGD7(RGBFTYPE RGBFormat))
 {
@@ -2062,8 +2080,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->WaitVerticalSync = WaitVerticalSync;
     bi->GetVSyncState    = GetVSyncState;
 
-    // // DPMS
-    // bi->SetDPMSLevel = SetDPMSLevel;
+    // DPMS
+    bi->SetDPMSLevel = SetDPMSLevel;
 
     // // VGA Splitscreen
     // bi->SetSplitPosition = SetSplitPosition;
