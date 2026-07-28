@@ -2277,11 +2277,14 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         bi->MemorySize -= 2048;  // Upper 2kb are reserved for MMIO register blocks 0 and 1
     }
 
-    // Init DAC. For chips with integrated DAC (GT/GM), enable 8bit per gun, blanking pedestal
-    // and disable decoding DAC at legacy IO address. For GX (external DAC), this is handled
-    // in InitMach64GX.
+    // Init DAC. For chips with integrated DAC (GT/GM), enable 8bit per gun and optional
+    // blanking pedestal (BLACKLEVEL=Pedestal default; Black → 0 IRE). Disable legacy VGA
+    // DAC decode. For GX (external DAC), this is handled in InitMach64GX.
     if (cd->chipFamily != MACH64GX) {
-        W_MMIO_MASK_L(DAC_CNTL, DAC_8BIT_EN_MASK | DAC_BLANKING_MASK | DAC_VGA_ADR_EN, DAC_8BIT_EN | DAC_BLANKING);
+        ULONG dacBits = DAC_8BIT_EN;
+        if (!(bi->CardFlags & CFF_BLACKLEVEL_BLACK))
+            dacBits |= DAC_BLANKING;
+        W_MMIO_MASK_L(DAC_CNTL, DAC_8BIT_EN_MASK | DAC_BLANKING_MASK | DAC_VGA_ADR_EN, dacBits);
         W_MMIO_B(DAC_REGS, DAC_MASK, 0xFF);
     }
 

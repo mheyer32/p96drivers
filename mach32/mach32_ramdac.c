@@ -220,8 +220,8 @@ static void bt481_writeCommandRegisterB(BoardInfo_t *bi, UBYTE value)
 }
 
 /*
- * Brooktree Bt481A detection and 8-bit mode init: enter extended access,
- * read Command Register B signature, write 8-bit DAC + 7.5 IRE pedestal.
+ * Brooktree Bt481A detection and mode init: enter extended access, verify
+ * Command Register B, then program 8-bit DAC and BLACKLEVEL pedestal bit.
  */
 BOOL initBt481(BoardInfo_t *bi)
 {
@@ -231,15 +231,17 @@ BOOL initBt481(BoardInfo_t *bi)
     delayMicroSeconds(2);
     UBYTE sig = R_REG(DAC_MASK);
 
-    // BT481_CMD_B_SIGNATURE will on ly be there once, during power up.
-    if (sig != BT481_CMD_B_SIGNATURE && sig != (BT481_CMD_B_7_5_IRE | BT481_CMD_B_8BIT_DAC) && sig != BT481_CMD_B_7_5_IRE) {
+    /* Power-up signature 0x1E, or warm-boot leftover of bits we program. */
+    if (sig != BT481_CMD_B_SIGNATURE && (sig & ~(BT481_CMD_B_7_5_IRE | BT481_CMD_B_8BIT_DAC)) != 0) {
         DFUNC(ERROR, "Bt481 init failed: expected signature 0x%02x, got 0x%02x\n", BT481_CMD_B_SIGNATURE, sig);
         bt481_exitExtended(bi);
 
         return FALSE;
     }
 
-    UBYTE cmdB = BT481_CMD_B_7_5_IRE; // FIXME: eventually make it configurable via ToolTypes
+    UBYTE cmdB = 0;
+    if (!(bi->CardFlags & CFF_BLACKLEVEL_BLACK))
+        cmdB |= BT481_CMD_B_7_5_IRE;
     if (bi->BitsPerCannon == 8) {
         cmdB |= BT481_CMD_B_8BIT_DAC;
     }

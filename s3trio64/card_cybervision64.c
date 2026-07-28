@@ -1,3 +1,4 @@
+#include "card_common.h"
 #include "chip_s3trio64.h"
 #include "s3trio64_common.h"
 
@@ -123,6 +124,8 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         DFUNC(ERROR, "Cybervision64.card: No board claimed\n");
         return FALSE;
     }
+
+    parseBlackLevelToolType(bi, ToolTypes);
 
     LOCAL_SYSBASE();
 

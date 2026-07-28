@@ -71,6 +71,11 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
 #if OPENPCI
 #define LOCAL_OPENPCIBASE()    struct Library *OpenPciBase = getCardData(bi)->OpenPciBase
 #endif
+
+/* BoardInfo.CardFlags — private; RTG does not touch these.
+ * P96 monitor tooltype BLACKLEVEL=Black|Pedestal (same as S3ViRGE.chip).
+ * Unset / Pedestal → clear bit (DAC blanking pedestal on). Black → set bit (0 IRE). */
+#define CFF_BLACKLEVEL_BLACK (1UL << 0)
 // #define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
 
 static inline ULONG swapl(ULONG value)

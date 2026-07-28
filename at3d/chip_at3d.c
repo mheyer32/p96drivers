@@ -2790,7 +2790,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
     W_MMIO_B(ABORT, 0);
     W_MMIO_B(COLOR_CORRECTION, BIT(4));  // 8bit per gun palette write (Does not seem to work?!)
-    W_MMIO_B(DAC_CTRL, BIT(0));          // DAC Powered, Blanking pedesta, no overcurrent boost
+    /* DAC_CTRL 0E4h bit0 = blanking pedestal; BLACKLEVEL=Black clears it. */
+    W_MMIO_B(DAC_CTRL, (bi->CardFlags & CFF_BLACKLEVEL_BLACK) ? 0 : BIT(0));
     if (cd->chipFamily >= AT24) {
         W_MMIO_B(SIGANALYSER_CTRL, 0);  // Disable signal analyser
         W_MMIO_B(FEATURE_CTRL, 0);

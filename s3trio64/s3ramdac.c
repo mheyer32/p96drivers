@@ -413,6 +413,9 @@ BOOL InitRAMDAC(struct BoardInfo *bi)
     case TRIO64PLUS:
     case TRIO64UVPLUS:
     case TRIO64V2:
+    case VIRGE3D:
+        /* Integrated RAMDAC: SR1A bit 5 = blanking pedestal (same as ViRGE / Trio64V2). */
+        W_SR_MASK(0x1A, BIT(5), (bi->CardFlags & CFF_BLACKLEVEL_BLACK) ? 0 : BIT(5));
         cd->ramdacOps = &integrated_ops;
         return TRUE;
 
@@ -423,7 +426,6 @@ BOOL InitRAMDAC(struct BoardInfo *bi)
         return TRUE;
 
     case UNKNOWN:
-    case VIRGE3D:
     default:
         DFUNC(ERROR, "Unsupported chip family for InitRAMDAC.\n");
         return FALSE;
@@ -588,23 +590,25 @@ static BOOL InitRGB524(struct BoardInfo *bi)
     W_REG(DAC_IDX_CNTL, 0x01);  // auto-increment register indices
     W_REG(DAC_IDX_HI, 0x00);
 
-    W_REG(DAC_IDX_LO, 0x06);  // DAC operation
-    W_REG(DAC_DATA, BIT(0));  // Blanking pedestal
+    W_REG(DAC_IDX_LO, 0x06);  // DAC operation (DPE = blanking pedestal)
+    W_REG(DAC_IDX_DATA, (bi->CardFlags & CFF_BLACKLEVEL_BLACK) ? 0 : BIT(0));
 
     W_REG(DAC_IDX_LO, 0x0a);  // Pixel Format
-    W_REG(DAC_DATA, 0b011);   // 8Bit
+    W_REG(DAC_IDX_DATA, 0b011);   // 8Bit
 
     W_REG(DAC_IDX_LO, 0x0b);  // 8 Bit Pixel Control
-    W_REG(DAC_DATA, 0);       // Indirect through Palette enabled
+    W_REG(DAC_IDX_DATA, 0);       // Indirect through Palette enabled
 
     W_REG(DAC_IDX_LO, 0x0c);                         // 16 Bit Pixel Control
-    W_REG(DAC_DATA, (0b11 << 6) | BIT(2) | BIT(1));  // Fill low order 0 bits with high order bits and 565 mode
+    W_REG(DAC_IDX_DATA, (0b11 << 6) | BIT(2) | BIT(1));  // Fill low order 0 bits with high order bits and 565 mode
 
     W_REG(DAC_IDX_LO, 0x0d);  // 24 Bit Pixel Control
-    W_REG(DAC_DATA, 0x01);    // Direct, palette bypass
+    W_REG(DAC_IDX_DATA, 0x01);    // Direct, palette bypass
 
     W_REG(DAC_IDX_LO, 0x0e);           // 32 Bit Pixel Control
-    W_REG(DAC_DATA, BIT(2) | (0b11));  // Direct, Palette bypass
+    W_REG(DAC_IDX_DATA, BIT(2) | (0b11));  // Direct, Palette bypass
 
     DAC_DISABLE_RS2();
+
+    return TRUE;
 }

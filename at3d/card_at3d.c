@@ -201,6 +201,8 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         return FALSE;
     }
 
+    parseBlackLevelToolType(bi, ToolTypes);
+
     LOCAL_OPENPCIBASE();
     LOCAL_SYSBASE();
 

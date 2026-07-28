@@ -93,6 +93,35 @@ BOOL parseToolTypes(struct BoardInfo *bi, CONST_STRPTR *ToolTypes, ULONG *device
     return TRUE;
 }
 
+void parseBlackLevelToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes)
+{
+    LOCAL_SYSBASE();
+
+    if (!ToolTypes)
+        return;
+
+    struct Library *IconBase = OpenLibrary("icon.library", 0);
+    if (!IconBase) {
+        DFUNC(ERROR, "Cannot open icon.library\n");
+        return;
+    }
+
+    CONST_STRPTR bl = (CONST_STRPTR)FindToolType(ToolTypes, "BLACKLEVEL");
+    if (bl) {
+        if (MatchToolValue((STRPTR)bl, "Black")) {
+            bi->CardFlags |= CFF_BLACKLEVEL_BLACK;
+            D(INFO, "Tooltype BLACKLEVEL=Black (0 IRE)\n");
+        } else if (MatchToolValue((STRPTR)bl, "Pedestal")) {
+            bi->CardFlags &= ~CFF_BLACKLEVEL_BLACK;
+            D(INFO, "Tooltype BLACKLEVEL=Pedestal (7.5 IRE)\n");
+        } else {
+            D(WARN, "Tooltype BLACKLEVEL=%s ignored (use Black or Pedestal)\n", bl);
+        }
+    }
+
+    CloseLibrary(IconBase);
+}
+
 void generateBoardName(char *boardName, const char *cardName, ULONG bus, ULONG slot)
 {
     // Format: "CardName_B_S" where B is bus and S is slot

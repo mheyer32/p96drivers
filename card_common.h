@@ -25,6 +25,12 @@ BOOL parseToolTypes(struct BoardInfo *bi, CONST_STRPTR *ToolTypes, ULONG *device
                     ULONG *bus);
 
 /**
+ * Parse BLACKLEVEL=Black|Pedestal into bi->CardFlags (CFF_BLACKLEVEL_BLACK).
+ * Default (unset) leaves the flag clear → pedestal / 7.5 IRE, matching prior hardcoded DAC setup.
+ */
+void parseBlackLevelToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes);
+
+/**
  * Generate a unique board name based on card name, bus, and slot
  * Format: "CardName_B_S" where B is bus number and S is slot number
  * @param boardName Output buffer (must be at least 16 bytes)

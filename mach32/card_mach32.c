@@ -178,13 +178,13 @@ exit:
 
 BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
-    (void)ToolTypes;
-
     CardData_t *cd = getCardData(bi);
     if (!cd->board || !cd->OpenPciBase) {
         DFUNC(ERROR, "No Mach32 board claimed\n");
         return FALSE;
     }
+
+    parseBlackLevelToolType(bi, ToolTypes);
 
     LOCAL_OPENPCIBASE();
     LOCAL_SYSBASE();
