@@ -618,8 +618,41 @@ BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expected))
 {
     DFUNC(CHATTY, "expected=%ld\n", (ULONG)expected);
     (void)expected;
-    (void)bi;
-    return FALSE;
+    REGBASE();
+    return (R_IO_W(SUBSYS_STATUS) & SUBSYS_VBLANK_INT) != 0;
+}
+
+static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
+{
+    REGBASE();
+    LOCAL_SYSBASE();
+    Disable();
+
+    /* Do not touch GE_RESET[15:14] (0 = no change). */
+    if (state)
+        W_IO_W(SUBSYS_CNTL, SUBSYS_VBLANK_ACK | SUBSYS_VBLANK_ENA);
+    else
+        W_IO_W(SUBSYS_CNTL, SUBSYS_VBLANK_ACK);
+
+    Enable();
+    return TRUE;
+}
+
+static ULONG ASM VBlankInterrupt(__REGA1(struct BoardInfo *bi))
+{
+    volatile UBYTE *RegBase = getIOBase(bi);
+
+    if (!(R_IO_W(SUBSYS_STATUS) & SUBSYS_VBLANK_INT))
+        return 0;
+
+    /* Ack while keeping VBLANK_ENA so continuous IRQs keep firing. */
+    W_IO_W(SUBSYS_CNTL, SUBSYS_VBLANK_ACK | SUBSYS_VBLANK_ENA);
+
+    {
+        struct ExecBase *SysBase = bi->ExecBase;
+        Cause(&bi->SoftInterrupt);
+    }
+    return 1;
 }
 
 /**
@@ -1745,8 +1778,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->SetClock             = SetClock;
     bi->SetDPMSLevel         = SetDPMSLevel;
 
-    bi->WaitVerticalSync = WaitVerticalSync;
-    bi->GetVSyncState    = GetVSyncState;
+    bi->WaitVerticalSync      = WaitVerticalSync;
+    bi->GetVSyncState         = GetVSyncState;
+    bi->SetInterrupt          = SetInterrupt;
+    bi->HardInterrupt.is_Code = (void (*)())VBlankInterrupt;
 
     bi->SetSprite         = SetSprite;
     bi->SetSpritePosition = SetSpritePosition;

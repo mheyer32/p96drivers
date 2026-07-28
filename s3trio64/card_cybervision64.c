@@ -3,8 +3,10 @@
 #include "s3trio64_common.h"
 
 #include <clib/debug_protos.h>
+#include <exec/interrupts.h>
 #include <exec/nodes.h>
 #include <exec/types.h>
+#include <hardware/intbits.h>
 #include <libraries/configvars.h>
 #include <libraries/expansion.h>
 #include <proto/exec.h>
@@ -102,6 +104,13 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *Tooltypes))
 BOOL releaseCard(__REGA0(struct BoardInfo *bi))
 {
     CardData_t *cd = getCardData(bi);
+    LOCAL_SYSBASE();
+
+    if (bi->CardFlags & CFF_VBLANK_INTSERVER) {
+        RemIntServer(INTB_PORTS, &bi->HardInterrupt);
+        bi->CardFlags &= ~CFF_VBLANK_INTSERVER;
+        bi->Flags &= ~BIF_VBLANKINTERRUPT;
+    }
 
     if (cd->configDev) {
         // Release the card by setting CDB_CONFIGME flag
@@ -115,6 +124,7 @@ BOOL releaseCard(__REGA0(struct BoardInfo *bi))
         }
     }
 #endif
+    return TRUE;
 }
 
 BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
@@ -126,6 +136,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     }
 
     parseBlackLevelToolType(bi, ToolTypes);
+    BOOL wantInterrupt = parseInterruptToolType(bi, ToolTypes);
 
     LOCAL_SYSBASE();
 
@@ -188,6 +199,14 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     D(INFO, "card has %ldkb usable memory\n", bi->MemorySize / 1024);
 
     W_CV64_MASK(CV64_MONITOR_SWITCH_BIT, 0);
+
+    /* Zorro INT2 → Paula PORTS chain (Level 2). Chip owns CR11 ack via HardInterrupt.is_Code. */
+    if (wantInterrupt && bi->HardInterrupt.is_Code) {
+        AddIntServer(INTB_PORTS, &bi->HardInterrupt);
+        bi->CardFlags |= CFF_VBLANK_INTSERVER;
+        bi->Flags |= BIF_VBLANKINTERRUPT;
+        D(INFO, "VBlank interrupt server registered on PORTS (Level 2)\n");
+    }
 
     return TRUE;
 }

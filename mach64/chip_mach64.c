@@ -1,10 +1,10 @@
 #include "chip_mach64.h"
+#include "edid_common.h"
 #include "mach64GT.h"
 #include "mach64GX.h"
 #include "mach64VT.h"
 #include "mach64_common.h"
 #include "mach64_i2c.h"
-#include "edid_common.h"
 
 #include <graphics/rastport.h>
 #include <libraries/openpci.h>
@@ -341,7 +341,7 @@ void SetMemoryClock(BoardInfo_t *bi, USHORT kHz10)
 #define DAC_VGA_ADR_EN_MASK BIT(13)
 
 static UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
-                                  __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
+                                      __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
 {
     // Pitch is a multiple of 8 bytes
     UBYTE bpp = getBPP(format);
@@ -469,8 +469,13 @@ static INLINE REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
 #define OVR_CLR_R(x)   ((x) << 24)
 #define OVR_CLR_R_MASK (0xFF << 24)
 
-#define CRTC_VBLANK      BIT(0)
-#define CRTC_VBLANK_MASK BIT(0)
+#define CRTC_VBLANK        BIT(0)
+#define CRTC_VBLANK_MASK   BIT(0)
+#define CRTC_VBLANK_INT_EN BIT(1)
+#define CRTC_VBLANK_INT    BIT(2)
+#define CRTC_VBLANK_INT_AK CRTC_VBLANK_INT
+#define CRTC_VLINE_INT     BIT(4)
+#define CRTC_INT_ACKS      (CRTC_VBLANK_INT | CRTC_VLINE_INT)
 
 // in characters (pixels/8)
 #define OVR_WID_LEFT(x)    (x)
@@ -854,10 +859,49 @@ static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expect
 {
     MMIOBASE();
     DFUNC(VERBOSE, "\n");
-    return (R_MMIO_B(CRTC_INT_CNTL, 0) & CRTC_VBLANK) != 0;
+    return (R_MMIO_L(CRTC_INT_CNTL) & CRTC_VBLANK) != 0;
 }
 
 static void ASM WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL end)) {}
+
+static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
+{
+    LOCAL_SYSBASE();
+    Disable();
+
+    MMIOBASE();
+
+    ULONG status = R_MMIO_L(CRTC_INT_CNTL);
+    if (state) {
+        W_MMIO_L(CRTC_INT_CNTL, (status & ~CRTC_INT_ACKS) | CRTC_VBLANK_INT_AK | CRTC_VBLANK_INT_EN);
+    } else {
+        W_MMIO_L(CRTC_INT_CNTL, (status & ~(CRTC_INT_ACKS | CRTC_VBLANK_INT_EN)) | CRTC_VBLANK_INT_AK);
+    }
+
+    Enable();
+
+    return TRUE;
+}
+
+/* OpenPCI/Exec interrupt server: is_Data (BoardInfo *) in a1.
+ * Return non-zero (Z clear) if we handled this board's VBlank IRQ; else 0 (Z set). */
+static ULONG ASM VBlankInterrupt(__REGA1(struct BoardInfo *bi))
+{
+    volatile UBYTE *MMIOBase = getMMIOBase(bi);
+    ULONG status             = R_MMIO_L(CRTC_INT_CNTL);
+
+    if (!(status & CRTC_VBLANK_INT))
+        return 0;
+
+    /* Ack VBlank while keeping enable bits (DRM mach64_irq pattern). */
+    W_MMIO_L(CRTC_INT_CNTL, (status & ~CRTC_INT_ACKS) | CRTC_VBLANK_INT_AK);
+
+    {
+        LOCAL_SYSBASE();
+        Cause(&bi->SoftInterrupt);
+    }
+    return 1;
+}
 
 #define CUR_OFFSET_X(x)   (x)
 #define CUR_OFFSET_X_MASK (0xFFFFF)
@@ -2047,7 +2091,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     bi->GraphicsControllerType = GCT_ATIRV100;
     bi->PaletteChipType        = PCT_ATT_20C492;
-    bi->Flags = bi->Flags | BIF_GRANTDIRECTACCESS | BIF_HARDWARESPRITE | BIF_BLITTER;
+    bi->Flags                  = bi->Flags | BIF_GRANTDIRECTACCESS | BIF_HARDWARESPRITE | BIF_BLITTER;
     // BIF_VGASCREENSPLIT ;
 
     bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
@@ -2076,9 +2120,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->GetPixelClock        = GetPixelClock;
     // SetClock is set up by chip-specific init functions (InitMach64GT, etc.)
 
-    // // VSYNC
-    bi->WaitVerticalSync = WaitVerticalSync;
-    bi->GetVSyncState    = GetVSyncState;
+    // VSYNC / VBlank IRQ (card registers HardInterrupt via pci_add_intserver)
+    bi->WaitVerticalSync      = WaitVerticalSync;
+    bi->GetVSyncState         = GetVSyncState;
+    bi->SetInterrupt          = SetInterrupt;
+    bi->HardInterrupt.is_Code = (void (*)())VBlankInterrupt;
 
     // DPMS
     bi->SetDPMSLevel = SetDPMSLevel;
@@ -2353,7 +2399,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     D(INFO, "Monitor is %s present\n", ((R_MMIO_B(DAC_CNTL, 0) & 0x80) ? "NOT" : ""));
 
-
     queryEDID(bi);
 
     // Two sprite images, each 64x64*2 bits
@@ -2362,8 +2407,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->MemorySize                   = (bi->MemorySize - maxSpriteBuffersSize) & ~(63);  // align to 64 byte boundary
 
     bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
-    //FIXME: is this one even needed?
-    bi->MouseSaveBuffer  = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
+    // FIXME: is this one even needed?
+    bi->MouseSaveBuffer = bi->MemoryBase + bi->MemorySize + maxSpriteBuffersSize / 2;
 
     // reserve memory for a pattern that can be up to 256 lines high (2kb)
     // Since the minimum pitch for SRC_PITCH is 64 monochrome pixels (8 byte), we need to overallocate.
@@ -2393,7 +2438,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #include <stdlib.h>
 #include <string.h>
 
-#define VENDOR_E3B        0xE3B
+#define VENDOR_E3B 0xE3B
 /* BoardInfo alone is ~2.5KB on stack; default CLI stack is 4KB. */
 ULONG __stack = 65536;
 #define VENDOR_MATAY      0xAD47
@@ -2503,7 +2548,8 @@ int main()
             bi->SetDisplay(bi, FALSE);
 
             {
-                struct {
+                struct
+                {
                     const char *name;
                     UWORD w, h, hTot, hSyncStart, hSyncSize, vTot, vSyncStart, vSyncSize;
                     ULONG pclk;
@@ -2557,10 +2603,10 @@ int main()
                         ri.Memory      = bi->MemoryBase;
                         ri.BytesPerRow = modes[m].w;
                         ri.RGBFormat   = RGBFB_CLUT;
-                        FillRect(bi, &ri, 0, 0, (WORD)modes[m].w, (WORD)modes[m].h,
-                                 (ULONG)(0x40 + m * 0x30), 0xFF, RGBFB_CLUT);
-                        FillRect(bi, &ri, (WORD)(modes[m].w / 4), (WORD)(modes[m].h / 4),
-                                 (WORD)(modes[m].w / 2), (WORD)(modes[m].h / 2), 0xFF, 0xFF, RGBFB_CLUT);
+                        FillRect(bi, &ri, 0, 0, (WORD)modes[m].w, (WORD)modes[m].h, (ULONG)(0x40 + m * 0x30), 0xFF,
+                                 RGBFB_CLUT);
+                        FillRect(bi, &ri, (WORD)(modes[m].w / 4), (WORD)(modes[m].h / 4), (WORD)(modes[m].w / 2),
+                                 (WORD)(modes[m].h / 2), 0xFF, 0xFF, RGBFB_CLUT);
                         WaitBlitter(bi);
                     }
 
@@ -2632,4 +2678,3 @@ exit:
     return rval;
 }
 #endif  // TESTEXE
-

@@ -76,6 +76,7 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
  * P96 monitor tooltype BLACKLEVEL=Black|Pedestal (same as S3ViRGE.chip).
  * Unset / Pedestal → clear bit (DAC blanking pedestal on). Black → set bit (0 IRE). */
 #define CFF_BLACKLEVEL_BLACK (1UL << 0)
+#define CFF_VBLANK_INTSERVER (1UL << 1) /* pci_add_intserver registered for HardInterrupt */
 // #define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
 
 static inline ULONG swapl(ULONG value)

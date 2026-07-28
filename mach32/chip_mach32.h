@@ -164,6 +164,10 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define SRC_Y_DIR          0xC2EE /* W — same index as R_V_TOTAL (R) */
 #define SUBSYS_CNTL        0x42E8 /* W — same index as SUBSYS_STATUS (R) */
 #define SUBSYS_STATUS      0x42E8 /* R — same index as SUBSYS_CNTL (W) */
+/* SUBSYS_STATUS / SUBSYS_CNTL — REG688000-15 §8-17–8-20 */
+#define SUBSYS_VBLANK_INT BIT(0)
+#define SUBSYS_VBLANK_ACK BIT(0)
+#define SUBSYS_VBLANK_ENA BIT(8)
 #define V_DISP             0x16E8 /* W */
 #define V_SYNC_STRT        0x1AE8 /* W */
 #define V_SYNC_WID         0x1EE8 /* W */

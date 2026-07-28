@@ -31,6 +31,11 @@ BOOL parseToolTypes(struct BoardInfo *bi, CONST_STRPTR *ToolTypes, ULONG *device
 void parseBlackLevelToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes);
 
 /**
+ * Parse INTERRUPT=Yes|No. Returns TRUE if hardware VBlank IRQ should be attempted (default).
+ */
+BOOL parseInterruptToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes);
+
+/**
  * Generate a unique board name based on card name, bus, and slot
  * Format: "CardName_B_S" where B is bus number and S is slot number
  * @param boardName Output buffer (must be at least 16 bytes)

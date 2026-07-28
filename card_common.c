@@ -122,6 +122,37 @@ void parseBlackLevelToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes)
     CloseLibrary(IconBase);
 }
 
+BOOL parseInterruptToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes)
+{
+    LOCAL_SYSBASE();
+
+    if (!ToolTypes)
+        return TRUE;
+
+    struct Library *IconBase = OpenLibrary("icon.library", 0);
+    if (!IconBase) {
+        DFUNC(ERROR, "Cannot open icon.library\n");
+        return TRUE;
+    }
+
+    BOOL enable = TRUE;
+    CONST_STRPTR irq = (CONST_STRPTR)FindToolType(ToolTypes, "INTERRUPT");
+    if (irq) {
+        if (MatchToolValue((STRPTR)irq, "No") || MatchToolValue((STRPTR)irq, "False")) {
+            enable = FALSE;
+            D(INFO, "Tooltype INTERRUPT=No (skip VBlank IRQ)\n");
+        } else if (MatchToolValue((STRPTR)irq, "Yes") || MatchToolValue((STRPTR)irq, "True")) {
+            enable = TRUE;
+            D(INFO, "Tooltype INTERRUPT=Yes (attempt VBlank IRQ)\n");
+        } else {
+            D(WARN, "Tooltype INTERRUPT=%s ignored (use Yes or No)\n", irq);
+        }
+    }
+
+    CloseLibrary(IconBase);
+    return enable;
+}
+
 void generateBoardName(char *boardName, const char *cardName, ULONG bus, ULONG slot)
 {
     // Format: "CardName_B_S" where B is bus and S is slot

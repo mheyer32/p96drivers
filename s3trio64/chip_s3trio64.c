@@ -1199,6 +1199,49 @@ static void ASM WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL wai
     }
 }
 
+/* VGA CR11: bit4 = vert IRQ clear/arm, bit5 = 1 disables vert IRQ.
+ * INPUTSTATUS0 (0x3C2) bit7 = this CRTC has a pending IRQ. */
+static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
+{
+    REGBASE();
+    LOCAL_SYSBASE();
+    Disable();
+
+    UBYTE idx = readReg(RegBase, CRTC_IDX);
+    writeReg(RegBase, CRTC_IDX, 0x11);
+    UBYTE cr11 = readReg(RegBase, CRTC_DATA);
+    if (state)
+        cr11 = (cr11 & ~BIT(5)) | BIT(4);
+    else
+        cr11 = (cr11 | BIT(5)) & ~BIT(4);
+    writeReg(RegBase, CRTC_DATA, cr11);
+    writeReg(RegBase, CRTC_IDX, idx);
+
+    Enable();
+    return TRUE;
+}
+
+static ULONG ASM VBlankInterrupt(__REGA1(struct BoardInfo *bi))
+{
+    volatile UBYTE *RegBase = getIOBase(bi);
+
+    if (!(readReg(RegBase, 0x3C2) & BIT(7)))
+        return 0;
+
+    UBYTE idx = readReg(RegBase, CRTC_IDX);
+    writeReg(RegBase, CRTC_IDX, 0x11);
+    UBYTE cr11 = readReg(RegBase, CRTC_DATA);
+    writeReg(RegBase, CRTC_DATA, cr11 & ~BIT(4));
+    writeReg(RegBase, CRTC_DATA, cr11 | BIT(4));
+    writeReg(RegBase, CRTC_IDX, idx);
+
+    {
+        struct ExecBase *SysBase = bi->ExecBase;
+        Cause(&bi->SoftInterrupt);
+    }
+    return 1;
+}
+
 static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level))
 {
     //  DPMS_ON,      /* Full operation                             */
@@ -2996,9 +3039,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->GetPixelClock        = GetPixelClock;
     bi->SetClock             = SetClock;
 
-    // VSYNC
-    bi->WaitVerticalSync = WaitVerticalSync;
-    bi->GetVSyncState    = GetVSyncState;
+    // VSYNC / VBlank IRQ (card registers HardInterrupt via pci_add_intserver)
+    bi->WaitVerticalSync      = WaitVerticalSync;
+    bi->GetVSyncState         = GetVSyncState;
+    bi->SetInterrupt          = SetInterrupt;
+    bi->HardInterrupt.is_Code = (void (*)())VBlankInterrupt;
 
     // DPMS
     bi->SetDPMSLevel = SetDPMSLevel;
