@@ -772,7 +772,6 @@ static inline UBYTE getBPPLog2(RGBFTYPE format)
 static inline UWORD revertBitsW(UWORD word)
 {
     // Convert sprite data to "LSB are leftmost"
-    // reverse the bits in the word
     word = ((word & 0xFF00) >> 8) | ((word & 0x00FF) << 8);
     word = ((word & 0xF0F0) >> 4) | ((word & 0x0F0F) << 4);
     word = ((word & 0xCCCC) >> 2) | ((word & 0x3333) << 2);
@@ -780,43 +779,35 @@ static inline UWORD revertBitsW(UWORD word)
     return word;
 }
 
-
-static inline ULONG spreadBits(ULONG word)
-{
-    // Convert sprite data to "LSB are leftmost"
-    // reverse the bits in the word
-    word = ((word & 0xFF00) >> 8) | ((word & 0x00FF) << 8);
-    word = ((word & 0xF0F0) >> 4) | ((word & 0x0F0F) << 4);
-    word = ((word & 0xCCCC) >> 2) | ((word & 0x3333) << 2);
-    word = ((word & 0xAAAA) >> 1) | ((word & 0x5555) << 1);
-
-    // Sprite data is "2 bit chunky" mode
-    // spread out the bits ( could probably be done more efficiently in combination with above)
-    word = (word | (word << 8)) & 0x00FF00FF;
-    word = (word | (word << 4)) & 0x0F0F0F0F;
-    word = (word | (word << 2)) & 0x33333333;
-    word = (word | (word << 1)) & 0x55555555;
-
-    return word;
-}
-
-/* ATI Mach32/64 and AT3D: 64x64 hardware cursor, 2 bpp (AND/XOR), transparent = 0b10 */
-#define ATI_CURSOR_TRANSPARENT 0xAAAAAAAAUL
-
-/* Duplicate each bit (0b…abc → 0b…aabbcc) for BIF_BIGSPRITE horizontal scale. */
-static inline ULONG expandBits2x(UWORD word)
+/* Spread 16 plane bits into odd positions of a ULONG (0b…abcdefgh → 0a0b0c…). */
+static inline ULONG spreadBits(UWORD word)
 {
     ULONG x = word;
     x = (x | (x << 8)) & 0x00FF00FFUL;
     x = (x | (x << 4)) & 0x0F0F0F0FUL;
     x = (x | (x << 2)) & 0x33333333UL;
     x = (x | (x << 1)) & 0x55555555UL;
+    return x;
+}
+
+/* Duplicate each bit (0b…abc → 0b…aabbcc). Used by BIGSPRITE (ATI after reverse, S3 as-is). */
+static inline ULONG expandBits2x(UWORD word)
+{
+    ULONG x = spreadBits(word);
     return x | (x << 1);
+}
+
+/* ATI Mach32/64 and AT3D: 64x64 hardware cursor, 2 bpp (AND/XOR), transparent = 0b10 */
+#define ATI_CURSOR_TRANSPARENT 0xAAAAAAAAUL
+
+static inline ULONG combineAtiCursor16(UWORD andBits, UWORD xorBits)
+{
+    return swapl((spreadBits(andBits) << 1) | spreadBits(xorBits));
 }
 
 static inline ULONG packAtiCursor16(UWORD plane0, UWORD plane1)
 {
-    return swapl((spreadBits(~(ULONG)plane0) << 1) | spreadBits(plane1));
+    return combineAtiCursor16(revertBitsW(~plane0), revertBitsW(plane1));
 }
 
 static inline void packAtiHwCursorImage(struct BoardInfo *bi)
@@ -845,11 +836,12 @@ static inline void packAtiHwCursorImage(struct BoardInfo *bi)
         for (UWORD y = 0; y < srcH; ++y) {
             UWORD plane0 = *image++;
             UWORD plane1 = *image++;
-            ULONG e0     = expandBits2x(plane0);
-            ULONG e1     = expandBits2x(plane1);
+            /* Reverse once, then duplicate in LSB-left domain (low 16 = left pixels). */
+            ULONG andBits = expandBits2x(revertBitsW(~plane0));
+            ULONG xorBits = expandBits2x(revertBitsW(plane1));
             ULONG row[4];
-            row[0] = packAtiCursor16((UWORD)(e0 >> 16), (UWORD)(e1 >> 16));
-            row[1] = packAtiCursor16((UWORD)e0, (UWORD)e1);
+            row[0] = combineAtiCursor16((UWORD)andBits, (UWORD)xorBits);
+            row[1] = combineAtiCursor16((UWORD)(andBits >> 16), (UWORD)(xorBits >> 16));
             row[2] = ATI_CURSOR_TRANSPARENT;
             row[3] = ATI_CURSOR_TRANSPARENT;
             for (UWORD r = 0; r < 2; ++r) {
