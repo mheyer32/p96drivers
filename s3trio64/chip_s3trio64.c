@@ -1343,6 +1343,31 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
                 *cursor++ = 0x0000;
             }
         }
+    } else if (bi->Flags & BIF_BIGSPRITE) {
+        UWORD srcH = height >> 1;
+        if (srcH > 32)
+            srcH = 32;
+        const UWORD *image = bi->MouseImage + 2;
+        for (UWORD y = 0; y < srcH; ++y) {
+            UWORD plane0  = *image++;
+            UWORD plane1  = *image++;
+            ULONG andMask = expandBits2x((UWORD)~plane0);
+            ULONG xorMask = expandBits2x(plane1);
+            UWORD row[8];
+            row[0] = (UWORD)(andMask >> 16);
+            row[1] = (UWORD)(xorMask >> 16);
+            row[2] = (UWORD)andMask;
+            row[3] = (UWORD)xorMask;
+            row[4] = 0xFFFF;
+            row[5] = 0x0000;
+            row[6] = 0xFFFF;
+            row[7] = 0x0000;
+            for (UWORD r = 0; r < 2; ++r) {
+                for (UWORD p = 0; p < 8; ++p)
+                    *cursor++ = row[p];
+            }
+        }
+        height = srcH * 2;
     } else {
         const UWORD *image = bi->MouseImage + 2;
         for (UWORD y = 0; y < height; ++y) {

@@ -798,6 +798,17 @@ static inline ULONG spreadBits(ULONG word)
 /* ATI Mach32/64 and AT3D: 64x64 hardware cursor, 2 bpp (AND/XOR), transparent = 0b10 */
 #define ATI_CURSOR_TRANSPARENT 0xAAAAAAAAUL
 
+/* Duplicate each bit (0b…abc → 0b…aabbcc) for BIF_BIGSPRITE horizontal scale. */
+static inline ULONG expandBits2x(UWORD word)
+{
+    ULONG x = word;
+    x = (x | (x << 8)) & 0x00FF00FFUL;
+    x = (x | (x << 4)) & 0x0F0F0F0FUL;
+    x = (x | (x << 2)) & 0x33333333UL;
+    x = (x | (x << 1)) & 0x55555555UL;
+    return x | (x << 1);
+}
+
 static inline ULONG packAtiCursor16(UWORD plane0, UWORD plane1)
 {
     return swapl((spreadBits(~(ULONG)plane0) << 1) | spreadBits(plane1));
@@ -820,6 +831,30 @@ static inline void packAtiHwCursorImage(struct BoardInfo *bi)
             *cursor++    = ATI_CURSOR_TRANSPARENT;
             *cursor++    = ATI_CURSOR_TRANSPARENT;
         }
+    } else if (bi->Flags & BIF_BIGSPRITE) {
+        /* MouseHeight is already the on-screen (doubled) size; source rows are half. */
+        UWORD srcH = height >> 1;
+        if (srcH > 32)
+            srcH = 32;
+        const UWORD *image = bi->MouseImage + 2;
+        for (UWORD y = 0; y < srcH; ++y) {
+            UWORD plane0 = *image++;
+            UWORD plane1 = *image++;
+            ULONG e0     = expandBits2x(plane0);
+            ULONG e1     = expandBits2x(plane1);
+            ULONG row[4];
+            row[0] = packAtiCursor16((UWORD)(e0 >> 16), (UWORD)(e1 >> 16));
+            row[1] = packAtiCursor16((UWORD)e0, (UWORD)e1);
+            row[2] = ATI_CURSOR_TRANSPARENT;
+            row[3] = ATI_CURSOR_TRANSPARENT;
+            for (UWORD r = 0; r < 2; ++r) {
+                *cursor++ = row[0];
+                *cursor++ = row[1];
+                *cursor++ = row[2];
+                *cursor++ = row[3];
+            }
+        }
+        height = srcH * 2;
     } else {
         const UWORD *image = bi->MouseImage + 2;
         for (UWORD y = 0; y < height; ++y) {
