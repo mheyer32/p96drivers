@@ -1275,31 +1275,7 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
 {
     DFUNC(VERBOSE, "fmt=%ld\n", (ULONG)fmt);
     (void)fmt;
-    /* AT3D: first 16 bytes = top row; 2 bpp, bit0=XOR bit1=AND per pixel; 16 bytes/row * 64 rows = 1024 bytes */
-    const UWORD *image = bi->MouseImage + 2;
-    ULONG *cursor      = (ULONG *)bi->MouseImageBuffer;
-    for (UWORD y = 0; y < bi->MouseHeight; ++y) {
-        // first 16 bit
-        ULONG plane0 = *image++;
-        ULONG plane1 = *image++;
-
-        plane0 = ~plane0;
-
-        *cursor++ = swapl((spreadBits(plane0) << 1) | spreadBits((plane1)));
-        *cursor++ = 0xAAAAAAAA;  // encodes 0b10 per cursor pixel (transparent)
-        *cursor++ = 0xAAAAAAAA;
-        *cursor++ = 0xAAAAAAAA;
-    }
-    // Pad the rest of the cursor image
-    for (UWORD y = bi->MouseHeight; y < 64; ++y) {
-        for (UWORD p = 0; p < 4; ++p) {
-            *cursor++ = 0xAAAAAAAA;
-        }
-    }
-
-    // LOCAL_SYSBASE();
-    // CacheClearU();
-    DFUNC(VERBOSE, "done", (ULONG)fmt);
+    packAtiHwCursorImage(bi);
 }
 
 static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),

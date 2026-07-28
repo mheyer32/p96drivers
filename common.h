@@ -795,6 +795,48 @@ static inline ULONG spreadBits(ULONG word)
     return word;
 }
 
+/* ATI Mach32/64 and AT3D: 64x64 hardware cursor, 2 bpp (AND/XOR), transparent = 0b10 */
+#define ATI_CURSOR_TRANSPARENT 0xAAAAAAAAUL
+
+static inline ULONG packAtiCursor16(UWORD plane0, UWORD plane1)
+{
+    return swapl((spreadBits(~(ULONG)plane0) << 1) | spreadBits(plane1));
+}
+
+static inline void packAtiHwCursorImage(struct BoardInfo *bi)
+{
+    ULONG *cursor = (ULONG *)bi->MouseImageBuffer;
+    UWORD height  = bi->MouseHeight;
+    if (height > 64)
+        height = 64;
+
+    if (bi->Flags & BIF_HIRESSPRITE) {
+        const ULONG *image = (const ULONG *)bi->MouseImage + 2;
+        for (UWORD y = 0; y < height; ++y) {
+            ULONG plane0 = *image++;
+            ULONG plane1 = *image++;
+            *cursor++    = packAtiCursor16((UWORD)(plane0 >> 16), (UWORD)(plane1 >> 16));
+            *cursor++    = packAtiCursor16((UWORD)plane0, (UWORD)plane1);
+            *cursor++    = ATI_CURSOR_TRANSPARENT;
+            *cursor++    = ATI_CURSOR_TRANSPARENT;
+        }
+    } else {
+        const UWORD *image = bi->MouseImage + 2;
+        for (UWORD y = 0; y < height; ++y) {
+            UWORD plane0 = *image++;
+            UWORD plane1 = *image++;
+            *cursor++    = packAtiCursor16(plane0, plane1);
+            *cursor++    = ATI_CURSOR_TRANSPARENT;
+            *cursor++    = ATI_CURSOR_TRANSPARENT;
+            *cursor++    = ATI_CURSOR_TRANSPARENT;
+        }
+    }
+    for (UWORD y = height; y < 64; ++y) {
+        for (UWORD p = 0; p < 4; ++p)
+            *cursor++ = ATI_CURSOR_TRANSPARENT;
+    }
+}
+
 // Apparently the mix modes can be shared between S3 cards and ATI Mach64
 #define MIX_NOT_CURRENT             0b0000
 #define MIX_ZERO                    0b0001

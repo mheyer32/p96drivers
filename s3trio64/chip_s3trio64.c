@@ -1321,25 +1321,45 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
         }
     }
 #else
-    const UWORD *image = bi->MouseImage + 2;
-    UWORD *cursor      = (UWORD *)bi->MouseImageBuffer;
-    for (UWORD y = 0; y < bi->MouseHeight; ++y) {
-        // first 16 bit
-        UWORD plane0 = *image++;
-        UWORD plane1 = *image++;
+    UWORD *cursor = (UWORD *)bi->MouseImageBuffer;
+    UWORD height  = bi->MouseHeight;
+    if (height > 64)
+        height = 64;
 
-        UWORD andMask = ~plane0;  // AND mask
-        UWORD xorMask = plane1;   // XOR mask
-        *cursor++     = andMask;
-        *cursor++     = xorMask;
-        // padding, should result in  screen color
-        for (UWORD p = 0; p < 3; ++p) {
-            *cursor++ = 0xFFFF;
-            *cursor++ = 0x0000;
+    if (bi->Flags & BIF_HIRESSPRITE) {
+        const ULONG *image = (const ULONG *)bi->MouseImage + 2;
+        for (UWORD y = 0; y < height; ++y) {
+            ULONG plane0 = *image++;
+            ULONG plane1 = *image++;
+
+            ULONG andMask = ~plane0;
+            ULONG xorMask = plane1;
+            *cursor++     = (UWORD)(andMask >> 16);
+            *cursor++     = (UWORD)(xorMask >> 16);
+            *cursor++     = (UWORD)andMask;
+            *cursor++     = (UWORD)xorMask;
+            for (UWORD p = 0; p < 2; ++p) {
+                *cursor++ = 0xFFFF;
+                *cursor++ = 0x0000;
+            }
+        }
+    } else {
+        const UWORD *image = bi->MouseImage + 2;
+        for (UWORD y = 0; y < height; ++y) {
+            UWORD plane0 = *image++;
+            UWORD plane1 = *image++;
+
+            UWORD andMask = ~plane0;
+            UWORD xorMask = plane1;
+            *cursor++     = andMask;
+            *cursor++     = xorMask;
+            for (UWORD p = 0; p < 3; ++p) {
+                *cursor++ = 0xFFFF;
+                *cursor++ = 0x0000;
+            }
         }
     }
-    // Pad the rest of the cursor image
-    for (UWORD y = bi->MouseHeight; y < 64; ++y) {
+    for (UWORD y = height; y < 64; ++y) {
         for (UWORD p = 0; p < 4; ++p) {
             *cursor++ = 0xFFFF;
             *cursor++ = 0x0000;

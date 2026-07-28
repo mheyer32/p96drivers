@@ -899,31 +899,8 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xp
 static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fmt))
 {
     DFUNC(VERBOSE, "\n");
-
-    const UWORD *image = bi->MouseImage + 2;
-    ULONG *cursor      = (ULONG *)bi->MouseImageBuffer;
-    for (UWORD y = 0; y < bi->MouseHeight; ++y) {
-        // first 16 bit
-        ULONG plane0 = *image++;
-        ULONG plane1 = *image++;
-
-        plane0 = ~plane0;
-
-        *cursor++ = swapl((spreadBits(plane0) << 1) | spreadBits((plane1)));
-        *cursor++ = 0xAAAAAAAA;  // encodes 0b10 per cursor pixel (transparent)
-        *cursor++ = 0xAAAAAAAA;
-        *cursor++ = 0xAAAAAAAA;
-    }
-    // Pad the rest of the cursor image
-    for (UWORD y = bi->MouseHeight; y < 64; ++y) {
-        for (UWORD p = 0; p < 4; ++p) {
-            *cursor++ = 0xAAAAAAAA;
-        }
-    }
-
-    /* Same as S3: CPU writes to VRAM can be posted; flush before HW cursor samples. */
-    LOCAL_SYSBASE();
-    CacheClearU();
+    (void)fmt;
+    packAtiHwCursorImage(bi);
 }
 
 #define CUR_CLR_8(x)   (x)

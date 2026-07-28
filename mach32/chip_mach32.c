@@ -198,27 +198,7 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE f
 {
     DFUNC(VERBOSE, "fmt=%ld\n", (ULONG)fmt);
     (void)fmt;
-
-    const UWORD *image = bi->MouseImage + 2;
-    ULONG *cursor      = (ULONG *)bi->MouseImageBuffer;
-
-    for (UWORD y = 0; y < bi->MouseHeight; ++y) {
-        // first 16 bit
-        ULONG plane0 = *image++;
-        ULONG plane1 = *image++;
-
-        plane0 = ~plane0;
-
-        *cursor++ = swapl((spreadBits(plane0) << 1) | spreadBits((plane1)));
-        *cursor++ = 0xAAAAAAAA;  // encodes 0b10 per cursor pixel (transparent)
-        *cursor++ = 0xAAAAAAAA;
-        *cursor++ = 0xAAAAAAAA;
-    }
-    for (UWORD y = bi->MouseHeight; y < 64; ++y) {
-        for (UWORD p = 0; p < 4; ++p) {
-            *cursor++ = 0xAAAAAAAA;
-        }
-    }
+    packAtiHwCursorImage(bi);
 }
 
 static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL show), __REGD7(RGBFTYPE fmt))
