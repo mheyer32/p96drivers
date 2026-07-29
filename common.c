@@ -97,6 +97,11 @@ int svga_compute_pll(const struct svga_pll *pll, ULONG f_wanted_khz, USHORT *m, 
         }
     }
 
+    if (!*n) {
+        DFUNC(ERROR, "PLL search failed\n");
+        return -1;
+    }
+
     f_current = (pll->f_base * *m) / *n;
 
     D(CHATTY, "found frequency: %ld kHz (VCO %ld kHz)\n", (int)(f_current >> ar), (int)f_current);

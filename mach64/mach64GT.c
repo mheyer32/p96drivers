@@ -632,11 +632,21 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
 
     D(VERBOSE, "bx: %ld, b1: %ld, p: %ld, shift: %ld\n", bx, b1, p, shift);
 
-    ULONG f = minu((xDenominator << (5 + p)) / xNumerator, d);
+    ULONG shiftAmt = 5 + p;
+    ULONG f;
+    if (xDenominator > (~0UL >> shiftAmt))
+        f = d;
+    else
+        f = minu((xDenominator << shiftAmt) / xNumerator, d);
     if (f < 1)
         f = 1;
 
-    ULONG roff = ceilDivu((xNumerator * (f - 1)) << shift, xDenominator);
+    ULONG roffNum = xNumerator * (f - 1);
+    if (f > 1 && roffNum / (f - 1) != xNumerator)
+        roffNum = ~0UL >> shift; /* overflow: saturate before shift */
+    else if (roffNum > (~0UL >> shift))
+        roffNum = ~0UL >> shift;
+    ULONG roff = ceilDivu(roffNum << shift, xDenominator);
 
     // latency for 32bit SGRAM
     const ULONG l = 9;
@@ -664,11 +674,16 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
         ron = roff - rloop - (1 << shift);
     }
 
-    ULONG dspOn            = ron;
-    ULONG dspOff           = roff;
-    ULONG dspPrecision     = p;
-    ULONG dspXclksPerQword = (xNumerator << (11 - p)) / xDenominator;
-    ULONG dspLoopLatency   = rloop >> shift;
+    ULONG dspOn  = ron & (DSP_ON_MASK >> 16);
+    ULONG dspOff = roff & DSP_OFF_MASK;
+    ULONG dspPrecision = p;
+    ULONG xclkShift = 11 - p;
+    ULONG dspXclksPerQword;
+    if (xNumerator > (~0UL >> xclkShift))
+        dspXclksPerQword = DSP_XCLKS_PER_QW_MASK;
+    else
+        dspXclksPerQword = ((xNumerator << xclkShift) / xDenominator) & DSP_XCLKS_PER_QW_MASK;
+    ULONG dspLoopLatency = rloop >> shift;
 
     D(VERBOSE, "dspOn: %ld, dspOff: %ld, dspPrecision: %ld, dspXclksPerQword: %ld, dspLoopLatency: %ld\n", (ULONG)dspOn,
       (ULONG)dspOff, (ULONG)dspPrecision, (ULONG)dspXclksPerQword, (ULONG)dspLoopLatency);

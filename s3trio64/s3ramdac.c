@@ -448,17 +448,13 @@ static BOOL CheckForSDAC(struct BoardInfo *bi)
      * for CLK0 f0 and f1 always returns 0x7f (but is documented "read only")
      */
 
-    UBYTE saveCR55, saveCR45, saveCR43, savelut[6];
+    UBYTE saveCR55, saveCR43, savelut[6];
     ULONG clock01, clock23;
     BOOL found = FALSE;
 
     // Set OLD RS2 to 0
     saveCR43 = R_CR(0x43);
     W_CR_MASK(0x43, 0x20, 0);
-
-    // ??
-    //    saveCR45 = R_CR(0x45);
-    //    W_CR_MASK(0x45, 0x20, 0);
 
     saveCR55 = R_CR(0x55);
     // Extended RAMDAC Control Register (EX_DAC_CT) (CR55)
@@ -511,7 +507,6 @@ static BOOL CheckForSDAC(struct BoardInfo *bi)
             DFUNC(0, "Found S3 GENDAC\n");
         }
         saveCR43 &= ~0x02;
-        saveCR45 &= ~0x20;
         W_REG(0x3c8, 0);
 
         found = TRUE;
@@ -519,7 +514,6 @@ static BOOL CheckForSDAC(struct BoardInfo *bi)
         DFUNC(0, "Unknown RAMDAC\n");
     }
 
-    //    W_CR(0x45, saveCR45);
     W_CR(0x43, saveCR43);
 
     return found;

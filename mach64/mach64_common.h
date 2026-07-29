@@ -457,7 +457,7 @@ static INLINE void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, LONG
 static INLINE void waitFifo(const BoardInfo_t *bi, UBYTE entries)
 {
     return;  // Disables FIFO waits, relying on PCI_RETRY instead on VT/GT cards
-
+#if 0
     MMIOBASE();
 
     if (!entries)
@@ -467,6 +467,7 @@ static INLINE void waitFifo(const BoardInfo_t *bi, UBYTE entries)
     // ULONG busCntl = R_MMIO_L(BUS_CNTL);
     while ((R_MMIO_L(FIFO_STAT) & 0xffff) > ((ULONG)(0x8000 >> entries)))
         ;
+#endif
 }
 
 UBYTE getAsicVersion(const BoardInfo_t *bi);
