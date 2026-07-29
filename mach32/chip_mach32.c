@@ -1206,11 +1206,9 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     /* Set up rectangle; writing DEST_Y_END kicks the engine. */
     drawRect(bi, x, y, blitWidth, height);
 
-    WORD wordsPerLn   = blitWidth >> 4;
-    WORD numFifoSlots = wordsPerLn * height + 3;
-    if (numFifoSlots > 16) {
-        numFifoSlots = 16;
-    }
+    WORD wordsPerLn = blitWidth >> 4;
+    ULONG fifoNeed  = (ULONG)wordsPerLn * (ULONG)height + 3u;
+    UBYTE numFifoSlots = fifoNeed > 16u ? 16 : (UBYTE)fifoNeed;
     waitFifo(bi, numFifoSlots);
     WORD usedFifoSlots = 16 - numFifoSlots;
 
@@ -1235,7 +1233,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
             for (WORD col = 0; col < wordsPerLn; ++col) {
                 UWORD w0 = src[col];
                 UWORD w1 = src[col + 1];
-                UWORD w  = (w0 << rol) | (w1 >> (16 - rol));
+                UWORD w  = (w0 << rol) | (w1 >> (16u - rol));
                 // We set DP_CONFIG_LSB_FIRST.
                 W_IO_NOSWAP_W(PIX_TRANS, w);
 
@@ -1259,15 +1257,14 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
 static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY, WORD width, WORD height,
                                           const UBYTE *bitmap, WORD bmPitch, UWORD rol)
 {
+    rol &= 15u;
     /* 16 pixels per PIX_TRANS word. Round up width+offset to 16. */
     WORD blitWidth = (width + rol + 15) & ~15;
     drawRect(bi, dstX, dstY, blitWidth, height);
 
-    WORD wordsPerLn   = blitWidth >> 4;
-    WORD numFifoSlots = wordsPerLn * height + 3;
-    if (numFifoSlots > 16) {
-        numFifoSlots = 16;
-    }
+    WORD wordsPerLn = blitWidth >> 4;
+    ULONG fifoNeed  = (ULONG)wordsPerLn * (ULONG)height + 3u;
+    UBYTE numFifoSlots = fifoNeed > 16u ? 16 : (UBYTE)fifoNeed;
     waitFifo(bi, numFifoSlots);
     WORD usedFifoSlots = 16 - numFifoSlots;
 
@@ -1461,11 +1458,9 @@ static void REGARGS BlitPatternNon8x8(BoardInfo_t *bi, struct RenderInfo *ri, st
     WORD blitWidth = (width + 15) & ~15;
     drawRect(bi, x, y, blitWidth, height);
 
-    WORD wordsPerLn   = blitWidth >> 4;
-    WORD numFifoSlots = wordsPerLn * height + 3;
-    if (numFifoSlots > 16) {
-        numFifoSlots = 16;
-    }
+    WORD wordsPerLn = blitWidth >> 4;
+    ULONG fifoNeed  = (ULONG)wordsPerLn * (ULONG)height + 3u;
+    UBYTE numFifoSlots = fifoNeed > 16u ? 16 : (UBYTE)fifoNeed;
     waitFifo(bi, numFifoSlots);
     WORD usedFifoSlots = 16 - numFifoSlots;
 
@@ -1500,7 +1495,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
           (ULONG)ri->Memory);
 
     UBYTE bpp = getBPP(fmt);
-    if (bpp > 2) {
+    if (bpp > 2 || pattern->Size > 8) {
         bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, fmt);
         return;
     }

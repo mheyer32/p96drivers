@@ -84,19 +84,15 @@ struct ChipBase *LibInit(__REGD0(struct ChipBase *cb), __REGA0(APTR seglist), __
 
 struct ChipBase *LibOpen(__REGA6(struct ChipBase *cb))
 {
-    BOOL open = TRUE;
+    // if (cb->LibBase.lib_OpenCnt == 0 && !init_resources(cb)) {
+    //     free_resources(cb);
+    //     return NULL;
+    // }
 
-          //    if (cb->LibBase.lib_OpenCnt == 0)
-          //        open = init_resources(cb);
+    cb->LibBase.lib_OpenCnt++;
+    cb->LibBase.lib_Flags &= ~LIBF_DELEXP;
 
-    if (open) {
-        cb->LibBase.lib_OpenCnt++;
-        cb->LibBase.lib_Flags &= ~LIBF_DELEXP;
-
-        return cb;
-    }
-    //    free_resources(cb);
-    return NULL;
+    return cb;
 }
 
 /*-------------------------------------------------------------------------*/
