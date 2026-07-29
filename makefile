@@ -37,14 +37,15 @@ ifeq ($(strip $(LIB_REVISION)),)
 LIB_REVISION := 0
 endif
 
-BUILDFLAGS = -noixemul -mregparm=4 -msmall-code -m68020-60 -mtune=68030 -fno-builtin-strlen -ffreestanding -g -ggdb
+BUILDFLAGS = -noixemul -mregparm=4 -msmall-code -m68020-60 -mtune=68030 -fno-builtin-strlen -ffreestanding
 # Prevent the OpenPCI driver from defining its own broken swapl/swapw macros
 BUILDFLAGS += -DOPENPCI_SWAP 
 
 ifeq ($(DEBUG),1)
     CFLAGS += -DDBG
     LIBS += -ldebug -lm
-    BUILDFLAGS += -O3
+    # -g with older amiga-gcc (6.5 / image :latest) yields hunks m68k-amigaos-strip cannot read
+    BUILDFLAGS += -O3 -g -ggdb
 else
     BUILDFLAGS += -Ofast -fomit-frame-pointer
 endif
