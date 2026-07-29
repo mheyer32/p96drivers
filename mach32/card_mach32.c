@@ -43,11 +43,7 @@ BOOL releaseCard(__REGA0(struct BoardInfo *bi))
     if (cd->OpenPciBase) {
         LOCAL_OPENPCIBASE();
         if (cd->board) {
-            if (bi->CardFlags & CFF_VBLANK_INTSERVER) {
-                pci_rem_intserver(&bi->HardInterrupt, cd->board);
-                bi->CardFlags &= ~CFF_VBLANK_INTSERVER;
-                bi->Flags &= ~BIF_VBLANKINTERRUPT;
-            }
+            removePciVBlankInterrupt(bi);
             SetBoardAttrs(cd->board, PRM_BoardOwner, (Tag)NULL, TAG_END);
         }
 
@@ -190,7 +186,6 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     }
 
     parseBlackLevelToolType(bi, ToolTypes);
-    BOOL wantInterrupt = parseInterruptToolType(bi, ToolTypes);
 
     LOCAL_OPENPCIBASE();
     LOCAL_SYSBASE();
@@ -240,15 +235,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     bi->MemorySpaceBase = (APTR)memory0;
     bi->MemorySpaceSize = memory0Size;
 
-    if (wantInterrupt && bi->HardInterrupt.is_Code) {
-        if (pci_add_intserver(&bi->HardInterrupt, cd->board)) {
-            bi->CardFlags |= CFF_VBLANK_INTSERVER;
-            bi->Flags |= BIF_VBLANKINTERRUPT;
-            D(INFO, "VBlank interrupt server registered\n");
-        } else {
-            D(WARN, "pci_add_intserver failed; using software VBlank\n");
-        }
-    }
+    installPciVBlankInterrupt(bi, ToolTypes);
 
     return TRUE;
 }

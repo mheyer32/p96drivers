@@ -6,6 +6,19 @@
 #include <proto/icon.h>
 #include <proto/utility.h>
 
+#if OPENPCI
+#include <libraries/openpci.h>
+#include <proto/openpci.h>
+
+/* Common prefix of OpenPCI CardData across mach32/mach64/at3d/s3trio64. */
+struct PciCardData
+{
+    APTR legacyIOBase;
+    struct Library *OpenPciBase;
+    struct pci_dev *board;
+};
+#endif
+
 ULONG parseHexOrDecimal(CONST_STRPTR str)
 {
     ULONG value = 0;
@@ -152,6 +165,43 @@ BOOL parseInterruptToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes)
     CloseLibrary(IconBase);
     return enable;
 }
+
+#if OPENPCI
+void installPciVBlankInterrupt(struct BoardInfo *bi, CONST_STRPTR *ToolTypes)
+{
+    if (!parseInterruptToolType(bi, ToolTypes) || !bi->HardInterrupt.is_Code)
+        return;
+
+    struct PciCardData *cd = (struct PciCardData *)getCardData(bi);
+    if (!cd->OpenPciBase || !cd->board)
+        return;
+
+    {
+        struct Library *OpenPciBase = cd->OpenPciBase;
+        if (pci_add_intserver(&bi->HardInterrupt, cd->board)) {
+            bi->CardFlags |= CFF_VBLANK_INTSERVER;
+            bi->Flags |= BIF_VBLANKINTERRUPT;
+            D(INFO, "VBlank interrupt server registered\n");
+        } else {
+            D(WARN, "pci_add_intserver failed; using software VBlank\n");
+        }
+    }
+}
+
+void removePciVBlankInterrupt(struct BoardInfo *bi)
+{
+    if (!(bi->CardFlags & CFF_VBLANK_INTSERVER))
+        return;
+
+    struct PciCardData *cd = (struct PciCardData *)getCardData(bi);
+    if (cd->OpenPciBase && cd->board) {
+        struct Library *OpenPciBase = cd->OpenPciBase;
+        pci_rem_intserver(&bi->HardInterrupt, cd->board);
+    }
+    bi->CardFlags &= ~CFF_VBLANK_INTSERVER;
+    bi->Flags &= ~BIF_VBLANKINTERRUPT;
+}
+#endif
 
 void generateBoardName(char *boardName, const char *cardName, ULONG bus, ULONG slot)
 {

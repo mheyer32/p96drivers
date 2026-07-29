@@ -1,4 +1,5 @@
 #include "chip_mach32.h"
+#include "common.h"
 
 #define __NOLIBBASE__
 
@@ -616,10 +617,12 @@ void ASM SetClock(__REGA0(struct BoardInfo *bi))
 
 BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expected))
 {
-    DFUNC(CHATTY, "expected=%ld\n", (ULONG)expected);
     (void)expected;
     REGBASE();
-    return (R_IO_W(SUBSYS_STATUS) & SUBSYS_VBLANK_INT) != 0;
+    /*
+     * Use live beam position vs programmed V_DISP (§9: blank asserts after V_DISP).
+     */
+    return (R_IO_W(VERT_LINE_CNTR) & 0x7FF) > (R_IO_W(R_V_DISP) & 0x0FFF);
 }
 
 static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
@@ -649,7 +652,7 @@ static ULONG ASM VBlankInterrupt(__REGA1(struct BoardInfo *bi))
     W_IO_W(SUBSYS_CNTL, SUBSYS_VBLANK_ACK | SUBSYS_VBLANK_ENA);
 
     {
-        struct ExecBase *SysBase = bi->ExecBase;
+        LOCAL_SYSBASE();
         Cause(&bi->SoftInterrupt);
     }
     return 1;

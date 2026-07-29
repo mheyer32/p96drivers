@@ -35,6 +35,20 @@ void parseBlackLevelToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes);
  */
 BOOL parseInterruptToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes);
 
+#if OPENPCI
+/**
+ * Parse INTERRUPT tooltype and register HardInterrupt via OpenPCI when enabled.
+ * Sets CFF_VBLANK_INTSERVER and BIF_VBLANKINTERRUPT on success.
+ * Requires InitChip to have set HardInterrupt.is_Code and CardData OpenPciBase/board.
+ */
+void installPciVBlankInterrupt(struct BoardInfo *bi, CONST_STRPTR *ToolTypes);
+
+/**
+ * Unregister HardInterrupt via OpenPCI if CFF_VBLANK_INTSERVER is set.
+ */
+void removePciVBlankInterrupt(struct BoardInfo *bi);
+#endif
+
 /**
  * Generate a unique board name based on card name, bus, and slot
  * Format: "CardName_B_S" where B is bus number and S is slot number

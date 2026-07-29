@@ -110,9 +110,11 @@ void delayMicroSeconds(ULONG us)
     flushWrites();
     int count = ((us << 4) + 15) / 22;
     // CIA access has deterministic speed, use it for a short delay
-    extern volatile FAR struct CIA ciaa;
+    // Address the chip directly instead of via amiga.lib's ciaa symbol: this stays absolute
+    // even under -fbaserel, where a symbol reference would be resolved against a4.
+    volatile struct CIA *cia = (volatile struct CIA *)0xBFE001;
     for (int i = 0; i < count; ++i) {
-        UBYTE x = ciaa.ciapra;
+        UBYTE x = cia->ciapra;
     }
 }
 

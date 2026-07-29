@@ -93,6 +93,10 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define DEST_Y_END          0xAEEE  /* W */
 #define DISP_CNTL           0x22E8  /* W */
 #define DISP_STATUS         0x02E8  /* R — same index as H_TOTAL (W) */
+/* DISP_STATUS (02E8 R) — REG688000-15 §8-8 */
+#define DISP_STATUS_RGB_TEST  BIT(0)
+#define DISP_STATUS_VERT_SYNC BIT(1) /* live; polarity mode-dependent */
+#define DISP_STATUS_LINE_SYNC BIT(2) /* toggles each H retrace */
 #define DP_CONFIG           0xCEEE  /* W — same index as VERT_LINE_CNTR (R) */
 #define ERR_TERM            0x92E8  /* W */
 #define EXT_CURSOR_COLOR_0  0x3AEE  /* W — same index as FIFO_TEST_TAG (R) */
