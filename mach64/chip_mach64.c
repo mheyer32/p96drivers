@@ -2466,7 +2466,7 @@ int main()
         goto exit;
     }
 
-    if (!(DOSBase = OpenLibrary(DOSNAME, 0))) {
+    if (!(DOSBase = (struct DosLibrary *)OpenLibrary(DOSNAME, 0))) {
         D(0, "Unable to open dos.library\n");
         goto exit;
     }
@@ -2505,7 +2505,7 @@ int main()
             struct BoardInfo *bi = &boardInfo;
 
             bi->ExecBase                 = SysBase;
-            bi->UtilBase                 = UtilityBase;
+            bi->UtilBase                 = (struct Library *)UtilityBase;
             bi->ChipBase                 = ChipBase;
             getCardData(bi)->OpenPciBase = OpenPciBase;
             getCardData(bi)->board       = board;

@@ -276,7 +276,7 @@ int main()
     struct BoardInfo *bi = &boardInfo;
 
     bi->ExecBase = SysBase;
-    bi->UtilBase = UtilityBase;
+    bi->UtilBase = (struct Library *)UtilityBase;
 
     D(INFO, "UtilityBase 0x%lx\n", bi->UtilBase);
 

@@ -65,10 +65,10 @@ define source_to_depend
 	$(addprefix ${2},$(patsubst %.c,%.d,${1}))
 endef
 
-#place chip_library first
+# place chip_library / card_library first (ROMTag must be at start of Amiga libs)
 define create_objlist
-	$(filter chip_library.o,$(call source_to_object,${1},${2}))\
-	$(filter-out chip_library.o,$(call source_to_object,${1},${2}))
+	$(filter %/chip_library.o %/card_library.o chip_library.o card_library.o,$(call source_to_object,${1},${2}))\
+	$(filter-out %/chip_library.o %/card_library.o chip_library.o card_library.o,$(call source_to_object,${1},${2}))
 endef
 
 define create_deplist
@@ -116,8 +116,8 @@ ${1} : $$(BUILDDIR)=${2}
 ${1} : $$(${1}_OBJS)
 	$(info ============ Building: ${1} ============)
 	@ $$(MKDIR) $$(dir $$(${1}_TARGET))
-	@ $$(LD) $$^ $${LIBS} $$(LDFLAGS) -o $$(<D)/${1}
-	@ $$(STRIP) $$(<D)/${1} -o $$(${1}_TARGET)
+	@ $$(LD) $$^ $${LIBS} $$(LDFLAGS) -o ${2}${1}
+	@ $$(STRIP) ${2}${1} -o $$(${1}_TARGET)
 
 # Include dependency files for this target
 -include $$(${1}_DEPS)
@@ -138,8 +138,8 @@ ${1} : $$(BUILDDIR)=${2}
 ${1} : $$(${1}_OBJS)
 	$(info ============ Building: ${1} ============)
 	@ $$(MKDIR) $$(dir $$(${1}_TARGET))
-	@ $$(LD) $$^ $$(LIBS) $$(LDFLAGS) -o $$(<D)/${1}
-	@ $$(STRIP) $$(<D)/${1} -o $$(${1}_TARGET)
+	@ $$(LD) $$^ $$(LIBS) $$(LDFLAGS) -o ${2}${1}
+	@ $$(STRIP) ${2}${1} -o $$(${1}_TARGET)
 
 # Include dependency files for this target
 -include $$(${1}_DEPS)
