@@ -1884,7 +1884,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     UWORD configStat2 = R_IO_W(CONFIG_STATUS_2);
 
     // "Unlock" the Shadow registers. This is not in any way described in the documentation and
-    // I only found out about by looking at SVGALib sources.
+    // Not described in the TRM; required for correct CRTC programming.
     // Without it, one cannot program the CRTC correctly and won't get proper display timings.
     W_IO_W(SHADOW_SET, 1);
     W_IO_W(SHADOW_CTL, 0);

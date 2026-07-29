@@ -21,7 +21,7 @@
 #define DAC_R_DATA  2
 #define DAC_MASK    2
 
-// DAC_CNTL register layout (based on NOBIOS code):
+// DAC_CNTL register layout:
 // Byte 0 (DAC_CNTL1): RS2/RS3 control bits
 // Byte 2 (DAC_TYPE): DAC type (bits 2:0)
 // Bits 2:0 indicate DAC type: 0 = external DAC, 2 = integrated DAC
@@ -113,7 +113,7 @@ typedef struct
     UBYTE dsetup;  // Device setup register value (REG0C base)
 } A68860_DAC_Table;
 
-// ATI 68860 mode table (from NOBIOS DAC05.C)
+// ATI 68860 mode table
 static const A68860_DAC_Table A860_Tab[] = {
     {0x01, 0x63},  // Index 0: 4bpp (not typically used)
     {0x82, 0x61},  // Index 1: 8bpp (RGBFB_CLUT)
@@ -141,7 +141,7 @@ static void SetRS2RS3(BoardInfo_t *bi, UBYTE dacRS2RS3)
 }
 
 /**
- * Map RGBFTYPE to NOBIOS color depth index for ATI 68860
+ * Map RGBFTYPE to color depth index for ATI 68860
  * @param format RGBFTYPE format
  * @return Color depth index (0-7) or 1 (8bpp default) if unknown
  */
@@ -543,7 +543,7 @@ static void ics2595_setFSBits(BoardInfo_t *bi, ULONG bits)
 static void ics2595_strobe(BoardInfo_t *bi)
 {
     MMIOBASE();
-    delayMicroSeconds(26);  // 26us delay as per NOBIOS code
+    delayMicroSeconds(26);  // 26us settle delay
 
     // Set strobe bit - hardware will auto-clear it
     W_MMIO_MASK_L(CLOCK_CNTL, ICS2595_STROBE_MASK, ICS2595_STROBE_BIT);
@@ -719,7 +719,7 @@ static void ASM SetDAC_GX(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), 
         mask = 0x0c;                          // Bits 2+3
     }
 
-    // Program ATI 68860 RAMDAC following NOBIOS sequence:
+    // Program ATI 68860 RAMDAC:
     // 1. Enable RS3 for extended register access
     SetRS2RS3(bi, DAC_EXT_SEL_RS3);
 
