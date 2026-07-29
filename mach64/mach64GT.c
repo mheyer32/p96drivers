@@ -43,7 +43,7 @@ static const UWORD defaultRegs_GT[] = {0x00a2, 0x7b33,   // BUS_CNTL upper
 
 /* Primary VCLK post-div: VCLK0_POST[1:0] + ALT_VCLK0_POST (PLL_EXT_CNTL bit4).
  * PRG-215R3 App.J: without ALT, codes 00/01/10/11 = ÷1/2/4/8.
- * LT/XL RRG: ALT selects the alternate set; XFree86 ATI264xTPostDividers is
+ * LT/XL RRG: ALT selects the alternate set; the ALT post-divider map is
  * code 0..7 -> {1,2,4,8,3,0,6,12} (code 5 unused). Do not use ÷5 here — that
  * encoding appears only on LT V2CLK_POST_DIV, not primary VCLK. */
 const UBYTE g_VPLLPostDivider[] = {1, 2, 3, 4, 6, 8, 12};
