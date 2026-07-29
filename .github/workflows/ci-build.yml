@@ -9,7 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: stefanreinauer/amiga-gcc
+    # Pin explicitly — :latest is gcc-v6.5.0b; also available: gcc-v6.5.0b, gcc-v13.4, gcc-v15.2, gcc-v16.1
+    container: stefanreinauer/amiga-gcc:gcc-v13.4
 
     steps:
       - uses: actions/checkout@v4
