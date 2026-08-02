@@ -2268,7 +2268,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #define CFG_MEM_AP_SIZE_MASK (0x3)
 
         LEGACYIOBASE();
-        W_IO_MASK_L(CONFIG_CNTL, CFG_MEM_AP_SIZE_MASK, CFG_MEM_AP_SIZE(2));
+        /* Warm reinit: aperture already 8MB — avoid redundant CONFIG_CNTL RMW. */
+        if ((R_IO_L(CONFIG_CNTL) & CFG_MEM_AP_SIZE_MASK) != CFG_MEM_AP_SIZE(2))
+            W_IO_MASK_L(CONFIG_CNTL, CFG_MEM_AP_SIZE_MASK, CFG_MEM_AP_SIZE(2));
 
         ULONG saveScratchReg1 = R_MMIO_L(SCRATCH_REG1);
         W_MMIO_L(SCRATCH_REG1, 0xAAAAAAAA);
@@ -2308,11 +2310,15 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     if (cd->chipFamily > MACH64GX) {
         W_MMIO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
+        W_MMIO_MASK_L(CONFIG_STAT0, CFG_VGA_EN_MASK, 0);
     } else {
+        /* GX CONFIG_STAT0 bits 3–5 are Cfg_Mem_Type; CFG_VGA_EN_MASK (bit4) is CT/GT-only.
+         * Clearing it on GX corrupts mem_type and wedges CPU BAR0 (0xff) while GUI still works.
+         * Do not set CFG_VGA_DIS on GX either (PRG888GX0). */
         LEGACYIOBASE();
-        W_IO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
+        if (R_IO_L(CONFIG_CNTL) & CFG_MEM_VGA_AP_EN_MASK)
+            W_IO_MASK_L(CONFIG_CNTL, CFG_MEM_VGA_AP_EN_MASK, 0);
     }
-    W_MMIO_MASK_L(CONFIG_STAT0, CFG_VGA_EN_MASK, 0);
 
     // ULONG clock = bi->MemoryClock;
     // const ChipSpecific_t *cs = getConstChipSpecific(bi);
@@ -2447,6 +2453,36 @@ ULONG __stack = 65536;
 
 struct Library *OpenPciBase = NULL;
 
+/*
+ * Byte stores into linear FB (same idea as TestMach32). Known layout for med:
+ *   rows 0..15: horizontal ramp x&0xFF
+ *   rest:       x^y
+ * Example: med db <BAR0> 64  → 00 01 02 … on first line.
+ */
+static void testFillPattern8bppBytes(BoardInfo_t *bi, UWORD width, UWORD height)
+{
+    LOCAL_SYSBASE();
+    volatile UBYTE *mem = (volatile UBYTE *)bi->MemoryBase;
+    UWORD bpr           = width;
+    if (bi->CalculateBytesPerRow)
+        bpr = bi->CalculateBytesPerRow(bi, width, height, bi->ModeInfo, RGBFB_CLUT);
+
+    UWORD gradientRows = 16;
+    if (gradientRows > height)
+        gradientRows = height;
+    for (UWORD y = 0; y < gradientRows; y++) {
+        for (UWORD x = 0; x < width; x++)
+            mem[(ULONG)y * (ULONG)bpr + (ULONG)x] = (UBYTE)(x & 0xFF);
+    }
+    for (UWORD y = gradientRows; y < height; y++) {
+        for (UWORD x = 0; x < width; x++)
+            mem[(ULONG)y * (ULONG)bpr + (ULONG)x] = (UBYTE)(x ^ y);
+    }
+    CacheClearU();
+    D(INFO, "CPU FB pattern: %ldx%ld bpr=%ld (ramp then x^y) at 0x%08lx\n", (ULONG)width, (ULONG)height, (ULONG)bpr,
+      (ULONG)bi->MemoryBase);
+}
+
 void intHandler(int dummy)
 {
     if (OpenPciBase) {
@@ -2533,6 +2569,9 @@ int main()
                 setCacheMode(bi, (BYTE *)Memory0 + 0x800000 - 1024, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
             }
             bi->MemoryBase = Memory0;
+            /* Match card driver: CPU BAR0 probes need cache-inhibit on the full aperture. */
+            setCacheMode(bi, Memory0, Memory0Size, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED,
+                         CACHEFLAGS);
 
             D(0, "Mach64 init chip....\n");
             if (!InitChip(bi)) {
@@ -2598,13 +2637,12 @@ int main()
                     bi->SetDisplay(bi, TRUE);
 
                     {
+                        /* CPU pattern for med; small GUI rect proves blitter still works. */
+                        testFillPattern8bppBytes(bi, modes[m].w, modes[m].h);
                         struct RenderInfo ri;
-                        /* Logical Height only; CRTC_DBL_SCAN stretches on the CRT. */
                         ri.Memory      = bi->MemoryBase;
                         ri.BytesPerRow = modes[m].w;
                         ri.RGBFormat   = RGBFB_CLUT;
-                        FillRect(bi, &ri, 0, 0, (WORD)modes[m].w, (WORD)modes[m].h, (ULONG)(0x40 + m * 0x30), 0xFF,
-                                 RGBFB_CLUT);
                         FillRect(bi, &ri, (WORD)(modes[m].w / 4), (WORD)(modes[m].h / 4), (WORD)(modes[m].w / 2),
                                  (WORD)(modes[m].h / 2), 0xFF, 0xFF, RGBFB_CLUT);
                         WaitBlitter(bi);
@@ -2648,6 +2686,7 @@ int main()
                 ri.Memory      = bi->MemoryBase;
                 ri.BytesPerRow = 640;
                 ri.RGBFormat   = RGBFB_CLUT;
+                testFillPattern8bppBytes(bi, 640, 480);
                 FillRect(bi, &ri, 100, 100, 440, 280, 0xFF, 0xFF, RGBFB_CLUT);
 
                 UWORD patternData[] = {0xAAAA, 0x5555, 0x3333, 0xCCCC};

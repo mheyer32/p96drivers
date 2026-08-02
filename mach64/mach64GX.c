@@ -61,26 +61,6 @@ static const UBYTE g_MPLLPostDividerCodes[] = {
 #define ICS2595_FS3_MASK    BIT(3)
 #define ICS2595_STROBE_MASK BIT(6)
 
-static const UWORD defaultRegs_GX[] = {0x00a2, 0x6007,   // BUS_CNTL upper
-                                       0x00a0, 0x20f8,   // BUS_CNTL lower
-                                       0x0018, 0x0000,   // CRTC_INT_CNTL lower
-                                       0x001c, 0x0200,   // CRTC_GEN_CNTL lower
-                                       0x001e, 0x040b,   // CRTC_GEN_CNTL upper
-                                       0x00d2, 0x0000,   // GEN_TEST_CNTL upper
-                                       0x00e4, 0x0020,   // CONFIG_STAT0 upper
-                                       0x00b0, 0x0021,   // MEM_CNTL lower
-                                       0x00b2, 0x0801,   // MEM_CNTL upper
-                                       0x00d0, 0x0000,   // GEN_TEST_CNTL lower
-                                       0x001e, 0x0000,   // CRTC_GEN_CNTL upper
-                                       0x0080, 0x0000,   // SCRATCH_REG0 lower
-                                       0x0082, 0x0000,   // SCRATCH_REG0 upper
-                                       0x0084, 0x0000,   // SCRATCH_REG1 lower
-                                       0x0086, 0x0000,   // SCRATCH_REG1 upper
-                                       0x00c4, 0x0000,   // DAC_CNTL lower
-                                       0x00c6, 0x8000,   // DAC_CNTL upper
-                                       0x007a, 0x0000,   // GP_IO lower
-                                       0x00d0, 0x0100};  // GEN_TEST_CNTL lower
-
 /**
  * MEM_CNTL Register Structure (GX-specific)
  * Register offset: 0x2C (MMIO)
@@ -423,43 +403,50 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
     MMIOBASE();
     LOCAL_SYSBASE();
 
-    static const ULONG memorySizes[] = {0x400000, 0x200000, 0x100000, 0x80000};
-    static const ULONG memoryCodes[] = {3, 2, 1, 0};
+    /* Clear VGA/Mach split only — keep power-up MEM_CNTL timing. Do not claim 4MB
+     * first: MEM_SIZE=3 on a 2MB GX can wedge host BAR0 (reads 0xff). */
+    W_MMIO_MASK_L(MEM_CNTL, (0x7 << 16), 0);
 
-    volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
-    framebuffer[0]              = 0;
+    static const ULONG memorySizes[] = {0x200000, 0x100000, 0x80000};
+    static const ULONG memoryCodes[] = {2, 1, 0};
+
+    volatile UBYTE *fb = (volatile UBYTE *)bi->MemoryBase;
+    ULONG memCntlSave  = R_MMIO_L(MEM_CNTL);
 
     for (int i = 0; i < ARRAY_SIZE(memorySizes); i++) {
-        bi->MemorySize = memorySizes[i];
-        D(VERBOSE, "\nProbing memory size %ld\n", bi->MemorySize);
+        ULONG size     = memorySizes[i];
+        bi->MemorySize = size;
+        D(VERBOSE, "\nProbing memory size %ld\n", size);
 
         W_MMIO_MASK_L(MEM_CNTL, 0x7, memoryCodes[i]);
 
+        ULONG high = size - 1;
+        ULONG mid  = size >> 1;
+
+        fb[0]    = 0x00;
+        fb[mid]  = 0x5A;
+        fb[high] = 0xA5;
+
         flushWrites();
-
+        (void)R_MMIO_L(SCRATCH_REG0);
         CacheClearU();
 
-        // Probe the last and the first longword for the current segment,
-        // as well as offset 0 to check for wrap arounds
-        volatile ULONG *highOffset = framebuffer + (bi->MemorySize >> 2) - 512 - 1;
-        volatile ULONG *lowOffset  = framebuffer + (bi->MemorySize >> 3);
-        // Probe  memory
-        *framebuffer = 0;
-        *highOffset  = (ULONG)highOffset;
-        *lowOffset   = (ULONG)lowOffset;
+        UBYTE r0   = fb[0];
+        UBYTE rMid = fb[mid];
+        UBYTE rHi  = fb[high];
 
-        CacheClearU();
+        D(VERBOSE, "Byte probe 0=0x%02lx mid@0x%lx=0x%02lx high@0x%lx=0x%02lx\n", (ULONG)r0, mid, (ULONG)rMid, high,
+          (ULONG)rHi);
 
-        ULONG readbackHigh = *highOffset;
-        ULONG readbackLow  = *lowOffset;
-        ULONG readbackZero = *framebuffer;
-
-        D(VERBOSE, "Probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= 0x%lx\n", highOffset, readbackHigh,
-          lowOffset, readbackLow, readbackZero);
-
-        if (readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset && readbackZero == 0) {
+        if (r0 == 0x00 && rMid == 0x5A && rHi == 0xA5) {
             D(VERBOSE, "Memory size sucessfully probed.\n\n");
             return TRUE;
+        }
+
+        if (r0 == 0xff) {
+            D(WARN, "BAR0 wedged after MEM_SIZE=%ld; restoring MEM_CNTL 0x%08lx\n", memoryCodes[i], memCntlSave);
+            W_MMIO_L(MEM_CNTL, memCntlSave & ~(0x7 << 16));
+            memCntlSave = R_MMIO_L(MEM_CNTL);
         }
     }
     D(VERBOSE, "Memory size probe failed.\n\n");
@@ -469,36 +456,6 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
 // CLOCK_CNTL register bits for clock selection (bits 0-3 select ICS2595 entry)
 #define CLOCK_SEL_MASK_GX (0x0F)  // Bits 0-3: Clock select (0-15)
 #define CLOCK_SEL_GX(x)   ((x) & 0x0F)
-
-static void setMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
-{
-    DFUNC(VERBOSE, "Setting Memory Clock to %ld0 KHz\n", (ULONG)freqKhz10);
-
-    if (freqKhz10 < 1475) {
-        freqKhz10 = 1475;
-    }
-    // SGRAM is rated up to 100Mhz, Core engine up to 83Mhz
-    if (freqKhz10 > 6800) {
-        freqKhz10 = 6800;
-    }
-
-    MMIOBASE();
-
-    // Reset GUI Controller
-    W_MMIO_MASK_L(GEN_TEST_CNTL, GEN_GUI_RESETB_MASK, GEN_GUI_RESETB);
-    W_MMIO_MASK_L(GEN_TEST_CNTL, GEN_GUI_RESETB_MASK, 0);
-
-    W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_EXT_DISP_EN_MASK, CRTC_EXT_DISP_EN);
-
-    // Apparently MCLK Select (MS0, MS1) on the ATI card is wired to 1,1, corresponding to MCLK Address 3, 0b10011
-    ProgramICS2595(bi, 0b10011, freqKhz10);
-
-    delayMilliSeconds(5);
-
-    DFUNC(VERBOSE, "MCLK0 set to %ld0 KHz\n", (ULONG)freqKhz10);
-
-    return;
-}
 
 /**
  * ICS2595 PLL Bit-Bang Functions
@@ -859,11 +816,10 @@ BOOL InitMach64GX(struct BoardInfo *bi)
     ULONG memCntl = R_MMIO_L(MEM_CNTL);
     print_MEM_CNTL((MEM_CNTL_t *)&memCntl);
 
-    setMemoryClock(bi, getChipSpecific(bi)->maxVRAMClock);
+    /* Leave factory MCLK; ICS2595 MCLK reprogram is unsafe on this GX until verified. */
     if (!probeMemorySize(bi)) {
         return FALSE;
     }
-
 
     getChipSpecific(bi)->computeVCLKFrequency = computeVCLKFrequency_ICS2595;
 
