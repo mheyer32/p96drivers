@@ -310,13 +310,12 @@ void ResetEngine(const BoardInfo_t *bi)
     DFUNC(VERBOSE, "\n");
     MMIOBASE();
 
-    // Reset engine. FIXME: older models use the same bit, but in a different way(?)
+    /* GEN_GUI_RESETB: 0 = hold reset, 1 = run (ATI PRG). */
     ULONG genTestCntl = R_MMIO_L(GEN_TEST_CNTL) & ~(GEN_GUI_RESETB_MASK | GEN_CUR_ENABLE_MASK);
-    W_MMIO_L(GEN_TEST_CNTL, genTestCntl | GEN_GUI_RESETB);
-    delayMicroSeconds(10);
     W_MMIO_L(GEN_TEST_CNTL, genTestCntl);
     delayMicroSeconds(10);
-    // W_MMIO_L(GEN_TEST_CNTL, genTestCntl | GEN_GUI_RESETB);
+    W_MMIO_L(GEN_TEST_CNTL, genTestCntl | GEN_GUI_RESETB);
+    delayMicroSeconds(10);
 
     if (getConstChipData(bi)->chipFamily < MACH64GT) {
         W_MMIO_MASK_L(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
