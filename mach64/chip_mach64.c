@@ -421,8 +421,8 @@ static INLINE REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
     return x;
 }
 
-#define TO_CHARS(x)     ((x) >> 3)
 #define TO_SCANLINES(y) ToScanLines((y), modeFlags)
+#define TO_CHARS(x) ((x + 7) >> 3)
 
 #define CRTC_H_TOTAL(x)   (x)
 #define CRTC_H_TOTAL_MASK (0x1FF)
@@ -521,9 +521,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 
     /* HorSyncSize is in pixels; CRTC_H_SYNC_WID is in characters. */
     UWORD hSyncWid = TO_CHARS(mi->HorSyncSize);
-    if (hSyncWid == 0) {
-        hSyncWid = 1;
-    }
     ULONG crtcHSyncStrtWid =
         CRTC_H_SYNC_STRT(hSyncStart) | CRTC_H_SYNC_STRT_HI(hSyncStart >> 8) | CRTC_H_SYNC_WID(hSyncWid);
     if (modeFlags & GMF_HPOLARITY) {
@@ -563,6 +560,26 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     if (modeFlags & GMF_DOUBLESCAN) {
         crtcGenCntl |= CRTC_DBL_SCAN_EN;
     }
+    // {
+    //     UBYTE pixWidth = COLOR_DEPTH_8;
+    //     switch (mi->Depth) {
+    //     case 15:
+    //         pixWidth = COLOR_DEPTH_15;
+    //         break;
+    //     case 16:
+    //         pixWidth = COLOR_DEPTH_16;
+    //         break;
+    //     case 24:
+    //         pixWidth = COLOR_DEPTH_24;
+    //         break;
+    //     case 32:
+    //         pixWidth = COLOR_DEPTH_32;
+    //         break;
+    //     default:
+    //         break;
+    //     }
+    //     crtcGenCntl |= CRTC_PIX_WIDTH(pixWidth);
+    // }
     W_MMIO_L(CRTC_GEN_CNTL, crtcGenCntl);
 
     // FIXME: doesn't seem to exist on RagePro/LT?!
@@ -633,17 +650,18 @@ static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR memo
     UBYTE *mem = memory;
 
     DFUNC(VERBOSE, "mem 0x%lx, format %ld\n", mem, (ULONG)format);
-    switch (format) {
-    case RGBFB_A8R8G8B8:
-    case RGBFB_R5G6B5:
-    case RGBFB_R5G5B5:
-        mem += 0x800000;
-        D(CHATTY, "redirecting to big endian window 0x%lx\n", mem);
-        // Redirect to Big Endian Linear Address Window.
-        return mem;
-        break;
-    default:
-        break;
+    /* GX has a single LE aperture; BE window at +8MB is VT/GT+. */
+    if (getChipData(bi)->chipFamily > MACH64GX) {
+        switch (format) {
+        case RGBFB_A8R8G8B8:
+        case RGBFB_R5G6B5:
+        case RGBFB_R5G5B5:
+            mem += 0x800000;
+            D(CHATTY, "redirecting to big endian window 0x%lx\n", mem);
+            return mem;
+        default:
+            break;
+        }
     }
     // FIXME: RagePro manual says that SGRAM needs to be aligned to 64byte and pitch needs to be 64byte aligned
     // return (APTR)(((ULONG)mem + 7) & ~7);
@@ -657,18 +675,24 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGB
 
     // These formats can always reside in the Little Endian Window.
     // We never need to change any aperture setting for them
-    ULONG compatible = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
+    ULONG compatible = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC;
+    if (getChipData(bi)->chipFamily == MACH64GX)
+        compatible |= RGBFF_R8G8B8A8;
+    else
+        compatible |= RGBFF_B8G8R8A8;
 
-    switch (format) {
-    case RGBFB_A8R8G8B8:
-        // In Big Endian aperture, configured MEM_CNTL for byte swapping in long word
-        compatible |= RGBFF_A8R8G8B8;
-        break;
-    case RGBFB_R5G6B5:
-    case RGBFB_R5G5B5:
-        // In Big Endian aperture, configured MEM_CNTL for byte swapping in words only
-        compatible |= RGBFF_R5G6B5 | RGBFF_R5G5B5;
-        break;
+    if (getChipData(bi)->chipFamily > MACH64GX) {
+        switch (format) {
+        case RGBFB_A8R8G8B8:
+            // In Big Endian aperture, configured MEM_CNTL for byte swapping in long word
+            compatible |= RGBFF_A8R8G8B8;
+            break;
+        case RGBFB_R5G6B5:
+        case RGBFB_R5G5B5:
+            // In Big Endian aperture, configured MEM_CNTL for byte swapping in words only
+            compatible |= RGBFF_R5G6B5 | RGBFF_R5G5B5;
+            break;
+        }
     }
     return compatible;
 }
@@ -708,7 +732,6 @@ static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct 
 {
     DFUNC(CHATTY, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
 
-    const ChipData_t *cd     = getChipData(bi);
     const ChipSpecific_t *cs = getConstChipSpecific(bi);
 
     UWORD targetFreq = pixelClock / 10000;
@@ -766,9 +789,12 @@ static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct Mod
                                __REGD7(RGBFTYPE format))
 {
     DFUNC(VERBOSE, "\n");
+    (void)mi;
+    (void)format;
 
     const ChipSpecific_t *cs = getConstChipSpecific(bi);
-    UWORD freq               = cs->computeVCLKFrequency(bi, &cs->vclkPllValues[index]);
+
+    UWORD freq = cs->computeVCLKFrequency(bi, &cs->vclkPllValues[index]);
 
     return freq * 10000;
 }
@@ -1158,6 +1184,10 @@ static INLINE BOOL setSrcBuffer(struct BoardInfo *bi, const struct RenderInfo *r
 static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE fmt)
 {
     switch (fmt) {
+    case RGBFB_R8G8B8A8:
+        /* GX 68860 GMR E3 FB is RGBA; without swapl, GE writes ABGR via LE MMIO. */
+        pen = swapl(pen);
+        break;
     case RGBFB_B8G8R8A8:
         pen = swapl(pen);
         break;
@@ -2094,10 +2124,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->Flags                  = bi->Flags | BIF_GRANTDIRECTACCESS | BIF_HARDWARESPRITE | BIF_BLITTER;
     // BIF_VGASCREENSPLIT ;
 
+    /* LE aperture only for now; Amiga-endian formats added after chipFamily
+     * is known (VT/GT+ dual 8MB BE window — GX has no such aperture). */
     bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
-    // We can support byte-swapped formats on this chip via the Big Linear
-    // Adressing Window
-    bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
 
     bi->SoftSpriteFlags = 0;
 
@@ -2213,6 +2242,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             D(INFO, "Chip family: %s\n", getChipFamilyName(cd->chipFamily));
         }
 
+        /* VT/GT+: second 8MB window is big-endian alias. GX has only LE. */
+        if (cd->chipFamily > MACH64GX)
+            bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
+
         /* Required for BAR decode; GX also needs IO for sparse CONFIG_CNTL. */
         {
             UWORD cmd = pci_read_config_word(PCI_COMMAND, board);
@@ -2242,11 +2275,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // By disabling all classic IO decoding
         config |= 0x08;  // Disable decoding GENENA (no response at IO 0x46E8)
         pci_write_config_byte(0x40, config, board);
-    }
 
-    if (!parseRomHeader(bi)) {
-        DFUNC(ERROR, "Failed to parse ROM header\n");
-        return FALSE;
+        /* Seed sparse I/O before ROM parse (ROM itself carries the same base). */
+        if (ioBase)
+            cd->ioSparseBase = ioBase;
     }
 
     // Test scratch register response
@@ -2286,6 +2318,19 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     D(INFO, "scratch register response good.\n");
 
+    /* Warm reinit: CFG_VGA_DIS must be clear for Expansion ROM to be accessible*/
+    if (cd->chipFamily == MACH64GX && cd->ioSparseBase && getCardData(bi)->legacyIOBase) {
+        LEGACYIOBASE();
+        W_IO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK, 0);
+        MMIOBASE();
+        W_MMIO_MASK_L(BUS_CNTL, BUS_ROM_DIS_MASK, 0);
+    }
+
+    if (!parseRomHeader(bi)) {
+        DFUNC(ERROR, "Failed to parse ROM header\n");
+        return FALSE;
+    }
+
     switch (cd->chipFamily) {
     case MACH64GX:
         if (!InitMach64GX(bi)) {
@@ -2312,12 +2357,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         W_MMIO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
         W_MMIO_MASK_L(CONFIG_STAT0, CFG_VGA_EN_MASK, 0);
     } else {
-        /* GX CONFIG_STAT0 bits 3–5 are Cfg_Mem_Type; CFG_VGA_EN_MASK (bit4) is CT/GT-only.
-         * Clearing it on GX corrupts mem_type and wedges CPU BAR0 (0xff) while GUI still works.
-         * Do not set CFG_VGA_DIS on GX either (PRG888GX0). */
+        /* GX: never touch CONFIG_STAT0 (bit4 is Cfg_Mem_Type — wedges BAR0).
+         * Set CFG_VGA_DIS for accelerator CRT, knowing it disables ROM access
+         * until the next InitChip clears it again (see CFG_VGA_DIS define). */
         LEGACYIOBASE();
-        if (R_IO_L(CONFIG_CNTL) & CFG_MEM_VGA_AP_EN_MASK)
-            W_IO_MASK_L(CONFIG_CNTL, CFG_MEM_VGA_AP_EN_MASK, 0);
+        W_IO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
     }
 
     // ULONG clock = bi->MemoryClock;
@@ -2362,7 +2406,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // CRTC_DISP_REQ_ENB = 0 _enables_ display requests?!?!
     W_MMIO_MASK_L(CRTC_GEN_CNTL,
                   CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_DISP_REQ_ENB_MASK | VGA_XCRT_CNT_EN_MASK |
-                      VGA_ATI_LINEAR_MASK | CRTC_LOCK_REGS_MASK,
+                      VGA_ATI_LINEAR_MASK | CRTC_LOCK_REGS_MASK | CRTC_CSYNC_EN | CRTC_PIC_BY_2_EN | CRTC_HSYNC_DIS |
+                      CRTC_VSYNC_DIS,
                   CRTC_ENABLE | CRTC_EXT_DISP_EN | VGA_XCRT_CNT_EN);
     if (cd->chipFamily <= MACH64VT) {
         W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK | CRTC_FIFO_OVERFILL_MASK,
@@ -2483,6 +2528,26 @@ static void testFillPattern8bppBytes(BoardInfo_t *bi, UWORD width, UWORD height)
       (ULONG)bi->MemoryBase);
 }
 
+static void dumpScanout8bpp(BoardInfo_t *bi)
+{
+    MMIOBASE();
+    ULONG gen   = R_MMIO_L(CRTC_GEN_CNTL);
+    ULONG pitch = R_MMIO_L(CRTC_OFF_PITCH);
+    ULONG vtd   = R_MMIO_L(CRTC_V_TOTAL_DISP);
+    ULONG dac   = R_MMIO_L(DAC_CNTL);
+    ULONG cfg0  = R_MMIO_L(CONFIG_STAT0);
+    D(ALWAYS, "scanout: CRTC_GEN_CNTL=0x%08lx pixw=%ld dbl=%ld int=%ld pic_by2=%ld ext=%ld en=%ld\n", gen,
+      (gen >> 8) & 7, !!(gen & CRTC_DBL_SCAN_EN), !!(gen & CRTC_INTERLACE_EN), !!(gen & CRTC_PIC_BY_2_EN),
+      !!(gen & CRTC_EXT_DISP_EN), !!(gen & CRTC_ENABLE));
+    D(ALWAYS, "scanout: CRTC_V_TOTAL_DISP=0x%08lx vtot=%ld vdisp=%ld\n", vtd, vtd & 0x7ff, (vtd >> 16) & 0x7ff);
+    D(ALWAYS, "scanout: CRTC_OFF_PITCH=0x%08lx off=0x%lx pitch8=%ld\n", pitch, pitch & 0xfffff, (pitch >> 22) & 0x3ff);
+    D(ALWAYS, "scanout: DAC_CNTL=0x%08lx dac8=%ld rs=%ld type_byte=%ld\n", dac, !!(dac & BIT(8)), dac & 3,
+      (dac >> 16) & 7);
+    D(ALWAYS, "scanout: CONFIG_STAT0 dac_strap=%ld mem_type=%ld \n", (cfg0 >> 9) & 7, (cfg0 >> 3) & 7);
+    ULONG mem = R_MMIO_L(MEM_CNTL);
+    D(ALWAYS, "scanout: MEM_CNTL=0x%08lx size=%ld latch=%ld\n", mem, mem & 7, !!(mem & 0x00f0));
+}
+
 void intHandler(int dummy)
 {
     if (OpenPciBase) {
@@ -2491,20 +2556,32 @@ void intHandler(int dummy)
     abort();
 }
 
+/* ALL/S — cycle every built-in mode; default is 640x480@60 only. */
+static const char testArgsTemplate[] = "ALL/S";
+
 int main()
 {
     signal(SIGINT, intHandler);
 
-    int rval = EXIT_FAILURE;
+    int rval              = EXIT_FAILURE;
+    LONG allModes         = FALSE;
+    struct RDArgs *rdargs = NULL;
 
     if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
         D(0, "Unable to open openpci.library\n");
         goto exit;
     }
 
-    if (!(DOSBase = (struct DosLibrary *)OpenLibrary(DOSNAME, 0))) {
-        D(0, "Unable to open dos.library\n");
-        goto exit;
+    {
+        LONG args[1] = {0};
+        rdargs       = ReadArgs((STRPTR)testArgsTemplate, args, NULL);
+        if (!rdargs) {
+            PrintFault(IoErr(), (STRPTR) "TestMach64");
+            goto exit;
+        }
+        allModes = args[0] ? TRUE : FALSE;
+        FreeArgs(rdargs);
+        rdargs = NULL;
     }
 
     struct pci_dev *board = NULL;
@@ -2570,8 +2647,7 @@ int main()
             }
             bi->MemoryBase = Memory0;
             /* Match card driver: CPU BAR0 probes need cache-inhibit on the full aperture. */
-            setCacheMode(bi, Memory0, Memory0Size, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED,
-                         CACHEFLAGS);
+            setCacheMode(bi, Memory0, Memory0Size, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED, CACHEFLAGS);
 
             D(0, "Mach64 init chip....\n");
             if (!InitChip(bi)) {
@@ -2597,16 +2673,19 @@ int main()
                     {"640x480", 640, 480, 800, 16, 96, 525, 10, 2, 25175000, GMF_HPOLARITY | GMF_VPOLARITY},
                     {"800x600", 800, 600, 1056, 40, 128, 628, 1, 4, 40000000, 0},
                     {"1024x768", 1024, 768, 1344, 24, 136, 806, 3, 6, 65000000, GMF_HPOLARITY | GMF_VPOLARITY},
-                    /* ~12.6 MHz; V*2 CRTC + CRTC_DBL_SCAN (logical FB Height) */
-                    {"320x200d", 320, 200, 400, 16, 48, 224, 6, 1, 12587500,
+                    /* Logical FB height; CRTC_DBL_SCAN_EN — do not also ×2 V in SetGC. */
+                    {"320x200d", 320, 200, 400, 16, 48, 449, 12, 2, 12587500,
                      GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY},
-                    {"1024x384d", 1024, 384, 1344, 24, 136, 403, 3, 3, 65000000,
+                    {"1024x384d", 1024, 384, 1344, 24, 136, 806, 3, 6, 65000000,
                      GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY},
                 };
+                const int modeCount = allModes ? (int)(sizeof(modes) / sizeof(modes[0])) : 1;
 
                 static struct ModeInfo testMi;
 
-                for (int m = 0; m < (int)(sizeof(modes) / sizeof(modes[0])); ++m) {
+                D(ALWAYS, allModes ? "Mode test: ALL\n" : "Mode test: 640x480 only (use ALL to cycle)\n");
+
+                for (int m = 0; m < modeCount; ++m) {
                     memset(&testMi, 0, sizeof(testMi));
                     testMi.Depth        = 8;
                     testMi.Flags        = modes[m].flags;
@@ -2631,8 +2710,8 @@ int main()
                     for (int c = 0; c < 256; c++) {
                         bi->CLUT[c].Red = bi->CLUT[c].Green = bi->CLUT[c].Blue = (UBYTE)c;
                     }
-                    bi->SetColorArray(bi, 0, 256);
                     bi->SetDAC(bi, 0, RGBFB_CLUT);
+                    bi->SetColorArray(bi, 0, 256);
                     bi->SetPanning(bi, bi->MemoryBase, modes[m].w, modes[m].h, 0, 0, RGBFB_CLUT);
                     bi->SetDisplay(bi, TRUE);
 
@@ -2648,10 +2727,12 @@ int main()
                         WaitBlitter(bi);
                     }
 
+                    dumpScanout8bpp(bi);
                     DFUNC(ALWAYS, "Showing %s - check sync (3s)\n", modes[m].name);
                     delayMilliSeconds(3000);
                 }
 
+                /* Rest on 640x480 for the blit/pattern checks below. */
                 memset(&testMi, 0, sizeof(testMi));
                 testMi.Depth        = 8;
                 testMi.Flags        = GMF_HPOLARITY | GMF_VPOLARITY;
@@ -2710,8 +2791,12 @@ int main()
     D(ERROR, "no Mach64 found.\n");
 
 exit:
+    if (rdargs) {
+        FreeArgs(rdargs);
+    }
     if (OpenPciBase) {
         CloseLibrary(OpenPciBase);
+        OpenPciBase = NULL;
     }
 
     return rval;
