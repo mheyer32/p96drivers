@@ -422,7 +422,7 @@ static INLINE REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
 }
 
 #define TO_SCANLINES(y) ToScanLines((y), modeFlags)
-#define TO_CHARS(x) ((x + 7) >> 3)
+#define TO_CHARS(x)     ((x + 7) >> 3)
 
 #define CRTC_H_TOTAL(x)   (x)
 #define CRTC_H_TOTAL_MASK (0x1FF)
@@ -450,9 +450,6 @@ static INLINE REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
 #define CRTC_V_SYNC_WID_MASK  (0x1F << 16)
 #define CRTC_V_SYNC_POL       BIT(21)
 
-#define CRTC_VLINE(x)        (x)
-#define CRTC_VLINE_MASK      (0x7FF)
-#define CRTC_CRNT_VLINE(x)   ((x) << 16)
 #define CRTC_CRNT_VLINE_MASK (0x7FF << 16)
 
 #define CRTC_OFFSET(x)   (x)
@@ -474,8 +471,8 @@ static INLINE REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
 #define CRTC_VBLANK_INT_EN BIT(1)
 #define CRTC_VBLANK_INT    BIT(2)
 #define CRTC_VBLANK_INT_AK CRTC_VBLANK_INT
-#define CRTC_VLINE_INT     BIT(4)
-#define CRTC_INT_ACKS      (CRTC_VBLANK_INT | CRTC_VLINE_INT)
+#define CRTC_INT_ACKS      CRTC_VBLANK_INT
+#define CRTC_INT_EN_MASK   CRTC_VBLANK_INT_EN
 
 // in characters (pixels/8)
 #define OVR_WID_LEFT(x)    (x)
@@ -639,7 +636,10 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
 
     D(VERBOSE, "panOffset 0x%lx, pitch %ld qwords\n", panOffset, (ULONG)pitch);
 
-    W_MMIO_L(CRTC_OFF_PITCH, CRTC_OFFSET(panOffset) | CRTC_PITCH(pitch));
+    {
+        ULONG offPitch = CRTC_OFFSET(panOffset) | CRTC_PITCH(pitch);
+        W_MMIO_L(CRTC_OFF_PITCH, offPitch);
+    }
 
     return;
 }
@@ -890,19 +890,32 @@ static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expect
 
 static void ASM WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL end)) {}
 
+static ULONG ASM GetVBeamPos(__REGA0(struct BoardInfo *bi))
+{
+    MMIOBASE();
+    return (R_MMIO_L(CRTC_VLINE_CRNT_VLINE) & CRTC_CRNT_VLINE_MASK) >> 16;
+}
+
+/* Write only enable bits (+ W1C acks), never status bits back. */
+static INLINE void syncCrtcInterruptEnables(BoardInfo_t *bi)
+{
+    if (!(bi->Flags & BIF_VBLANKINTERRUPT))
+        return;
+
+    MMIOBASE();
+    ULONG en = getChipData(bi)->p96VBlankInt ? CRTC_VBLANK_INT_EN : 0;
+
+    W_MMIO_L(CRTC_INT_CNTL, en | CRTC_INT_ACKS);
+    W_MMIO_L(CRTC_INT_CNTL, en);
+}
+
 static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 {
     LOCAL_SYSBASE();
     Disable();
 
-    MMIOBASE();
-
-    ULONG status = R_MMIO_L(CRTC_INT_CNTL);
-    if (state) {
-        W_MMIO_L(CRTC_INT_CNTL, (status & ~CRTC_INT_ACKS) | CRTC_VBLANK_INT_AK | CRTC_VBLANK_INT_EN);
-    } else {
-        W_MMIO_L(CRTC_INT_CNTL, (status & ~(CRTC_INT_ACKS | CRTC_VBLANK_INT_EN)) | CRTC_VBLANK_INT_AK);
-    }
+    getChipData(bi)->p96VBlankInt = state ? 1 : 0;
+    syncCrtcInterruptEnables(bi);
 
     Enable();
 
@@ -910,24 +923,31 @@ static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 }
 
 /* OpenPCI/Exec interrupt server: is_Data (BoardInfo *) in a1.
- * Return non-zero (Z clear) if we handled this board's VBlank IRQ; else 0 (Z set). */
-static ULONG ASM VBlankInterrupt(__REGA1(struct BoardInfo *bi))
+ * Return non-zero if we handled this board's IRQ; else 0. Entry sets CCR.Z.
+ * Non-static: DEFINE_INTSERVER asm must jsr the C symbol. */
+ULONG ASM interruptServer(__REGA1(struct BoardInfo *bi))
 {
-    volatile UBYTE *MMIOBase = getMMIOBase(bi);
-    ULONG status             = R_MMIO_L(CRTC_INT_CNTL);
+    MMIOBASE();
+
+    ULONG status = R_MMIO_L_QI(CRTC_INT_CNTL);
 
     if (!(status & CRTC_VBLANK_INT))
         return 0;
 
-    /* Ack VBlank while keeping enable bits (DRM mach64_irq pattern). */
-    W_MMIO_L(CRTC_INT_CNTL, (status & ~CRTC_INT_ACKS) | CRTC_VBLANK_INT_AK);
+    W_MMIO_L_QI(CRTC_INT_CNTL, (status & CRTC_INT_EN_MASK) | CRTC_VBLANK_INT_AK);
 
-    {
+    if (getChipData(bi)->p96VBlankInt) {
         LOCAL_SYSBASE();
         Cause(&bi->SoftInterrupt);
     }
+
+    // /* If W1C did not clear, drop enables so a stuck INTA cannot soft-lock. */
+    // if (R_MMIO_L_QI(CRTC_INT_CNTL) & CRTC_VBLANK_INT)
+    //     W_MMIO_L_QI(CRTC_INT_CNTL, CRTC_INT_ACKS);
+
     return 1;
 }
+DEFINE_INTSERVER(interruptServerTrampoline, interruptServer);
 
 #define CUR_OFFSET_X(x)   (x)
 #define CUR_OFFSET_X_MASK (0xFFFFF)
@@ -2122,7 +2142,6 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->GraphicsControllerType = GCT_ATIRV100;
     bi->PaletteChipType        = PCT_ATT_20C492;
     bi->Flags                  = bi->Flags | BIF_GRANTDIRECTACCESS | BIF_HARDWARESPRITE | BIF_BLITTER;
-    // BIF_VGASCREENSPLIT ;
 
     /* LE aperture only for now; Amiga-endian formats added after chipFamily
      * is known (VT/GT+ dual 8MB BE window — GX has no such aperture). */
@@ -2149,17 +2168,15 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->GetPixelClock        = GetPixelClock;
     // SetClock is set up by chip-specific init functions (InitMach64GT, etc.)
 
-    // VSYNC / VBlank IRQ (card registers HardInterrupt via pci_add_intserver)
+    // VBlank IRQ (card registers HardInterrupt via pci_add_intserver)
     bi->WaitVerticalSync      = WaitVerticalSync;
     bi->GetVSyncState         = GetVSyncState;
+    bi->GetVBeamPos           = GetVBeamPos;
     bi->SetInterrupt          = SetInterrupt;
-    bi->HardInterrupt.is_Code = (void (*)())VBlankInterrupt;
+    bi->HardInterrupt.is_Code = (void (*)())interruptServerTrampoline;
 
     // DPMS
     bi->SetDPMSLevel = SetDPMSLevel;
-
-    // // VGA Splitscreen
-    // bi->SetSplitPosition = SetSplitPosition;
 
     // // Mouse Sprite
     bi->SetSprite         = SetSprite;
@@ -2220,12 +2237,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         DFUNC(INFO, "Determine Chip Family\n");
 
         // Allocate ChipSpecific structure
+        cd->chipSpecific = AllocMem(sizeof(ChipSpecific_t), MEMF_ANY | MEMF_CLEAR);
         if (!cd->chipSpecific) {
-            cd->chipSpecific = AllocMem(sizeof(ChipSpecific_t), MEMF_PUBLIC | MEMF_CLEAR);
-            if (!cd->chipSpecific) {
-                DFUNC(ERROR, "Failed to allocate ChipSpecific\n");
-                return FALSE;
-            }
+            DFUNC(ERROR, "Failed to allocate ChipSpecific\n");
+            return FALSE;
         }
 
         ULONG revision;
@@ -2319,7 +2334,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     D(INFO, "scratch register response good.\n");
 
     /* Warm reinit: CFG_VGA_DIS must be clear for Expansion ROM to be accessible*/
-    if (cd->chipFamily == MACH64GX && cd->ioSparseBase && getCardData(bi)->legacyIOBase) {
+    {
         LEGACYIOBASE();
         W_IO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK, 0);
         MMIOBASE();
@@ -2479,8 +2494,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #ifdef TESTEXE
 
 #include <boardinfo.h>
+#include <exec/interrupts.h>
+#include <exec/nodes.h>
 #include <libraries/openpci.h>
 #include <proto/dos.h>
+#include <proto/exec.h>
 #include <proto/expansion.h>
 #include <proto/openpci.h>
 #include <proto/utility.h>
@@ -2536,16 +2554,15 @@ static void dumpScanout8bpp(BoardInfo_t *bi)
     ULONG vtd   = R_MMIO_L(CRTC_V_TOTAL_DISP);
     ULONG dac   = R_MMIO_L(DAC_CNTL);
     ULONG cfg0  = R_MMIO_L(CONFIG_STAT0);
-    D(ALWAYS, "scanout: CRTC_GEN_CNTL=0x%08lx pixw=%ld dbl=%ld int=%ld pic_by2=%ld ext=%ld en=%ld\n", gen,
-      (gen >> 8) & 7, !!(gen & CRTC_DBL_SCAN_EN), !!(gen & CRTC_INTERLACE_EN), !!(gen & CRTC_PIC_BY_2_EN),
-      !!(gen & CRTC_EXT_DISP_EN), !!(gen & CRTC_ENABLE));
-    D(ALWAYS, "scanout: CRTC_V_TOTAL_DISP=0x%08lx vtot=%ld vdisp=%ld\n", vtd, vtd & 0x7ff, (vtd >> 16) & 0x7ff);
-    D(ALWAYS, "scanout: CRTC_OFF_PITCH=0x%08lx off=0x%lx pitch8=%ld\n", pitch, pitch & 0xfffff, (pitch >> 22) & 0x3ff);
-    D(ALWAYS, "scanout: DAC_CNTL=0x%08lx dac8=%ld rs=%ld type_byte=%ld\n", dac, !!(dac & BIT(8)), dac & 3,
-      (dac >> 16) & 7);
-    D(ALWAYS, "scanout: CONFIG_STAT0 dac_strap=%ld mem_type=%ld \n", (cfg0 >> 9) & 7, (cfg0 >> 3) & 7);
+    D(ALWAYS, "CRTC_GEN_CNTL=0x%08lx pixw=%ld dbl=%ld int=%ld pic_by2=%ld ext=%ld en=%ld\n", gen, (gen >> 8) & 7,
+      !!(gen & CRTC_DBL_SCAN_EN), !!(gen & CRTC_INTERLACE_EN), !!(gen & CRTC_PIC_BY_2_EN), !!(gen & CRTC_EXT_DISP_EN),
+      !!(gen & CRTC_ENABLE));
+    D(ALWAYS, "CRTC_V_TOTAL_DISP=0x%08lx vtot=%ld vdisp=%ld\n", vtd, vtd & 0x7ff, (vtd >> 16) & 0x7ff);
+    D(ALWAYS, "CRTC_OFF_PITCH=0x%08lx off=0x%lx pitch8=%ld\n", pitch, pitch & 0xfffff, (pitch >> 22) & 0x3ff);
+    D(ALWAYS, "DAC_CNTL=0x%08lx dac8=%ld rs=%ld type_byte=%ld\n", dac, !!(dac & BIT(8)), dac & 3, (dac >> 16) & 7);
+    D(ALWAYS, "CONFIG_STAT0 dac_strap=%ld mem_type=%ld \n", (cfg0 >> 9) & 7, (cfg0 >> 3) & 7);
     ULONG mem = R_MMIO_L(MEM_CNTL);
-    D(ALWAYS, "scanout: MEM_CNTL=0x%08lx size=%ld latch=%ld\n", mem, mem & 7, !!(mem & 0x00f0));
+    D(ALWAYS, "MEM_CNTL=0x%08lx size=%ld latch=%ld\n", mem, mem & 7, !!(mem & 0x00f0));
 }
 
 void intHandler(int dummy)
@@ -2556,8 +2573,73 @@ void intHandler(int dummy)
     abort();
 }
 
-/* ALL/S — cycle every built-in mode; default is 640x480@60 only. */
-static const char testArgsTemplate[] = "ALL/S";
+static volatile ULONG softVBlankCount;
+
+static void ASM SoftVBlankCount(__REGA1(ULONG *count))
+{
+    (*count)++;
+}
+
+/* Register PCI VBlank server, enable chip IRQ, count SoftInterrupts for 2s. */
+static void testVBlankInterrupt(BoardInfo_t *bi, struct pci_dev *board)
+{
+    LOCAL_SYSBASE();
+    softVBlankCount = 0;
+
+    /* OpenPCI: server may run immediately — chip must not assert INTA yet. */
+    Disable();
+    {
+        MMIOBASE();
+        W_MMIO_L(CRTC_INT_CNTL, CRTC_INT_ACKS);
+        W_MMIO_L(CRTC_INT_CNTL, 0);
+    }
+    getChipData(bi)->p96VBlankInt = 0;
+    Enable();
+
+    bi->SoftInterrupt.is_Node.ln_Type = NT_INTERRUPT;
+    bi->SoftInterrupt.is_Node.ln_Pri  = 0;
+    bi->SoftInterrupt.is_Node.ln_Name = (char *)"TestMach64SoftVBlank";
+    bi->SoftInterrupt.is_Data         = (APTR)&softVBlankCount;
+    bi->SoftInterrupt.is_Code         = (void (*)())SoftVBlankCount;
+
+    bi->HardInterrupt.is_Node.ln_Type = NT_INTERRUPT;
+    bi->HardInterrupt.is_Node.ln_Pri  = 0;
+    bi->HardInterrupt.is_Node.ln_Name = (char *)"TestMach64VBlank";
+    bi->HardInterrupt.is_Data         = bi;
+    /* is_Code set by InitChip */
+
+    if (!pci_add_intserver(&bi->HardInterrupt, board)) {
+        D(ERROR, "VBlank IRQ test: pci_add_intserver failed\n");
+        return;
+    }
+
+    bi->Flags |= BIF_VBLANKINTERRUPT;
+    bi->SetInterrupt(bi, TRUE);
+
+    {
+        MMIOBASE();
+        D(ALWAYS, "VBlank IRQ test: CRTC_INT_CNTL=0x%08lx — counting 2s...\n", R_MMIO_L(CRTC_INT_CNTL));
+    }
+
+    delayMilliSeconds(2000);
+
+    ULONG count = softVBlankCount;
+    bi->SetInterrupt(bi, FALSE);
+    {
+        MMIOBASE();
+        W_MMIO_L(CRTC_INT_CNTL, CRTC_INT_ACKS);
+        W_MMIO_L(CRTC_INT_CNTL, 0);
+    }
+    pci_rem_intserver(&bi->HardInterrupt, board);
+    bi->Flags &= ~BIF_VBLANKINTERRUPT;
+
+    D(ALWAYS, "VBlank IRQ test: %lu softints in 2s (~%lu Hz)\n", count, count / 2);
+    if (count < 50)
+        D(ERROR, "VBlank IRQ test: too few interrupts (expected ~120 @60Hz)\n");
+}
+
+/* ALL/S — cycle every built-in mode; VBLANK/S — PCI VBlank IRQ count test. */
+static const char testArgsTemplate[] = "ALL/S,VBLANK/S";
 
 int main()
 {
@@ -2565,6 +2647,7 @@ int main()
 
     int rval              = EXIT_FAILURE;
     LONG allModes         = FALSE;
+    LONG vblankTest       = FALSE;
     struct RDArgs *rdargs = NULL;
 
     if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
@@ -2573,13 +2656,14 @@ int main()
     }
 
     {
-        LONG args[1] = {0};
+        LONG args[2] = {0, 0};
         rdargs       = ReadArgs((STRPTR)testArgsTemplate, args, NULL);
         if (!rdargs) {
             PrintFault(IoErr(), (STRPTR) "TestMach64");
             goto exit;
         }
-        allModes = args[0] ? TRUE : FALSE;
+        allModes   = args[0] ? TRUE : FALSE;
+        vblankTest = args[1] ? TRUE : FALSE;
         FreeArgs(rdargs);
         rdargs = NULL;
     }
@@ -2782,6 +2866,9 @@ int main()
                 BlitPattern(bi, &ri, &pattern, 150, 150, 340, 180, 0xFF, RGBFB_CLUT);
                 WaitBlitter(bi);
             }
+
+            if (vblankTest)
+                testVBlankInterrupt(bi, board);
 
             rval = EXIT_SUCCESS;
             goto exit;

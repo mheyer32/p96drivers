@@ -79,6 +79,28 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
 #define CFF_VBLANK_INTSERVER (1UL << 1) /* VBlank HardInterrupt registered (OpenPCI or PORTS) */
 // #define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
 
+/*
+ * OpenPCI/Exec interrupt servers: return with CCR.Z clear if this board's IRQ
+ * was handled, Z set otherwise. Loading d0 alone is not enough — C epilogues
+ * (addq etc.) clobber CCR. Wrap the C body:
+ *
+ *   ULONG ASM FooHandler(__REGA1(struct BoardInfo *bi)) { ...; return handled; }
+ *   DEFINE_INTSERVER(Foo, FooHandler);
+ *   bi->HardInterrupt.is_Code = (void (*)())Foo;
+ *
+ * Non-zero handler return → Z clear; zero → Z set.
+ * Scratch for IS_CODE: d0-d1/a0-a1/a5-a6 — trampoline preserves the rest.
+ */
+#define DEFINE_INTSERVER(entry, handler)           \
+    void entry(void);                              \
+    asm(".text\n"                                  \
+        "	.align	2\n"                           \
+        "	.globl	_" #entry "\n"                \
+        "_" #entry ":\n"                           \
+        "	jsr	_" #handler "\n"              \
+        "	tst.l	d0\n"                         \
+        "	rts\n")
+
 static inline ULONG swapl(ULONG value)
 {
     // endian swap value
@@ -453,6 +475,28 @@ static INLINE void REGARGS writeMMIO_L(volatile UBYTE *mmiobase, LONG regOffset,
     *(volatile ULONG *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPL(value);
 }
 
+/* No D() — safe from interrupt servers (printf from ISR crashes). */
+static INLINE ULONG REGARGS readMMIO_L_qi(volatile UBYTE *mmiobase, LONG regOffset)
+{
+    return SWAPL(read_L(mmiobase + (regOffset - MMIOREGISTER_OFFSET)));
+}
+
+static INLINE void REGARGS writeMMIO_L_qi(volatile UBYTE *mmiobase, LONG regOffset, ULONG value)
+{
+    *(volatile ULONG *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPL(value);
+}
+
+static INLINE UWORD REGARGS readRegW_qi(volatile UBYTE *regbase, LONG reg)
+{
+    flushWrites();
+    return SWAPW_IO(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
+}
+
+static INLINE void REGARGS writeRegW_qi(volatile UBYTE *regbase, LONG reg, UWORD value)
+{
+    *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = SWAPW_IO(value);
+}
+
 static INLINE void REGARGS writeMMIO_NoSwap_L(volatile UBYTE *regbase, LONG reg, ULONG value, const char *regName)
 {
     D(VERBOSE, "W %s <- 0x%08lx\n", regName, SWAPL(value));
@@ -616,6 +660,10 @@ static INLINE void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
 #define W_MMIO_NOSWAP_L(reg, value)     writeMMIO_NoSwap_L(MMIOBase, reg, value, #reg)
 #define R_MMIO_L(reg)                   readMMIO_L(MMIOBase, reg, #reg)
 #define TST_MMIO_L(reg, mask)           ((readMMIO_NoSwap_L(MMIOBase, reg, #reg) & SWAPL(mask)) != 0)
+#define R_MMIO_L_QI(reg)                readMMIO_L_qi(MMIOBase, reg)
+#define W_MMIO_L_QI(reg, value)         writeMMIO_L_qi(MMIOBase, reg, value)
+#define R_IO_W_QI(reg)                  readRegW_qi(RegBase, reg)
+#define W_IO_W_QI(reg, value)           writeRegW_qi(RegBase, reg, value)
 
 #define W_MISC_MASK(mask, value) writeMISC_OUT(RegBase, mask, value)
 

@@ -41,8 +41,9 @@ typedef struct ChipData
     ULONG patternCacheKey;
     UWORD *patternCacheBuffer;  // points to system memory
 
-    UWORD chipFamily;  // chip family
     UWORD ioSparseBase;
+    UBYTE p96VBlankInt;  // P96 SetInterrupt(TRUE): Cause() soft IRQ on VBlank
+    UBYTE chipFamily;  // chip family
     ChipSpecific_t *chipSpecific;
 
     const I2COps_t *i2cOps;

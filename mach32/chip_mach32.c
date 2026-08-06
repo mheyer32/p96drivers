@@ -641,15 +641,16 @@ static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
     return TRUE;
 }
 
-static ULONG ASM VBlankInterrupt(__REGA1(struct BoardInfo *bi))
+/* Non-static: DEFINE_INTSERVER asm must jsr the C symbol. */
+ULONG ASM VBlankInterruptHandler(__REGA1(struct BoardInfo *bi))
 {
     REGBASE();
 
-    if (!(R_IO_W(SUBSYS_STATUS) & SUBSYS_VBLANK_INT))
+    if (!(R_IO_W_QI(SUBSYS_STATUS) & SUBSYS_VBLANK_INT))
         return 0;
 
     /* Ack while keeping VBLANK_ENA so continuous IRQs keep firing. */
-    W_IO_W(SUBSYS_CNTL, SUBSYS_VBLANK_ACK | SUBSYS_VBLANK_ENA);
+    W_IO_W_QI(SUBSYS_CNTL, SUBSYS_VBLANK_ACK | SUBSYS_VBLANK_ENA);
 
     {
         LOCAL_SYSBASE();
@@ -657,6 +658,7 @@ static ULONG ASM VBlankInterrupt(__REGA1(struct BoardInfo *bi))
     }
     return 1;
 }
+DEFINE_INTSERVER(interruptServerTrampoline, VBlankInterruptHandler);
 
 /**
  * Set DPMS (Display Power Management Signaling) level.
@@ -1779,7 +1781,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->WaitVerticalSync      = WaitVerticalSync;
     bi->GetVSyncState         = GetVSyncState;
     bi->SetInterrupt          = SetInterrupt;
-    bi->HardInterrupt.is_Code = (void (*)())VBlankInterrupt;
+    bi->HardInterrupt.is_Code = (void (*)())interruptServerTrampoline;
 
     bi->SetSprite         = SetSprite;
     bi->SetSpritePosition = SetSpritePosition;
