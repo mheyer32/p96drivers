@@ -643,7 +643,7 @@ static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 
 static ULONG ASM VBlankInterrupt(__REGA1(struct BoardInfo *bi))
 {
-    volatile UBYTE *RegBase = getIOBase(bi);
+    REGBASE();
 
     if (!(R_IO_W(SUBSYS_STATUS) & SUBSYS_VBLANK_INT))
         return 0;

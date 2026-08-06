@@ -84,7 +84,7 @@ typedef struct
     ULONG mem_size : 3;          // Bits 0-2: Video Memory Size (0=512K, 1=1MB, 2=2MB, 3=4MB, 4=6MB, 5=8MB)
 } MEM_CNTL_t;
 
-static void ProgramICS2595(BoardInfo_t *bi, UBYTE entry, ULONG freqKhz10);
+static void ProgramICS2595Word(BoardInfo_t *bi, UBYTE entry, UWORD programWord);
 
 // ATI 68860 RAMDAC programming structures and functions
 typedef struct
@@ -93,19 +93,25 @@ typedef struct
     UBYTE dsetup;  // Device setup register value (REG0C base)
 } A68860_DAC_Table;
 
-// ATI 68860 mode table
-static const A68860_DAC_Table A860_Tab[] = {
-    {0x01, 0x63},  // Index 0: 4bpp (not typically used)
-    {0x82, 0x61},  // Index 1: 8bpp (RGBFB_CLUT)
-    {0x83, 0x61},  // Index 2: 15bpp (RGBFB_R5G5B5)
-    {0xA0, 0x60},  // Index 3: 16bpp (RGBFB_R5G6B5)
-    {0xA1, 0x60},  // Index 4: 16bpp variant
-    {0xC0, 0x60},  // Index 5: 24bpp (RGBFB_R8G8B8)
-    {0xE2, 0x60},  // Index 6: 32bpp (RGBFB_A8R8G8B8)
-    {0x80, 0x61}   // Index 7: VGA mode
+/* ATI 68860 mode table. Index = COLOR_DEPTH_* / PIX_WIDTH*.
+ * GMR: 82h=4, 83h=8, A0h=15, A1h=16, C0h=24, E3h=32 RGBA.
+ * E2 = alpha key (not BGRA); E1 also works for RGBA with A=0. */
+static const A68860_DAC_Table A68860_Modes[] = {
+    {0x01, 0x63},  // COLOR_DEPTH_1 (unused)
+    {0x82, 0x61},  // COLOR_DEPTH_4
+    {0x83, 0x61},  // COLOR_DEPTH_8
+    {0xA0, 0x60},  // COLOR_DEPTH_15
+    {0xA1, 0x60},  // COLOR_DEPTH_16
+    {0xC0, 0x60},  // COLOR_DEPTH_24
+    {0xE3, 0x60},  // COLOR_DEPTH_32 — RGBA
+    {0x80, 0x61}   // VGA
 };
 
-#define A860_DELAY_L 0  // Bit 7 mask (delay control)
+/* VBIOS dac_Program68860 preserves REG0C bit7 (snow/delay); mask only that bit. */
+#define A860_DELAY_L 0x80
+
+/* Cold sparse table / post_WriteSparseRegTable — VRAM serial latch timing for scanout. */
+#define MEM_CNTL_GX_TIMING 0x03F0
 
 /**
  * Set RS2/RS3 control bits in DAC_CNTL register
@@ -120,35 +126,29 @@ static void SetRS2RS3(BoardInfo_t *bi, UBYTE dacRS2RS3)
     W_MMIO_B(DAC_CNTL, 0, current);
 }
 
-/**
- * Map RGBFTYPE to color depth index for ATI 68860
- * @param format RGBFTYPE format
- * @return Color depth index (0-7) or 1 (8bpp default) if unknown
- */
 static UBYTE RGBFTYPE_to_colorDepth(RGBFTYPE format)
 {
     switch (format) {
-    case RGBFB_CLUT:  // 8bpp palette
-        return 1;
-    case RGBFB_R5G5B5:    // 15bpp
-    case RGBFB_R5G5B5PC:  // 15bpp packed
-    case RGBFB_B5G5R5PC:  // 15bpp packed
-        return 2;
-    case RGBFB_R5G6B5:    // 16bpp
-    case RGBFB_R5G6B5PC:  // 16bpp packed
-    case RGBFB_B5G6R5PC:  // 16bpp packed
-        return 3;
-    case RGBFB_R8G8B8:  // 24bpp
-    case RGBFB_B8G8R8:  // 24bpp
-        return 5;
-    case RGBFB_A8R8G8B8:  // 32bpp
-    case RGBFB_A8B8G8R8:  // 32bpp
-    case RGBFB_R8G8B8A8:  // 32bpp
-    case RGBFB_B8G8R8A8:  // 32bpp
-        return 6;
+    case RGBFB_CLUT:
+        return COLOR_DEPTH_8;
+    case RGBFB_R5G5B5:
+    case RGBFB_R5G5B5PC:
+    case RGBFB_B5G5R5PC:
+        return COLOR_DEPTH_15;
+    case RGBFB_R5G6B5:
+    case RGBFB_R5G6B5PC:
+    case RGBFB_B5G6R5PC:
+        return COLOR_DEPTH_16;
+    case RGBFB_R8G8B8:
+    case RGBFB_B8G8R8:
+        return COLOR_DEPTH_24;
+    case RGBFB_R8G8B8A8:
+    case RGBFB_A8R8G8B8:
+    case RGBFB_B8G8R8A8:
+    case RGBFB_A8B8G8R8:
+        return COLOR_DEPTH_32;
     default:
-        // Default to 8bpp for unknown formats
-        return 1;
+        return COLOR_DEPTH_8;
     }
 }
 
@@ -403,9 +403,9 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
     MMIOBASE();
     LOCAL_SYSBASE();
 
-    /* Clear VGA/Mach split only — keep power-up MEM_CNTL timing. Do not claim 4MB
-     * first: MEM_SIZE=3 on a 2MB GX can wedge host BAR0 (reads 0xff). */
+    // Turn off memory boundary; apply BIOS-like serial latch timing (see mach64gx_vbios_hw_init.md).
     W_MMIO_MASK_L(MEM_CNTL, (0x7 << 16), 0);
+    W_MMIO_MASK_L(MEM_CNTL, ~0x7u, MEM_CNTL_GX_TIMING);
 
     static const ULONG memorySizes[] = {0x200000, 0x100000, 0x80000};
     static const ULONG memoryCodes[] = {2, 1, 0};
@@ -427,8 +427,6 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
         fb[mid]  = 0x5A;
         fb[high] = 0xA5;
 
-        flushWrites();
-        (void)R_MMIO_L(SCRATCH_REG0);
         CacheClearU();
 
         UBYTE r0   = fb[0];
@@ -518,7 +516,7 @@ static void ics2595_sendBit(BoardInfo_t *bi, UBYTE data)
     ics2595_setFSBits(bi, data);
     ics2595_strobe(bi);
     // Set FS3 (clock bit = 1)
-    ics2595_setFSBits(bi,ICS2595_FS3_BIT | data);
+    ics2595_setFSBits(bi, ICS2595_FS3_BIT | data);
     ics2595_strobe(bi);
 }
 
@@ -550,17 +548,16 @@ static UWORD ics2595_calculateProgramWord(const BoardInfo_t *bi, UWORD freqKhz10
 
     // Find appropriate divider (divide by 1, 2, 4, or 8)
     // divider: 3=divide by 1, 2=divide by 2, 1=divide by 4, 0=divide by 8
-    // We need to scale up the frequency until it's >= (minFreq << 3) = 8 * minFreq
-    // This ensures the N value will be in the valid range (0x80-0xFF preferred)
-    while (adjustedFreq < (minFreq << 3) && divider > 0) {
-        adjustedFreq <<= 1;  // Double the frequency
-        divider--;           // Reduce divider (which effectively divides by more)
+    // VBIOS FreqToIcs2595Word scales until freq >= 8000 (80MHz in 10kHz units).
+    while (adjustedFreq < 8000 && divider > 0) {
+        adjustedFreq <<= 1;
+        divider--;
     }
 
     // Calculate N value: N = (freq * refDivider + refFreq/2) / refFreq
-    // The + refFreq/2 is for rounding to nearest integer
+    // Round using RefFreq/2 (not RefDivider/2).
     temp = (ULONG)adjustedFreq * cs->referenceDivider;
-    temp += (cs->referenceDivider >> 1);  // Add half for rounding
+    temp += (cs->referenceFrequency >> 1);
     temp        = temp / cs->referenceFrequency;
     programWord = (UWORD)temp;
 
@@ -596,120 +593,76 @@ static UWORD ics2595_calculateProgramWord(const BoardInfo_t *bi, UWORD freqKhz10
     return (UWORD)programWord;
 }
 
-/**
- * Program ICS2595 PLL with specified entry and frequency
- * @param bi BoardInfo structure
- * @param entry Entry/register address (5 bits, 0-31)
- * @param freqKhz10 Frequency in 0.1 kHz units
- */
-static void ProgramICS2595(BoardInfo_t *bi, UBYTE entry, ULONG freqKhz10)
+/* GX-only: pack ICS program word into PLLValue_t (VT/GT keep N/Pidx as VPLL fields). */
+static void ics2595_packWord(PLLValue_t *pll, UWORD word)
 {
-    DFUNC(VERBOSE, "Programming ICS2595: entry=%ld, freq=%ld0 KHz\n", (ULONG)entry, freqKhz10);
+    pll->N    = (UBYTE)(word & 0xff);
+    pll->Pidx = (UBYTE)((word >> 8) & 0xff);
+}
+
+static UWORD ics2595_unpackWord(const PLLValue_t *pll)
+{
+    return (UWORD)pll->N | ((UWORD)pll->Pidx << 8);
+}
+
+/* Inverse of ics2595_calculateProgramWord — frequency in 10 kHz units. */
+static UWORD ics2595_freqFromWord(const BoardInfo_t *bi, UWORD word)
+{
+    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    UWORD n                  = word & 0xff;
+    UWORD divider            = (word >> 9) & 3; /* 3=/1, 2=/2, 1=/4, 0=/8 */
+    ULONG adjusted;
+
+    if (!cs->referenceFrequency || !cs->referenceDivider)
+        return 0;
+
+    adjusted = ((ULONG)(n + 257) * cs->referenceFrequency) / cs->referenceDivider;
+    return (UWORD)(adjusted >> (3 - divider));
+}
+
+/**
+ * Program ICS2595 with a precomputed 13-bit word.
+ */
+static void ProgramICS2595Word(BoardInfo_t *bi, UBYTE entry, UWORD programWord)
+{
+    DFUNC(VERBOSE, "Programming ICS2595: entry=%ld, word=0x%04lx\n", (ULONG)entry, (ULONG)programWord);
 
     MMIOBASE();
-
-    const ChipSpecific_t *cs = getConstChipSpecific(bi);
-    ULONG refFreqKhz10       = cs->referenceFrequency;
-    UBYTE refDivider         = cs->referenceDivider;
-
-    UWORD programWord = ics2595_calculateProgramWord(bi, freqKhz10);
-
-    // the ICS programming sequence needs to be timely.
-    // Any pauses (e.g., due to interrupts) may cause the chip to exit the programming sequence
     LOCAL_SYSBASE();
     Disable();
 
-    // Initialize: Write 0, strobe, write 1, strobe
     W_MMIO_L(CLOCK_CNTL, 0);
     ics2595_strobe(bi);
     W_MMIO_L(CLOCK_CNTL, 1);
     ics2595_strobe(bi);
 
-    // Send start bits: 1, 0, 0
     ics2595_sendBit(bi, 1);
     ics2595_sendBit(bi, 0);
     ics2595_sendBit(bi, 0);
 
-    // Send 5 bits for entry (register address), LSB first
     for (int i = 0; i < 5; i++) {
         ics2595_sendBit(bi, entry & 1);
         entry >>= 1;
     }
 
-    // Send 13 bits for program word, LSB first
-    // Format: 8 bits N, 1 bit (unused), 2 bits divider, 2 bits stop
     for (int i = 0; i < 13; i++) {
         ics2595_sendBit(bi, programWord & 1);
         programWord >>= 1;
     }
 
     Enable();
-
     W_MMIO_L(CLOCK_CNTL, 0);
-
     DFUNC(VERBOSE, "ICS2595 programming complete\n");
 }
 
-/**
- * SetDAC function for Mach64 GX with ATI 68860 RAMDAC
- * Programs the external ATI 68860 RAMDAC based on RGBFTYPE format and memory size
- * @param bi BoardInfo structure
- * @param format RGBFTYPE format
- */
-static void ASM SetDAC_GX(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE format))
+#define CLOCK_DIV_MASK 0x30
+#define CLOCK_DIV4     0x20
+
+static void setCrtcPixWidth(BoardInfo_t *bi, RGBFTYPE format)
 {
     MMIOBASE();
-
-    DFUNC(VERBOSE, "SetDAC_GX: format %ld\n", (ULONG)format);
-
-    // Map RGBFTYPE to color depth index
-    UBYTE colorDepth                    = RGBFTYPE_to_colorDepth(format);
-    const A68860_DAC_Table *pDacProgTab = &A860_Tab[colorDepth];
-
-    // Calculate memory size mask for REG0C bits 2-3
-    UBYTE mask;
-    if (bi->MemorySize < 0x100000) {          // < 1MB
-        mask = 4;                             // Bit 2
-    } else if (bi->MemorySize == 0x100000) {  // = 1MB
-        mask = 8;                             // Bit 3
-    } else {                                  // > 1MB
-        mask = 0x0c;                          // Bits 2+3
-    }
-
-    // Program ATI 68860 RAMDAC:
-    // 1. Enable RS3 for extended register access
-    SetRS2RS3(bi, DAC_EXT_SEL_RS3);
-
-    // 2. Write REG0A = 0x1d to DAC_MASK (register 0x3c6)
-    W_MMIO_B(DAC_REGS, DAC_MASK, 0x1d);
-
-    // 3. Write REG0B (Graphics Mode Register) = gmode to DAC_R_INDEX (register 0x3c7)
-    W_MMIO_B(DAC_REGS, DAC_R_INDEX, pDacProgTab->gmode);
-
-    // 4. Select REG0C for writing: Write 0x02 to DAC_W_INDEX (register 0x3c8)
-    W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0x02);
-
-    // 5. Enable both RS2 and RS3 for extended register access
-    SetRS2RS3(bi, DAC_EXT_SEL_RS2 | DAC_EXT_SEL_RS3);
-
-    // 6. Write REG0C (Device Setup Register A):
-    //    - Base value from dsetup
-    //    - Memory size mask in bits 2-3
-    //    - Preserve bit 7 (delay control) from current value
-    UBYTE d = pDacProgTab->dsetup;
-    // Note: PITCH_INFO_DAC handling would clear bit 0 here if needed
-    // For now, we use the base dsetup value
-    UBYTE currentReg0C = R_MMIO_B(DAC_REGS, DAC_W_INDEX);
-    UBYTE reg0CValue   = (d | mask) | (currentReg0C & A860_DELAY_L);
-    W_MMIO_B(DAC_REGS, DAC_W_INDEX, reg0CValue);
-
-    // 7. Disable RS2/RS3
-    SetRS2RS3(bi, 0);
-
-    // Set CRTC pixel width (like standard SetDAC)
-    // Map RGBFTYPE to COLOR_DEPTH for CRTC_PIX_WIDTH
     static const UBYTE bitWidths[] = {
-        COLOR_DEPTH_4,   // RGBFB_NONE 4bit
+        COLOR_DEPTH_4,   // RGBFB_NONE
         COLOR_DEPTH_8,   // RGBFB_CLUT
         COLOR_DEPTH_24,  // RGBFB_R8G8B8
         COLOR_DEPTH_24,  // RGBFB_B8G8R8
@@ -723,67 +676,214 @@ static void ASM SetDAC_GX(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), 
         COLOR_DEPTH_15,  // RGBFB_R5G5B5
         COLOR_DEPTH_16,  // RGBFB_B5G6R5PC
         COLOR_DEPTH_15,  // RGBFB_B5G5R5PC
-        COLOR_DEPTH_1,   // RGBFB_YUV422CGX
-        COLOR_DEPTH_1,   // RGBFB_YUV411
-        COLOR_DEPTH_1,   // RGBFB_YUV411PC
-        COLOR_DEPTH_1,   // RGBFB_YUV422
-        COLOR_DEPTH_1,   // RGBFB_YUV422PC
-        COLOR_DEPTH_1,   // RGBFB_YUV422PA
-        COLOR_DEPTH_1,   // RGBFB_YUV422PAPC
     };
-    if (format < ARRAY_SIZE(bitWidths)) {
+    if (format < ARRAY_SIZE(bitWidths))
         W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_PIX_WIDTH_MASK, CRTC_PIX_WIDTH(bitWidths[format]));
-    }
-
-    // Set up palette/gamma ramp (like standard SetDAC)
-    // Duplicate SetColorArrayInternal logic since it's static in chip_mach64.c
-    const UBYTE bppDiff = 0;  // 8 - bi->BitsPerCannon;
-    W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0);
-    if (format != RGBFB_CLUT) {
-        // In Hi-Color modes, the palette acts as gamma ramp
-        for (UWORD c = 0; c < 256; c++) {
-            UBYTE gray = (UBYTE)c;
-            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, gray >> bppDiff);
-            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, gray >> bppDiff);
-            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, gray >> bppDiff);
-        }
-    } else {
-        // Use CLUT from BoardInfo
-        for (UWORD c = 0; c < 256; c++) {
-            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, bi->CLUT[c].Red >> bppDiff);
-            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, bi->CLUT[c].Green >> bppDiff);
-            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, bi->CLUT[c].Blue >> bppDiff);
-        }
-    }
-
-    DFUNC(VERBOSE, "SetDAC_GX: ATI 68860 programmed (colorDepth=%ld, gmode=0x%02x, dsetup=0x%02x, mask=0x%02x)\n",
-          (ULONG)colorDepth, pDacProgTab->gmode, pDacProgTab->dsetup, mask);
 }
 
+static void writeDacPalette(BoardInfo_t *bi, RGBFTYPE format)
+{
+    MMIOBASE();
+    W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0);
+    if (format != RGBFB_CLUT) {
+        for (UWORD c = 0; c < 256; c++) {
+            UBYTE gray = (UBYTE)c;
+            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, gray);
+            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, gray);
+            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, gray);
+        }
+    } else {
+        for (UWORD c = 0; c < 256; c++) {
+            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, bi->CLUT[c].Red);
+            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, bi->CLUT[c].Green);
+            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, bi->CLUT[c].Blue);
+        }
+    }
+}
+
+static void ASM SetDAC_GX(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE format))
+{
+    (void)region;
+    MMIOBASE();
+
+    const A68860_DAC_Table *pDacProgTab = &A68860_Modes[RGBFTYPE_to_colorDepth(format)];
+
+    UBYTE mask;
+    if (bi->MemorySize < 0x100000)
+        mask = 4;
+    else if (bi->MemorySize == 0x100000)
+        mask = 8;
+    else
+        mask = 0x0c;
+
+    UBYTE gmode = pDacProgTab->gmode;
+    /* Do not OR 0x10 here — that yields F2/F3 and different packing on this DAC. */
+
+    /* Match VBIOS dac_Program68860_SI_CH (113-25517-100). */
+    SetRS2RS3(bi, DAC_EXT_SEL_RS2 | DAC_EXT_SEL_RS3);
+    W_MMIO_B(DAC_REGS, DAC_W_INDEX, R_MMIO_B(DAC_REGS, DAC_W_INDEX) & 0xfd);
+    SetRS2RS3(bi, DAC_EXT_SEL_RS3);
+    W_MMIO_B(DAC_REGS, DAC_MASK, 0x1d);
+    W_MMIO_B(DAC_REGS, DAC_R_INDEX, gmode);
+    W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0x02);
+    SetRS2RS3(bi, DAC_EXT_SEL_RS2 | DAC_EXT_SEL_RS3);
+
+    UBYTE d = pDacProgTab->dsetup;
+    /* REG0C bit0: 1=6bit LUT, 0=8bit. P96 wants 8bit (DAC_CNTL bit8). */
+    d &= 0xfe;
+    UBYTE reg0CValue = (d | mask) | (R_MMIO_B(DAC_REGS, DAC_W_INDEX) & A860_DELAY_L);
+    W_MMIO_B(DAC_REGS, DAC_W_INDEX, reg0CValue);
+
+    SetRS2RS3(bi, 0);
+    W_MMIO_B(DAC_REGS, DAC_MASK, 0xff);
+    W_MMIO_MASK_L(DAC_CNTL, BIT(8), BIT(8));
+
+    setCrtcPixWidth(bi, format);
+    // writeDacPalette(bi, format);
+
+    DFUNC(VERBOSE, "SetDAC 68860: gmode=0x%02lx reg0C=0x%02lx format=%ld\n", (ULONG)gmode, (ULONG)reg0CValue,
+          (ULONG)format);
+}
 
 /**
- * Compute VCLK frequency from ICS2595 PLL values
- * Uses the standard PLL formula: frequency = (2 * R * N) / (M * P)
- * Note: The ICS2595-specific calculation with n_adj is only used when programming
- * the chip; for frequency computation we use the standard formula that matches
- * how computePLLValues calculates the values.
- * @param bi BoardInfo structure
- * @param pllValues PLL values containing N and Pidx
- * @return Frequency in 0.1 kHz units
+ * Compute VCLK from GX-packed ICS word in PLLValue_t (N=lo, Pidx=hi).
+ * Not the internal CT/GT VPLL formula — VT/GT use computeFrequencyKhz10FromPllValue.
  */
 static ULONG computeVCLKFrequency_ICS2595(const struct BoardInfo *bi, const struct PLLValue *pllValues)
 {
-    return computeFrequencyKhz10FromPllValue(bi, pllValues, g_VPLLPostDivider);
+    return ics2595_freqFromWord(bi, ics2595_unpackWord(pllValues));
+}
+
+/* No Mach64 horizontal pixel-double for width<640 (CRTC_PIC_BY_2 is high-clock mux).
+ * Mux mode skips dac type 5 (68860); mux for other DACs is FIXME later. */
+
+/* Known-good ICS words from bring-up (10 kHz units → word). Seeded into the table. */
+static const struct
+{
+    UWORD freqKhz10;
+    UWORD word;
+} g_ics2595KnownGood[] = {
+    {2517, 0x1a40}, /* ~25.175 MHz 640x480 */
+    {4000, 0x1c00}, /* 40 MHz 800x600 */
+    {6500, 0x1ca1}, /* 65 MHz 1024x768 */
+};
+
+static void InitICS2595ClockTable(BoardInfo_t *bi)
+{
+    ChipSpecific_t *cs = getChipSpecific(bi);
+    LOCAL_SYSBASE();
+
+    if (cs->maxPClock <= cs->minPClock) {
+        DFUNC(ERROR, "invalid PCLK range min=%ld max=%ld\n", (ULONG)cs->minPClock, (ULONG)cs->maxPClock);
+        return;
+    }
+
+    UWORD maxNumEntries   = (UWORD)((cs->maxPClock - cs->minPClock) / 100u + 2u + ARRAY_SIZE(g_ics2595KnownGood));
+    PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_ANY);
+    if (!pllValues) {
+        DFUNC(ERROR, "AllocVec ICS clock table failed\n");
+        return;
+    }
+    cs->vclkPllValues = pllValues;
+
+    UWORD e        = 0;
+    UWORD lastFreq = 0;
+    UWORD lastWord = 0xffff;
+    UWORD target   = cs->minPClock;
+    while (target < cs->maxPClock && e < maxNumEntries) {
+        UWORD word = ics2595_calculateProgramWord(bi, target);
+        UWORD freq = ics2595_freqFromWord(bi, word);
+        if (freq && !(freq == lastFreq && word == lastWord)) {
+            ics2595_packWord(&pllValues[e], word);
+            lastFreq = freq;
+            lastWord = word;
+            ++e;
+        }
+        target += 100;
+    }
+    if (e < maxNumEntries) {
+        UWORD word = ics2595_calculateProgramWord(bi, cs->maxPClock);
+        UWORD freq = ics2595_freqFromWord(bi, word);
+        if (freq && !(freq == lastFreq && word == lastWord)) {
+            ics2595_packWord(&pllValues[e], word);
+            ++e;
+        }
+    }
+
+    /* Ensure bring-up known-good words are present (sorted insert by achieved freq). */
+    for (UWORD k = 0; k < ARRAY_SIZE(g_ics2595KnownGood) && e < maxNumEntries; ++k) {
+        UWORD word = g_ics2595KnownGood[k].word;
+        UWORD freq = ics2595_freqFromWord(bi, word);
+        UWORD i;
+
+        for (i = 0; i < e; ++i) {
+            if (ics2595_unpackWord(&pllValues[i]) == word)
+                break;
+        }
+        if (i < e)
+            continue;
+
+        for (i = 0; i < e; ++i) {
+            if (ics2595_freqFromWord(bi, ics2595_unpackWord(&pllValues[i])) > freq)
+                break;
+        }
+        for (UWORD j = e; j > i; --j)
+            pllValues[j] = pllValues[j - 1];
+        ics2595_packWord(&pllValues[i], word);
+        ++e;
+    }
+
+    if (e == 0) {
+        DFUNC(ERROR, "ICS2595 clock table empty\n");
+        return;
+    }
+
+    const ULONG maxHiColorFreq = 8000; /* 80 MHz — same GX/VT-class cap as InitVClockPLLTable */
+    for (int i = 0; i < 5; i++)
+        bi->PixelClockCount[i] = 0;
+
+    for (UWORD i = 0; i < e; ++i) {
+        ULONG frequency = computeVCLKFrequency_ICS2595(bi, &pllValues[i]);
+        bi->PixelClockCount[CHUNKY]++;
+        if (frequency <= maxHiColorFreq) {
+            bi->PixelClockCount[HICOLOR]++;
+            bi->PixelClockCount[TRUECOLOR]++;
+            bi->PixelClockCount[TRUEALPHA]++;
+        }
+    }
+
+    DFUNC(VERBOSE, "GX ICS table: %ld clocks, CHUNKY %ld, range %ld0..%ld0 kHz\n", (ULONG)e,
+          (ULONG)bi->PixelClockCount[CHUNKY], (ULONG)computeVCLKFrequency_ICS2595(bi, &pllValues[0]),
+          (ULONG)computeVCLKFrequency_ICS2595(bi, &pllValues[e - 1]));
+}
+
+/* Accelerator VCLK uses ICS entry 0 (same as the successful bring-up log). */
+#define GX_VCLK_ENTRY 0
+
+static void ics2595_selectAndStrobe(BoardInfo_t *bi, UBYTE entry)
+{
+    MMIOBASE();
+    /* CLOCK_CNTL bits 0–3 = entry, bit 6 = strobe (auto-clears). Working log: 0x40. */
+    W_MMIO_L(CLOCK_CNTL, CLOCK_SEL_GX(entry) | ICS2595_STROBE_BIT);
+    delayMicroSeconds(26);
 }
 
 static void ASM SetClock_GX(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(VERBOSE, "\n");
-    // Program the ICS2595 MCLK0 with the desired frequency at the selected entry
-    // We're using VCLK 0
-    ProgramICS2595(bi, 0b00000, bi->ModeInfo->PixelClock / 10000);
-}
+    MMIOBASE();
 
+    /* ICS2595 clock: EXT_DISP on, program entry, CLOCK_SEL|STROBE. */
+    W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_EXT_DISP_EN_MASK, CRTC_EXT_DISP_EN);
+
+    /* Precomputed at ResolvePixelClock — GX packs ICS word into pll1/pll2. */
+    UWORD word = (UWORD)bi->ModeInfo->pll1.Numerator | ((UWORD)bi->ModeInfo->pll2.Denominator << 8);
+
+    D(VERBOSE, "SetClock_GX: %ld Hz -> ICS word 0x%04lx\n", bi->ModeInfo->PixelClock, (ULONG)word);
+    ProgramICS2595Word(bi, GX_VCLK_ENTRY, word);
+    delayMilliSeconds(1);
+    ics2595_selectAndStrobe(bi, GX_VCLK_ENTRY);
+}
 
 BOOL InitMach64GX(struct BoardInfo *bi)
 {
@@ -811,6 +911,13 @@ BOOL InitMach64GX(struct BoardInfo *bi)
 
     ULONG configStat0 = R_MMIO_L(CONFIG_STAT0);
     print_CONFIG_STAT0((CONFIG_STAT0_t *)&configStat0);
+
+    ULONG dacType = (configStat0 >> 9) & 7;
+    if (dacType != 5) {
+        DFUNC(ERROR, "Unsupported DAC type %ld aborting.\n", dacType);
+        return FALSE;
+    }
+
     ULONG configStat1 = R_MMIO_L(CONFIG_STAT1);
     print_CONFIG_STAT1((CONFIG_STAT1_t *)&configStat1);
     ULONG memCntl = R_MMIO_L(MEM_CNTL);
@@ -822,8 +929,9 @@ BOOL InitMach64GX(struct BoardInfo *bi)
     }
 
     getChipSpecific(bi)->computeVCLKFrequency = computeVCLKFrequency_ICS2595;
+    InitICS2595ClockTable(bi);
 
-    InitVClockPLLTable(bi, g_VPLLPostDivider, ARRAY_SIZE(g_VPLLPostDivider));
+    bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_R8G8B8A8;
 
     bi->SetDAC   = SetDAC_GX;
     bi->SetClock = SetClock_GX;

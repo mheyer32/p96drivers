@@ -126,6 +126,9 @@ typedef enum ChipFamily
 #define AUTO_BLKWRT_DIS            BIT(13)
 #define AUTO_BLKWRT_DIS_MASK       BIT(13)
 
+/* CONFIG_CNTL bit19: disable VGA decode for accelerator CRT.
+ * On this GX (P/N 113-25517-100) it also blocks Expansion ROM reads at the
+ * OpenPCI ROM BAR — clear before parseRomHeader on warm reinit, then set again. */
 #define CFG_VGA_DIS            BIT(19)
 #define CFG_VGA_DIS_MASK       BIT(19)
 #define CFG_MEM_VGA_AP_EN      BIT(2)
@@ -189,6 +192,8 @@ typedef enum ChipFamily
 #define CRTC_INTERLACE_EN     BIT(1)
 #define CRTC_HSYNC_DIS        BIT(2)
 #define CRTC_VSYNC_DIS        BIT(3)
+#define CRTC_CSYNC_EN         BIT(4) /* composite sync on HSYNC — breaks separate H/V monitors */
+#define CRTC_PIC_BY_2_EN      BIT(5)
 #define CRTC_DISPLAY_DIS      BIT(6)
 #define CRTC_DISPLAY_DIS_MASK BIT(6)
 #define CRTC_PIX_WIDTH(x)     ((x) << 8)
