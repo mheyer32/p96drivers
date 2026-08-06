@@ -1233,7 +1233,8 @@ static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
     return TRUE;
 }
 
-static ULONG ASM VBlankInterrupt(__REGA1(struct BoardInfo *bi))
+/* Non-static: DEFINE_INTSERVER asm must jsr the C symbol. */
+ULONG ASM VBlankInterruptHandler(__REGA1(struct BoardInfo *bi))
 {
     volatile UBYTE *RegBase = getIOBase(bi);
 
@@ -1253,6 +1254,7 @@ static ULONG ASM VBlankInterrupt(__REGA1(struct BoardInfo *bi))
     }
     return 1;
 }
+DEFINE_INTSERVER(interruptServerTrampoline, VBlankInterruptHandler);
 
 static void ASM SetWriteMask(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask)) {}
 
@@ -3050,7 +3052,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->GetVBeamPos          = GetVBeamPos;
     bi->WaitVerticalSync     = WaitVerticalSync;
     bi->SetInterrupt         = SetInterrupt;
-    bi->HardInterrupt.is_Code = (void (*)())VBlankInterrupt;
+    bi->HardInterrupt.is_Code = (void (*)())interruptServerTrampoline;
 
     bi->SetDPMSLevel     = SetDPMSLevel;
     bi->SetSplitPosition = SetSplitPosition;

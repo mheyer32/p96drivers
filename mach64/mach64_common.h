@@ -436,6 +436,8 @@ static INLINE void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, LONG
 #undef W_MMIO_B
 #undef W_MMIO_MASK_L
 #undef W_MMIO_NOSWAP_L
+#undef R_MMIO_L_QI
+#undef W_MMIO_L_QI
 
 #define R_MMIO_B(regIndex, byteIndex)        readATIRegisterB(MMIOBase, regIndex, byteIndex, #regIndex)
 #define W_MMIO_B(regIndex, byteIndex, value) writeATIRegisterB(MMIOBase, regIndex, byteIndex, value, #regIndex)
@@ -444,6 +446,23 @@ static INLINE void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, LONG
 #define R_MMIO_AND_L(regIndex, mask)         readATIRegisterAndMaskL(MMIOBase, regIndex, mask, #regIndex)
 #define W_MMIO_NOSWAP_L(regIndex, value)     writeATIRegisterNoSwapL(MMIOBase, regIndex, value, #regIndex)
 #define W_MMIO_MASK_L(regIndex, mask, value) writeATIRegisterMaskL(MMIOBase, regIndex, mask, value, #regIndex)
+
+/* Quiet MMIO: dword register indices (same as R/W_MMIO_L), no D() — ISR-safe. */
+static INLINE ULONG REGARGS readATIRegisterL_qi(volatile UBYTE *regbase, LONG regIndex)
+{
+    flushWrites();
+    ULONG value = *(volatile ULONG *)(regbase + (DWORD_OFFSET(regIndex) - REGISTER_OFFSET));
+    asm volatile("" ::"r"(value));
+    return SWAPL_IO(value);
+}
+
+static INLINE void REGARGS writeATIRegisterL_qi(volatile UBYTE *regbase, LONG regIndex, ULONG value)
+{
+    *(volatile ULONG *)(regbase + (DWORD_OFFSET(regIndex) - REGISTER_OFFSET)) = SWAPL_IO(value);
+}
+
+#define R_MMIO_L_QI(regIndex)        readATIRegisterL_qi(MMIOBase, regIndex)
+#define W_MMIO_L_QI(regIndex, value) writeATIRegisterL_qi(MMIOBase, regIndex, value)
 
 #undef R_IO_L
 #undef W_IO_L
@@ -459,6 +478,7 @@ static INLINE void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, LONG
         writeATIRegisterL(RegBase, ((regIndex##_IO << 10) + getChipData(bi)->ioSparseBase) / 4, value, #regIndex); \
     } while (0)
 
+    
 static INLINE void waitFifo(const BoardInfo_t *bi, UBYTE entries)
 {
     return;  // Disables FIFO waits, relying on PCI_RETRY instead on VT/GT cards
