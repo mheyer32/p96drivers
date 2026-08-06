@@ -805,6 +805,12 @@ BOOL writeEDIDToFile(struct BoardInfo *bi, const UBYTE *edid_data)
         return FALSE;
     }
 
+    if (!UtilityBase) {
+        DFUNC(ERROR, "utility.library not available (bi->UtilBase unset)\n");
+        CloseLibrary(DOSBase);
+        return FALSE;
+    }
+
     BOOL success = FALSE;
 
     // Get monitor name from EDID
@@ -832,20 +838,26 @@ BOOL writeEDIDToFile(struct BoardInfo *bi, const UBYTE *edid_data)
     Strncpy((STRPTR)fullpath, (STRPTR)"RAM:", sizeof(fullpath));
     Strncat((STRPTR)fullpath, (STRPTR)filename, sizeof(fullpath) - myStrlen((STRPTR)fullpath));
     Strncat((STRPTR)fullpath, (STRPTR)".edid", sizeof(fullpath) - myStrlen((STRPTR)fullpath));
-    
-    // Read all EDID blocks including extensions (max 4 blocks = 512 bytes)
-    // This ensures we save complete EDID data including any extension blocks
-    UBYTE all_edid_data[EDID_BLOCK_SIZE * 4];
-    UBYTE blocks_read = readEDIDWithExtensions(bi, all_edid_data, 4);
-    
-    if (blocks_read == 0) {
-        DFUNC(ERROR, "Failed to read EDID blocks for file writing\n");
+
+    /* Heap — stack BoardInfo in Test* mains is already ~2KB+. */
+    UBYTE *all_edid_data = AllocVec(EDID_BLOCK_SIZE * 4, MEMF_ANY);
+    if (!all_edid_data) {
+        DFUNC(ERROR, "Failed to allocate EDID buffer\n");
         CloseLibrary(DOSBase);
         return FALSE;
     }
-    
+
+    UBYTE blocks_read = readEDIDWithExtensions(bi, all_edid_data, 4);
+
+    if (blocks_read == 0) {
+        DFUNC(ERROR, "Failed to read EDID blocks for file writing\n");
+        FreeVec(all_edid_data);
+        CloseLibrary(DOSBase);
+        return FALSE;
+    }
+
     ULONG total_bytes = blocks_read * EDID_BLOCK_SIZE;
-    
+
     // Open file for writing (create new file)
     BPTR file = Open((STRPTR)fullpath, MODE_NEWFILE);
     if (file) {
@@ -863,6 +875,7 @@ BOOL writeEDIDToFile(struct BoardInfo *bi, const UBYTE *edid_data)
         DFUNC(ERROR, "Failed to open file %s for writing\n", fullpath);
     }
 
+    FreeVec(all_edid_data);
     CloseLibrary(DOSBase);
     return success;
 }

@@ -9,6 +9,7 @@
 #include <exec/types.h>
 #include <graphics/rastport.h>
 #include <hardware/cia.h>
+#include <hardware/intbits.h>
 
 #if OPENPCI
 #include <libraries/openpci.h>
@@ -3041,11 +3042,15 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->GetPixelClock        = GetPixelClock;
     bi->SetClock             = SetClock;
 
-    // VSYNC / VBlank IRQ (card registers HardInterrupt via pci_add_intserver)
+    // VSYNC / VBlank IRQ (card: pci_add_intserver or AddIntServer INTB_PORTS)
     bi->WaitVerticalSync      = WaitVerticalSync;
     bi->GetVSyncState         = GetVSyncState;
     bi->SetInterrupt          = SetInterrupt;
-    bi->HardInterrupt.is_Code = (void (*)())interruptServerTrampoline;
+    bi->HardInterrupt.is_Node.ln_Type = NT_INTERRUPT;
+    bi->HardInterrupt.is_Node.ln_Pri  = 0;
+    bi->HardInterrupt.is_Node.ln_Name = (char *)"S3VBlank";
+    bi->HardInterrupt.is_Data         = bi;
+    bi->HardInterrupt.is_Code         = (void (*)())interruptServerTrampoline;
 
     // DPMS
     bi->SetDPMSLevel = SetDPMSLevel;
@@ -3798,7 +3803,8 @@ static void testApplyMode(BoardInfo_t *bi, struct ModeInfo *mi, const char *labe
 
     testFillPattern8bpp(bi, mi->Width, mi->Height);
 
-    {
+    /* GE pitch limits — FillRect falls back to FillRectDefault (needs P96). */
+    if (mi->Width >= 640) {
         struct RenderInfo ri;
         ri.Memory      = bi->MemoryBase;
         ri.BytesPerRow = mi->Width;
@@ -3807,10 +3813,92 @@ static void testApplyMode(BoardInfo_t *bi, struct ModeInfo *mi, const char *labe
         FillRect(bi, &ri, 0, 0, mi->Width, mi->Height, 0x10, 0xFF, RGBFB_CLUT);
         FillRect(bi, &ri, 4, 4, mi->Width - 8, mi->Height - 8, 0x7F, 0xFF, RGBFB_CLUT);
         FillRect(bi, &ri, 8, 8, mi->Width - 16, mi->Height - 16, 0xE0, 0xFF, RGBFB_CLUT);
+    } else {
+        D(ALWAYS, "Skip FillRect (width %ld < 640; no P96 FillRectDefault)\n", (ULONG)mi->Width);
     }
 }
 
-BOOL TestCard(BoardInfo_t *bi)
+static volatile ULONG softVBlankCount;
+
+static void ASM SoftVBlankCount(__REGA1(ULONG *count))
+{
+    (*count)++;
+}
+
+/* Enable CRTC IRQ, count SoftInterrupts for 2s.
+ * PCI: pci_add_intserver; Zorro CV64: AddIntServer(INTB_PORTS). */
+static void testVBlankInterrupt(BoardInfo_t *bi)
+{
+    LOCAL_SYSBASE();
+    softVBlankCount = 0;
+    BOOL addedHere  = FALSE;
+
+    /* Server may run immediately — chip must not assert IRQ yet. */
+    Disable();
+    bi->SetInterrupt(bi, FALSE);
+    Enable();
+
+    bi->SoftInterrupt.is_Node.ln_Type = NT_INTERRUPT;
+    bi->SoftInterrupt.is_Node.ln_Pri  = 0;
+    bi->SoftInterrupt.is_Node.ln_Name = (char *)"TestS3SoftVBlank";
+    bi->SoftInterrupt.is_Data         = (APTR)&softVBlankCount;
+    bi->SoftInterrupt.is_Code         = (void (*)())SoftVBlankCount;
+
+    bi->HardInterrupt.is_Node.ln_Type = NT_INTERRUPT;
+    bi->HardInterrupt.is_Node.ln_Pri  = 0;
+    bi->HardInterrupt.is_Node.ln_Name = (char *)"TestS3VBlank";
+    bi->HardInterrupt.is_Data         = bi;
+    /* is_Code set by InitChip */
+
+    if (!(bi->CardFlags & CFF_VBLANK_INTSERVER)) {
+#if OPENPCI
+        LOCAL_OPENPCIBASE();
+        if (!pci_add_intserver(&bi->HardInterrupt, getCardData(bi)->board)) {
+            D(ERROR, "VBlank IRQ test: pci_add_intserver failed\n");
+            return;
+        }
+#else
+        AddIntServer(INTB_PORTS, &bi->HardInterrupt);
+#endif
+        bi->CardFlags |= CFF_VBLANK_INTSERVER;
+        addedHere = TRUE;
+    }
+
+    bi->Flags |= BIF_VBLANKINTERRUPT;
+    bi->SetInterrupt(bi, TRUE);
+
+    {
+        REGBASE();
+        UBYTE idx = readReg(RegBase, CRTC_IDX);
+        writeReg(RegBase, CRTC_IDX, 0x11);
+        UBYTE cr11 = readReg(RegBase, CRTC_DATA);
+        writeReg(RegBase, CRTC_IDX, idx);
+        D(ALWAYS, "VBlank IRQ test: CR11=0x%02lx INPUTSTATUS0=0x%02lx — counting 2s...\n", (ULONG)cr11,
+          (ULONG)readReg(RegBase, 0x3C2));
+    }
+
+    delayMilliSeconds(2000);
+
+    ULONG count = softVBlankCount;
+    bi->SetInterrupt(bi, FALSE);
+
+    if (addedHere) {
+#if OPENPCI
+        LOCAL_OPENPCIBASE();
+        pci_rem_intserver(&bi->HardInterrupt, getCardData(bi)->board);
+#else
+        RemIntServer(INTB_PORTS, &bi->HardInterrupt);
+#endif
+        bi->CardFlags &= ~CFF_VBLANK_INTSERVER;
+        bi->Flags &= ~BIF_VBLANKINTERRUPT;
+    }
+
+    D(ALWAYS, "VBlank IRQ test: %lu softints in 2s (~%lu Hz)\n", count, count / 2);
+    if (count < 50)
+        D(ERROR, "VBlank IRQ test: too few interrupts (expected ~120 @60Hz)\n");
+}
+
+BOOL TestCard(BoardInfo_t *bi, BOOL vblankTest)
 {
     struct ChipBase *ChipBase = NULL;
 
@@ -3945,6 +4033,13 @@ BOOL TestCard(BoardInfo_t *bi)
         "320x240 doublescan vtotal=262",
         "1280x1024@60 8bpp",
     };
+
+    if (vblankTest) {
+        testApplyMode(bi, &modes[0], modeNames[0]);
+        testVBlankInterrupt(bi);
+        SetDisplay(bi, FALSE);
+        return TRUE;
+    }
 
     for (UWORD i = 0; i < (sizeof(modes) / sizeof(modes[0])); i++) {
         testApplyMode(bi, &modes[i], modeNames[i]);
@@ -4096,9 +4191,10 @@ BOOL TestCard(BoardInfo_t *bi)
 #define DEVICE_PROMETHEUS 1
 
 struct Library *OpenPciBase = NULL;
+struct Library *DOSBase;
+struct Library *UtilityBase;
 struct IORequest ioRequest;
-struct Device *TimerBase = NULL;
-struct UtilityBase *UtilityBase;
+struct Device *TimerBase;
 
 void sigIntHandler(int dummy)
 {
@@ -4108,52 +4204,50 @@ void sigIntHandler(int dummy)
     abort();
 }
 
-int main()
+/* VBLANK/S — args buffer must be long-aligned (static); stack LONGs broke ReadArgs. */
+static const char testArgsTemplate[] = "VBLANK/S";
+static LONG testArgs[1];
+
+int main(void)
 {
     signal(SIGINT, sigIntHandler);
 
-    int rval = EXIT_FAILURE;
+    int rval              = EXIT_FAILURE;
+    BOOL vblankTest       = FALSE;
+    struct RDArgs *rdargs = NULL;
+    /* BoardInfo is ~2KB — keep off the default 4KB stack. */
+    static struct BoardInfo boardInfo;
+
+    testArgs[0] = 0;
+    rdargs      = ReadArgs((STRPTR)testArgsTemplate, testArgs, NULL);
+    if (!rdargs) {
+        PrintFault(IoErr(), (STRPTR) "TestS3");
+        goto exit;
+    }
+    vblankTest = testArgs[0] ? TRUE : FALSE;
+    FreeArgs(rdargs);
+    rdargs = NULL;
+
+    D(ALWAYS, "Args: VBLANK=%ld\n", (LONG)vblankTest);
 
 #if OPENPCI
     if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
         D(0, "Unable to open openpci.library\n");
+        goto exit;
     }
 #endif
-
-    // if (!(DOSBase = OpenLibrary(DOSNAME, 0))) {
-    //     D(0, "Unable to open dos.library\n");
-    //     goto exit;
-    // }
-
-    // if (OpenDevice(TIMERNAME, 0, &ioRequest, 0)) {
-    //     D(0, "Unable to open " TIMERNAME "\n");
-    //     goto exit;
-    // }
-    // TimerBase = ioRequest.io_Device;
-
-    // struct EClockVal startTime, endTime;
-    // ULONG eFreq = ReadEClock(&startTime);
-    // delayMicroSeconds(555);
-    // ReadEClock(&endTime);
-    // ULONG delta = *(uint64_t *)&endTime - *(uint64_t *)&startTime;
-    // delta       = (delta * 1000) / (eFreq / 1000);
-
-    // D(INFO, "Delay: %ld ms\n", delta);
-
-    ULONG dmaSize = 128 * 1024;
 
     struct pci_dev *board = NULL;
 
     D(0, "Looking for S3 Trio64 card\n");
 
     while ((board = FindBoard(board, PRM_Vendor, VENDOR_ID_S3, TAG_END)) != NULL) {
-        struct BoardInfo boardInfo;
         memset(&boardInfo, 0, sizeof(boardInfo));
         struct BoardInfo *bi = &boardInfo;
 
         CardData_t *card  = getCardData(bi);
         bi->ExecBase      = SysBase;
-        bi->UtilBase      = (struct Library *)UtilityBase;
+        bi->UtilBase      = UtilityBase;
         bi->ChipBase      = NULL;
         card->OpenPciBase = OpenPciBase;
         card->board       = board;
@@ -4165,11 +4259,6 @@ int main()
 
         D(ALWAYS, "S3: %s found\n", getChipFamilyName(getChipData(bi)->chipFamily));
 
-        // Write PCI COMMAND register to enable IO and Memory access
-        //            pci_write_config_word(0x04, 0x0003, board);
-
-        struct ChipBase *ChipBase = NULL;
-
         D(ALWAYS, "Trio64 init chip\n");
         if (!InitChip(bi)) {
             D(ERROR, "InitChip failed. Exit");
@@ -4177,30 +4266,23 @@ int main()
         }
         D(ALWAYS, "Trio64 has %ldkb usable memory\n", bi->MemorySize / 1024);
 
-        TestCard(bi);
+        TestCard(bi, vblankTest);
 
         WaitBlitter(bi);
-        // RegisterOwner(cb, board, (struct Node *)ChipBase);
-
-        // if ((dmaSize > 0) && (dmaSize <= bi->MemorySize)) {
-        //     // Place DMA window at end of memory window 0 and page-align it
-        //     ULONG dmaOffset = (bi->MemorySize - dmaSize) & ~(4096 - 1);
-        //     InitDMAMemory(cb, bi->MemoryBase + dmaOffset, dmaSize);
-        //     bi->MemorySize = dmaOffset;
-        //     cb->cb_DMAMemGranted = TRUE;
-        // }
-        // no need to continue - we have found a match
         rval = EXIT_SUCCESS;
         goto exit;
-    }  // while
+    }
 
     D(ERROR, "no Trio64 found.\n");
 
 exit:
+    if (rdargs) {
+        FreeArgs(rdargs);
+    }
     if (OpenPciBase) {
         CloseLibrary(OpenPciBase);
+        OpenPciBase = NULL;
     }
-
     return rval;
 }
 #endif  // !defined(CONFIG_CYBERVISION64)

@@ -222,11 +222,15 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 #include <stdlib.h>
 #include <string.h>
 
-extern BOOL TestCard(BoardInfo_t *bi);
+#include <proto/dos.h>
+#include <proto/utility.h>
 
-static struct UtilityBase *UtilityBase;
+extern BOOL TestCard(BoardInfo_t *bi, BOOL vblankTest);
 
 static struct BoardInfo boardInfo = {0};
+
+static const char testArgsTemplate[] = "VBLANK/S";
+static LONG testArgs[1];
 
 void sigIntHandler(int dummy)
 {
@@ -234,18 +238,32 @@ void sigIntHandler(int dummy)
     abort();
 }
 
-int main()
+int main(void)
 {
     signal(SIGINT, sigIntHandler);
 
-    int rval = EXIT_FAILURE;
+    int rval              = EXIT_FAILURE;
+    BOOL vblankTest       = FALSE;
+    struct RDArgs *rdargs = NULL;
+
+    testArgs[0] = 0;
+    rdargs      = ReadArgs((STRPTR)testArgsTemplate, testArgs, NULL);
+    if (!rdargs) {
+        PrintFault(IoErr(), (STRPTR) "TestCybervision64");
+        goto exit;
+    }
+    vblankTest = testArgs[0] ? TRUE : FALSE;
+    FreeArgs(rdargs);
+    rdargs = NULL;
+
+    D(ALWAYS, "Args: VBLANK=%ld\n", (LONG)vblankTest);
 
     memset(&boardInfo, 0, sizeof(boardInfo));
 
     struct BoardInfo *bi = &boardInfo;
 
     bi->ExecBase = SysBase;
-    bi->UtilBase = (struct Library*)UtilityBase;
+    bi->UtilBase = (struct Library *)UtilityBase;
 
     if (!FindCard(bi, NULL)) {
         goto exit;
@@ -257,12 +275,13 @@ int main()
 
     bi->SetSwitch(bi, TRUE);
 
-    rval = TestCard(bi);
-
-//   bi->SetSwitch(bi, FALSE);
+    rval = TestCard(bi, vblankTest);
 
 exit:
-    releaseCard(bi);
+    if (rdargs) {
+        FreeArgs(rdargs);
+    }
+    releaseCard(&boardInfo);
     return rval;
 }
 #endif  // TESTEXE
