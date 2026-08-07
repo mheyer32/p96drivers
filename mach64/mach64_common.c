@@ -8,6 +8,8 @@ ChipFamily_t getChipFamily(UWORD deviceId)
         return MACH64VT;
     case 0x4758:  // mach64 GX
         return MACH64GX;
+    case 0x4354:  // mach64 CT (GX-class)
+        return MACH64GX;
     case 0x4749:  // mach64 Rage Pro
         return MACH64GT;
     case 0x4750:  // mach64 Rage Pro
