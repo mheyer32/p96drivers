@@ -175,8 +175,8 @@ typedef struct
     ULONG cfg_ext_rom_addr : 6;        // Bits 16-21: Extended Mode ROM Base Address (bits 12-17 of ROM base)
     ULONG cfg_tri_buf_dis : 1;         // Bit 15: Tri-stating of output buffers during reset disabled
     ULONG cfg_init_card_id : 3;        // Bits 12-14: Card ID (0-6: Card ID 0-6, 7: Disable Card ID)
-    ULONG cfg_init_dac_type : 3;       // Bits 9-11: Initial DAC type (2=ATI68875/TI34075, 3=Bt476/Bt478, 4=Bt481,
-                                       // 5=ATI68860/68880, 6=STG1700, 7=SC15021)
+    ULONG cfg_init_dac_type : 3;       // Bits 9-11: Initial DAC type (1=IBM RGB514, 2=ATI68875/TI34075,
+                                       // 3=Bt476/Bt478, 4=Bt481, 5=ATI68860/68880, 6=STG1700, 7=SC15021)
     ULONG cfg_local_bus_option : 2;    // Bits 7-8: Local Bus Option (1=opt1, 2=opt2, 3=opt3)
     ULONG cfg_dual_cas_en : 1;         // Bit 6: Dual CAS support enabled
     ULONG cfg_mem_type : 3;  // Bits 3-5: Memory Type (0=DRAM, 1=VRAM, 2=VRAM short, 3=DRAM16, 4=GDRAM, 5=Enh VRAM,
@@ -255,6 +255,9 @@ static void print_CONFIG_STAT0(const CONFIG_STAT0_t *reg)
 
     D(0, "  cfg_init_dac_type       : 0x%lx", reg->cfg_init_dac_type);
     switch (reg->cfg_init_dac_type) {
+    case 1:
+        D(0, " (IBM RGB514)\n");
+        break;
     case 2:
         D(0, " (ATI68875/TI34075)\n");
         break;
@@ -701,6 +704,15 @@ static void writeDacPalette(BoardInfo_t *bi, RGBFTYPE format)
     }
 }
 
+static void applyGxDac8BitBlanking(BoardInfo_t *bi)
+{
+    MMIOBASE();
+    ULONG dacBits = DAC_8BIT_EN;
+    if (!(bi->CardFlags & CFF_BLACKLEVEL_BLACK))
+        dacBits |= DAC_BLANKING;
+    W_MMIO_MASK_L(DAC_CNTL, DAC_8BIT_EN_MASK | DAC_BLANKING_MASK, dacBits);
+}
+
 static void ASM SetDAC_GX(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE format))
 {
     (void)region;
@@ -736,13 +748,177 @@ static void ASM SetDAC_GX(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), 
 
     SetRS2RS3(bi, 0);
     W_MMIO_B(DAC_REGS, DAC_MASK, 0xff);
-    W_MMIO_MASK_L(DAC_CNTL, BIT(8), BIT(8));
+    applyGxDac8BitBlanking(bi);
 
     setCrtcPixWidth(bi, format);
-    // writeDacPalette(bi, format);
+    /* Hi-color still indexes the LUT — need identity ramp (SDK init_palettized). */
+    if (format != RGBFB_CLUT)
+        writeDacPalette(bi, format);
 
     DFUNC(VERBOSE, "SetDAC 68860: gmode=0x%02lx reg0C=0x%02lx format=%ld\n", (ULONG)gmode, (ULONG)reg0CValue,
           (ULONG)format);
+}
+
+/* IBM RGB514. Indexed via RS2 only.
+ * Table keeps pixel_cntl only (PITCH_INFO_DAC / 8-bit LUT path). */
+typedef struct
+{
+    UBYTE pixel_dly;
+    UBYTE misc2_cntl;
+    UBYTE pixel_rep;
+    UBYTE pixel_cntl_index;
+    UBYTE pixel_cntl; /* pixel control */
+} RGB514_DAC_Table;
+
+static const RGB514_DAC_Table RGB514_Modes[] = {
+    {0xff, 0xff, 0x00, 0x00, 0x00}, /* COLOR_DEPTH_1 — sleep sentinel */
+    {0x00, 0x41, 0x02, 0x71, 0x45}, /* 4bpp */
+    {0x00, 0x41, 0x03, 0x71, 0x45}, /* 8bpp */
+    {0x00, 0x45, 0x04, 0x0c, 0x00}, /* 555 */
+    {0x00, 0x45, 0x04, 0x0c, 0x02}, /* 565 */
+    {0x02, 0x45, 0x05, 0x0d, 0x00}, /* 24bpp */
+    {0x02, 0x45, 0x06, 0x0e, 0x00}, /* 32bpp */
+    {0x00, 0x00, 0x03, 0x71, 0x04}, /* VGA */
+};
+
+#define RGB514_REF_FREQ 1432 /* 14.32 MHz in 10 kHz units */
+#define RGB514_MIN_FREQ 12000
+#define RGB514_MAX_FREQ 24000
+#define RGB514_MAX_N    0x1f
+#define RGB514_MAX_M    0x3f
+
+static void writeRGB514Index(BoardInfo_t *bi, UWORD index, UBYTE data)
+{
+    MMIOBASE();
+    SetRS2RS3(bi, DAC_EXT_SEL_RS2);
+    W_MMIO_B(DAC_REGS, DAC_W_INDEX, (UBYTE)(index & 0xff));
+    W_MMIO_B(DAC_REGS, DAC_W_DATA, (UBYTE)((index >> 8) & 0xff));
+    W_MMIO_B(DAC_REGS, DAC_MASK, data);
+    SetRS2RS3(bi, 0);
+}
+
+static UBYTE readRGB514Index(BoardInfo_t *bi, UWORD index)
+{
+    MMIOBASE();
+    SetRS2RS3(bi, DAC_EXT_SEL_RS2);
+    W_MMIO_B(DAC_REGS, DAC_W_INDEX, (UBYTE)(index & 0xff));
+    W_MMIO_B(DAC_REGS, DAC_W_DATA, (UBYTE)((index >> 8) & 0xff));
+    {
+        UBYTE data = R_MMIO_B(DAC_REGS, DAC_MASK);
+        SetRS2RS3(bi, 0);
+        return data;
+    }
+}
+
+static void convRGB514PLLValue(UWORD *mhz100)
+{
+    static const UWORD pllconvtable[][3] = {
+        {3200, 3220, 3118},   {4990, 5010, 4980},   {5660, 5670, 5670},
+        {6500, 6510, 6490},   {6750, 6760, 6760},   {7500, 7520, 7470},
+        {11000, 11020, 11020},{13500, 13520, 13520},{15600, 15620, 15620},
+        {0, 0, 0},
+    };
+    UWORD i;
+
+    for (i = 0; pllconvtable[i][0]; ++i) {
+        if (*mhz100 >= pllconvtable[i][0] && *mhz100 <= pllconvtable[i][1]) {
+            *mhz100 = pllconvtable[i][2];
+            return;
+        }
+    }
+}
+
+/* Pack: [15:14]=p, [13:8]=m, [5:0]=n. */
+static UWORD rgb514_calculateProgramWord(UWORD mhz100)
+{
+    UBYTE p, m, n, save_m = 0, save_n = 2, save_p = 0;
+    ULONG bestErr = ~0UL;
+    UWORD target;
+
+    if (mhz100 < (RGB514_MIN_FREQ >> 3))
+        mhz100 = RGB514_MIN_FREQ >> 3;
+    if (mhz100 > RGB514_MAX_FREQ)
+        mhz100 = RGB514_MAX_FREQ;
+    convRGB514PLLValue(&mhz100);
+    target = mhz100;
+
+    for (p = 3; p > 0; --p) {
+        if (mhz100 < RGB514_MIN_FREQ)
+            mhz100 <<= 1;
+        else
+            break;
+    }
+
+    for (m = 0; m <= RGB514_MAX_M; ++m) {
+        for (n = 2; n <= RGB514_MAX_N; ++n) {
+            ULONG actual = ((ULONG)RGB514_REF_FREQ * (m + 65)) / ((ULONG)n << (3 - p));
+            ULONG err;
+
+            if (actual >= target)
+                continue;
+            err = target - actual;
+            if (err < bestErr) {
+                bestErr = err;
+                save_m  = m;
+                save_n  = n;
+                save_p  = p;
+            }
+        }
+    }
+
+    return (UWORD)(((save_m & 0x3f) | ((save_p & 3) << 6)) << 8) | save_n;
+}
+
+static UWORD rgb514_freqFromWord(UWORD word)
+{
+    UBYTE m = (UBYTE)(word >> 8);
+    UBYTE n = (UBYTE)(word & 0xff);
+    UBYTE p = m >> 6;
+    UBYTE mv = m & 0x3f;
+
+    if (!n)
+        return 0;
+    return (UWORD)(((ULONG)RGB514_REF_FREQ * (mv + 65)) / ((ULONG)n << (3 - p)));
+}
+
+static void ASM SetDAC_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE format))
+{
+    UBYTE depth = RGBFTYPE_to_colorDepth(format);
+    const RGB514_DAC_Table *tab = &RGB514_Modes[depth];
+
+    (void)region;
+    MMIOBASE();
+
+    W_MMIO_MASK_L(GEN_TEST_CNTL, GEN_OVS_EN_MASK, GEN_OVS_EN);
+
+    writeRGB514Index(bi, 0x90, 0x00);
+    if (tab->pixel_dly == 0xff) {
+        writeRGB514Index(bi, 0x05, 0x01);
+        return;
+    }
+
+    writeRGB514Index(bi, 0x04, tab->pixel_dly);
+    writeRGB514Index(bi, 0x05, 0x00);
+    writeRGB514Index(bi, 0x02, 0x01);
+    writeRGB514Index(bi, 0x71, tab->misc2_cntl);
+    writeRGB514Index(bi, 0x0a, tab->pixel_rep);
+    writeRGB514Index(bi, tab->pixel_cntl_index, tab->pixel_cntl);
+
+    if (R_MMIO_L(CRTC_GEN_CNTL) & CRTC_INTERLACE_EN) {
+        UBYTE misc2 = readRGB514Index(bi, 0x71);
+        writeRGB514Index(bi, 0x71, (UBYTE)(misc2 | 0x20));
+    }
+
+    W_MMIO_B(DAC_REGS, DAC_MASK, 0xff);
+    applyGxDac8BitBlanking(bi);
+
+    setCrtcPixWidth(bi, format);
+    /* pixel_cntl keeps LUT in path — identity ramp for 15/16/32bpp. */
+    if (format != RGBFB_CLUT)
+        writeDacPalette(bi, format);
+
+    DFUNC(VERBOSE, "SetDAC RGB514: depth=%ld fmt=%ld cntl_idx=0x%02lx cntl=0x%02lx\n", (ULONG)depth, (ULONG)format,
+          (ULONG)tab->pixel_cntl_index, (ULONG)tab->pixel_cntl);
 }
 
 /**
@@ -753,9 +929,6 @@ static ULONG computeVCLKFrequency_ICS2595(const struct BoardInfo *bi, const stru
 {
     return ics2595_freqFromWord(bi, ics2595_unpackWord(pllValues));
 }
-
-/* No Mach64 horizontal pixel-double for width<640 (CRTC_PIC_BY_2 is high-clock mux).
- * Mux mode skips dac type 5 (68860); mux for other DACs is FIXME later. */
 
 /* Known-good ICS words from bring-up (10 kHz units → word). Seeded into the table. */
 static const struct
@@ -885,6 +1058,107 @@ static void ASM SetClock_GX(__REGA0(struct BoardInfo *bi))
     ics2595_selectAndStrobe(bi, GX_VCLK_ENTRY);
 }
 
+static ULONG computeVCLKFrequency_RGB514(const struct BoardInfo *bi, const struct PLLValue *pllValues)
+{
+    (void)bi;
+    /* Reuse ICS pack helpers: PLLValue_t holds a 16-bit RGB514 program word. */
+    return rgb514_freqFromWord(ics2595_unpackWord(pllValues));
+}
+
+static void InitRGB514ClockTable(BoardInfo_t *bi)
+{
+    ChipSpecific_t *cs = getChipSpecific(bi);
+    LOCAL_SYSBASE();
+
+    if (cs->maxPClock <= cs->minPClock) {
+        DFUNC(ERROR, "invalid PCLK range min=%ld max=%ld\n", (ULONG)cs->minPClock, (ULONG)cs->maxPClock);
+        return;
+    }
+
+    UWORD maxNumEntries   = (UWORD)((cs->maxPClock - cs->minPClock) / 100u + 2u);
+    PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_ANY);
+    if (!pllValues) {
+        DFUNC(ERROR, "AllocVec RGB514 clock table failed\n");
+        return;
+    }
+    cs->vclkPllValues = pllValues;
+
+    UWORD e        = 0;
+    UWORD lastFreq = 0;
+    UWORD lastWord = 0xffff;
+    UWORD target   = cs->minPClock;
+    while (target < cs->maxPClock && e < maxNumEntries) {
+        UWORD word = rgb514_calculateProgramWord(target);
+        UWORD freq = rgb514_freqFromWord(word);
+        if (freq && !(freq == lastFreq && word == lastWord)) {
+            ics2595_packWord(&pllValues[e], word);
+            lastFreq = freq;
+            lastWord = word;
+            ++e;
+        }
+        target += 100;
+    }
+    if (e < maxNumEntries) {
+        UWORD word = rgb514_calculateProgramWord(cs->maxPClock);
+        UWORD freq = rgb514_freqFromWord(word);
+        if (freq && !(freq == lastFreq && word == lastWord)) {
+            ics2595_packWord(&pllValues[e], word);
+            ++e;
+        }
+    }
+
+    if (e == 0) {
+        DFUNC(ERROR, "RGB514 clock table empty\n");
+        return;
+    }
+
+    {
+        const ULONG maxHiColorFreq = 8000;
+        int i;
+
+        for (i = 0; i < 5; i++)
+            bi->PixelClockCount[i] = 0;
+
+        for (UWORD i = 0; i < e; ++i) {
+            ULONG frequency = computeVCLKFrequency_RGB514(bi, &pllValues[i]);
+            bi->PixelClockCount[CHUNKY]++;
+            if (frequency <= maxHiColorFreq) {
+                bi->PixelClockCount[HICOLOR]++;
+                bi->PixelClockCount[TRUECOLOR]++;
+                bi->PixelClockCount[TRUEALPHA]++;
+            }
+        }
+    }
+
+    DFUNC(VERBOSE, "GX RGB514 table: %ld clocks, CHUNKY %ld, range %ld0..%ld0 kHz\n", (ULONG)e,
+          (ULONG)bi->PixelClockCount[CHUNKY], (ULONG)computeVCLKFrequency_RGB514(bi, &pllValues[0]),
+          (ULONG)computeVCLKFrequency_RGB514(bi, &pllValues[e - 1]));
+}
+
+/* On-DAC VCLK: F0/N0 @ 0x20/0x21 and packed PLL word.
+ * Board ICS2595 (if present) is left alone — typically MCLK only on RGB514 cards. */
+static void ASM SetClock_RGB514(__REGA0(struct BoardInfo *bi))
+{
+    UWORD word;
+
+    DFUNC(VERBOSE, "\n");
+    MMIOBASE();
+
+    W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_EXT_DISP_EN_MASK, CRTC_EXT_DISP_EN);
+
+    word = (UWORD)bi->ModeInfo->pll1.Numerator | ((UWORD)bi->ModeInfo->pll2.Denominator << 8);
+    D(VERBOSE, "SetClock_RGB514: %ld Hz -> word 0x%04lx\n", bi->ModeInfo->PixelClock, (ULONG)word);
+
+    writeRGB514Index(bi, 0x06, 0x02); /* DAC Operation */
+    writeRGB514Index(bi, 0x10, 0x01); /* PLL Control 1 */
+    writeRGB514Index(bi, 0x70, 0x01); /* Misc Control 1 */
+    writeRGB514Index(bi, 0x8f, 0x1f); /* PLL Ref. Divider Input */
+    writeRGB514Index(bi, 0x03, 0x00); /* Sync Control */
+    writeRGB514Index(bi, 0x05, 0x00); /* Power Management */
+    writeRGB514Index(bi, 0x20, (UBYTE)(word >> 8));
+    writeRGB514Index(bi, 0x21, (UBYTE)(word & 0xff));
+}
+
 /* ATI68860 cursor colors live in the DAC, not CUR_CLR0/1 (SDK HWCURSOR.C). */
 static void ASM SetSpriteColor_GX(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
                                   __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE fmt))
@@ -923,6 +1197,231 @@ static void ASM SetSpriteColor_GX(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE i
     }
 }
 
+/* RGB514 Mode 0: 00=trans, 01=C1, 10=C2, 11=C3. */
+/* Cursor Control 0x30: Mode0 | 64×64 | UPDT immediate | PIX ORDR left→right. */
+#define RGB514_CURS_CTRL_ON  0x2d
+#define RGB514_CURS_CTRL_OFF 0x00
+
+static UBYTE rgb514_mode0Pix(UBYTE p0, UBYTE p1)
+{
+    return (UBYTE)(((p1 & 1) << 1) | (p0 & 1));
+}
+
+/* Pack one 16-pixel Mode0 group into 4 bytes (PIX ORDR=1: left pixel in bits 7:6). */
+static void rgb514_packMode0Word(UBYTE *dst, UWORD plane0, UWORD plane1)
+{
+    UWORD x;
+
+    for (x = 0; x < 16; x += 4) {
+        UBYTE b = 0;
+        UWORD i;
+
+        for (i = 0; i < 4; ++i) {
+            UWORD s  = 15 - (x + i);
+            UBYTE p0 = (UBYTE)((plane0 >> s) & 1);
+            UBYTE p1 = (UBYTE)((plane1 >> s) & 1);
+            b |= (UBYTE)(rgb514_mode0Pix(p0, p1) << (6 - 2 * i));
+        }
+        *dst++ = b;
+    }
+}
+
+/* Image is top-left in the 64×64 array; unused cells stay 00 (transparent). */
+static void packRgb514Mode0Cursor(BoardInfo_t *bi)
+{
+    UBYTE *cursor = bi->MouseImageBuffer;
+    UWORD height  = bi->MouseHeight;
+    UWORD y, i;
+
+    if (height > 64)
+        height = 64;
+
+    for (i = 0; i < 1024; ++i)
+        cursor[i] = 0;
+
+    if (bi->Flags & BIF_HIRESSPRITE) {
+        const ULONG *image = (const ULONG *)bi->MouseImage + 2;
+        for (y = 0; y < height; ++y) {
+            ULONG plane0 = *image++;
+            ULONG plane1 = *image++;
+            UBYTE *row   = cursor + y * 16;
+
+            rgb514_packMode0Word(row, (UWORD)(plane0 >> 16), (UWORD)(plane1 >> 16));
+            rgb514_packMode0Word(row + 4, (UWORD)plane0, (UWORD)plane1);
+        }
+    } else if (bi->Flags & BIF_BIGSPRITE) {
+        UWORD srcH         = height >> 1;
+        const UWORD *image = bi->MouseImage + 2;
+
+        if (srcH > 32)
+            srcH = 32;
+        for (y = 0; y < srcH; ++y) {
+            UWORD plane0 = *image++;
+            UWORD plane1 = *image++;
+            UBYTE row[16];
+            UWORD x;
+
+            for (i = 0; i < 16; ++i)
+                row[i] = 0;
+            for (x = 0; x < 16; ++x) {
+                UWORD s   = 15 - x;
+                UBYTE pix = rgb514_mode0Pix((UBYTE)((plane0 >> s) & 1), (UBYTE)((plane1 >> s) & 1));
+                UWORD dx  = x * 2;
+                UWORD bi0 = dx >> 2;
+                UWORD sh0 = 6 - 2 * (dx & 3);
+                UWORD bi1 = (dx + 1) >> 2;
+                UWORD sh1 = 6 - 2 * ((dx + 1) & 3);
+
+                row[bi0] |= (UBYTE)(pix << sh0);
+                row[bi1] |= (UBYTE)(pix << sh1);
+            }
+            for (i = 0; i < 16; ++i) {
+                cursor[(y * 2) * 16 + i]     = row[i];
+                cursor[(y * 2 + 1) * 16 + i] = row[i];
+            }
+        }
+    } else {
+        const UWORD *image = bi->MouseImage + 2;
+        for (y = 0; y < height; ++y) {
+            UWORD plane0 = *image++;
+            UWORD plane1 = *image++;
+
+            rgb514_packMode0Word(cursor + y * 16, plane0, plane1);
+        }
+    }
+}
+
+static void writeRGB514CursorColors(BoardInfo_t *bi)
+{
+    ChipData_t *cd = getChipData(bi);
+    UWORD pen;
+
+    MMIOBASE();
+    SetRS2RS3(bi, DAC_EXT_SEL_RS2);
+    W_MMIO_B(DAC_REGS, DAC_R_INDEX, 1);
+    W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0x40);
+    W_MMIO_B(DAC_REGS, DAC_W_DATA, 0);
+    for (pen = 0; pen < 3; ++pen) {
+        W_MMIO_B(DAC_REGS, DAC_MASK, cd->cursorRGB[pen][0]);
+        W_MMIO_B(DAC_REGS, DAC_MASK, cd->cursorRGB[pen][1]);
+        W_MMIO_B(DAC_REGS, DAC_MASK, cd->cursorRGB[pen][2]);
+    }
+    SetRS2RS3(bi, 0);
+}
+
+/* Cursor colors @ 0x40 / 0x43 / 0x46 (Mode 0 uses all three). */
+static void ASM SetSpriteColor_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
+                                      __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE fmt))
+{
+    ChipData_t *cd = getChipData(bi);
+
+    (void)fmt;
+    DFUNC(VERBOSE, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
+
+    if (index > 2)
+        return;
+
+    cd->cursorRGB[index][0] = red;
+    cd->cursorRGB[index][1] = green;
+    cd->cursorRGB[index][2] = blue;
+    writeRGB514CursorColors(bi);
+}
+
+/* Upload Mode0 cursor RAM @ 0x100 + hotspot @ 0x35. */
+static void ASM SetSpriteImage_RGB514(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fmt))
+{
+    const UBYTE *src;
+    UWORD i;
+    UBYTE hotX, hotY;
+
+    (void)fmt;
+    DFUNC(VERBOSE, "\n");
+
+    packRgb514Mode0Cursor(bi);
+    src = bi->MouseImageBuffer;
+
+    /* Left-aligned image → hotspot is Mouse*Offset (SDK's 64-width+hot is for right-aligned uploads). */
+    hotX = bi->MouseXOffset;
+    hotY = bi->MouseYOffset;
+    if (hotX > 63)
+        hotX = 63;
+    if (hotY > 63)
+        hotY = 63;
+
+    {
+        MMIOBASE();
+        SetRS2RS3(bi, DAC_EXT_SEL_RS2);
+        W_MMIO_B(DAC_REGS, DAC_R_INDEX, 1);
+        W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0x00);
+        W_MMIO_B(DAC_REGS, DAC_W_DATA, 0x01); /* cursor array @ 0x100 */
+        for (i = 0; i < 1024; ++i)
+            W_MMIO_B(DAC_REGS, DAC_MASK, src[i]);
+
+        W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0x35);
+        W_MMIO_B(DAC_REGS, DAC_W_DATA, 0);
+        W_MMIO_B(DAC_REGS, DAC_MASK, hotX);
+        W_MMIO_B(DAC_REGS, DAC_MASK, hotY);
+        SetRS2RS3(bi, 0);
+    }
+}
+
+static void ASM SetSpritePosition_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(WORD xpos), __REGD1(WORD ypos),
+                                         __REGD7(RGBFTYPE fmt))
+{
+    WORD spriteX, spriteY;
+
+    (void)fmt;
+    DFUNC(VERBOSE, "\n");
+
+    bi->MouseX = xpos;
+    bi->MouseY = ypos;
+
+    spriteX = xpos - bi->XOffset;
+    spriteY = ypos - bi->YOffset + bi->YSplit;
+
+    /* Match chip_mach64 SetSpritePosition (DAC position is hotspot on screen). */
+    if (bi->ModeInfo && (bi->ModeInfo->Flags & GMF_DOUBLESCAN))
+        spriteY *= 2;
+
+    if (spriteX < 0)
+        spriteX = 0;
+    if (spriteY < 0)
+        spriteY = 0;
+
+    {
+        MMIOBASE();
+        SetRS2RS3(bi, DAC_EXT_SEL_RS2);
+        W_MMIO_B(DAC_REGS, DAC_R_INDEX, 1);
+        W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0x31);
+        W_MMIO_B(DAC_REGS, DAC_W_DATA, 0);
+        W_MMIO_B(DAC_REGS, DAC_MASK, (UBYTE)(spriteX & 0xff));
+        W_MMIO_B(DAC_REGS, DAC_MASK, (UBYTE)((spriteX >> 8) & 0xff));
+        W_MMIO_B(DAC_REGS, DAC_MASK, (UBYTE)(spriteY & 0xff));
+        W_MMIO_B(DAC_REGS, DAC_MASK, (UBYTE)((spriteY >> 8) & 0xff));
+        SetRS2RS3(bi, 0);
+    }
+
+    D(CHATTY, "RGB514 SpritePos X: %ld Y: %ld\n", (LONG)spriteX, (LONG)spriteY);
+}
+
+static BOOL ASM SetSprite_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate), __REGD7(RGBFTYPE RGBFormat))
+{
+    DFUNC(VERBOSE, "activate=%ld\n", (ULONG)activate);
+    MMIOBASE();
+
+    /* GEN_CUR_ENABLE still required on RGB514 boards (SDK HWCURSOR.C) plus DAC 0x30. */
+    W_MMIO_MASK_L(GEN_TEST_CNTL, GEN_CUR_ENABLE_MASK, (activate ? GEN_CUR_ENABLE : 0));
+    writeRGB514Index(bi, 0x30, activate ? RGB514_CURS_CTRL_ON : RGB514_CURS_CTRL_OFF);
+
+    if (activate) {
+        bi->SetSpriteColor(bi, 0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, RGBFormat);
+        bi->SetSpriteColor(bi, 1, bi->CLUT[18].Red, bi->CLUT[18].Green, bi->CLUT[18].Blue, RGBFormat);
+        bi->SetSpriteColor(bi, 2, bi->CLUT[19].Red, bi->CLUT[19].Green, bi->CLUT[19].Blue, RGBFormat);
+    }
+
+    return TRUE;
+}
+
 BOOL InitMach64GX(struct BoardInfo *bi)
 {
     DFUNC(INFO, "\n");
@@ -951,7 +1450,7 @@ BOOL InitMach64GX(struct BoardInfo *bi)
     print_CONFIG_STAT0((CONFIG_STAT0_t *)&configStat0);
 
     ULONG dacType = (configStat0 >> 9) & 7;
-    if (dacType != 5) {
+    if (dacType != 1 && dacType != 5) {
         DFUNC(ERROR, "Unsupported DAC type %ld aborting.\n", dacType);
         return FALSE;
     }
@@ -961,19 +1460,35 @@ BOOL InitMach64GX(struct BoardInfo *bi)
     ULONG memCntl = R_MMIO_L(MEM_CNTL);
     print_MEM_CNTL((MEM_CNTL_t *)&memCntl);
 
-    /* Leave factory MCLK; ICS2595 MCLK reprogram is unsafe on this GX until verified. */
+    /* Leave factory MCLK (ICS2595 on both 68860 and RGB514 boards). */
     if (!probeMemorySize(bi)) {
         return FALSE;
     }
 
-    getChipSpecific(bi)->computeVCLKFrequency = computeVCLKFrequency_ICS2595;
-    InitICS2595ClockTable(bi);
-
-    bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_R8G8B8A8;
-
-    bi->SetDAC         = SetDAC_GX;
-    bi->SetClock       = SetClock_GX;
-    bi->SetSpriteColor = SetSpriteColor_GX;
+    if (dacType == 1) {
+        DFUNC(INFO, "DAC: IBM RGB514 (VCLK on DAC; ICS left for MCLK)\n");
+        getChipSpecific(bi)->computeVCLKFrequency = computeVCLKFrequency_RGB514;
+        InitRGB514ClockTable(bi);
+        /* LE aperture + RGB514 0x0E=0x00 scanout is BGRA (same as VT LE default). */
+        bi->RGBFormats        = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
+        bi->SetDAC            = SetDAC_RGB514;
+        bi->SetClock          = SetClock_RGB514;
+        /* On-DAC Mode0 cursor — override image/position/enable, not only colors. */
+        bi->SetSprite         = SetSprite_RGB514;
+        bi->SetSpritePosition = SetSpritePosition_RGB514;
+        bi->SetSpriteImage    = SetSpriteImage_RGB514;
+        bi->SetSpriteColor    = SetSpriteColor_RGB514;
+    } else {
+        DFUNC(INFO, "DAC: ATI68860 + ICS2595 VCLK\n");
+        getChipSpecific(bi)->computeVCLKFrequency = computeVCLKFrequency_ICS2595;
+        InitICS2595ClockTable(bi);
+        /* 68860 GMR E3 is RGBA on the LE aperture. */
+        bi->RGBFormats     = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_R8G8B8A8;
+        bi->SetDAC         = SetDAC_GX;
+        bi->SetClock       = SetClock_GX;
+        /* Keep Mach64 CUR_* sprite path; only colors live in the 68860. */
+        bi->SetSpriteColor = SetSpriteColor_GX;
+    }
 
     return TRUE;
 }

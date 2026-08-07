@@ -48,8 +48,8 @@ typedef struct ChipData
 
     const I2COps_t *i2cOps;
 
-    /* GX+ATI68860: cached pens for DAC cursor color bank (CUR_CLR unused). */
-    UBYTE cursorRGB[2][3];
+    /* GX external DAC cursor pens: 68860 uses [0..1]; RGB514 Mode0 uses [0..2]. */
+    UBYTE cursorRGB[3][3];
 } ChipData_t;
 
 STATIC_ASSERT(sizeof(ChipData_t) < SIZEOF_MEMBER(BoardInfo_t, ChipData), check_chipdata_size);
