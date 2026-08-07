@@ -348,9 +348,12 @@ static UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWO
     UBYTE bpp = getBPP(format);
 
     UWORD bytesPerRow = width * bpp;
-    // FIXME: RagePro manual says that SGRAM needs to be aligned to 64byte and pitch needs to be 64byte aligned
-    // bytesPerRow       = (bytesPerRow + 7) & ~7;
+#if MACH64_PCI_RETRY
+    // RagePro manual says that SGRAM needs to be aligned to 64byte and pitch needs to be 64byte aligned
     bytesPerRow = (bytesPerRow + 63) & ~63;
+#else
+    bytesPerRow = (bytesPerRow + 7) & ~7;
+#endif
 
     ULONG maxHeight = 2048;  // FIXME: check this value
     if (height > maxHeight) {
@@ -636,11 +639,8 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     panOffset = (panOffset + memOffset) / 8;  // offset in 64bit words
 
     D(VERBOSE, "panOffset 0x%lx, pitch %ld qwords\n", panOffset, (ULONG)pitch);
-
-    {
-        ULONG offPitch = CRTC_OFFSET(panOffset) | CRTC_PITCH(pitch);
-        W_MMIO_L(CRTC_OFF_PITCH, offPitch);
-    }
+    ULONG offPitch = CRTC_OFFSET(panOffset) | CRTC_PITCH(pitch);
+    W_MMIO_L(CRTC_OFF_PITCH, offPitch);
 
     return;
 }
@@ -664,9 +664,13 @@ static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR memo
             break;
         }
     }
-    // FIXME: RagePro manual says that SGRAM needs to be aligned to 64byte and pitch needs to be 64byte aligned
-    // return (APTR)(((ULONG)mem + 7) & ~7);
+
+#if MACH64_PCI_RETRY
+    // RagePro manual says that SGRAM needs to be aligned to 64byte and pitch needs to be 64byte aligned
     return (APTR)(((ULONG)mem + 63) & ~63);
+#else
+    return (APTR)(((ULONG)mem + 7) & ~7);
+#endif
 }
 
 static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE format))
@@ -2067,14 +2071,12 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     if (line->dX > 0) {
         direction |= DST_X_DIR;
     }
-    // else {
-    //     errTerm -= 1;
-    // }
-    if (line->dY > 0)
+    if (line->dY > 0) {
         direction |= DST_Y_DIR;
-
-    if (!line->Horizontal)
+    }
+    if (!line->Horizontal) {
         direction |= DST_Y_MAJOR;
+    }
 
     setWriteMask(bi, mask, fmt, 6);
 
@@ -2084,36 +2086,7 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     W_MMIO_L(DST_BRES_DEC, 2 * (absMIN - absMAX));
     W_MMIO_L(DST_BRES_ERR, errTerm);
     W_MMIO_L(DST_Y_X, DST_X(line->X) | DST_Y(line->Y));
-    W_MMIO_L(DST_BRES_LNTH, line->Length);
-
-    // BOOL isSolid = (line->LinePtrn == 0xFFFF);
-    // if (isSolid) {
-    //     W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
-    //     W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | direction);
-    // } else {
-    //     W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
-    //     W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
-    //                       CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED | direction);
-
-    //             // Line->PatternShift selects which bit of the pattern is to be used for the
-    //             // origin of the line and thus shifts the pattern to the indicated number of
-    //             // bits to the left. It is the pattern shift value at the start of the line
-    //             // segment to be drawn.
-    //     UWORD rol = line->PatternShift;
-    //     UWORD pattern = (line->LinePtrn << rol) | (line->LinePtrn >> (16u - rol));
-    //     ULONG patternL = copyToUpper(pattern);
-    //     WORD numDWords = (line->Length + 31) / 32;
-    //     for (WORD i = 0; i < numDWords; ++i) {
-    //         W_MMIO_L(PIX_TRANS, patternL);
-    //     }
-    // }
-}
-
-void ASM BlitPlanar2Direct(__REGA0(struct BoardInfo *bi), __REGA1(struct BitMap *bm), __REGA2(struct RenderInfo *ri),
-                           __REGA3(struct ColorIndexMapping *cmi), __REGD0(SHORT srcX), __REGD1(SHORT srcY),
-                           __REGD2(SHORT dstX), __REGD3(SHORT dstY), __REGD4(SHORT width), __REGD5(SHORT height),
-                           __REGD6(UBYTE minterm), __REGD7(UBYTE mask))
-{
+    W_MMIO_L(DST_BRES_LNTH, line->Length + 1);
 }
 
 static INLINE void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
