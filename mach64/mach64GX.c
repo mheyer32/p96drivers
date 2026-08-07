@@ -885,6 +885,44 @@ static void ASM SetClock_GX(__REGA0(struct BoardInfo *bi))
     ics2595_selectAndStrobe(bi, GX_VCLK_ENTRY);
 }
 
+/* ATI68860 cursor colors live in the DAC, not CUR_CLR0/1 (SDK HWCURSOR.C). */
+static void ASM SetSpriteColor_GX(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
+                                  __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE fmt))
+{
+    ChipData_t *cd = getChipData(bi);
+    UBYTE pen;
+
+    (void)fmt;
+    DFUNC(VERBOSE, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
+
+    if (index == 0)
+        pen = 0;
+    else if (index == 2)
+        pen = 1;
+    else
+        return;
+
+    cd->cursorRGB[pen][0] = red;
+    cd->cursorRGB[pen][1] = green;
+    cd->cursorRGB[pen][2] = blue;
+
+    {
+        MMIOBASE();
+        UBYTE dacCntl0 = R_MMIO_B(DAC_CNTL, 0);
+
+        /* DAC_CNTL[1:0]=RS2 selects 68860 cursor color bank. */
+        W_MMIO_B(DAC_CNTL, 0, (dacCntl0 & ~(DAC_EXT_SEL_RS2_MASK | DAC_EXT_SEL_RS3_MASK)) | DAC_EXT_SEL_RS2);
+        W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0);
+        W_MMIO_B(DAC_REGS, DAC_W_DATA, cd->cursorRGB[0][0]);
+        W_MMIO_B(DAC_REGS, DAC_W_DATA, cd->cursorRGB[0][1]);
+        W_MMIO_B(DAC_REGS, DAC_W_DATA, cd->cursorRGB[0][2]);
+        W_MMIO_B(DAC_REGS, DAC_W_DATA, cd->cursorRGB[1][0]);
+        W_MMIO_B(DAC_REGS, DAC_W_DATA, cd->cursorRGB[1][1]);
+        W_MMIO_B(DAC_REGS, DAC_W_DATA, cd->cursorRGB[1][2]);
+        W_MMIO_B(DAC_CNTL, 0, R_MMIO_B(DAC_CNTL, 0) & ~(DAC_EXT_SEL_RS2_MASK | DAC_EXT_SEL_RS3_MASK));
+    }
+}
+
 BOOL InitMach64GX(struct BoardInfo *bi)
 {
     DFUNC(INFO, "\n");
@@ -933,8 +971,9 @@ BOOL InitMach64GX(struct BoardInfo *bi)
 
     bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_R8G8B8A8;
 
-    bi->SetDAC   = SetDAC_GX;
-    bi->SetClock = SetClock_GX;
+    bi->SetDAC         = SetDAC_GX;
+    bi->SetClock       = SetClock_GX;
+    bi->SetSpriteColor = SetSpriteColor_GX;
 
     return TRUE;
 }
