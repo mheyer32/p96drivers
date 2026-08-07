@@ -160,8 +160,16 @@ typedef enum ChipFamily
 #define CFG_CLOCK_EN         BIT(5)
 #define CFG_CLOCK_EN_MASK    BIT(5)
 
+#define GEN_OVS_EN          BIT(5)
+#define GEN_OVS_EN_MASK     BIT(5)
 #define GEN_CUR_ENABLE      BIT(7)
 #define GEN_CUR_ENABLE_MASK BIT(7)
+
+/* DAC_CNTL (RRG) — shared by GX external DAC SetDAC and integrated-DAC InitChip. */
+#define DAC_BLANKING        BIT(2) /* 1 = 7.5 IRE pedestal */
+#define DAC_BLANKING_MASK   BIT(2)
+#define DAC_8BIT_EN         BIT(8)
+#define DAC_8BIT_EN_MASK    BIT(8)
 #define GEN_GUI_RESETB      BIT(8)
 #define GEN_GUI_RESETB_MASK BIT(8)
 #define GEN_SOFT_RESET      BIT(9)

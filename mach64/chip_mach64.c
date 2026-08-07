@@ -338,10 +338,6 @@ void SetMemoryClock(BoardInfo_t *bi, USHORT kHz10)
 #define DAC_MASK    2
 #define DAC_R_INDEX 3
 
-#define DAC_BLANKING        BIT(2)
-#define DAC_BLANKING_MASK   BIT(2)
-#define DAC_8BIT_EN         BIT(8)
-#define DAC_8BIT_EN_MASK    BIT(8)
 #define DAC_VGA_ADR_EN      BIT(13)
 #define DAC_VGA_ADR_EN_MASK BIT(13)
 
