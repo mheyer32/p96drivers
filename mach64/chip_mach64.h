@@ -50,6 +50,9 @@ typedef struct ChipData
 
     /* GX external DAC cursor pens: 68860 uses [0..1]; RGB514 Mode0 uses [0..2]. */
     UBYTE cursorRGB[3][3];
+
+    /* Remaining free FIFO slots after last waitFifo poll (GX path). */
+    UBYTE fifoSlotsCached;
 } ChipData_t;
 
 STATIC_ASSERT(sizeof(ChipData_t) < SIZEOF_MEMBER(BoardInfo_t, ChipData), check_chipdata_size);
@@ -62,6 +65,59 @@ static INLINE ChipSpecific_t *getChipSpecific(struct BoardInfo *bi)
 static INLINE const ChipSpecific_t *getConstChipSpecific(const struct BoardInfo *bi)
 {
     return getConstChipData(bi)->chipSpecific;
+}
+
+/* FIFO_STAT[15:0]: 0 empty (16 free), filling from MSB — same encoding as Mach32 EXT_FIFO_STATUS. */
+static INLINE UBYTE countFreeFifoSlots(UWORD s)
+{
+    if (!s)
+        return 16;
+    UBYTE free = 0;
+    if (!(s & 0xFF00)) {
+        free += 8;
+        s <<= 8;
+    }
+    if (!(s & 0xF000)) {
+        free += 4;
+        s <<= 4;
+    }
+    if (!(s & 0xC000)) {
+        free += 2;
+        s <<= 2;
+    }
+    if (!(s & 0x8000))
+        free += 1;
+    return free;
+}
+
+static INLINE void waitFifo(BoardInfo_t *bi, UBYTE entries)
+{
+#if MACH64_PCI_RETRY
+    (void)bi;
+    (void)entries;
+#else
+    ChipData_t *cd;
+    UBYTE freeSlots;
+
+    if (!entries)
+        return;
+
+    cd = getChipData(bi);
+    if (cd->fifoSlotsCached >= entries) {
+        cd->fifoSlotsCached -= entries;
+        return;
+    }
+
+    flushWrites();
+    {
+        MMIOBASE();
+        do {
+            freeSlots = countFreeFifoSlots((UWORD)(R_MMIO_L(FIFO_STAT) & 0xffff));
+        } while (freeSlots < entries);
+    }
+
+    cd->fifoSlotsCached = (UBYTE)(freeSlots - entries);
+#endif
 }
 
 typedef struct Mach64RomHeader

@@ -496,22 +496,7 @@ static INLINE BOOL mach64ChipFamilySupported(ChipFamily_t family)
 #endif
 }
 
-static INLINE void waitFifo(const BoardInfo_t *bi, UBYTE entries)
-{
-#if MACH64_PCI_RETRY
-    (void)bi;
-    (void)entries;
-#else
-    MMIOBASE();
-
-    if (!entries)
-        return;
-
-    flushWrites();
-    while ((R_MMIO_L(FIFO_STAT) & 0xffff) > ((ULONG)(0x8000 >> entries)))
-        ;
-#endif
-}
+/* waitFifo lives in chip_mach64.h (needs ChipData.fifoSlotsCached). */
 
 UBYTE getAsicVersion(const BoardInfo_t *bi);
 BOOL isAsiclessThanV4(const BoardInfo_t *bi);
