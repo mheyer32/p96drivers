@@ -33,7 +33,8 @@ const UWORD LibRevision  = LIB_REVISION;
 int debugLevel = VERBOSE;
 #endif
 
-#define CHIP_NAME_MACH64 "picasso96/ATIMach64.chip"
+#define CHIP_NAME_MACH64_GX "picasso96/ATIMach64GX.chip"
+#define CHIP_NAME_MACH64    "picasso96/ATIMach64.chip"
 
 #define VENDOR_ID_ATI 0x1002
 
@@ -238,9 +239,11 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     D(INFO, "physicalAddress 0x%08lx\n", physicalAddress);
 
     struct ChipBase *ChipBase = NULL;
+    const char *chipName =
+        (chipFamily == MACH64GX) ? CHIP_NAME_MACH64_GX : CHIP_NAME_MACH64;
 
-    if (!(ChipBase = (struct ChipBase *)OpenLibrary(CHIP_NAME_MACH64, 0))) {
-        D(ERROR, "ATIMach64.card: could not open chip library %s\n", CHIP_NAME_MACH64);
+    if (!(ChipBase = (struct ChipBase *)OpenLibrary(chipName, 0))) {
+        D(ERROR, "ATIMach64.card: could not open chip library %s\n", chipName);
         return FALSE;
     }
 

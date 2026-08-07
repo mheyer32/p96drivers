@@ -21,8 +21,13 @@
 /*                                                                            */
 /******************************************************************************/
 
+#if MACH64_PCI_RETRY
 const char LibName[]     = "ATIMach64.chip";
 const char LibIdString[] = "ATIMach64 Picasso96 chip driver version 1.0";
+#else
+const char LibName[]     = "ATIMach64GX.chip";
+const char LibIdString[] = "ATIMach64GX Picasso96 chip driver version 1.0";
+#endif
 
 #ifndef LIB_VERSION
 #define LIB_VERSION 1
@@ -2250,12 +2255,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
         cd->chipFamily = getChipFamily(deviceId);
 
-        if (cd->chipFamily == UNKNOWN) {
-            DFUNC(ERROR, "Unknown chip family, aborting\n");
+        if (cd->chipFamily == UNKNOWN || !mach64ChipFamilySupported(cd->chipFamily)) {
+            DFUNC(ERROR, "Unsupported chip family for this driver, aborting\n");
             return FALSE;
-        } else {
-            D(INFO, "Chip family: %s\n", getChipFamilyName(cd->chipFamily));
         }
+        D(INFO, "Chip family: %s\n", getChipFamilyName(cd->chipFamily));
 
         /* VT/GT+: second 8MB window is big-endian alias. GX has only LE. */
         if (cd->chipFamily > MACH64GX)
@@ -2347,11 +2351,13 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
 
     switch (cd->chipFamily) {
+#if !MACH64_PCI_RETRY
     case MACH64GX:
         if (!InitMach64GX(bi)) {
             return FALSE;
         }
         break;
+#else
     case MACH64VT:
         if (!InitMach64VT(bi)) {
             return FALSE;
@@ -2363,6 +2369,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             return FALSE;
         }
         break;
+#endif
     default:
         D(ERROR, "Unsupported chip family\n");
         return FALSE;
@@ -2684,7 +2691,7 @@ int main()
 
         ChipFamily_t family = getChipFamily(Device);
 
-        if (family != UNKNOWN) {
+        if (family != UNKNOWN && mach64ChipFamilySupported(family)) {
             D(ALWAYS, "ATI %s found\n", getChipFamilyName(family));
 
             pci_write_config_word(PCI_COMMAND, PCI_COMMAND_MEMORY | PCI_COMMAND_IO, board);

@@ -479,17 +479,27 @@ static INLINE void REGARGS writeATIRegisterL_qi(volatile UBYTE *regbase, LONG re
     } while (0)
 
     
+static INLINE BOOL mach64ChipFamilySupported(ChipFamily_t family)
+{
+#if MACH64_PCI_RETRY
+    return family == MACH64VT || family == MACH64GT || family == MACH64GM;
+#else
+    return family == MACH64GX;
+#endif
+}
+
 static INLINE void waitFifo(const BoardInfo_t *bi, UBYTE entries)
 {
-    return;  // Disables FIFO waits, relying on PCI_RETRY instead on VT/GT cards
-#if 0
+#if MACH64_PCI_RETRY
+    (void)bi;
+    (void)entries;
+#else
     MMIOBASE();
 
     if (!entries)
         return;
 
     flushWrites();
-    // ULONG busCntl = R_MMIO_L(BUS_CNTL);
     while ((R_MMIO_L(FIFO_STAT) & 0xffff) > ((ULONG)(0x8000 >> entries)))
         ;
 #endif
