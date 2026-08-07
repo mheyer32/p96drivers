@@ -1059,7 +1059,7 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
     return TRUE;
 }
 
-static INLINE void waitIdle(const BoardInfo_t *bi)
+static INLINE void waitIdle(BoardInfo_t *bi)
 {
     MMIOBASE();
     waitFifo(bi, 16);
@@ -2223,7 +2223,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         LOCAL_OPENPCIBASE();
         GetBoardAttrs(board, PRM_Device, (Tag)&deviceId, PRM_Revision, (Tag)&revision, TAG_END);
 
-        cd->chipFamily = getChipFamily(deviceId);
+        cd->chipFamily      = getChipFamily(deviceId);
+        cd->fifoSlotsCached = 0;
 
         if (cd->chipFamily == UNKNOWN || !mach64ChipFamilySupported(cd->chipFamily)) {
             DFUNC(ERROR, "Unsupported chip family for this driver, aborting\n");
