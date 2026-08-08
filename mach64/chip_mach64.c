@@ -385,26 +385,30 @@ void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWORD star
     MMIOBASE();
     LOCAL_SYSBASE();
 
-    const UBYTE bppDiff = 0;  // 8 - bi->BitsPerCannon;
+    const LONG dacData = DWORD_OFFSET(DAC_REGS) + DAC_W_DATA;
+    const LONG dacIdx  = DWORD_OFFSET(DAC_REGS) + DAC_W_INDEX;
+    const LONG dacMask = DWORD_OFFSET(DAC_REGS) + DAC_MASK;
 
     /* DAC auto-increments R→G→B→next index; an IRQ mid-sequence desyncs the
      * channel (false colors). Same rule as Mach32 SetColorArray. */
     Disable();
 
-    W_MMIO_B(DAC_REGS, DAC_W_INDEX, startIndex);
+    writeReg(MMIOBase, dacIdx, (UBYTE)startIndex);
 
     for (UWORD c = startIndex; c < startIndex + count; ++c) {
-        writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Red >> bppDiff);
-        writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Green >> bppDiff);
-        writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Blue >> bppDiff);
+        /* Re-index each entry. Device read after index drains posted/coalesced
+         * PCI writes (flushWrites/nop is not enough even with MAPP_IO MMIO). */
+        (void)readReg(MMIOBase, dacMask);
+        writeReg(MMIOBase, dacData, colors[c].Red);
+        writeReg(MMIOBase, dacData, colors[c].Green);
+        writeReg(MMIOBase, dacData, colors[c].Blue);
     }
 
     Enable();
 
     /* 4/8 bpp overscan uses palette index 0; direct-color border is set in SetGC. */
     if (startIndex == 0 && count > 0 && (!bi->ModeInfo || bi->ModeInfo->Depth <= 8)) {
-        writeOvrClr(MMIOBase, 0, colors[0].Red >> bppDiff, colors[0].Green >> bppDiff,
-                    colors[0].Blue >> bppDiff);
+        writeOvrClr(MMIOBase, 0, colors[0].Red, colors[0].Green, colors[0].Blue);
     }
 }
 
@@ -421,8 +425,30 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __R
 
     DFUNC(VERBOSE, "format %ld\n", (ULONG)format);
 
-    W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_PIX_WIDTH_MASK, CRTC_PIX_WIDTH(g_bitWidths[format]));
-    /* Integrated DAC: keep 8-bit LUT (BitsPerCannon=8). SDK CT path used 6-bit for VGA CLUT. */
+    ULONG crtcGen = R_MMIO_L(CRTC_GEN_CNTL);
+    crtcGen &= ~CRTC_PIX_WIDTH_MASK;
+    crtcGen |= CRTC_PIX_WIDTH(g_bitWidths[format]);
+    /* SetGC's CRTC_DBL_SCAN_EN can fail to stick on CT; always re-apply. */
+    if (bi->ModeInfo) {
+        crtcGen &= ~(CRTC_DBL_SCAN_EN | CRTC_INTERLACE_EN | CRTC_PIC_BY_2_EN);
+        if (bi->ModeInfo->Flags & GMF_DOUBLESCAN)
+            crtcGen |= CRTC_DBL_SCAN_EN;
+        if (bi->ModeInfo->Flags & GMF_INTERLACE)
+            crtcGen |= CRTC_INTERLACE_EN;
+    }
+    W_MMIO_L(CRTC_GEN_CNTL, crtcGen);
+    if (bi->RegisterBase) {
+        volatile UBYTE *RegBase = getIOBase(bi);
+        W_BLKIO_L(CRTC_GEN_CNTL, crtcGen);
+    }
+    {
+        ULONG rb = R_MMIO_L(CRTC_GEN_CNTL);
+        if (bi->ModeInfo && (bi->ModeInfo->Flags & GMF_DOUBLESCAN) && !(rb & CRTC_DBL_SCAN_EN)) {
+            D(ALWAYS, "SetDAC: DBL_SCAN lost (wrote 0x%08lx read 0x%08lx)\n", crtcGen, rb);
+        }
+    }
+
+    /* Integrated DAC: 8-bit LUT (BitsPerCannon=8). GX external DAC is SetDAC_GX. */
     if (getChipData(bi)->chipFamily != MACH64GX) {
         W_MMIO_MASK_L(DAC_CNTL, DAC_8BIT_EN_MASK, DAC_8BIT_EN);
     }
@@ -445,8 +471,11 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __R
 
 static INLINE REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags, ChipFamily_t family)
 {
-    /* VT+: doublescan bit + ×2 V. GX/CT: CRTC_DBL_SCAN_EN alone; V stays logical. */
-    if ((modeFlags & GMF_DOUBLESCAN) && family >= MACH64CT)
+    /* GMF_DOUBLESCAN: ModeInfo V is logical (FB lines); CRTC wants physical
+     * scanlines (×2) plus CRTC_DBL_SCAN_EN.
+     * Interlace: programmed totals are half. */
+    (void)family;
+    if (modeFlags & GMF_DOUBLESCAN)
         y *= 2;
     if (modeFlags & GMF_INTERLACE)
         y /= 2;
@@ -537,6 +566,13 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     modeFlags    = mi->Flags;
     isInterlaced = !!(modeFlags & GMF_INTERLACE);
 
+    ULONG crtcGenCntl = R_MMIO_L(CRTC_GEN_CNTL);
+    crtcGenCntl &= ~(CRTC_DBL_SCAN_EN | CRTC_INTERLACE_EN | CRTC_PIC_BY_2_EN);
+    if (isInterlaced)
+        crtcGenCntl |= CRTC_INTERLACE_EN;
+    if (modeFlags & GMF_DOUBLESCAN)
+        crtcGenCntl |= CRTC_DBL_SCAN_EN;
+
     UWORD hTotalChars = TO_CHARS(mi->HorTotal) - 1;
     D(VERBOSE, "Horizontal Total %ld\n", (ULONG)hTotalChars);
     UWORD hDisplay = TO_CHARS(mi->Width) - 1;
@@ -587,16 +623,24 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         writeOvrClr(MMIOBase, 0, 0, 0, 0);
     }
 
-    ULONG crtcGenCntl = R_MMIO_L(CRTC_GEN_CNTL);
-    crtcGenCntl &= ~(CRTC_DBL_SCAN_EN | CRTC_INTERLACE_EN);
-    if (isInterlaced) {
-        crtcGenCntl |= CRTC_INTERLACE_EN;
-    }
-    if (modeFlags & GMF_DOUBLESCAN) {
-        crtcGenCntl |= CRTC_DBL_SCAN_EN;
+    crtcGenCntl |= CRTC_ENABLE;
+    crtcGenCntl &= ~CRTC_PIC_BY_2_EN;
+    W_MMIO_L(CRTC_GEN_CNTL, crtcGenCntl);
+    /* CT: also program DBL_SCAN via block-I/O byte; MMIO dword alone may not stick. */
+    if (bi->RegisterBase) {
+        volatile UBYTE *RegBase = getIOBase(bi);
+        W_BLKIO_L(CRTC_GEN_CNTL, crtcGenCntl);
     }
 
-    W_MMIO_L(CRTC_GEN_CNTL, crtcGenCntl);
+    {
+        ULONG rb = R_MMIO_L(CRTC_GEN_CNTL);
+        if ((modeFlags & GMF_DOUBLESCAN) && !(rb & CRTC_DBL_SCAN_EN)) {
+            D(ALWAYS, "CRTC_DBL_SCAN_EN did not stick (wrote 0x%08lx read 0x%08lx)\n", crtcGenCntl, rb);
+        } else {
+            D(ALWAYS, "CRTC_GEN_CNTL 0x%08lx dbl=%ld int=%ld\n", rb, !!(rb & CRTC_DBL_SCAN_EN),
+              !!(rb & CRTC_INTERLACE_EN));
+        }
+    }
 
 #if MACH64_PCI_RETRY
     if (getChipData(bi)->chipFamily == MACH64VT)
@@ -2225,7 +2269,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->MaxHorResolution[TRUEALPHA] = maxWidth;
     bi->MaxVerResolution[TRUEALPHA] = maxHeight;
 
-    setCacheMode(bi, bi->MemoryBase + 0x800000 - 2048, 2048, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
+    /* MMIO is last 1KB of the LE 8MB window (+0x7FFC00), not +0x7FF800/2KB. */
+    setCacheMode(bi, bi->MemoryBase + mach64MmioOffsetInBar0(0x800000UL), 1024, MAPP_IO | MAPP_CACHEINHIBIT,
+                 CACHEFLAGS);
 
     ChipData_t *cd = getChipData(bi);
     {
@@ -2421,15 +2467,15 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         bi->MemorySize -= 2048;  // Upper 2kb are reserved for MMIO register blocks 0 and 1
     }
 
-    // Init DAC. For chips with integrated DAC (CT/VT/GT/GM), enable 8bit per gun and optional
-    // blanking pedestal (BLACKLEVEL=Pedestal default; Black → 0 IRE). Disable legacy VGA
-    // DAC decode. For GX (external DAC), SetDAC_GX programs DAC_CNTL the same way.
+    // Init DAC: 8-bit LUT + optional blanking pedestal; disable legacy VGA DAC
+    // decode. GX external DAC is programmed in SetDAC_GX.
     if (cd->chipFamily != MACH64GX) {
         ULONG dacBits = DAC_8BIT_EN;
         if (!(bi->CardFlags & CFF_BLACKLEVEL_BLACK))
             dacBits |= DAC_BLANKING;
-        W_MMIO_MASK_L(DAC_CNTL, DAC_8BIT_EN_MASK | DAC_BLANKING_MASK | DAC_VGA_ADR_EN, dacBits);
+        W_MMIO_MASK_L(DAC_CNTL, DAC_BLANKING_MASK | DAC_VGA_ADR_EN | DAC_8BIT_EN_MASK, dacBits);
         W_MMIO_B(DAC_REGS, DAC_MASK, 0xFF);
+        D(INFO, "DAC_CNTL=0x%08lx BUS_CNTL=0x%08lx\n", R_MMIO_L(DAC_CNTL), R_MMIO_L(BUS_CNTL));
     }
 
     // Init CRTC. Display FIFO LWM/OVERFILL: mode-tuned in AdjustCrtcFifo_VT / AdjustDSP.
@@ -2562,6 +2608,71 @@ static void testFillPattern8bppBytes(BoardInfo_t *bi, UWORD width, UWORD height)
     CacheClearU();
     D(INFO, "CPU FB pattern: %ldx%ld bpr=%ld (ramp then x^y) at 0x%08lx\n", (ULONG)width, (ULONG)height, (ULONG)bpr,
       (ULONG)bi->MemoryBase);
+}
+
+/* True 8-bit match, or 6-bit DAC trunc/expand (drop low 2 bits). Else broken. */
+static BOOL lutGunOk(UBYTE got, UBYTE wr, BOOL *sixBit)
+{
+    if (got == wr)
+        return TRUE;
+    if (got == (UBYTE)(wr & 0xFC) || got == (UBYTE)(wr >> 2)) {
+        *sixBit = TRUE;
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static void verifyPaletteReadback(BoardInfo_t *bi)
+{
+    MMIOBASE();
+    LOCAL_SYSBASE();
+    static const UWORD idxs[] = {0, 1, 2, 127, 128, 254, 255};
+    ULONG broken = 0;
+    BOOL sixBit  = FALSE;
+    UBYTE got[7][3];
+    UBYTE wr[7][3];
+    BOOL bad[7];
+
+    W_MMIO_L(DAC_CNTL, R_MMIO_L(DAC_CNTL) & ~3UL);
+
+    Disable();
+    writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_MASK, 0xFF);
+    /* VGA-style waste before switching to read index (aty_dac_waste4). */
+    (void)readReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_INDEX);
+    (void)readReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_MASK);
+    (void)readReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_MASK);
+    (void)readReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_MASK);
+    (void)readReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_MASK);
+
+    for (UWORD i = 0; i < sizeof(idxs) / sizeof(idxs[0]); ++i) {
+        UWORD idx = idxs[i];
+        wr[i][0]  = bi->CLUT[idx].Red;
+        wr[i][1]  = bi->CLUT[idx].Green;
+        wr[i][2]  = bi->CLUT[idx].Blue;
+        writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_R_INDEX, (UBYTE)idx);
+        got[i][0] = readReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA);
+        got[i][1] = readReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA);
+        got[i][2] = readReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA);
+        bad[i]     = !lutGunOk(got[i][0], wr[i][0], &sixBit) || !lutGunOk(got[i][1], wr[i][1], &sixBit) ||
+                 !lutGunOk(got[i][2], wr[i][2], &sixBit);
+        if (bad[i])
+            ++broken;
+    }
+    Enable();
+
+    if (broken) {
+        D(ALWAYS, "LUT readback: %ld mismatches - DAC write path broken\n", broken);
+        for (UWORD i = 0; i < sizeof(idxs) / sizeof(idxs[0]); ++i) {
+            if (bad[i]) {
+                D(ALWAYS, "  LUT[%ld] read R=%ld G=%ld B=%ld wrote %ld/%ld/%ld\n", (ULONG)idxs[i], (ULONG)got[i][0],
+                  (ULONG)got[i][1], (ULONG)got[i][2], (ULONG)wr[i][0], (ULONG)wr[i][1], (ULONG)wr[i][2]);
+            }
+        }
+    } else if (sixBit) {
+        D(ALWAYS, "LUT readback OK (warning: DAC drops low 2 bits / 6-bit)\n");
+    } else {
+        D(ALWAYS, "LUT readback OK (8-bit)\n");
+    }
 }
 
 static void dumpScanout8bpp(BoardInfo_t *bi)
@@ -2771,25 +2882,28 @@ int main()
                 D(ALWAYS, "PCI 0x40: %02lx\n", (ULONG)userConfig);
             }
 
-            if (Memory2) {
-                D(ALWAYS, "Using auxiliary register aperture at 0x%08lx\n", Memory2);
-                bi->MemoryIOBase = (BYTE *)Memory2 + 1024 + MMIOREGISTER_OFFSET;
-                setCacheMode(bi, Memory2, Memory2Size, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
-            } else {
-                ULONG mmioOff = mach64MmioOffsetInBar0(Memory0Size);
-                D(ALWAYS, "Using BAR0 MMIO at 0x%08lx (+0x%lx, BAR0 size %ld)\n", (BYTE *)Memory0 + mmioOff,
-                  mmioOff, Memory0Size);
-                bi->MemoryIOBase = (BYTE *)Memory0 + mmioOff + MMIOREGISTER_OFFSET;
-                /* Map MMIO only first — full-BAR remap after InitChip (avoids clobbering IO attrs). */
-                setCacheMode(bi, (BYTE *)Memory0 + mmioOff, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
-            }
             bi->MemoryBase = Memory0;
-            D(ALWAYS, "setCacheMode FB...\n");
-            setCacheMode(bi, Memory0, Memory0Size, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED, CACHEFLAGS);
-            /* Re-apply MMIO page after full-BAR map. */
-            if (!Memory2) {
+            {
                 ULONG mmioOff = mach64MmioOffsetInBar0(Memory0Size);
-                setCacheMode(bi, (BYTE *)Memory0 + mmioOff, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
+                /* FB below MMIO hole (+ optional BE half) — never NONSERIALIZED on regs. */
+                D(ALWAYS, "setCacheMode FB...\n");
+                if (mmioOff)
+                    setCacheMode(bi, Memory0, mmioOff, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED,
+                                 CACHEFLAGS);
+                if (Memory0Size > 0x800000UL)
+                    setCacheMode(bi, (BYTE *)Memory0 + 0x800000UL, Memory0Size - 0x800000UL,
+                                 MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED, CACHEFLAGS);
+
+                if (Memory2) {
+                    D(ALWAYS, "Using auxiliary register aperture at 0x%08lx\n", Memory2);
+                    bi->MemoryIOBase = (BYTE *)Memory2 + 1024 + MMIOREGISTER_OFFSET;
+                    setCacheMode(bi, Memory2, Memory2Size, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
+                } else {
+                    D(ALWAYS, "Using BAR0 MMIO at 0x%08lx (+0x%lx, BAR0 size %ld)\n",
+                      (BYTE *)Memory0 + mmioOff, mmioOff, Memory0Size);
+                    bi->MemoryIOBase = (BYTE *)Memory0 + mmioOff + MMIOREGISTER_OFFSET;
+                    setCacheMode(bi, (BYTE *)Memory0 + mmioOff, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
+                }
             }
 
             D(ALWAYS, "Mach64 init chip....\n");
@@ -2800,8 +2914,9 @@ int main()
             }
             D(ALWAYS, "Mach64 has %ldkb usable memory\n", bi->MemorySize / 1024);
 
+            /* Usable FB only — full BAR would let a cache-mode change hit MMIO. */
             bi->MemorySpaceBase = Memory0;
-            bi->MemorySpaceSize = Memory0Size;
+            bi->MemorySpaceSize = bi->MemorySize;
 
             if (eepromDump) {
                 dumpMach64Eeprom(bi);
@@ -2822,9 +2937,11 @@ int main()
                     {"640x480", 640, 480, 800, 16, 96, 525, 10, 2, 25175000, GMF_HPOLARITY | GMF_VPOLARITY},
                     {"800x600", 800, 600, 1056, 40, 128, 628, 1, 4, 40000000, 0},
                     {"1024x768", 1024, 768, 1344, 24, 136, 806, 3, 6, 65000000, GMF_HPOLARITY | GMF_VPOLARITY},
-                    {"320x200d", 320, 200, 400, 16, 48, 449, 12, 2, 12587500,
+                    /* Doublescan: logical V (ToScanLines ×2 → physical). 320x200d clock
+                     * is ~12.59 MHz — CT VPLL near floor can look like a bad LUT. */
+                    {"320x200d", 320, 200, 400, 16, 48, 225, 6, 1, 12587500,
                      GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY},
-                    {"1024x384d", 1024, 384, 1344, 24, 136, 806, 3, 6, 65000000,
+                    {"1024x384d", 1024, 384, 1344, 24, 136, 403, 2, 3, 65000000,
                      GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY},
                 };
                 const int modeCount = allModes ? (int)(sizeof(modes) / sizeof(modes[0])) : 1;
@@ -2864,6 +2981,7 @@ int main()
                     }
                     bi->SetDAC(bi, 0, RGBFB_CLUT);
                     bi->SetColorArray(bi, 0, 256);
+                    verifyPaletteReadback(bi);
                     bi->SetPanning(bi, bi->MemoryBase, modes[m].w, modes[m].h, 0, 0, RGBFB_CLUT);
                     bi->SetDisplay(bi, TRUE);
 
