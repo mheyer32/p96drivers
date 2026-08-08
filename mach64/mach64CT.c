@@ -43,7 +43,8 @@ static void setMemoryClock_CT(BoardInfo_t *bi, UWORD freqKhz10)
     ResetEngine(bi);
 
     /* Appendix J §J.4: hold MCLK on CPUCLK, program FB, lock, switch to PLLMCLK/P, drop EXT_CLK_EN. */
-    WRITE_PLL_MASK(PLL_GEN_CNTL, PLL_OVERRIDE_MASK | PLL_MRESET_MASK | OSC_EN_MASK | MCLK_SRC_SEL_MASK | PLL_EXT_CLK_EN_MASK,
+    WRITE_PLL_MASK(PLL_GEN_CNTL,
+                   PLL_OVERRIDE_MASK | PLL_MRESET_MASK | OSC_EN_MASK | MCLK_SRC_SEL_MASK | PLL_EXT_CLK_EN_MASK,
                    OSC_EN | MCLK_SRC_SEL(0b100) | PLL_EXT_CLK_EN);
     WRITE_PLL(PLL_MCLK_FB_DIV, pllValues.N);
     delayMilliSeconds(5);
@@ -113,46 +114,46 @@ static void ASM SetClock_CT(__REGA0(struct BoardInfo *bi))
  * Cold VBIOS table @7953 programs MEM_CNTL=0x04F1 (1M + CT timing). Strap often 0x1800
  * (size reserved, wrong mid/cyc). Size-detect RMWs only bits 0–2.
  */
-#define MEM_SIZE_CT_MASK     0x7u
-#define MEM_SIZE_CT_1M       1
-#define MEM_SIZE_CT_2M       2
-#define MEM_SIZE_CT_4M       3
-#define MEM_CNTL_CT_COLD     0x04F1u
+#define MEM_SIZE_CT_MASK 0x7u
+#define MEM_SIZE_CT_1M   1
+#define MEM_SIZE_CT_2M   2
+#define MEM_SIZE_CT_4M   3
+#define MEM_CNTL_CT_COLD 0x04F1u
 /* FUN_7934: CONFIG_STAT0 = (read & 0xF8) | 0x39 — DRAM + DUAL_CAS + bit4 + CLOCK_EN */
-#define CONFIG_STAT0_CT_DRAM 0x39u
+#define CONFIG_STAT0_CT_DRAM      0x39u
 #define CONFIG_STAT0_CT_DRAM_MASK 0x3Fu
 /* Cold BUS_CNTL from same table (4EEC/4EEE). */
-#define BUS_CNTL_CT_COLD     0x600020F8u
+#define BUS_CNTL_CT_COLD 0x600020F8u
 
 typedef struct
 {
-    ULONG reserved_hi : 19;      /* Bits 13-31: PIX_WIDTH/BNDRY etc. — leave alone */
-    ULONG mem_refresh_rate : 2;  /* Bits 11-12: MEM_REFRESH_RATE (r) */
-    ULONG mem_cyc_lnth : 2;      /* Bits 9-10: MEM_CYC_LNTH (q), CT encoding */
-    ULONG reserved_mid : 6;      /* Bits 3-8 */
-    ULONG mem_size : 3;          /* Bits 0-2: MEM_SIZE (p) */
+    ULONG reserved_hi : 19;     /* Bits 13-31: PIX_WIDTH/BNDRY etc. — leave alone */
+    ULONG mem_refresh_rate : 2; /* Bits 11-12: MEM_REFRESH_RATE (r) */
+    ULONG mem_cyc_lnth : 2;     /* Bits 9-10: MEM_CYC_LNTH (q), CT encoding */
+    ULONG reserved_mid : 6;     /* Bits 3-8 */
+    ULONG mem_size : 3;         /* Bits 0-2: MEM_SIZE (p) */
 } MEM_CNTL_CT_t;
 
 static void print_MEM_CNTL_CT(ULONG raw)
 {
-    MEM_CNTL_CT_t *r = (MEM_CNTL_CT_t *)&raw;
+    MEM_CNTL_CT_t *r           = (MEM_CNTL_CT_t *)&raw;
     static const char *sizes[] = {"reserved", "1M", "2M", "4M", "?", "?", "?", "?"};
 
-    D(INFO, "MEM_CNTL_CT 0x%08lx size=%ld (%s) cyc=%ld refrate=%ld\n", raw, (ULONG)r->mem_size,
-      sizes[r->mem_size & 7], (ULONG)r->mem_cyc_lnth, (ULONG)r->mem_refresh_rate);
+    D(INFO, "MEM_CNTL_CT 0x%08lx size=%ld (%s) cyc=%ld refrate=%ld\n", raw, (ULONG)r->mem_size, sizes[r->mem_size & 7],
+      (ULONG)r->mem_cyc_lnth, (ULONG)r->mem_refresh_rate);
 }
 
 static void print_CONFIG_CNTL_CT(ULONG raw)
 {
     ULONG apSize = raw & CFG_MEM_AP_SIZE_MASK;
     D(INFO, "CONFIG_CNTL 0x%08lx AP_SIZE=%ld (%s) VGA_AP_EN=%ld VGA_DIS=%ld AP_LOC=%ld\n", raw, apSize,
-      apSize == CFG_MEM_AP_SIZE_8M ? "2x8M" : (apSize == 0 ? "off/rsvd" : "?"),
-      !!(raw & CFG_MEM_VGA_AP_EN), !!(raw & CFG_VGA_DIS), (raw & CFG_MEM_AP_LOC_MASK) >> 4);
+      apSize == CFG_MEM_AP_SIZE_8M ? "2x8M" : (apSize == 0 ? "off/rsvd" : "?"), !!(raw & CFG_MEM_VGA_AP_EN),
+      !!(raw & CFG_VGA_DIS), (raw & CFG_MEM_AP_LOC_MASK) >> 4);
 }
 
 static void print_CONFIG_STAT0_CT(ULONG raw)
 {
-    ULONG memType = raw & CFG_MEM_TYPE_CT_MASK;
+    ULONG memType              = raw & CFG_MEM_TYPE_CT_MASK;
     static const char *types[] = {"DISABLE", "DRAM", "EDO", "rsvd3", "rsvd4", "rsvd5", "rsvd6", "rsvd7"};
 
     D(INFO, "CONFIG_STAT0 0x%08lx mem_type=%ld (%s) dual_cas=%ld clock_en=%ld\n", raw, memType, types[memType],
@@ -185,8 +186,8 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
      */
     {
         ULONG busSave = R_MMIO_L(BUS_CNTL);
-        D(INFO, "CT cold DRAM bring-up (was STAT0=0x%08lx MEM_CNTL=0x%08lx BUS=0x%08lx)\n",
-          configStat0, memCntlSave, busSave);
+        D(INFO, "CT cold DRAM bring-up (was STAT0=0x%08lx MEM_CNTL=0x%08lx BUS=0x%08lx)\n", configStat0, memCntlSave,
+          busSave);
         W_MMIO_MASK_L(CONFIG_STAT0, CONFIG_STAT0_CT_DRAM_MASK, CONFIG_STAT0_CT_DRAM);
         W_MMIO_L(MEM_CNTL, MEM_CNTL_CT_COLD);
         W_MMIO_L(BUS_CNTL, BUS_CNTL_CT_COLD);
@@ -212,9 +213,9 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
 
         volatile ULONG *highOffset = framebuffer + (bi->MemorySize >> 2) - 512 - 1;
         volatile ULONG *lowOffset  = framebuffer + (bi->MemorySize >> 3);
-        *framebuffer = 0;
-        *highOffset  = (ULONG)highOffset;
-        *lowOffset   = (ULONG)lowOffset;
+        *framebuffer               = 0;
+        *highOffset                = (ULONG)highOffset;
+        *lowOffset                 = (ULONG)lowOffset;
         CacheClearU();
 
         ULONG readbackHigh = *highOffset;
@@ -258,8 +259,7 @@ BOOL InitMach64CT(struct BoardInfo *bi)
     WRITE_PLL(PLL_REF_DIV, cs->referenceDivider);
     WRITE_PLL_MASK(PLL_GEN_CNTL, PLL_OVERRIDE_MASK | PLL_MRESET_MASK | OSC_EN_MASK | MCLK_SRC_SEL_MASK,
                    OSC_EN | MCLK_SRC_SEL(0b100));
-    WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK | PLL_EXT_CLK_EN_MASK | VCLK_SRC_SEL_MASK,
-                   VCLK_SRC_SEL(0b11));
+    WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK | PLL_EXT_CLK_EN_MASK | VCLK_SRC_SEL_MASK, VCLK_SRC_SEL(0b11));
     delayMilliSeconds(5);
 
     D(INFO, "PLL_REF_DIV=%ld PLL_GEN_CNTL=0x%02lx PLL_VCLK_CNTL=0x%02lx\n", (ULONG)READ_PLL(PLL_REF_DIV),
@@ -269,8 +269,6 @@ BOOL InitMach64CT(struct BoardInfo *bi)
     bi->SetClock             = SetClock_CT;
 
     InitVClockPLLTable(bi, g_VPLLPostDivider, ARRAY_SIZE(g_VPLLPostDivider));
-
-    bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
 
     W_MMIO_MASK_L(CRTC_GEN_CNTL,
                   CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_DISP_REQ_ENB_MASK | VGA_XCRT_CNT_EN_MASK |

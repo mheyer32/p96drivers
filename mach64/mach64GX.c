@@ -780,6 +780,11 @@ static const RGB514_DAC_Table RGB514_Modes[] = {
 #define RGB514_MAX_N    0x1f
 #define RGB514_MAX_M    0x3f
 
+/* IBM RGB514 REG06: Border Color R/G/B. */
+#define RGB514_BORDER_R 0x60
+#define RGB514_BORDER_G 0x61
+#define RGB514_BORDER_B 0x62
+
 static void writeRGB514Index(BoardInfo_t *bi, UWORD index, UBYTE data)
 {
     MMIOBASE();
@@ -907,8 +912,12 @@ static void ASM SetDAC_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(UWORD regio
 
     setCrtcPixWidth(bi, format);
     /* pixel_cntl keeps LUT in path — identity ramp for 15/16/32bpp. */
-    if (format != RGBFB_CLUT)
+    if (format != RGBFB_CLUT) {
         writeDacPalette(bi, format);
+        writeRGB514Index(bi, RGB514_BORDER_R, 0);
+        writeRGB514Index(bi, RGB514_BORDER_G, 0);
+        writeRGB514Index(bi, RGB514_BORDER_B, 0);
+    }
 
     DFUNC(VERBOSE, "SetDAC RGB514: depth=%ld fmt=%ld cntl_idx=0x%02lx cntl=0x%02lx\n", (ULONG)depth, (ULONG)format,
           (ULONG)tab->pixel_cntl_index, (ULONG)tab->pixel_cntl);
@@ -1150,6 +1159,28 @@ static void ASM SetClock_RGB514(__REGA0(struct BoardInfo *bi))
     writeRGB514Index(bi, 0x05, 0x00); /* Power Management */
     writeRGB514Index(bi, 0x20, (UBYTE)(word >> 8));
     writeRGB514Index(bi, 0x21, (UBYTE)(word & 0xff));
+}
+
+/* IBM RGB514: REG06 0x60/61/62 = Border Color R/G/B. */
+static void ASM SetColorArray_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex),
+                                     __REGD1(UWORD count))
+{
+    DFUNC(VERBOSE, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
+
+    SetColorArrayInternal(bi, startIndex, count, bi->CLUT);
+
+    /* DAC border RGB: follow CLUT[0] in 4/8 bpp; black in direct color. */
+    if (startIndex == 0 && count > 0) {
+        UBYTE r = 0, g = 0, b = 0;
+        if (!bi->ModeInfo || bi->ModeInfo->Depth <= 8) {
+            r = bi->CLUT[0].Red;
+            g = bi->CLUT[0].Green;
+            b = bi->CLUT[0].Blue;
+        }
+        writeRGB514Index(bi, RGB514_BORDER_R, r);
+        writeRGB514Index(bi, RGB514_BORDER_G, g);
+        writeRGB514Index(bi, RGB514_BORDER_B, b);
+    }
 }
 
 /* ATI68860 cursor colors live in the DAC, not CUR_CLR0/1 (SDK HWCURSOR.C). */
@@ -1467,10 +1498,11 @@ BOOL InitMach64GX(struct BoardInfo *bi)
         DFUNC(INFO, "DAC: IBM RGB514 (VCLK on DAC; ICS left for MCLK)\n");
         getChipSpecific(bi)->computeVCLKFrequency = computeVCLKFrequency_RGB514;
         InitRGB514ClockTable(bi);
-        /* LE aperture + RGB514 0x0E=0x00 scanout is BGRA (same as VT LE default). */
-        bi->RGBFormats        = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
+        /* RGB514 0x0E=0x00 scanout is BGRA on the LE aperture. */
+        bi->RGBFormats |= RGBFF_B8G8R8A8;
         bi->SetDAC            = SetDAC_RGB514;
         bi->SetClock          = SetClock_RGB514;
+        bi->SetColorArray     = SetColorArray_RGB514;
         /* On-DAC Mode0 cursor — override image/position/enable, not only colors. */
         bi->SetSprite         = SetSprite_RGB514;
         bi->SetSpritePosition = SetSpritePosition_RGB514;
@@ -1481,7 +1513,7 @@ BOOL InitMach64GX(struct BoardInfo *bi)
         getChipSpecific(bi)->computeVCLKFrequency = computeVCLKFrequency_ICS2595;
         InitICS2595ClockTable(bi);
         /* 68860 GMR E3 is RGBA on the LE aperture. */
-        bi->RGBFormats     = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_R8G8B8A8;
+        bi->RGBFormats |= RGBFF_R8G8B8A8;
         bi->SetDAC         = SetDAC_GX;
         bi->SetClock       = SetClock_GX;
         /* Keep Mach64 CUR_* sprite path; only colors live in the 68860. */

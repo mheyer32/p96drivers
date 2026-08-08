@@ -207,4 +207,8 @@ typedef struct MaxColorDepthTableEntry
     UBYTE DUMMY;
 } MaxColorDepthTableEntry_t;
 
+/* Shared CLUT load + chip OVR_CLR (palette index 0). GX DAC wrappers call this. */
+void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count),
+                               __REGA1(const struct CLUTEntry *colors));
+
 #endif
