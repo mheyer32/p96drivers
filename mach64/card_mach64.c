@@ -240,7 +240,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 
     struct ChipBase *ChipBase = NULL;
     const char *chipName =
-        (chipFamily == MACH64GX) ? CHIP_NAME_MACH64_GX : CHIP_NAME_MACH64;
+        (chipFamily == MACH64GX || chipFamily == MACH64CT) ? CHIP_NAME_MACH64_GX : CHIP_NAME_MACH64;
 
     if (!(ChipBase = (struct ChipBase *)OpenLibrary(chipName, 0))) {
         D(ERROR, "ATIMach64.card: could not open chip library %s\n", chipName);
@@ -251,14 +251,13 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     getCardData(bi)->legacyIOBase = legacyIOBase + REGISTER_OFFSET;
 
     {
-        /* GX needs PCI IO for sparse CONFIG_CNTL (linear aperture enable);
-         * all families need MEMORY for BAR0 / MMIO. */
+        /* Preserve BusMaster and other command bits (do not replace the word). */
         UWORD cmd = pci_read_config_word(PCI_COMMAND, cd->board);
         pci_write_config_word(PCI_COMMAND, cmd | PCI_COMMAND_MEMORY | PCI_COMMAND_IO, cd->board);
     }
 
     // Set up register and memory bases
-    if (chipFamily > MACH64GX && !memory1) {
+    if (chipFamily >= MACH64VT && !memory1) {
         DFUNC(ERROR, "Cannot find block IO aperture\n");
         return FALSE;
     }
@@ -266,6 +265,10 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     // Block IO is in BAR1
     bi->RegisterBase = (UBYTE *)memory1 + REGISTER_OFFSET;
 
+    // Framebuffer is at BAR0
+    bi->MemoryBase = (UBYTE *)memory0;
+    setCacheMode(bi, memory0, memory0Size, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED, CACHEFLAGS);
+        
     if (memory2) {
         // Use Auxiliary Aperture for MMIO if available
         D(INFO, "Using auxiliary register aperture at 0x%08lx\n", memory2);
@@ -273,14 +276,12 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         D(INFO, "MMIO base set to: 0x%08lx\n", bi->MemoryIOBase);
         setCacheMode(bi, memory2, memory2Size, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
     } else {
-        // MMIO registers are in top 1kb of the first 8mb memory window
-        bi->MemoryIOBase = (UBYTE *)memory0 + 0x800000 - 1024 + MMIOREGISTER_OFFSET;
-        setCacheMode(bi, (UBYTE *)memory0 + 0x800000 - 1024, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
+        ULONG mmioOff = mach64MmioOffsetInBar0(memory0Size);
+        D(INFO, "Using BAR0 MMIO at +0x%lx (BAR0 size %ld)\n", mmioOff, memory0Size);
+        bi->MemoryIOBase = (UBYTE *)memory0 + mmioOff + MMIOREGISTER_OFFSET;
+        setCacheMode(bi, (UBYTE *)memory0 + mmioOff, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
     }
 
-    // Framebuffer is at BAR0
-    bi->MemoryBase = (UBYTE *)memory0;
-    setCacheMode(bi, memory0, memory0Size, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED, CACHEFLAGS);
 
     D(INFO, "ATIMach64 calling init chip...\n");
     if (!InitChip(bi)) {

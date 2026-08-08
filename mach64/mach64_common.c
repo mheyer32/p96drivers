@@ -1,6 +1,10 @@
 #include "mach64_common.h"
 #include "chip_mach64.h"
 
+#include <libraries/openpci.h>
+#include <libraries/pcitags.h>
+#include <proto/openpci.h>
+
 ChipFamily_t getChipFamily(UWORD deviceId)
 {
     switch (deviceId) {
@@ -8,8 +12,8 @@ ChipFamily_t getChipFamily(UWORD deviceId)
         return MACH64VT;
     case 0x4758:  // mach64 GX
         return MACH64GX;
-    case 0x4354:  // mach64 CT (GX-class)
-        return MACH64GX;
+    case 0x4354:  // mach64 CT (GX-class bus; integrated DAC/PLL)
+        return MACH64CT;
     case 0x4749:  // mach64 Rage Pro
         return MACH64GT;
     case 0x4750:  // mach64 Rage Pro
@@ -28,6 +32,8 @@ const char *getChipFamilyName(ChipFamily_t family)
         return "Mach64 VT";
     case MACH64GX:
         return "Mach64 GX";
+    case MACH64CT:
+        return "Mach64 CT";
     case MACH64GT:
         return "Mach64 GT (Rage Pro)";
     case MACH64GM:
@@ -114,9 +120,11 @@ ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t 
     return computeFrequencyKhz10(cs->referenceFrequency, pllValues->N, cs->referenceDivider, postDiv);
 }
 
-static BOOL inline isGoodVCOFrequency(ULONG freqKhz10)
+static BOOL inline isGoodVCOFrequency(const BoardInfo_t *bi, ULONG freqKhz10)
 {
-    /* Match computePLLValues clamp (235 MHz) and CT/GT VCO window. */
+    /* Appendix J: CT/ET VCO 68–135 MHz; later CT-family / GT use ~100–235 MHz. */
+    if (getConstChipData(bi)->chipFamily == MACH64CT)
+        return freqKhz10 >= 6800 && freqKhz10 <= 13500;
     return freqKhz10 >= 10000 && freqKhz10 <= 23500;
 }
 
@@ -169,7 +177,7 @@ ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *post
 
         // Check VCO frequency (before post divider)
         ULONG vcoFreq = freqKhz10 * P;
-        if (!isGoodVCOFrequency(vcoFreq)) {
+        if (!isGoodVCOFrequency(bi, vcoFreq)) {
             D(TELLALL, "Post divider %ld: VCO frequency %ld0 KHz out of range\n", (ULONG)i, vcoFreq);
             continue;  // Skip if VCO out of range
         }
@@ -244,9 +252,10 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
     while (minFreq < maxFreq && e < maxNumEntries) {
         ULONG frequency = computePLLValues(bi, minFreq, multipliers, numMultipliers, &pllValues[e]);
         if (!frequency) {
-            /* Gaps exist between post-div ranges; skip. Stop after consecutive high-end failures. */
+            /* Gaps exist between post-div / VCO windows (esp. CT 68–135 MHz).
+             * Skip holes; only stop after repeated failures near maxPClock. */
             D(CHATTY, "skip unachievable PCLK %ld0 KHz\n", (ULONG)minFreq);
-            if (e > 0 && ++failStreak >= 3) {
+            if (e > 0 && minFreq + 300u >= maxFreq && ++failStreak >= 3) {
                 break;
             }
         } else {

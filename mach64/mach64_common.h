@@ -9,7 +9,8 @@ typedef enum ChipFamily
 {
     UNKNOWN,
     MACH64GX,
-    MACH64VT,  // 8mb aperture only
+    MACH64CT,  // integrated DAC/PLL; dual 8MB LE+BE aperture; waitFifo
+    MACH64VT,  // dual 8MB LE+BE (same aperture layout as CT)
     MACH64GT,
     MACH64GM  // Rage 3 XL
 } ChipFamily_t;
@@ -20,6 +21,8 @@ typedef enum ChipFamily
 #define SCRATCH_REG1    (0x21)
 #define BUS_CNTL        (0x28)
 #define MEM_CNTL        (0x2C)
+#define MEM_VGA_WP_SEL  (0x2D) /* write pages for A000/A800 (32K each) */
+#define MEM_VGA_RP_SEL  (0x2E) /* read pages for A000/A800 */
 #define GEN_TEST_CNTL   (0x34)
 #define CONFIG_CNTL     (0x37)
 #define CONFIG_CNTL_IO  (0x1A)
@@ -135,30 +138,56 @@ typedef enum ChipFamily
 #define CFG_MEM_VGA_AP_EN_MASK BIT(2)
 #define CFG_MEM_AP_LOC(x)      ((x) << 4)
 #define CFG_MEM_AP_LOC_MASK    (0x3FF << 4)
+/* CFG_MEM_AP_SIZE bits 0–1 (RRG §3-9). Same numeric value, different meaning:
+ * GX letter a: 0=off, 1=4M, 2=8M, 3=reserved
+ * CT letter f: 0/1 reserved, 2=2×8M (LE @0 + BE @+8M), 3=reserved */
+#define CFG_MEM_AP_SIZE(x)     ((x) & 3)
+#define CFG_MEM_AP_SIZE_MASK   (0x3)
+#define CFG_MEM_AP_SIZE_8M     2 /* GX: single 8M; CT/VT+: 2×8M dual */
 
-#define VGA_128KAP_PAGING      BIT(20)
-#define VGA_128KAP_PAGING_MASK BIT(20)
-#define CRTC_EXT_DISP_EN       BIT(24)
-#define CRTC_EXT_DISP_EN_MASK  BIT(24)
-#define VGA_ATI_LINEAR         BIT(27)
-#define VGA_ATI_LINEAR_MASK    BIT(27)
+/* CONFIG_STAT0 — GX/CX (ATI.TXT / RRG 3-10). Do not write on cold GX. */
+#define CFG_BUS_TYPE_GX(x)         ((x) & 7)
+#define CFG_BUS_TYPE_GX_MASK       (0x7)
+#define CFG_BUS_TYPE_GX_ISA        0
+#define CFG_BUS_TYPE_GX_EISA       1
+#define CFG_BUS_TYPE_GX_VLB        6
+#define CFG_BUS_TYPE_GX_PCI        7
 
-#define CFG_MEM_TYPE(x)          ((x) & 7)
-#define CFG_MEM_TYPE_MASK        (7)
-#define CFG_MEM_TYPE_DISABLE     0b000
-#define CFG_MEM_TYPE_DRAM        0b001
-#define CFG_MEM_TYPE_EDO         0b010
-#define CFG_MEM_TYPE_PSEUDO_EDO  0b011
-#define CFG_MEM_TYPE_SDRAM       0b100
-#define CFG_MEM_TYPE_SGRAM       0b101
-#define CFG_MEM_TYPE_SDRAM_32BIT 0b110
+#define CFG_MEM_TYPE_GX(x)         (((x) & 7) << 3)
+#define CFG_MEM_TYPE_GX_MASK       (0x7 << 3)
+#define CFG_MEM_TYPE_GX_DRAM4      0 /* DRAM 256Kx4 */
+#define CFG_MEM_TYPE_GX_VRAM       1 /* VRAM 256Kx4/x8/x16 */
+#define CFG_MEM_TYPE_GX_VRAM_SSR   2 /* VRAM short shift */
+#define CFG_MEM_TYPE_GX_DRAM16     3
+#define CFG_MEM_TYPE_GX_GDRAM      4
+#define CFG_MEM_TYPE_GX_EVRAM      5
+#define CFG_MEM_TYPE_GX_EVRAM_SSR  6
 
-#define CFG_DUAL_CAS_EN      BIT(3)
-#define CFG_DUAL_CAS_EN_MASK BIT(3)
-#define CFG_VGA_EN           BIT(4)
-#define CFG_VGA_EN_MASK      BIT(4)
-#define CFG_CLOCK_EN         BIT(5)
-#define CFG_CLOCK_EN_MASK    BIT(5)
+#define CFG_DUAL_CAS_EN_GX         BIT(6)
+#define CFG_DUAL_CAS_EN_GX_MASK    BIT(6)
+#define CFG_INIT_DAC_TYPE_GX(x)    (((x) & 7) << 9)
+#define CFG_INIT_DAC_TYPE_GX_MASK  (0x7 << 9)
+#define CFG_VGA_EN_GX              BIT(23)
+#define CFG_VGA_EN_GX_MASK         BIT(23)
+
+/* CONFIG_STAT0 — CT layout (RRG §3-12 letter z/aa+), not GX §3-10.
+ * Low byte redefined vs GX: do not decode with CFG_*_GX.
+ * CT mem_type (z): 0=disable, 1=DRAM, 2=EDO, 3–7 reserved on CT. */
+#define CFG_MEM_TYPE_CT(x)         ((x) & 7)
+#define CFG_MEM_TYPE_CT_MASK       (0x7)
+#define CFG_MEM_TYPE_CT_DISABLE    0b000
+#define CFG_MEM_TYPE_CT_DRAM       0b001
+#define CFG_MEM_TYPE_CT_EDO        0b010
+/* VT/GT+ encodings of the same field (CFG_MEM_TYPE_*) — invalid on CT. */
+#define CFG_MEM_TYPE_VT_PSEUDO_EDO 0b011
+#define CFG_MEM_TYPE_VT_SDRAM      0b100
+#define CFG_MEM_TYPE_VT_SGRAM      0b101
+#define CFG_MEM_TYPE_VT_SDRAM_32BIT 0b110
+
+#define CFG_DUAL_CAS_EN_CT         BIT(3)
+#define CFG_DUAL_CAS_EN_CT_MASK    BIT(3)
+#define CFG_CLOCK_EN_CT            BIT(5)
+#define CFG_CLOCK_EN_CT_MASK       BIT(5)
 
 #define GEN_OVS_EN          BIT(5)
 #define GEN_OVS_EN_MASK     BIT(5)
@@ -206,17 +235,32 @@ typedef enum ChipFamily
 #define CRTC_DISPLAY_DIS_MASK BIT(6)
 #define CRTC_PIX_WIDTH(x)     ((x) << 8)
 #define CRTC_PIX_WIDTH_MASK   (0x7 << 8)
+#define CRTC_BYTE_PIX_ORDER   BIT(11)
+#define CRTC_BYTE_PIX_ORDER_MASK BIT(11)
 
-// These are CT/CT registers
-#define CRTC_FIFO_OVERFILL(x)   ((x) << 14)
-#define CRTC_FIFO_OVERFILL_MASK (0x3 << 14)
+/* Shared (GX + CT): display FIFO LWM — DRAM configs only (ATI.TXT / RRG). */
 #define CRTC_FIFO_LWM(x)        ((x) << 16)
 #define CRTC_FIFO_LWM_MASK      (0xF << 16)
-#define CRTC_DISPREQ_ONLY       BIT(21)
-#define CRTC_DISPREQ_ONLY_MASK  BIT(21)
 
-#define CRTC_LOCK_REGS         BIT(22)
-#define CRTC_LOCK_REGS_MASK    BIT(22)
+/* CT CRTC_GEN_CNTL bits 20–22 (RRG-S00700-05 §3-18). Not present on GX.
+ * Do not confuse with later VT/GT names (128KAP / DISPREQ_ONLY / LOCK_REGS). */
+#define CRTC_EXTRA_PIPE_DELAY_CT      BIT(20)
+#define CRTC_EXTRA_PIPE_DELAY_CT_MASK BIT(20)
+#define CRTC_EXTRA_FIFO_READ_CT       BIT(21)
+#define CRTC_EXTRA_FIFO_READ_CT_MASK  BIT(21)
+#define CRTC_VSTATUS_VSYNC_CT         BIT(22) /* 0=VSTATUS, 1=VSYNC */
+#define CRTC_VSTATUS_VSYNC_CT_MASK    BIT(22)
+
+/* VT/GT+ (not CT RRG): names at the same bit numbers. */
+#define VGA_128KAP_PAGING_VT       BIT(20)
+#define VGA_128KAP_PAGING_VT_MASK  BIT(20)
+#define CRTC_DISPREQ_ONLY_VT       BIT(21)
+#define CRTC_DISPREQ_ONLY_VT_MASK  BIT(21)
+#define CRTC_FIFO_OVERFILL_VT(x)   ((x) << 14)
+#define CRTC_FIFO_OVERFILL_VT_MASK (0x3 << 14)
+#define CRTC_LOCK_REGS             BIT(22)
+#define CRTC_LOCK_REGS_MASK        BIT(22)
+
 #define CRTC_EXT_DISP_EN       BIT(24)
 #define CRTC_EXT_DISP_EN_MASK  BIT(24)
 #define CRTC_ENABLE            BIT(25)
@@ -325,6 +369,8 @@ enum PLL_REGS
 #define PLL_WR_ENABLE_MASK BIT(9)
 #define CLOCK_SEL_MASK     (0x3)
 #define CLOCK_SEL(x)       ((x) & CLOCK_SEL_MASK)
+#define CLOCK_STROBE       BIT(6)
+#define CLOCK_STROBE_MASK  BIT(6)
 
 extern void WritePLL(struct BoardInfo *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllData);
 extern UBYTE ReadPLL(struct BoardInfo *bi, UBYTE pllAddr);
@@ -492,8 +538,16 @@ static INLINE BOOL mach64ChipFamilySupported(ChipFamily_t family)
 #if MACH64_PCI_RETRY
     return family == MACH64VT || family == MACH64GT || family == MACH64GM;
 #else
-    return family == MACH64GX;
+    return family == MACH64GX || family == MACH64CT;
 #endif
+}
+
+/* MMIO sits at top of the LE 8MB window (base+0x7FFC00), not at end of a 16MB BAR.
+ * CT VRAM ≤4MB → no overlap with that MMIO hole. */
+static INLINE ULONG mach64MmioOffsetInBar0(ULONG bar0Size)
+{
+    ULONG aper = (bar0Size >= 0x800000UL) ? 0x800000UL : bar0Size;
+    return aper - 1024UL;
 }
 
 /* waitFifo lives in chip_mach64.h (needs ChipData.fifoSlotsCached). */

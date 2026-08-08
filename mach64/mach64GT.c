@@ -3,6 +3,15 @@
 #include "common.h"
 #include "mach64_common.h"
 
+#define BUS_APER_REG_DIS_GT      BIT(4)
+#define BUS_APER_REG_DIS_GT_MASK BIT(4)
+#define BUS_MASTER_DIS_GT        BIT(6)
+#define BUS_MASTER_DIS_GT_MASK   BIT(6)
+#define BUS_PCI_RETRY_EN_GT      BIT(15)
+#define BUS_PCI_RETRY_EN_GT_MASK BIT(15)
+#define BUS_FIFO_WS_GT(x)        ((x) << 16)
+#define BUS_FIFO_WS_GT_MASK      (0xF << 16)
+
 static const UWORD defaultRegs_GT[] = {0x00a2, 0x7b33,   // BUS_CNTL upper
                                        0x00a0, 0x0000,   // BUS_CNTL lower
                                        0x0018, 0x0000,   // CRTC_INT_CNTL lower
@@ -493,12 +502,13 @@ BOOL InitMach64GT(struct BoardInfo *bi)
 
     WriteDefaultRegList(bi, defaultRegs_GT, ARRAY_SIZE(defaultRegs_GT));
 
-    W_BLKIO_MASK_L(BUS_CNTL, BUS_MASTER_DIS_MASK | BUS_APER_REG_DIS_MASK | BUS_PCI_RETRY_EN_MASK | BUS_FIFO_WS_MASK,
-                   BUS_MASTER_DIS | BUS_APER_REG_DIS | BUS_PCI_RETRY_EN | BUS_FIFO_WS(0xF));
+    W_BLKIO_MASK_L(BUS_CNTL,
+                   BUS_MASTER_DIS_GT_MASK | BUS_APER_REG_DIS_GT_MASK | BUS_PCI_RETRY_EN_GT_MASK | BUS_FIFO_WS_GT_MASK,
+                   BUS_MASTER_DIS_GT | BUS_APER_REG_DIS_GT | BUS_PCI_RETRY_EN_GT | BUS_FIFO_WS_GT(0xF));
 
     // Set to SGRAM
-    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_MEM_TYPE_MASK | CFG_CLOCK_EN_MASK,
-                   CFG_MEM_TYPE(CFG_MEM_TYPE_SGRAM) | CFG_CLOCK_EN);
+    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_MEM_TYPE_CT_MASK | CFG_CLOCK_EN_CT_MASK,
+                   CFG_MEM_TYPE_CT(CFG_MEM_TYPE_VT_SGRAM) | CFG_CLOCK_EN_CT);
 
     // Changes in settings to this register will not take affect until MEM_SDRAM_RESET is pulsed (from 0 –>1).
     // initClocks() will do that
@@ -509,7 +519,7 @@ BOOL InitMach64GT(struct BoardInfo *bi)
     W_BLKIO_MASK_L(HW_DEBUG, AUTO_FF_DIS_MASK /*| AUTO_BLKWRT_DIS_MASK | AUTO_BLKWRT_COLOR_DIS_MASK*/, 0);
 
     // GUI clock activity controlled
-    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_CLOCK_EN_MASK, CFG_CLOCK_EN);
+    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_CLOCK_EN_CT_MASK, CFG_CLOCK_EN_CT);
 
     // FIFO must be empty before changing its size. Assuming we only used BLKIO above, there should not have been
     // any FIFO writes yet
