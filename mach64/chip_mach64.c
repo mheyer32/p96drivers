@@ -364,12 +364,32 @@ static UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWO
     return bytesPerRow;
 }
 
-static void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count),
-                                      __REGA1(const struct CLUTEntry *colors))
+#define OVR_CLR_8(x)   (x)
+#define OVR_CLR_8_MASK (0xFF)
+#define OVR_CLR_B(x)   ((x) << 8)
+#define OVR_CLR_B_MASK (0xFF << 8)
+#define OVR_CLR_G(x)   ((x) << 16)
+#define OVR_CLR_G_MASK (0xFF << 16)
+#define OVR_CLR_R(x)   ((x) << 24)
+#define OVR_CLR_R_MASK (0xFF << 24)
+
+/* OVR_CLR_8 = LUT index (4/8 bpp); OVR_CLR_R/G/B = direct color (15+ bpp). */
+static INLINE REGARGS void writeOvrClr(volatile UBYTE *MMIOBase, UBYTE index8, UBYTE r, UBYTE g, UBYTE b)
+{
+    W_MMIO_L(OVR_CLR, OVR_CLR_R(r) | OVR_CLR_G(g) | OVR_CLR_B(b) | OVR_CLR_8(index8));
+}
+
+void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count),
+                               __REGA1(const struct CLUTEntry *colors))
 {
     MMIOBASE();
+    LOCAL_SYSBASE();
 
     const UBYTE bppDiff = 0;  // 8 - bi->BitsPerCannon;
+
+    /* DAC auto-increments R→G→B→next index; an IRQ mid-sequence desyncs the
+     * channel (false colors). Same rule as Mach32 SetColorArray. */
+    Disable();
 
     W_MMIO_B(DAC_REGS, DAC_W_INDEX, startIndex);
 
@@ -377,6 +397,14 @@ static void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWO
         writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Red >> bppDiff);
         writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Green >> bppDiff);
         writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, colors[c].Blue >> bppDiff);
+    }
+
+    Enable();
+
+    /* 4/8 bpp overscan uses palette index 0; direct-color border is set in SetGC. */
+    if (startIndex == 0 && count > 0 && (!bi->ModeInfo || bi->ModeInfo->Depth <= 8)) {
+        writeOvrClr(MMIOBase, 0, colors[0].Red >> bppDiff, colors[0].Green >> bppDiff,
+                    colors[0].Blue >> bppDiff);
     }
 }
 
@@ -418,7 +446,7 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __R
 static INLINE REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags, ChipFamily_t family)
 {
     /* VT+: doublescan bit + ×2 V. GX/CT: CRTC_DBL_SCAN_EN alone; V stays logical. */
-    if ((modeFlags & GMF_DOUBLESCAN) && family >= MACH64VT)
+    if ((modeFlags & GMF_DOUBLESCAN) && family >= MACH64CT)
         y *= 2;
     if (modeFlags & GMF_INTERLACE)
         y /= 2;
@@ -467,15 +495,6 @@ static INLINE REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
 #define CRTC_OFFSET_MASK (0xFFFFF)
 #define CRTC_PITCH(x)    ((x) << 22)
 #define CRTC_PITCH_MASK  (0x3FF << 22)
-
-#define OVR_CLR_8(x)   (x)
-#define OVR_CLR_8_MASK (0xFF)
-#define OVR_CLR_B(x)   ((x) << 8)
-#define OVR_CLR_B_MASK (0xFF << 8)
-#define OVR_CLR_G(x)   ((x) << 16)
-#define OVR_CLR_G_MASK (0xFF << 16)
-#define OVR_CLR_R(x)   ((x) << 24)
-#define OVR_CLR_R_MASK (0xFF << 24)
 
 #define CRTC_VBLANK        BIT(0)
 #define CRTC_VBLANK_MASK   BIT(0)
@@ -560,6 +579,14 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         W_MMIO_L(OVR_WID_TOP_BOTTOM, 0);
     }
 
+    /* Overscan widths work in all depths. Color: LUT index 0 for 4/8 bpp,
+     * black RGB for direct color (no palette index 0). */
+    if (mi->Depth <= 8) {
+        writeOvrClr(MMIOBase, 0, bi->CLUT[0].Red, bi->CLUT[0].Green, bi->CLUT[0].Blue);
+    } else {
+        writeOvrClr(MMIOBase, 0, 0, 0, 0);
+    }
+
     ULONG crtcGenCntl = R_MMIO_L(CRTC_GEN_CNTL);
     crtcGenCntl &= ~(CRTC_DBL_SCAN_EN | CRTC_INTERLACE_EN);
     if (isInterlaced) {
@@ -568,26 +595,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     if (modeFlags & GMF_DOUBLESCAN) {
         crtcGenCntl |= CRTC_DBL_SCAN_EN;
     }
-    // {
-    //     UBYTE pixWidth = COLOR_DEPTH_8;
-    //     switch (mi->Depth) {
-    //     case 15:
-    //         pixWidth = COLOR_DEPTH_15;
-    //         break;
-    //     case 16:
-    //         pixWidth = COLOR_DEPTH_16;
-    //         break;
-    //     case 24:
-    //         pixWidth = COLOR_DEPTH_24;
-    //         break;
-    //     case 32:
-    //         pixWidth = COLOR_DEPTH_32;
-    //         break;
-    //     default:
-    //         break;
-    //     }
-    //     crtcGenCntl |= CRTC_PIX_WIDTH(pixWidth);
-    // }
+
     W_MMIO_L(CRTC_GEN_CNTL, crtcGenCntl);
 
 #if MACH64_PCI_RETRY
@@ -595,7 +603,6 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         AdjustCrtcFifo_VT(bi);
 #endif
 
-    // FIXME: doesn't seem to exist on RagePro/LT?!
     if (getChipData(bi)->chipFamily < MACH64GT) {
         ULONG dpChainMask = 0x8080;
 
@@ -2134,9 +2141,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->PaletteChipType        = PCT_ATT_20C492;
     bi->Flags                  = bi->Flags | BIF_GRANTDIRECTACCESS | BIF_HARDWARESPRITE | BIF_BLITTER;
 
-    /* LE aperture only for now; Amiga-endian formats added after chipFamily
-     * is known (CT/VT+ dual 8MB BE window — GX has LE only). */
-    bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B8G8R8A8;
+    /* RGBFormats filled after chipFamily is known (GX DAC vs CT+ BE window). */
 
     bi->SoftSpriteFlags = 0;
 
@@ -2248,9 +2253,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         }
         D(INFO, "Chip family: %s\n", getChipFamilyName(cd->chipFamily));
 
-        /* CT/VT+: second 8MB window is big-endian alias. GX has LE only. */
-        if (cd->chipFamily >= MACH64CT)
-            bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
+        /* LE aperture formats for all; CT+ also advertise BE (+8MB) aliases. */
+        bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC;
+        if (cd->chipFamily >= MACH64CT) {
+            bi->RGBFormats |= RGBFF_B8G8R8A8 | RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
+        }
+        /* GX: 32bpp LE order is DAC-specific — InitMach64GX ORs it. */
 
         /* Required for BAR decode; GX also needs IO for sparse CONFIG_CNTL. */
         {
@@ -2832,9 +2840,11 @@ int main()
                     testMi.Width        = modes[m].w;
                     testMi.Height       = modes[m].h;
                     testMi.HorTotal     = modes[m].hTot;
+                    testMi.HorBlankSize = 8;
                     testMi.HorSyncStart = modes[m].hSyncStart;
                     testMi.HorSyncSize  = modes[m].hSyncSize;
                     testMi.VerTotal     = modes[m].vTot;
+                    testMi.VerBlankSize = 8;
                     testMi.VerSyncStart = modes[m].vSyncStart;
                     testMi.VerSyncSize  = modes[m].vSyncSize;
                     testMi.PixelClock   = modes[m].pclk;
@@ -2847,7 +2857,7 @@ int main()
                     if (bi->SetClock) {
                         bi->SetClock(bi);
                     }
-                    bi->SetGC(bi, &testMi, FALSE);
+                    bi->SetGC(bi, &testMi, TRUE);
 
                     for (int c = 0; c < 256; c++) {
                         bi->CLUT[c].Red = bi->CLUT[c].Green = bi->CLUT[c].Blue = (UBYTE)c;
@@ -2881,9 +2891,11 @@ int main()
                 testMi.Width        = 640;
                 testMi.Height       = 480;
                 testMi.HorTotal     = 800;
+                testMi.HorBlankSize = 8;
                 testMi.HorSyncStart = 16;
                 testMi.HorSyncSize  = 96;
                 testMi.VerTotal     = 525;
+                testMi.VerBlankSize = 8;
                 testMi.VerSyncStart = 10;
                 testMi.VerSyncSize  = 2;
                 testMi.PixelClock   = 25175000;
@@ -2892,7 +2904,7 @@ int main()
                 if (bi->SetClock) {
                     bi->SetClock(bi);
                 }
-                bi->SetGC(bi, &testMi, FALSE);
+                bi->SetGC(bi, &testMi, TRUE);
                 bi->SetDAC(bi, 0, RGBFB_CLUT);
                 bi->SetPanning(bi, bi->MemoryBase, 640, 480, 0, 0, RGBFB_CLUT);
                 bi->SetDisplay(bi, TRUE);
