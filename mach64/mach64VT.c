@@ -2,12 +2,12 @@
 #include "chip_mach64.h"
 #include "mach64_common.h"
 
-#define CRTC_FIFO_OVERFILL(x)   ((x) << 14)
-#define CRTC_FIFO_OVERFILL_MASK (0x3 << 14)
-#define CRTC_FIFO_LWM(x)        ((x) << 16)
-#define CRTC_FIFO_LWM_MASK      (0xF << 16)
-#define CRTC_DISPREQ_ONLY       BIT(21)
-#define CRTC_DISPREQ_ONLY_MASK  BIT(21)
+#define BUS_PCI_RETRY_EN_VT      BIT(15)
+#define BUS_PCI_RETRY_EN_VT_MASK BIT(15)
+#define BUS_FIFO_WS_VT(x)        ((x) << 16)
+#define BUS_FIFO_WS_VT_MASK      (0xF << 16)
+
+void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv);
 
 static const UBYTE g_VPLLPostDivider[] = {1, 2, 4, 8};
 
@@ -30,76 +30,26 @@ static const UBYTE g_MPLLPostDividerCodes[] = {
 #define DCLK_BY2_EN       BIT(7)
 #define DCLK_BY2_EN_MASK  BIT(7)
 
-// ULONG ComputeFrequencyKhz10(UWORD R, UWORD N, UWORD M, UBYTE Plog2)
-// {
-//     return ((ULONG)2 * R * N) / (M << Plog2);
-// }
-
-// ULONG ComputePLLValues(const BoardInfo_t *bi, ULONG targetFreqKhz10, PLLValue_t *pllValues)
-// {
-//     DFUNC(VERBOSE, "targetFrequency: %ld0 KHz\n", targetFreqKhz10);
-
-//     const ChipSpecific_t *cs = getConstChipSpecific(bi);
-//     UWORD R                  = cs->referenceFrequency;
-//     UWORD M                  = cs->referenceDivider;
-
-//     ULONG Qtimes2 = (targetFreqKhz10 * M + R - 1) / R;
-//     if (Qtimes2 >= 511) {
-//         goto failure;
-//     }
-
-//     UBYTE P = 0;
-//     if (Qtimes2 < 31)  // 16
-//         goto failure;
-//     else if (Qtimes2 < 63)   // 31.5
-//         P = 3;               // 8x
-//     else if (Qtimes2 < 127)  // 63.5
-//         P = 2;               // 4x
-//     else if (Qtimes2 < 255)  // 127.5
-//         P = 1;               // 2x
-//     else if (Qtimes2 < 511)  // 255
-//         P = 0;               // 1
-//     else
-//         goto failure;
-
-//     // Round up
-//     UBYTE N = ((Qtimes2 << P) + 1) >> 1;
-
-//     pllValues->N    = N;
-//     pllValues->Pidx = P;
-
-//     ULONG outputFreq = ComputeFrequencyKhz10(R, N, M, P);
-
-//     DFUNC(CHATTY, "target: %ld0 KHz, Output: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %ld, N: %ld\n", targetFreqKhz10,
-//           outputFreq, R, M, (ULONG)1 << P, (ULONG)N);
-
-//     return outputFreq;
-
-// failure:
-//     DFUNC(ERROR, "Qtimes2: %ld\n", Qtimes2);
-//     DFUNC(ERROR, "target frequency out of range:  %ld0Khz\n", targetFreqKhz10);
-//     return 0;
-// }
-
-static const UWORD defaultRegs_VT[] = {0x00a2, 0x6007,   // BUS_CNTL upper
-                                       0x00a0, 0x20f8,   // BUS_CNTL lower
-                                       0x0018, 0x0000,   // CRTC_INT_CNTL lower
-                                       0x001c, 0x0200,   // CRTC_GEN_CNTL lower
-                                       0x001e, 0x040b,   // CRTC_GEN_CNTL upper
-                                       0x00d2, 0x0000,   // GEN_TEST_CNTL upper
-                                       0x00e4, 0x0020,   // CONFIG_STAT0 upper
-                                       0x00b0, 0x0021,   // MEM_CNTL lower
-                                       0x00b2, 0x0801,   // MEM_CNTL upper
-                                       0x00d0, 0x0000,   // GEN_TEST_CNTL lower
-                                       0x001e, 0x0000,   // CRTC_GEN_CNTL upper
-                                       0x0080, 0x0000,   // SCRATCH_REG0 lower
-                                       0x0082, 0x0000,   // SCRATCH_REG0 upper
-                                       0x0084, 0x0000,   // SCRATCH_REG1 lower
-                                       0x0086, 0x0000,   // SCRATCH_REG1 upper
-                                       0x00c4, 0x0000,   // DAC_CNTL lower
-                                       0x00c6, 0x8000,   // DAC_CNTL upper
-                                       0x007a, 0x0000,   // GP_IO lower
-                                       0x00d0, 0x0100};  // GEN_TEST_CNTL lower
+static const UWORD defaultRegs_VT[] = {
+    0x00a2, 0x6007,  // BUS_CNTL upper
+    0x00a0, 0x20f8,  // BUS_CNTL lower
+    0x0018, 0x0000,  // CRTC_INT_CNTL lower
+    0x001c, 0x0200,  // CRTC_GEN_CNTL lower
+    0x001e, 0x040b,  // CRTC_GEN_CNTL upper
+    0x00d2, 0x0000,  // GEN_TEST_CNTL upper
+    // 0x00e4, 0x0020,   // CONFIG_STAT0 lower — kills Expansion ROM (MEM_TYPE=DISABLE); set below
+    0x00b0, 0x0021,   // MEM_CNTL lower
+    0x00b2, 0x0801,   // MEM_CNTL upper
+    0x00d0, 0x0000,   // GEN_TEST_CNTL lower
+    0x001e, 0x0000,   // CRTC_GEN_CNTL upper
+    0x0080, 0x0000,   // SCRATCH_REG0 lower
+    0x0082, 0x0000,   // SCRATCH_REG0 upper
+    0x0084, 0x0000,   // SCRATCH_REG1 lower
+    0x0086, 0x0000,   // SCRATCH_REG1 upper
+    0x00c4, 0x0000,   // DAC_CNTL lower
+    0x00c6, 0x8000,   // DAC_CNTL upper
+    0x007a, 0x0000,   // GP_IO lower
+    0x00d0, 0x0100};  // GEN_TEST_CNTL lower
 
 typedef struct
 {
@@ -147,6 +97,82 @@ static ULONG computeVCLKrequencyKhz10_VT(const struct BoardInfo *bi, const struc
     return computeFrequencyKhz10FromPllValue(bi, pllValues, g_VPLLPostDivider);
 }
 
+/*
+ * Display FIFO LWM for VT (MAGIC_FIFO / no GTB_DSP). Empirical values from
+ * PSEUDO_EDO 2M @60MHz tables (InitMach64VT forces PSEUDO_EDO). fifo_val low
+ * nibble = CRTC_FIFO_LWM; bit5 → CRTC_DISPREQ_ONLY (SDK CRTC_FIFO byte write).
+ * Dot clocks are 10 kHz units (2518 = 25.18 MHz).
+ */
+typedef struct
+{
+    UWORD clock10k;
+    UBYTE fifoVal;
+} FifoEntry_t;
+
+static const FifoEntry_t g_fifo8[] = {
+    {4600, 0x04}, {5600, 0x06}, {7000, 0x06}, {9400, 0x08}, {10000, 0x0a}, {11300, 0x0c}, {14000, 0x0c}, {24000, 0x0e},
+};
+static const FifoEntry_t g_fifo16[] = {
+    {2200, 0x06}, {3400, 0x06}, {4200, 0x0a}, {5500, 0x0a},  {6600, 0x0c},
+    {7000, 0x0c}, {7600, 0x0e}, {7900, 0x0e}, {24000, 0x0e},
+};
+static const FifoEntry_t g_fifo24[] = {
+    {2000, 0x08}, {3400, 0x0a}, {3800, 0x0a}, {4200, 0x0a}, {4500, 0x0c}, {5200, 0x28}, {24000, 0x2a},
+};
+static const FifoEntry_t g_fifo32[] = {
+    {3000, 0x0a},
+    {3500, 0x0e},
+    {4200, 0x0e},
+    {24000, 0x2a},
+};
+
+static UBYTE lookupFifoVal(const FifoEntry_t *tab, UBYTE n, ULONG clock10k)
+{
+    for (UBYTE i = 0; i < n; i++) {
+        if (clock10k <= tab[i].clock10k)
+            return tab[i].fifoVal;
+    }
+    return tab[n - 1].fifoVal;
+}
+
+void AdjustCrtcFifo_VT(struct BoardInfo *bi)
+{
+    const struct ModeInfo *mi = bi->ModeInfo;
+    if (!mi)
+        return;
+
+    ULONG clock10k = mi->PixelClock / 10000;
+    UBYTE fifoVal;
+
+    switch (mi->Depth) {
+    case 15:
+    case 16:
+        fifoVal = lookupFifoVal(g_fifo16, ARRAY_SIZE(g_fifo16), clock10k);
+        break;
+    case 24:
+        fifoVal = lookupFifoVal(g_fifo24, ARRAY_SIZE(g_fifo24), clock10k);
+        break;
+    case 32:
+        fifoVal = lookupFifoVal(g_fifo32, ARRAY_SIZE(g_fifo32), clock10k);
+        break;
+    default:
+        fifoVal = lookupFifoVal(g_fifo8, ARRAY_SIZE(g_fifo8), clock10k);
+        break;
+    }
+
+    UBYTE lwm      = fifoVal & 0x0F;
+    ULONG extra    = (fifoVal & 0x20) ? CRTC_DISPREQ_ONLY_VT : 0;
+    UBYTE overfill = (fifoVal & 0x20) ? 2 : 1;
+
+    DFUNC(VERBOSE, "clk %ld0kHz depth %ld → fifo=0x%02lx LWM=%ld overfill=%ld dispreq=%ld\n", clock10k,
+          (ULONG)mi->Depth, (ULONG)fifoVal, (ULONG)lwm, (ULONG)overfill, !!(extra));
+
+    MMIOBASE();
+    W_MMIO_MASK_L(CRTC_GEN_CNTL,
+                  CRTC_FIFO_LWM_MASK | CRTC_FIFO_OVERFILL_VT_MASK | CRTC_DISPREQ_ONLY_VT_MASK | CRTC_LOCK_REGS_MASK,
+                  CRTC_FIFO_LWM(lwm) | CRTC_FIFO_OVERFILL_VT(overfill) | extra);
+}
+
 static void ASM SetClock_VT(__REGA0(struct BoardInfo *bi))
 {
     REGBASE();
@@ -177,6 +203,11 @@ static void ASM SetClock_VT(__REGA0(struct BoardInfo *bi))
     WRITE_PLL(PLL_VCLK0_FB_DIV, mi->pll1.Numerator);
     BYTE postDivCode = g_VPLLPostDividerCodes[mi->pll2.Denominator];
     WRITE_PLL_MASK(PLL_VCLK_POST_DIV, VCLK0_POST_MASK, VCLK0_POST(postDivCode));
+
+    /* VT A3/A4: CRTC FIFO LWM. VT3+ (asic rev ≥ 1): GTB DSP as well. */
+    AdjustCrtcFifo_VT(bi);
+    if (getAsicVersion(bi) >= 1)
+        AdjustDSP(bi, mi->pll1.Numerator, g_VPLLPostDivider[mi->pll2.Denominator]);
 
     WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, 0);
     delayMilliSeconds(5);
@@ -308,13 +339,13 @@ BOOL InitMach64VT(struct BoardInfo *bi)
     // These values are being set by the Mach64VT BIOS, but are inline with the code, not somewhere in an accessible
     // table. CONFIG_STAT0 is apparently not strapped to the right memory type and only by setting it here we get access
     // to the framebuffer memory.
-    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_MEM_TYPE_MASK | CFG_DUAL_CAS_EN_MASK | CFG_VGA_EN_MASK | CFG_CLOCK_EN_MASK,
-                   CFG_MEM_TYPE(CFG_MEM_TYPE_PSEUDO_EDO) | CFG_DUAL_CAS_EN | CFG_CLOCK_EN);
+    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_MEM_TYPE_CT_MASK | CFG_DUAL_CAS_EN_CT_MASK | CFG_CLOCK_EN_CT_MASK,
+                   CFG_MEM_TYPE_CT(CFG_MEM_TYPE_VT_PSEUDO_EDO) | CFG_DUAL_CAS_EN_CT | CFG_CLOCK_EN_CT);
 
     // W_BLKIO_MASK_B(CONFIG_STAT0, 0, ~0xf8, 0x3b);
 
-    W_BLKIO_MASK_L(BUS_CNTL, BUS_ROM_DIS_MASK | BUS_PCI_RETRY_EN_MASK | BUS_FIFO_WS_MASK,
-                   BUS_PCI_RETRY_EN | BUS_FIFO_WS(0xF));
+    W_BLKIO_MASK_L(BUS_CNTL, BUS_ROM_DIS_MASK | BUS_PCI_RETRY_EN_VT_MASK | BUS_FIFO_WS_VT_MASK,
+                   BUS_PCI_RETRY_EN_VT | BUS_FIFO_WS_VT(0xF));
 
     cs->computeVCLKFrequency = computeVCLKrequencyKhz10_VT;
     bi->SetClock             = SetClock_VT;
@@ -332,9 +363,8 @@ BOOL InitMach64VT(struct BoardInfo *bi)
 
     setMemoryClock(bi, cs->maxDRAMClock);
 
-    if (!probeMemorySize(bi)) {
+    if (!probeMemorySize(bi))
         return FALSE;
-    }
 
     return TRUE;
 }

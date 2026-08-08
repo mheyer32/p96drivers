@@ -111,8 +111,14 @@ static INLINE void waitFifo(BoardInfo_t *bi, UBYTE entries)
     flushWrites();
     {
         MMIOBASE();
+        ULONG spins = 0;
         do {
             freeSlots = countFreeFifoSlots((UWORD)(R_MMIO_L(FIFO_STAT) & 0xffff));
+            if (++spins > 1000000UL) {
+                /* CT with dead MCLK returns stuck FIFO_STAT — don't lock the machine. */
+                cd->fifoSlotsCached = 0;
+                return;
+            }
         } while (freeSlots < entries);
     }
 

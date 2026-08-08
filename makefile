@@ -273,11 +273,13 @@ ATIMACH64_COMMON_SRC = common.c \
                 mach64/mach64_common.c \
                 mach64/chip_mach64.c \
                 mach64/mach64_i2c.c \
+                mach64/mach64_eeprom.c \
                 edid_common.c \
                 chip_library.c
 
 ATIMACH64_GX_SRC = ${ATIMACH64_COMMON_SRC} \
-                mach64/mach64GX.c
+                mach64/mach64GX.c \
+                mach64/mach64CT.c
 
 ATIMACH64_VT_SRC = ${ATIMACH64_COMMON_SRC} \
                 mach64/mach64GT.c \
@@ -302,10 +304,12 @@ ATIMACH64_TESTEXE_COMMON_SRC = common.c \
                         mach64/mach64_common.c \
                         mach64/chip_mach64.c \
                         mach64/mach64_i2c.c \
+                        mach64/mach64_eeprom.c \
                         edid_common.c
 
 ATIMACH64_GX_TESTEXE_SRC = ${ATIMACH64_TESTEXE_COMMON_SRC} \
-                        mach64/mach64GX.c
+                        mach64/mach64GX.c \
+                        mach64/mach64CT.c
 
 ATIMACH64_VT_TESTEXE_SRC = ${ATIMACH64_TESTEXE_COMMON_SRC} \
                         mach64/mach64GT.c \

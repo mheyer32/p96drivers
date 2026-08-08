@@ -7,13 +7,6 @@
 
 #define CONFIG_STAT1 (0x3A)
 
-#define CRTC_FIFO_OVERFILL(x)   ((x) << 14)
-#define CRTC_FIFO_OVERFILL_MASK (0x3 << 14)
-#define CRTC_FIFO_LWM(x)        ((x) << 16)
-#define CRTC_FIFO_LWM_MASK      (0xF << 16)
-#define CRTC_DISPREQ_ONLY       BIT(21)
-#define CRTC_DISPREQ_ONLY_MASK  BIT(21)
-
 // DAC_REGS sub-registers (same as VGA I/O ports 0x3c8/0x3c7/0x3c9)
 #define DAC_W_INDEX 0
 #define DAC_R_INDEX 3
@@ -1439,12 +1432,17 @@ BOOL InitMach64GX(struct BoardInfo *bi)
     case 0x97:  // Mach64 EX
         chipType = "EX";
         break;
-    case 0x53:  // Mach64 CT
-        chipType = "CT";
-        break;
+    case 0x53:  // Mach64 CT — must use InitMach64CT
+        DFUNC(ERROR, "Mach64 CT requires InitMach64CT (integrated DAC/PLL), aborting.\n");
+        return FALSE;
     };
     DFUNC(INFO, "Detected ATI Mach64 %s (Device ID: 0x%04lx, Chip  Revision 0x%02lx)\n", chipType, chipID & 0xFFFF,
           chipID >> 24);
+
+    if (getChipData(bi)->chipFamily == MACH64CT) {
+        DFUNC(ERROR, "MACH64CT family routed to InitMach64GX — use InitMach64CT\n");
+        return FALSE;
+    }
 
     ULONG configStat0 = R_MMIO_L(CONFIG_STAT0);
     print_CONFIG_STAT0((CONFIG_STAT0_t *)&configStat0);

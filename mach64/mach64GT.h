@@ -45,22 +45,6 @@
 #define PCI5VEN      BIT(25)
 #define PCI5VEN_MASK BIT(25)
 
-// BUS_CNTL
-#define BUS_DBL_RESYNC        BIT(0)
-#define BUS_DBL_RESYNC_MASK   BIT(0)
-#define BUS_MSTR_RESET        BIT(1)
-#define BUS_MSTR_RESET_MASK   BIT(1)
-#define BUS_FLUSH_BUF         BIT(2)
-#define BUS_FLUSH_BUF_MASK    BIT(2)
-#define BUS_APER_REG_DIS      BIT(4)
-#define BUS_APER_REG_DIS_MASK BIT(4)
-#define BUS_MASTER_DIS        BIT(6)
-#define BUS_MASTER_DIS_MASK   BIT(6)
-#define BUS_PCI_RETRY_EN      BIT(15)
-#define BUS_PCI_RETRY_EN_MASK BIT(15)
-#define BUS_FIFO_WS(x)        ((x) << 16)
-#define BUS_FIFO_WS_MASK      (0xF << 16)
-
 // DSP_CONFIG
 #define DSP_CONFIG            0x08
 #define DSP_XCLKS_PER_QW(x)   (x)
