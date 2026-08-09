@@ -21,8 +21,6 @@ typedef enum __attribute__((packed)) ChipFamily
 
 STATIC_ASSERT(sizeof(ChipFamily_t) == 1, chipfamily_is_byte);
 
-#define DWORD_OFFSET(x) ((x) * 4)
-
 #define SCRATCH_REG0    (0x20)
 #define SCRATCH_REG1    (0x21)
 #define BUS_CNTL        (0x28)
@@ -31,7 +29,6 @@ STATIC_ASSERT(sizeof(ChipFamily_t) == 1, chipfamily_is_byte);
 #define MEM_VGA_RP_SEL  (0x2E) /* read pages for A000/A800 */
 #define GEN_TEST_CNTL   (0x34)
 #define CONFIG_CNTL     (0x37)
-#define CONFIG_CNTL_IO  (0x1A)
 #define CONFIG_CHIP_ID  (0x38)
 #define CONFIG_STAT0    (0x39)
 #define CLOCK_CNTL      (0x24)
@@ -328,8 +325,9 @@ typedef struct PLLValue
     UBYTE N;     // feedback divider
 } PLLValue_t;
 
-enum PLL_REGS
-{
+#ifdef __cplusplus
+namespace PllReg {
+enum Id : UBYTE {
     PLL_MPLL_CNTL     = 0,
     PLL_MACRO_CNTL    = 1,
     PLL_VPLL_CNTL     = 1,  // GT
@@ -366,9 +364,11 @@ enum PLL_REGS
     PLL_PLL_YCLK_CNTL    = 41,  // GT
     PLL_PM_DYN_CLK_CNTL  = 42,  // GT
 };
+}
+#endif
 
 #define PLL_ADDR_MASK      (0x3F << 10)  // 6 bits on GT, used to be less on older chips
-#define PLL_ADDR(x)        ((x) << 10)
+#define PLL_ADDR(x)        ((ULONG)(x) << 10)
 #define PLL_DATA_MASK      (0xFF << 16)
 #define PLL_DATA(x)        ((x) << 16)
 #define PLL_WR_ENABLE      BIT(9)
@@ -378,8 +378,13 @@ enum PLL_REGS
 #define CLOCK_STROBE       BIT(6)
 #define CLOCK_STROBE_MASK  BIT(6)
 
+#ifdef __cplusplus
+extern void WritePLL(struct BoardInfo *bi, PllReg::Id pllAddr, UBYTE pllDataMask, UBYTE pllData);
+extern UBYTE ReadPLL(struct BoardInfo *bi, PllReg::Id pllAddr);
+#else
 extern void WritePLL(struct BoardInfo *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllData);
 extern UBYTE ReadPLL(struct BoardInfo *bi, UBYTE pllAddr);
+#endif
 
 #define WRITE_PLL(pllAddr, data)            WritePLL(drv, (pllAddr), 0xFF, (data))
 #define WRITE_PLL_MASK(pllAddr, mask, data) WritePLL(drv, (pllAddr), (mask), (data))
@@ -399,168 +404,6 @@ extern void ResetEngine(const BoardInfo_t *bi);
 extern ChipFamily_t getChipFamily(UWORD deviceId);
 extern const char *getChipFamilyName(ChipFamily_t family);
 
-static INLINE UBYTE REGARGS readATIRegisterB(volatile UBYTE *regbase, LONG regIndex, WORD byteIndex,
-                                             const char *regName)
-{
-    UBYTE value = readReg(regbase, DWORD_OFFSET(regIndex) + byteIndex);
-    D(VERBOSE, "R %s_%ld -> 0x%02lx\n", regName, (LONG)byteIndex, (LONG)value);
-
-    return value;
-}
-
-static INLINE ULONG REGARGS readATIRegisterL(volatile UBYTE *regbase, LONG regIndex, const char *regName)
-{
-    ULONG value = readRegL(regbase, DWORD_OFFSET(regIndex), regName);
-    return value;
-}
-
-static INLINE ULONG REGARGS readATIMMIOL(volatile UBYTE *regbase, LONG regIndex, const char *regName)
-{
-    flushWrites();
-    return readATIRegisterL(regbase, regIndex, regName);
-}
-
-static INLINE ULONG REGARGS readATIRegisterAndMaskL(volatile UBYTE *regbase, LONG regIndex, ULONG mask,
-                                                    const char *regName)
-{
-    ULONG value       = readRegL(regbase, DWORD_OFFSET(regIndex), regName);
-    ULONG valueMasked = value & mask;
-    D(VERBOSE, "R %s -> 0x%08lx & 0x%08lx = 0x%08lx\n", regName, value, mask, valueMasked);
-
-    return valueMasked;
-}
-
-static INLINE void REGARGS writeATIRegisterMaskB(volatile UBYTE *regbase, LONG regIndex, BYTE byteIndex, UBYTE mask,
-                                                 UBYTE value, const char *regName)
-{
-    UBYTE regValue = readReg(regbase, DWORD_OFFSET(regIndex) + byteIndex);
-    regValue &= ~mask;
-    regValue |= value & mask;
-    D(VERBOSE, "W %s_%ld <- 0x%02lx\n", regName, (LONG)byteIndex, (LONG)value);
-    writeReg(regbase, DWORD_OFFSET(regIndex) + byteIndex, regValue);
-}
-
-static INLINE void REGARGS writeATIRegisterB(volatile UBYTE *regbase, LONG regIndex, BYTE byteIndex, UBYTE value,
-                                             const char *regName)
-{
-    D(VERBOSE, "W %s_%ld <- 0x%02lx\n", regName, (LONG)byteIndex, (LONG)value);
-    writeReg(regbase, DWORD_OFFSET(regIndex) + byteIndex, value);
-}
-
-static INLINE void REGARGS writeATIRegisterL(volatile UBYTE *regbase, LONG regIndex, ULONG value, const char *regName)
-{
-    writeRegL(regbase, DWORD_OFFSET(regIndex), value, regName);
-}
-
-static INLINE void REGARGS writeATIRegisterMaskL(volatile UBYTE *regbase, LONG regIndex, ULONG mask, ULONG value,
-                                                 const char *regName)
-{
-    ULONG regValue = readRegLNoSwap(regbase, DWORD_OFFSET(regIndex), regName);
-
-    mask     = swapl(mask);
-    value    = swapl(value);
-    regValue = (regValue & ~mask) | (mask & value);
-
-    writeRegLNoSwap(regbase, DWORD_OFFSET(regIndex), regValue, regName);
-}
-
-static INLINE void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, LONG regIndex, ULONG value,
-                                                   const char *regName)
-{
-    writeRegLNoSwap(regbase, DWORD_OFFSET(regIndex), value, regName);
-}
-
-// FIXME reusing the same function for IO and MMIO shouldn't work because MMIOREGISTER_OFFSET and REGISTER_OFFSET might
-// be different, but in practise they aren't. Refactor the code.
-#define CHECK_BLKIO(regIndex, X)                                        \
-    do {                                                                \
-        _Static_assert(regIndex < 0x40, "BLKIO only for regs < 0x040"); \
-        X;                                                              \
-    } while (0)
-#define R_BLKIO_B(regIndex, byteIndex)        readATIRegisterB(RegBase, regIndex, byteIndex, #regIndex)
-#define R_BLKIO_L(regIndex)                   readATIRegisterL(RegBase, regIndex, #regIndex)
-#define R_BLKIO_AND_L(regIndex, mask)         readATIRegisterAndMaskL(RegBase, regIndex, mask, #regIndex)
-#define W_BLKIO_B(regIndex, byteIndex, value) writeATIRegisterB(RegBase, regIndex, byteIndex, value, #regIndex)
-#define W_BLKIO_MASK_B(regIndex, byteIndex, mask, value) \
-    writeATIRegisterMaskB(RegBase, regIndex, byteIndex, mask, value, #regIndex)
-#define W_BLKIO_L(regIndex, value)                                      \
-    do {                                                                \
-        _Static_assert(regIndex < 0x40, "BLKIO only for regs < 0x040"); \
-        writeATIRegisterL(RegBase, regIndex, value, #regIndex);         \
-    } while (0)
-#define W_BLKIO_MASK_L(regIndex, mask, value) writeATIRegisterMaskL(RegBase, regIndex, mask, value, #regIndex)
-
-#undef R_MMIO_L
-#undef W_MMIO_L
-#undef R_MMIO_W
-#undef W_MMIO_W
-#undef R_MMIO_B
-#undef W_MMIO_B
-#undef W_MMIO_MASK_L
-#undef W_MMIO_NOSWAP_L
-#undef R_MMIO_L_QI
-#undef W_MMIO_L_QI
-
-#define R_MMIO_B(regIndex, byteIndex)        readATIRegisterB(MMIOBase, regIndex, byteIndex, #regIndex)
-#define W_MMIO_B(regIndex, byteIndex, value) writeATIRegisterB(MMIOBase, regIndex, byteIndex, value, #regIndex)
-#define R_MMIO_L(regIndex)                   readATIMMIOL(MMIOBase, regIndex, #regIndex)
-#define W_MMIO_L(regIndex, value)            writeATIRegisterL(MMIOBase, regIndex, value, #regIndex)
-#define R_MMIO_AND_L(regIndex, mask)         readATIRegisterAndMaskL(MMIOBase, regIndex, mask, #regIndex)
-#define W_MMIO_NOSWAP_L(regIndex, value)     writeATIRegisterNoSwapL(MMIOBase, regIndex, value, #regIndex)
-#define W_MMIO_MASK_L(regIndex, mask, value) writeATIRegisterMaskL(MMIOBase, regIndex, mask, value, #regIndex)
-
-/* Quiet MMIO: dword register indices (same as R/W_MMIO_L), no D() — ISR-safe. */
-static INLINE ULONG REGARGS readATIRegisterL_qi(volatile UBYTE *regbase, LONG regIndex)
-{
-    flushWrites();
-    ULONG value = *(volatile ULONG *)(regbase + (DWORD_OFFSET(regIndex) - REGISTER_OFFSET));
-    asm volatile("" ::"r"(value));
-    return SWAPL(value);
-}
-
-static INLINE ULONG REGARGS readATIRegisterLNoSwap_qi(volatile UBYTE *regbase, LONG regIndex)
-{
-    flushWrites();
-    ULONG value = *(volatile ULONG *)(regbase + (DWORD_OFFSET(regIndex) - REGISTER_OFFSET));
-    /* Keep value in a data register so bit tests can't become byte MMIO btst. */
-    asm volatile("" ::"r"(value));
-    return value;
-}
-
-static INLINE UWORD REGARGS readATIRegisterWNoSwap_qi(volatile UBYTE *regbase, LONG regIndex)
-{
-    flushWrites();
-    UWORD value = *(volatile UWORD *)(regbase + (DWORD_OFFSET(regIndex) - REGISTER_OFFSET));
-    /* Keep value in a data register so bit tests can't become byte MMIO btst. */
-    asm volatile("" ::"r"(value));
-    return value;
-}
-
-static INLINE void REGARGS writeATIRegisterL_qi(volatile UBYTE *regbase, LONG regIndex, ULONG value)
-{
-    *(volatile ULONG *)(regbase + (DWORD_OFFSET(regIndex) - REGISTER_OFFSET)) = SWAPL(value);
-}
-
-#define R_MMIO_L_QI(regIndex)         readATIRegisterL_qi(MMIOBase, regIndex)
-#define R_MMIO_NOSWAP_L_QI(regIndex)  readATIRegisterLNoSwap_qi(MMIOBase, regIndex)
-#define R_MMIO_NOSWAP_W_QI(regIndex)  readATIRegisterWNoSwap_qi(MMIOBase, regIndex)
-#define W_MMIO_L_QI(regIndex, value)  writeATIRegisterL_qi(MMIOBase, regIndex, value)
-
-#undef R_IO_L
-#undef W_IO_L
-#undef W_IO_MASK_L
-
-#define R_IO_L(regIndex) \
-    readATIRegisterL(RegBase, ((regIndex##_IO << 10) + getChipData(bi)->ioSparseBase) / 4, #regIndex)
-#define W_IO_MASK_L(regIndex, mask, value) \
-    writeATIRegisterMaskL(RegBase, ((regIndex##_IO << 10) + getChipData(bi)->ioSparseBase) / 4, mask, value, #regIndex)
-#define W_IO_L(regIndex, value)                                                                                 \
-    do {                                                                                                        \
-        _Static_assert(regIndex < 0x40, "IO only for regs < 0x040");                                            \
-        writeATIRegisterL(RegBase, ((regIndex##_IO << 10) + getChipData(bi)->ioSparseBase) / 4, value, #regIndex); \
-    } while (0)
-
-    
 static INLINE BOOL mach64ChipFamilySupported(ChipFamily_t family)
 {
 #if MACH64_PCI_RETRY
@@ -578,7 +421,7 @@ static INLINE ULONG mach64MmioOffsetInBar0(ULONG bar0Size)
     return aper - 1024UL;
 }
 
-/* waitFifo lives in chip_mach64.h (needs ChipData.fifoSlotsCached). */
+/* waitFifo is Mach64Driver::waitFifo (mach64_driver.hpp). */
 
 UBYTE getAsicVersion(const BoardInfo_t *bi);
 BOOL isAsiclessThanV4(const BoardInfo_t *bi);
