@@ -312,7 +312,7 @@ void WriteDefaultRegList(const BoardInfo_t *bi, const UWORD *defaultRegs, int nu
         D(10, "[%lX_%ldh] = 0x%04lx\n", (ULONG)defaultRegs[r] / 4, (ULONG)defaultRegs[r] % 4,
           (ULONG)defaultRegs[r + 1]);
         // Register offsets in the defaultRegs list are already BYTE offsets
-        W_MMIO_W(defaultRegs[r], defaultRegs[r + 1]);
+        writeMMIO_W(MMIOBase, defaultRegs[r], defaultRegs[r + 1], "defaultRegs");
     }
 }
 
