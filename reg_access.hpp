@@ -255,7 +255,7 @@ struct AtiRegAperture
     {
         T v = EndianOps<T, E>::in(regLoadRaw((volatile T *)(base + (byteOff(id) - BaseOff))));
 #ifdef DBG
-        RegLogOps<L>::read(name ? name : "?", EndianOps<T, E>::dbg(v));
+        RegLogOps<L>::read(name ? name : regName(id), EndianOps<T, E>::dbg(v));
 #endif
         return v;
     }
@@ -269,7 +269,7 @@ struct AtiRegAperture
     ) const
     {
 #ifdef DBG
-        RegLogOps<L>::write(name ? name : "?", EndianOps<T, E>::dbg(v));
+        RegLogOps<L>::write(name ? name : regName(id), EndianOps<T, E>::dbg(v));
 #endif
         *(volatile T *)(base + (byteOff(id) - BaseOff)) = EndianOps<T, E>::out(v);
     }
@@ -363,7 +363,7 @@ struct AtiRegAperture
     {
         T raw = regLoadRaw((volatile T *)(base + (byteOff(id) - BaseOff)));
 #ifdef DBG
-        RegLogOps<L>::read(name ? name : "?", EndianOps<T, E>::dbg(EndianOps<T, E>::in(raw)));
+        RegLogOps<L>::read(name ? name : regName(id), EndianOps<T, E>::dbg(EndianOps<T, E>::in(raw)));
 #endif
         return (raw & EndianOps<T, E>::out(mask)) != 0;
     }
@@ -411,7 +411,7 @@ struct AtiRegAperture
         T bits     = EndianOps<T, E>::out(val);
         regValue   = (regValue & ~m) | (m & bits);
 #ifdef DBG
-        RegLogOps<L>::write(name ? name : "?", EndianOps<T, E>::dbg(EndianOps<T, E>::in(regValue)));
+        RegLogOps<L>::write(name ? name : regName(id), EndianOps<T, E>::dbg(EndianOps<T, E>::in(regValue)));
 #endif
         *(volatile T *)(base + (byteOff(id) - BaseOff)) = regValue;
     }
@@ -425,7 +425,7 @@ struct AtiRegAperture
     {
         UBYTE v = regLoadRaw(base + (byteOff(id) + byteIndex - BaseOff));
 #ifdef DBG
-        RegLogOps<L>::read(name ? name : "?", v);
+        RegLogOps<L>::read(name ? name : regName(id), v);
 #endif
         return v;
     }
@@ -438,7 +438,7 @@ struct AtiRegAperture
     ) const
     {
 #ifdef DBG
-        RegLogOps<L>::write(name ? name : "?", v);
+        RegLogOps<L>::write(name ? name : regName(id), v);
 #endif
         base[byteOff(id) + byteIndex - BaseOff] = v;
     }

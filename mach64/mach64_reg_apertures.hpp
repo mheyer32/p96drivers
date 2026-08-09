@@ -51,7 +51,7 @@ struct AtiSparseIoAperture
 		return RegAperture<E, 0, L>(base).template readOff<ULONG>(byteOff(id)
 #ifdef DBG
 		                                                              ,
-		                                                              "SparseIo"
+		                                                              regName(id)
 #endif
 		);
 	}
@@ -61,7 +61,7 @@ struct AtiSparseIoAperture
 		RegAperture<E, 0, L>(base).template writeMaskOff<ULONG>(byteOff(id), mask, val
 #ifdef DBG
 		                                                        ,
-		                                                        "SparseIo"
+		                                                        regName(id)
 #endif
 		);
 	}
