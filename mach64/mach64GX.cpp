@@ -5,6 +5,9 @@
 #include <hardware/custom.h>
 #include <hardware/intbits.h>
 
+/* Sibling-call into writeRGB514Index past its movem save (still on gcc13 / -mregparm=4).
+ * Distinct from the gcc13 fix for mregparm sibcalls that clobber arg regs. */
+#pragma GCC optimize("no-optimize-sibling-calls")
 
 using namespace MmioReg;
 
@@ -1486,9 +1489,9 @@ BOOL ASM Mach64Driver::setSprite_RGB514(__REGD0(BOOL activate), __REGD7(RGBFTYPE
     writeRGB514Index(this, 0x30, activate ? RGB514_CURS_CTRL_ON : RGB514_CURS_CTRL_OFF);
 
     if (activate) {
-        drv->SetSpriteColor(drv, 0, CLUT[17].Red, CLUT[17].Green, CLUT[17].Blue, AS_RGBF(RGBFormat));
-        drv->SetSpriteColor(drv, 1, CLUT[18].Red, CLUT[18].Green, CLUT[18].Blue, AS_RGBF(RGBFormat));
-        drv->SetSpriteColor(drv, 2, CLUT[19].Red, CLUT[19].Green, CLUT[19].Blue, AS_RGBF(RGBFormat));
+        setSpriteColor(0, CLUT[17].Red, CLUT[17].Green, CLUT[17].Blue, RGBFormat);
+        setSpriteColor(1, CLUT[18].Red, CLUT[18].Green, CLUT[18].Blue, RGBFormat);
+        setSpriteColor(2, CLUT[19].Red, CLUT[19].Green, CLUT[19].Blue, RGBFormat);
     }
 
     return TRUE;

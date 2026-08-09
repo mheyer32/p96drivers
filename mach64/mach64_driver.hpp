@@ -42,6 +42,19 @@ class Mach64Driver : public P96Driver
     void setColorArrayInternal(UWORD startIndex, UWORD count, const struct CLUTEntry *colors);
     INLINE void setMemoryModeInternal(RGBFTYPE format);
 
+    BOOL setDstBuffer(const struct RenderInfo *ri, ULONG format);
+    BOOL setSrcBuffer(const struct RenderInfo *ri, ULONG format);
+    void setWriteMask(UBYTE mask, ULONG fmt, BYTE waitFifoSlots);
+    void drawRect(WORD x, WORD y, WORD width, WORD height);
+    void waitIdle();
+    void syncCrtcInterruptEnables();
+    void resetEngine();
+    LONG memoryOffset(APTR memory) const;
+    BOOL isVideoMemory(APTR memory) const;
+    void setDrawMode(ULONG FgPen, ULONG BgPen, UBYTE DrawMode, ULONG format, BYTE monoSource);
+    void performBlitPlanar2ChunkyBlits(SHORT dstX, SHORT dstY, SHORT width, SHORT height, UBYTE *bitmap,
+                                       UWORD dwordsPerLine, WORD bmPitch, UBYTE rol);
+
     /* Mark `entries` FIFO slots used in a FIFO_STAT-shaped value (ones from LSB). */
     static INLINE UWORD fifoStatConsume(UWORD stat, UBYTE entries) { return ((ULONG)(stat + 1) << entries) - 1; }
 
@@ -86,11 +99,7 @@ class Mach64Driver : public P96Driver
                                __REGD7(RGBFTYPE_REG RGBFormat));
     ULONG ASM getPixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULONG index), __REGD7(RGBFTYPE_REG format));
     void ASM setMemoryMode(__REGD7(RGBFTYPE_REG format));
-    void ASM setWriteMask(__REGD0(UBYTE mask));
-    void ASM setClearMask(__REGD0(UBYTE mask));
-    void ASM setReadPlane(__REGD0(UBYTE mask));
     BOOL ASM getVSyncState(__REGD0(BOOL expected));
-    void ASM waitVerticalSync(__REGD0(BOOL end));
     ULONG ASM getVBeamPos();
     BOOL ASM setInterrupt(__REGD0(BOOL state));
     ULONG interruptServer();
