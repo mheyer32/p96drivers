@@ -16,8 +16,9 @@ extern "C" {
 
 #ifdef __cplusplus
 /*
- * bebbo g++ ignores __asm("dn") on enum-typed parameters ("attributes applied to
- * 'RGBFTYPE' after definition"). Pass register-bound format args as ULONG.
+ * Older bebbo g++ ignored __asm("dn") on enum-typed parameters
+ * ("attributes applied to 'RGBFTYPE' after definition"). Local amiga-gcc
+ * 6.5 / 13.2 fix that; ULONG remains safe for unfixed toolchains.
  */
 typedef ULONG RGBFTYPE_REG;
 #define AS_RGBF(x) static_cast<RGBFTYPE>(x)
