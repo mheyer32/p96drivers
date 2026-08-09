@@ -17,8 +17,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-# g++ ignores __asm("dN") on enum / enum class parameters (-Wattributes).
-KNOWN_FAIL_TYPES = {"enum", "enum_class"}
+# Formerly: g++ dropped __asm("dN") on enum parameters. Fixed in local
+# amiga-gcc / amiga-gcc-13 (asmreg via type-variant copy, not attributes).
+KNOWN_FAIL_TYPES: set[str] = set()
 
 # a5 is the frame pointer; a4 is often reserved — probe anyway.
 EXPECTED_SKIP = {

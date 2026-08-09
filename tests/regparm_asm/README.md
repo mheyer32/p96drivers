@@ -4,9 +4,11 @@ Standalone probe suite for **bebbo `m68k-amigaos-gcc` / `m68k-amigaos-g++`**, ma
 
 ## Why
 
-Picasso96 passes BoardInfo hook arguments in fixed 68000 registers (`__REGA0`, `__REGD7`, …). **g++ silently ignores `__asm("dN")` on enum-typed parameters** (`-Wattributes`: *"ignoring attributes applied to 'RGBFTYPE' after definition"*). The callee then reads the wrong register — e.g. `CalculateBytesPerRow` saw format `0` because `RGBFTYPE` in `d7` was taken from `d2`.
+Picasso96 passes BoardInfo hook arguments in fixed 68000 registers (`__REGA0`, `__REGD7`, …). Older bebbo **g++** silently ignored `__asm("dN")` on enum-typed parameters (`-Wattributes`: *"ignoring attributes applied to 'RGBFTYPE' after definition"*), so callees read the wrong register (e.g. `CalculateBytesPerRow` saw format `0` from `d2` instead of `d7`).
 
-Production fix: pass register-bound format args as `ULONG` (`RGBFTYPE_REG` in `common.h`). This directory locks that behaviour in with objdump inspection and optional Amiga runtime checks.
+**Fixed** in local `amiga-gcc` (6.5) and `amiga-gcc-13` (13.2): C++ now attaches `asmreg` via a type-variant copy (same idea as C’s `push_parm_decl`), not through `build_type_attribute_qual_variant`.
+
+Production code may still use `ULONG` (`RGBFTYPE_REG` in `common.h`) for compatibility with unfixed toolchains. This directory locks register behaviour with objdump inspection and optional Amiga runtime checks.
 
 ## Quick start (host objdump — primary check)
 
@@ -62,7 +64,7 @@ make TestRegParm
 # telnet to Amiga, run: TestRegParm
 ```
 
-`runtime_main.c` is a **C** caller that invokes C/C++ probes directly and via function pointers (BoardInfo-style). Enum cases are **KNOWN** mismatches; `ULONG` cases should PASS.
+`runtime_main.c` is a **C** caller that invokes C/C++ probes directly and via function pointers (BoardInfo-style). With a fixed g++, enum and `ULONG` cases should PASS.
 
 ## a4 / a5 / enum notes
 
@@ -71,7 +73,7 @@ make TestRegParm
 | **a5** | **SKIP** — GCC frame pointer; `__asm("a5")` reads `sp`. Unusable in hooks. |
 | **a4** | Works in these trivial probes; still avoid in production (PIC / reserved). |
 | **C + enum + dN** | **OK** — attributes honoured. |
-| **C++ + enum / enum class + dN** | **KNOWN_FAIL** for `d1`–`d7` — attribute ignored (`-Wattributes`). Single-arg falls back to `d0`; multi-arg picks the next free data reg under `-mregparm=4` (e.g. `calc_bpr` → `d2`). `d0` alone looks OK by coincidence. Use `ULONG` (`RGBFTYPE_REG`). |
+| **C++ + enum / enum class + dN** | **OK** with fixed local g++ (6.5 / 13.2). Unfixed toolchains ignore the attribute (`-Wattributes`) and fall back to `-mregparm` (use `ULONG` / `RGBFTYPE_REG`). |
 
 ## Files
 
