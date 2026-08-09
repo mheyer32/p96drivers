@@ -2,6 +2,13 @@
 #include "chip_mach64.h"
 #include "mach64_common.h"
 
+
+using namespace MmioReg;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define VCLK_SRC_SEL(x)   ((x))
 #define VCLK_SRC_SEL_MASK (0x3)
 #define PLL_PRESET        BIT(2)
@@ -26,6 +33,7 @@ static const UBYTE g_MPLLPostDividerCodes[] = {0b000, 0b001, 0b010, 0b011};
 void SetMemoryClock_CT(BoardInfo_t *bi, UWORD freqKhz10)
 {
     DFUNC(VERBOSE, "Setting Memory Clock to %ld0 KHz\n", (ULONG)freqKhz10);
+    DRIVER_LOCALS(bi);
 
     if (freqKhz10 < 1475)
         freqKhz10 = 1475;
@@ -39,7 +47,6 @@ void SetMemoryClock_CT(BoardInfo_t *bi, UWORD freqKhz10)
         return;
     }
 
-    MMIOBASE();
     ResetEngine(bi);
 
     /* Appendix J §J.4: hold MCLK on CPUCLK, program FB, lock, switch to PLLMCLK/P, drop EXT_CLK_EN. */
@@ -125,19 +132,19 @@ void AdjustCrtcFifo_CT(struct BoardInfo *bi)
 
     DFUNC(INFO, "clk %ld0kHz depth %ld → LWM=%ld (was max 15)\n", clock10k, (ULONG)mi->Depth, (ULONG)lwm);
 
-    MMIOBASE();
-    W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK, CRTC_FIFO_LWM(lwm));
+    DRIVER_LOCALS(bi);
+    mmio.writeMaskL(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK, CRTC_FIFO_LWM(lwm));
 }
 
-static void ASM SetClock_CT(__REGA0(struct BoardInfo *bi))
+void ASM Mach64Driver::setClock_CT()
 {
     DFUNC(VERBOSE, "\n");
-    MMIOBASE();
+    DRIVER_LOCALS(this);
 
-    struct ModeInfo *mi = bi->ModeInfo;
+    struct ModeInfo *mi = ModeInfo;
 
 #ifdef DBG
-    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    const ChipSpecific_t *cs = getConstChipSpecific(drv);
     ULONG minVClkKhz10       = 2 * cs->referenceFrequency * 128 / (cs->referenceDivider * 8);
 
     D(CHATTY, "minimum VCLK %ldHz\n", minVClkKhz10 * 10000);
@@ -150,7 +157,7 @@ static void ASM SetClock_CT(__REGA0(struct BoardInfo *bi))
 #endif
 
     /* Select VCLK0 before programming. */
-    W_MMIO_MASK_L(CLOCK_CNTL, CLOCK_SEL_MASK | CLOCK_STROBE_MASK, CLOCK_SEL(0) | CLOCK_STROBE);
+    mmio.writeMaskL(CLOCK_CNTL, CLOCK_SEL_MASK | CLOCK_STROBE_MASK, CLOCK_SEL(0) | CLOCK_STROBE);
 
     /* BedRock VPLL: CPUCLK → reset → program N/P → unreset → PLLVCLK. */
     WRITE_PLL_MASK(PLL_VCLK_CNTL, VCLK_SRC_SEL_MASK | PLL_EXT_CLK_EN_MASK, VCLK_SRC_SEL(0b00));
@@ -168,10 +175,15 @@ static void ASM SetClock_CT(__REGA0(struct BoardInfo *bi))
     delayMilliSeconds(5);
 
     /* Re-select / strobe VCLK0 into the CRTC (CLOCK_CNTL|STROBE). */
-    W_MMIO_MASK_L(CLOCK_CNTL, CLOCK_SEL_MASK | CLOCK_STROBE_MASK, CLOCK_SEL(0) | CLOCK_STROBE);
+    mmio.writeMaskL(CLOCK_CNTL, CLOCK_SEL_MASK | CLOCK_STROBE_MASK, CLOCK_SEL(0) | CLOCK_STROBE);
 
     /* Lower display FIFO LWM → fewer DRAM page faults → more GE bandwidth (RRG). */
-    AdjustCrtcFifo_CT(bi);
+    AdjustCrtcFifo_CT(this);
+}
+
+static void ASM SetClock_CT(__REGA0(struct BoardInfo *bi))
+{
+    asMach64(bi)->setClock_CT();
 }
 
 /*
@@ -203,7 +215,7 @@ typedef struct
 
 static void print_MEM_CNTL_CT(ULONG raw)
 {
-    MEM_CNTL_CT_t *r           = (MEM_CNTL_CT_t *)&raw;
+    MEM_CNTL_CT_t *r           = reinterpret_cast<MEM_CNTL_CT_t *>(&raw);
     static const char *sizes[] = {"reserved", "1M", "2M", "4M", "?", "?", "?", "?"};
 
     D(INFO, "MEM_CNTL_CT 0x%08lx size=%ld (%s) cyc=%ld refrate=%ld\n", raw, (ULONG)r->mem_size, sizes[r->mem_size & 7],
@@ -237,13 +249,13 @@ static void print_CONFIG_STAT0_CT(ULONG raw)
 static BOOL probeMemorySize(BoardInfo_t *bi)
 {
     DFUNC(VERBOSE, "\n");
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
     LOCAL_SYSBASE();
 
-    ULONG memCntlSave = R_MMIO_L(MEM_CNTL);
-    ULONG configStat0 = R_MMIO_L(CONFIG_STAT0);
+    ULONG memCntlSave = mmio.readL(MEM_CNTL);
+    ULONG configStat0 = mmio.readL(CONFIG_STAT0);
     print_MEM_CNTL_CT(memCntlSave);
-    print_CONFIG_CNTL_CT(R_MMIO_L(CONFIG_CNTL));
+    print_CONFIG_CNTL_CT(mmio.readL(CONFIG_CNTL));
     print_CONFIG_STAT0_CT(configStat0);
 
     /*
@@ -252,16 +264,16 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
      * BUS_CNTL=0x600020F8. Straps alone leave size=reserved and dual_cas=0 (256Kx4).
      */
     {
-        ULONG busSave = R_MMIO_L(BUS_CNTL);
+        ULONG busSave = mmio.readL(BUS_CNTL);
         D(INFO, "CT cold DRAM bring-up (was STAT0=0x%08lx MEM_CNTL=0x%08lx BUS=0x%08lx)\n", configStat0, memCntlSave,
           busSave);
-        W_MMIO_MASK_L(CONFIG_STAT0, CONFIG_STAT0_CT_DRAM_MASK, CONFIG_STAT0_CT_DRAM);
-        W_MMIO_L(MEM_CNTL, MEM_CNTL_CT_COLD);
-        W_MMIO_L(BUS_CNTL, BUS_CNTL_CT_COLD);
+        mmio.writeMaskL(CONFIG_STAT0, CONFIG_STAT0_CT_DRAM_MASK, CONFIG_STAT0_CT_DRAM);
+        mmio.writeL(MEM_CNTL, MEM_CNTL_CT_COLD);
+        mmio.writeL(BUS_CNTL, BUS_CNTL_CT_COLD);
         flushWrites();
-        print_CONFIG_STAT0_CT(R_MMIO_L(CONFIG_STAT0));
-        print_MEM_CNTL_CT(R_MMIO_L(MEM_CNTL));
-        D(INFO, "BUS_CNTL now 0x%08lx\n", R_MMIO_L(BUS_CNTL));
+        print_CONFIG_STAT0_CT(mmio.readL(CONFIG_STAT0));
+        print_MEM_CNTL_CT(mmio.readL(MEM_CNTL));
+        D(INFO, "BUS_CNTL now 0x%08lx\n", mmio.readL(BUS_CNTL));
     }
 
     static const ULONG memorySizes[] = {0x400000, 0x200000, 0x100000};
@@ -274,7 +286,7 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
         bi->MemorySize = memorySizes[i];
         D(VERBOSE, "\nProbing CT memory size %ld (MEM_SIZE=%ld) via LFB\n", bi->MemorySize, memoryCodes[i]);
 
-        W_MMIO_MASK_L(MEM_CNTL, MEM_SIZE_CT_MASK, memoryCodes[i]);
+        mmio.writeMaskL(MEM_CNTL, MEM_SIZE_CT_MASK, memoryCodes[i]);
         flushWrites();
         CacheClearU();
 
@@ -294,12 +306,12 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
 
         if (readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset && readbackZero == 0) {
             D(INFO, "CT MemorySize %ld (MEM_SIZE=%ld, LFB)\n", bi->MemorySize, memoryCodes[i]);
-            print_MEM_CNTL_CT(R_MMIO_L(MEM_CNTL));
+            print_MEM_CNTL_CT(mmio.readL(MEM_CNTL));
             return TRUE;
         }
     }
 
-    W_MMIO_L(MEM_CNTL, memCntlSave);
+    mmio.writeL(MEM_CNTL, memCntlSave);
     flushWrites();
     D(VERBOSE, "CT LFB memory size probe failed.\n\n");
     return FALSE;
@@ -308,9 +320,9 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
 BOOL InitMach64CT(struct BoardInfo *bi)
 {
     DFUNC(INFO, "\n");
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
 
-    ULONG chipID = R_MMIO_L(CONFIG_CHIP_ID);
+    ULONG chipID = mmio.readL(CONFIG_CHIP_ID);
     DFUNC(INFO, "Mach64 CT init (CONFIG_CHIP_ID 0x%04lx, rev 0x%02lx)\n", chipID & 0xFFFF, chipID >> 24);
 
     ChipSpecific_t *cs = getChipSpecific(bi);
@@ -335,12 +347,12 @@ BOOL InitMach64CT(struct BoardInfo *bi)
     cs->computeVCLKFrequency = computeVCLKFrequencyKhz10_CT;
     bi->SetClock             = SetClock_CT;
 
-    InitVClockPLLTable(bi, g_VPLLPostDivider, ARRAY_SIZE(g_VPLLPostDivider));
+    InitVClockPLLTable(bi, reinterpret_cast<const BYTE *>(g_VPLLPostDivider), ARRAY_SIZE(g_VPLLPostDivider));
 
-    W_MMIO_MASK_L(CRTC_GEN_CNTL,
-                  CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_DISP_REQ_ENB_MASK | VGA_XCRT_CNT_EN_MASK |
-                      CRTC_DISPLAY_DIS_MASK | VGA_ATI_LINEAR_MASK,
-                  CRTC_ENABLE | CRTC_EXT_DISP_EN | VGA_XCRT_CNT_EN);
+    mmio.writeMaskL(CRTC_GEN_CNTL,
+                    CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_DISP_REQ_ENB_MASK | VGA_XCRT_CNT_EN_MASK |
+                        CRTC_DISPLAY_DIS_MASK | VGA_ATI_LINEAR_MASK,
+                    CRTC_ENABLE | CRTC_EXT_DISP_EN | VGA_XCRT_CNT_EN);
 
     /* DRAM needs internal MCLK before LFB probe (cold boot without VBIOS). */
     SetMemoryClock(bi, resolveMemoryClockKhz10(bi));
@@ -351,3 +363,7 @@ BOOL InitMach64CT(struct BoardInfo *bi)
 
     return TRUE;
 }
+
+#ifdef __cplusplus
+}
+#endif

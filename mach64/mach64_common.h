@@ -3,9 +3,13 @@
 
 #include "common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct BoardInfo;
 
-typedef enum ChipFamily
+typedef enum __attribute__((packed)) ChipFamily
 {
     UNKNOWN,
     MACH64GX,
@@ -14,6 +18,8 @@ typedef enum ChipFamily
     MACH64GT,
     MACH64GM  // Rage 3 XL
 } ChipFamily_t;
+
+STATIC_ASSERT(sizeof(ChipFamily_t) == 1, chipfamily_is_byte);
 
 #define DWORD_OFFSET(x) ((x) * 4)
 
@@ -375,9 +381,9 @@ enum PLL_REGS
 extern void WritePLL(struct BoardInfo *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllData);
 extern UBYTE ReadPLL(struct BoardInfo *bi, UBYTE pllAddr);
 
-#define WRITE_PLL(pllAddr, data)            WritePLL(bi, (pllAddr), 0xFF, (data))
-#define WRITE_PLL_MASK(pllAddr, mask, data) WritePLL(bi, (pllAddr), (mask), (data))
-#define READ_PLL(pllAddr)                   ReadPLL(bi, (pllAddr))
+#define WRITE_PLL(pllAddr, data)            WritePLL(drv, (pllAddr), 0xFF, (data))
+#define WRITE_PLL_MASK(pllAddr, mask, data) WritePLL(drv, (pllAddr), (mask), (data))
+#define READ_PLL(pllAddr)                   ReadPLL(drv, (pllAddr))
 
 extern void WriteDefaultRegList(const struct BoardInfo *bi, const UWORD *defaultRegs, int numRegs);
 extern void InitVClockPLLTable(struct BoardInfo *bi, const BYTE *multipliers, BYTE numMultipliers);
@@ -576,5 +582,9 @@ static INLINE ULONG mach64MmioOffsetInBar0(ULONG bar0Size)
 
 UBYTE getAsicVersion(const BoardInfo_t *bi);
 BOOL isAsiclessThanV4(const BoardInfo_t *bi);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // MACH64_COMMON_H

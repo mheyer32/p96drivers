@@ -5,6 +5,13 @@
 #include <hardware/custom.h>
 #include <hardware/intbits.h>
 
+
+using namespace MmioReg;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define CONFIG_STAT1 (0x3A)
 
 // DAC_REGS sub-registers (same as VGA I/O ports 0x3c8/0x3c7/0x3c9)
@@ -113,15 +120,15 @@ static const A68860_DAC_Table A68860_Modes[] = {
  */
 static void SetRS2RS3(BoardInfo_t *bi, UBYTE dacRS2RS3)
 {
-    MMIOBASE();
-    UBYTE current = R_MMIO_B(DAC_CNTL, 0);
+    DRIVER_LOCALS(bi);
+    UBYTE current = mmio.readB(DAC_CNTL, 0);
     current       = (current & ~(DAC_EXT_SEL_RS2_MASK | DAC_EXT_SEL_RS3_MASK)) | dacRS2RS3;
-    W_MMIO_B(DAC_CNTL, 0, current);
+    mmio.writeB(DAC_CNTL, 0, current);
 }
 
-static UBYTE RGBFTYPE_to_colorDepth(RGBFTYPE format)
+static UBYTE RGBFTYPE_to_colorDepth(ULONG format)
 {
-    switch (format) {
+    switch ((RGBFTYPE)format) {
     case RGBFB_CLUT:
         return COLOR_DEPTH_8;
     case RGBFB_R5G5B5:
@@ -396,25 +403,25 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
 {
     DFUNC(VERBOSE, "\n");
 
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
     LOCAL_SYSBASE();
 
     // Turn off memory boundary; apply BIOS-like serial latch timing (see mach64gx_vbios_hw_init.md).
-    W_MMIO_MASK_L(MEM_CNTL, (0x7 << 16), 0);
-    W_MMIO_MASK_L(MEM_CNTL, ~0x7u, MEM_CNTL_GX_TIMING);
+    mmio.writeMaskL(MEM_CNTL, (0x7 << 16), 0);
+    mmio.writeMaskL(MEM_CNTL, ~0x7u, MEM_CNTL_GX_TIMING);
 
     static const ULONG memorySizes[] = {0x200000, 0x100000, 0x80000};
     static const ULONG memoryCodes[] = {2, 1, 0};
 
-    volatile UBYTE *fb = (volatile UBYTE *)bi->MemoryBase;
-    ULONG memCntlSave  = R_MMIO_L(MEM_CNTL);
+    volatile UBYTE *fb = reinterpret_cast<volatile UBYTE *>(bi->MemoryBase);
+    ULONG memCntlSave  = mmio.readL(MEM_CNTL);
 
     for (int i = 0; i < ARRAY_SIZE(memorySizes); i++) {
         ULONG size     = memorySizes[i];
         bi->MemorySize = size;
         D(VERBOSE, "\nProbing memory size %ld\n", size);
 
-        W_MMIO_MASK_L(MEM_CNTL, 0x7, memoryCodes[i]);
+        mmio.writeMaskL(MEM_CNTL, 0x7, memoryCodes[i]);
 
         ULONG high = size - 1;
         ULONG mid  = size >> 1;
@@ -439,8 +446,8 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
 
         if (r0 == 0xff) {
             D(WARN, "BAR0 wedged after MEM_SIZE=%ld; restoring MEM_CNTL 0x%08lx\n", memoryCodes[i], memCntlSave);
-            W_MMIO_L(MEM_CNTL, memCntlSave & ~(0x7 << 16));
-            memCntlSave = R_MMIO_L(MEM_CNTL);
+            mmio.writeL(MEM_CNTL, memCntlSave & ~(0x7 << 16));
+            memCntlSave = mmio.readL(MEM_CNTL);
         }
     }
     D(VERBOSE, "Memory size probe failed.\n\n");
@@ -479,9 +486,9 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
  */
 static void ics2595_setFSBits(BoardInfo_t *bi, ULONG bits)
 {
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
     ULONG mask = ICS2595_FS2_MASK | ICS2595_FS3_MASK;
-    W_MMIO_MASK_L(CLOCK_CNTL, mask, bits);
+    mmio.writeMaskL(CLOCK_CNTL, mask, bits);
 }
 
 /**
@@ -493,11 +500,11 @@ static void ics2595_setFSBits(BoardInfo_t *bi, ULONG bits)
  */
 static void ics2595_strobe(BoardInfo_t *bi)
 {
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
     delayMicroSeconds(26);  // 26us settle delay
 
     // Set strobe bit - hardware will auto-clear it
-    W_MMIO_MASK_L(CLOCK_CNTL, ICS2595_STROBE_MASK, ICS2595_STROBE_BIT);
+    mmio.writeMaskL(CLOCK_CNTL, ICS2595_STROBE_MASK, ICS2595_STROBE_BIT);
 }
 
 /**
@@ -623,13 +630,13 @@ static void ProgramICS2595Word(BoardInfo_t *bi, UBYTE entry, UWORD programWord)
 {
     DFUNC(VERBOSE, "Programming ICS2595: entry=%ld, word=0x%04lx\n", (ULONG)entry, (ULONG)programWord);
 
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
     LOCAL_SYSBASE();
     Disable();
 
-    W_MMIO_L(CLOCK_CNTL, 0);
+    mmio.writeL(CLOCK_CNTL, 0);
     ics2595_strobe(bi);
-    W_MMIO_L(CLOCK_CNTL, 1);
+    mmio.writeL(CLOCK_CNTL, 1);
     ics2595_strobe(bi);
 
     ics2595_sendBit(bi, 1);
@@ -647,16 +654,16 @@ static void ProgramICS2595Word(BoardInfo_t *bi, UBYTE entry, UWORD programWord)
     }
 
     Enable();
-    W_MMIO_L(CLOCK_CNTL, 0);
+    mmio.writeL(CLOCK_CNTL, 0);
     DFUNC(VERBOSE, "ICS2595 programming complete\n");
 }
 
 #define CLOCK_DIV_MASK 0x30
 #define CLOCK_DIV4     0x20
 
-static void setCrtcPixWidth(BoardInfo_t *bi, RGBFTYPE format)
+static void setCrtcPixWidth(BoardInfo_t *bi, ULONG format)
 {
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
     static const UBYTE bitWidths[] = {
         COLOR_DEPTH_4,   // RGBFB_NONE
         COLOR_DEPTH_8,   // RGBFB_CLUT
@@ -674,49 +681,49 @@ static void setCrtcPixWidth(BoardInfo_t *bi, RGBFTYPE format)
         COLOR_DEPTH_15,  // RGBFB_B5G5R5PC
     };
     if (format < ARRAY_SIZE(bitWidths))
-        W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_PIX_WIDTH_MASK, CRTC_PIX_WIDTH(bitWidths[format]));
+        mmio.writeMaskL(CRTC_GEN_CNTL, CRTC_PIX_WIDTH_MASK, CRTC_PIX_WIDTH(bitWidths[format]));
 }
 
-static void writeDacPalette(BoardInfo_t *bi, RGBFTYPE format)
+static void writeDacPalette(BoardInfo_t *bi, ULONG format)
 {
-    MMIOBASE();
-    W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0);
+    DRIVER_LOCALS(bi);
+    mmio.writeB(DAC_REGS, DAC_W_INDEX, 0);
     if (format != RGBFB_CLUT) {
         for (UWORD c = 0; c < 256; c++) {
             UBYTE gray = (UBYTE)c;
-            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, gray);
-            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, gray);
-            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, gray);
+            mmio.writeB(DAC_REGS, DAC_W_DATA, gray);
+            mmio.writeB(DAC_REGS, DAC_W_DATA, gray);
+            mmio.writeB(DAC_REGS, DAC_W_DATA, gray);
         }
     } else {
         for (UWORD c = 0; c < 256; c++) {
-            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, bi->CLUT[c].Red);
-            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, bi->CLUT[c].Green);
-            writeReg(MMIOBase, DWORD_OFFSET(DAC_REGS) + DAC_W_DATA, bi->CLUT[c].Blue);
+            mmio.writeB(DAC_REGS, DAC_W_DATA, bi->CLUT[c].Red);
+            mmio.writeB(DAC_REGS, DAC_W_DATA, bi->CLUT[c].Green);
+            mmio.writeB(DAC_REGS, DAC_W_DATA, bi->CLUT[c].Blue);
         }
     }
 }
 
 static void applyGxDac8BitBlanking(BoardInfo_t *bi)
 {
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
     ULONG dacBits = DAC_8BIT_EN;
     if (!(bi->CardFlags & CFF_BLACKLEVEL_BLACK))
         dacBits |= DAC_BLANKING;
-    W_MMIO_MASK_L(DAC_CNTL, DAC_8BIT_EN_MASK | DAC_BLANKING_MASK, dacBits);
+    mmio.writeMaskL(DAC_CNTL, DAC_8BIT_EN_MASK | DAC_BLANKING_MASK, dacBits);
 }
 
-static void ASM SetDAC_GX(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE format))
+void ASM Mach64Driver::setDAC_GX(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format))
 {
     (void)region;
-    MMIOBASE();
+    DRIVER_LOCALS(this);
 
     const A68860_DAC_Table *pDacProgTab = &A68860_Modes[RGBFTYPE_to_colorDepth(format)];
 
     UBYTE mask;
-    if (bi->MemorySize < 0x100000)
+    if (MemorySize < 0x100000)
         mask = 4;
-    else if (bi->MemorySize == 0x100000)
+    else if (MemorySize == 0x100000)
         mask = 8;
     else
         mask = 0x0c;
@@ -725,31 +732,36 @@ static void ASM SetDAC_GX(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), 
     /* Do not OR 0x10 here — that yields F2/F3 and different packing on this DAC. */
 
     /* Match VBIOS dac_Program68860_SI_CH (113-25517-100). */
-    SetRS2RS3(bi, DAC_EXT_SEL_RS2 | DAC_EXT_SEL_RS3);
-    W_MMIO_B(DAC_REGS, DAC_W_INDEX, R_MMIO_B(DAC_REGS, DAC_W_INDEX) & 0xfd);
-    SetRS2RS3(bi, DAC_EXT_SEL_RS3);
-    W_MMIO_B(DAC_REGS, DAC_MASK, 0x1d);
-    W_MMIO_B(DAC_REGS, DAC_R_INDEX, gmode);
-    W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0x02);
-    SetRS2RS3(bi, DAC_EXT_SEL_RS2 | DAC_EXT_SEL_RS3);
+    SetRS2RS3(this, DAC_EXT_SEL_RS2 | DAC_EXT_SEL_RS3);
+    mmio.writeB(DAC_REGS, DAC_W_INDEX, mmio.readB(DAC_REGS, DAC_W_INDEX) & 0xfd);
+    SetRS2RS3(this, DAC_EXT_SEL_RS3);
+    mmio.writeB(DAC_REGS, DAC_MASK, 0x1d);
+    mmio.writeB(DAC_REGS, DAC_R_INDEX, gmode);
+    mmio.writeB(DAC_REGS, DAC_W_INDEX, 0x02);
+    SetRS2RS3(this, DAC_EXT_SEL_RS2 | DAC_EXT_SEL_RS3);
 
     UBYTE d = pDacProgTab->dsetup;
     /* REG0C bit0: 1=6bit LUT, 0=8bit. P96 wants 8bit (DAC_CNTL bit8). */
     d &= 0xfe;
-    UBYTE reg0CValue = (d | mask) | (R_MMIO_B(DAC_REGS, DAC_W_INDEX) & A860_DELAY_L);
-    W_MMIO_B(DAC_REGS, DAC_W_INDEX, reg0CValue);
+    UBYTE reg0CValue = (d | mask) | (mmio.readB(DAC_REGS, DAC_W_INDEX) & A860_DELAY_L);
+    mmio.writeB(DAC_REGS, DAC_W_INDEX, reg0CValue);
 
-    SetRS2RS3(bi, 0);
-    W_MMIO_B(DAC_REGS, DAC_MASK, 0xff);
-    applyGxDac8BitBlanking(bi);
+    SetRS2RS3(this, 0);
+    mmio.writeB(DAC_REGS, DAC_MASK, 0xff);
+    applyGxDac8BitBlanking(this);
 
-    setCrtcPixWidth(bi, format);
+    setCrtcPixWidth(this, format);
     /* Hi-color still indexes the LUT — need identity ramp (SDK init_palettized). */
     if (format != RGBFB_CLUT)
-        writeDacPalette(bi, format);
+        writeDacPalette(this, format);
 
     DFUNC(VERBOSE, "SetDAC 68860: gmode=0x%02lx reg0C=0x%02lx format=%ld\n", (ULONG)gmode, (ULONG)reg0CValue,
           (ULONG)format);
+}
+
+static void ASM SetDAC_GX(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE_REG format))
+{
+    asMach64(bi)->setDAC_GX(region, format);
 }
 
 /* IBM RGB514. Indexed via RS2 only.
@@ -787,22 +799,22 @@ static const RGB514_DAC_Table RGB514_Modes[] = {
 
 static void writeRGB514Index(BoardInfo_t *bi, UWORD index, UBYTE data)
 {
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
     SetRS2RS3(bi, DAC_EXT_SEL_RS2);
-    W_MMIO_B(DAC_REGS, DAC_W_INDEX, (UBYTE)(index & 0xff));
-    W_MMIO_B(DAC_REGS, DAC_W_DATA, (UBYTE)((index >> 8) & 0xff));
-    W_MMIO_B(DAC_REGS, DAC_MASK, data);
+    mmio.writeB(DAC_REGS, DAC_W_INDEX, (UBYTE)(index & 0xff));
+    mmio.writeB(DAC_REGS, DAC_W_DATA, (UBYTE)((index >> 8) & 0xff));
+    mmio.writeB(DAC_REGS, DAC_MASK, data);
     SetRS2RS3(bi, 0);
 }
 
 static UBYTE readRGB514Index(BoardInfo_t *bi, UWORD index)
 {
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
     SetRS2RS3(bi, DAC_EXT_SEL_RS2);
-    W_MMIO_B(DAC_REGS, DAC_W_INDEX, (UBYTE)(index & 0xff));
-    W_MMIO_B(DAC_REGS, DAC_W_DATA, (UBYTE)((index >> 8) & 0xff));
+    mmio.writeB(DAC_REGS, DAC_W_INDEX, (UBYTE)(index & 0xff));
+    mmio.writeB(DAC_REGS, DAC_W_DATA, (UBYTE)((index >> 8) & 0xff));
     {
-        UBYTE data = R_MMIO_B(DAC_REGS, DAC_MASK);
+        UBYTE data = mmio.readB(DAC_REGS, DAC_MASK);
         SetRS2RS3(bi, 0);
         return data;
     }
@@ -879,48 +891,53 @@ static UWORD rgb514_freqFromWord(UWORD word)
     return (UWORD)(((ULONG)RGB514_REF_FREQ * (mv + 65)) / ((ULONG)n << (3 - p)));
 }
 
-static void ASM SetDAC_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE format))
+void ASM Mach64Driver::setDAC_RGB514(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format))
 {
     UBYTE depth = RGBFTYPE_to_colorDepth(format);
     const RGB514_DAC_Table *tab = &RGB514_Modes[depth];
 
     (void)region;
-    MMIOBASE();
+    DRIVER_LOCALS(this);
 
-    W_MMIO_MASK_L(GEN_TEST_CNTL, GEN_OVS_EN_MASK, GEN_OVS_EN);
+    mmio.writeMaskL(GEN_TEST_CNTL, GEN_OVS_EN_MASK, GEN_OVS_EN);
 
-    writeRGB514Index(bi, 0x90, 0x00);
+    writeRGB514Index(this, 0x90, 0x00);
     if (tab->pixel_dly == 0xff) {
-        writeRGB514Index(bi, 0x05, 0x01);
+        writeRGB514Index(this, 0x05, 0x01);
         return;
     }
 
-    writeRGB514Index(bi, 0x04, tab->pixel_dly);
-    writeRGB514Index(bi, 0x05, 0x00);
-    writeRGB514Index(bi, 0x02, 0x01);
-    writeRGB514Index(bi, 0x71, tab->misc2_cntl);
-    writeRGB514Index(bi, 0x0a, tab->pixel_rep);
-    writeRGB514Index(bi, tab->pixel_cntl_index, tab->pixel_cntl);
+    writeRGB514Index(this, 0x04, tab->pixel_dly);
+    writeRGB514Index(this, 0x05, 0x00);
+    writeRGB514Index(this, 0x02, 0x01);
+    writeRGB514Index(this, 0x71, tab->misc2_cntl);
+    writeRGB514Index(this, 0x0a, tab->pixel_rep);
+    writeRGB514Index(this, tab->pixel_cntl_index, tab->pixel_cntl);
 
-    if (R_MMIO_L(CRTC_GEN_CNTL) & CRTC_INTERLACE_EN) {
-        UBYTE misc2 = readRGB514Index(bi, 0x71);
-        writeRGB514Index(bi, 0x71, (UBYTE)(misc2 | 0x20));
+    if (mmio.readL(CRTC_GEN_CNTL) & CRTC_INTERLACE_EN) {
+        UBYTE misc2 = readRGB514Index(this, 0x71);
+        writeRGB514Index(this, 0x71, (UBYTE)(misc2 | 0x20));
     }
 
-    W_MMIO_B(DAC_REGS, DAC_MASK, 0xff);
-    applyGxDac8BitBlanking(bi);
+    mmio.writeB(DAC_REGS, DAC_MASK, 0xff);
+    applyGxDac8BitBlanking(this);
 
-    setCrtcPixWidth(bi, format);
+    setCrtcPixWidth(this, format);
     /* pixel_cntl keeps LUT in path — identity ramp for 15/16/32bpp. */
     if (format != RGBFB_CLUT) {
-        writeDacPalette(bi, format);
-        writeRGB514Index(bi, RGB514_BORDER_R, 0);
-        writeRGB514Index(bi, RGB514_BORDER_G, 0);
-        writeRGB514Index(bi, RGB514_BORDER_B, 0);
+        writeDacPalette(this, format);
+        writeRGB514Index(this, RGB514_BORDER_R, 0);
+        writeRGB514Index(this, RGB514_BORDER_G, 0);
+        writeRGB514Index(this, RGB514_BORDER_B, 0);
     }
 
     DFUNC(VERBOSE, "SetDAC RGB514: depth=%ld fmt=%ld cntl_idx=0x%02lx cntl=0x%02lx\n", (ULONG)depth, (ULONG)format,
           (ULONG)tab->pixel_cntl_index, (ULONG)tab->pixel_cntl);
+}
+
+static void ASM SetDAC_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE_REG format))
+{
+    asMach64(bi)->setDAC_RGB514(region, format);
 }
 
 /**
@@ -954,7 +971,7 @@ static void InitICS2595ClockTable(BoardInfo_t *bi)
     }
 
     UWORD maxNumEntries   = (UWORD)((cs->maxPClock - cs->minPClock) / 100u + 2u + ARRAY_SIZE(g_ics2595KnownGood));
-    PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_ANY);
+    PLLValue_t *pllValues = static_cast<PLLValue_t *>(AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_ANY));
     if (!pllValues) {
         DFUNC(ERROR, "AllocVec ICS clock table failed\n");
         return;
@@ -1037,27 +1054,32 @@ static void InitICS2595ClockTable(BoardInfo_t *bi)
 
 static void ics2595_selectAndStrobe(BoardInfo_t *bi, UBYTE entry)
 {
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
     /* CLOCK_CNTL bits 0–3 = entry, bit 6 = strobe (auto-clears). Working log: 0x40. */
-    W_MMIO_L(CLOCK_CNTL, CLOCK_SEL_GX(entry) | ICS2595_STROBE_BIT);
+    mmio.writeL(CLOCK_CNTL, CLOCK_SEL_GX(entry) | ICS2595_STROBE_BIT);
     delayMicroSeconds(26);
+}
+
+void ASM Mach64Driver::setClock_GX()
+{
+    DFUNC(VERBOSE, "\n");
+    DRIVER_LOCALS(this);
+
+    /* ICS2595 clock: EXT_DISP on, program entry, CLOCK_SEL|STROBE. */
+    mmio.writeMaskL(CRTC_GEN_CNTL, CRTC_EXT_DISP_EN_MASK, CRTC_EXT_DISP_EN);
+
+    /* Precomputed at ResolvePixelClock — GX packs ICS word into pll1/pll2. */
+    UWORD word = (UWORD)ModeInfo->pll1.Numerator | ((UWORD)ModeInfo->pll2.Denominator << 8);
+
+    D(VERBOSE, "SetClock_GX: %ld Hz -> ICS word 0x%04lx\n", ModeInfo->PixelClock, (ULONG)word);
+    ProgramICS2595Word(this, GX_VCLK_ENTRY, word);
+    delayMilliSeconds(1);
+    ics2595_selectAndStrobe(this, GX_VCLK_ENTRY);
 }
 
 static void ASM SetClock_GX(__REGA0(struct BoardInfo *bi))
 {
-    DFUNC(VERBOSE, "\n");
-    MMIOBASE();
-
-    /* ICS2595 clock: EXT_DISP on, program entry, CLOCK_SEL|STROBE. */
-    W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_EXT_DISP_EN_MASK, CRTC_EXT_DISP_EN);
-
-    /* Precomputed at ResolvePixelClock — GX packs ICS word into pll1/pll2. */
-    UWORD word = (UWORD)bi->ModeInfo->pll1.Numerator | ((UWORD)bi->ModeInfo->pll2.Denominator << 8);
-
-    D(VERBOSE, "SetClock_GX: %ld Hz -> ICS word 0x%04lx\n", bi->ModeInfo->PixelClock, (ULONG)word);
-    ProgramICS2595Word(bi, GX_VCLK_ENTRY, word);
-    delayMilliSeconds(1);
-    ics2595_selectAndStrobe(bi, GX_VCLK_ENTRY);
+    asMach64(bi)->setClock_GX();
 }
 
 static ULONG computeVCLKFrequency_RGB514(const struct BoardInfo *bi, const struct PLLValue *pllValues)
@@ -1078,7 +1100,7 @@ static void InitRGB514ClockTable(BoardInfo_t *bi)
     }
 
     UWORD maxNumEntries   = (UWORD)((cs->maxPClock - cs->minPClock) / 100u + 2u);
-    PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_ANY);
+    PLLValue_t *pllValues = static_cast<PLLValue_t *>(AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_ANY));
     if (!pllValues) {
         DFUNC(ERROR, "AllocVec RGB514 clock table failed\n");
         return;
@@ -1137,57 +1159,65 @@ static void InitRGB514ClockTable(BoardInfo_t *bi)
           (ULONG)computeVCLKFrequency_RGB514(bi, &pllValues[e - 1]));
 }
 
-/* On-DAC VCLK: F0/N0 @ 0x20/0x21 and packed PLL word.
- * Board ICS2595 (if present) is left alone — typically MCLK only on RGB514 cards. */
-static void ASM SetClock_RGB514(__REGA0(struct BoardInfo *bi))
+void ASM Mach64Driver::setClock_RGB514()
 {
     UWORD word;
 
     DFUNC(VERBOSE, "\n");
-    MMIOBASE();
+    DRIVER_LOCALS(this);
 
-    W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_EXT_DISP_EN_MASK, CRTC_EXT_DISP_EN);
+    mmio.writeMaskL(CRTC_GEN_CNTL, CRTC_EXT_DISP_EN_MASK, CRTC_EXT_DISP_EN);
 
-    word = (UWORD)bi->ModeInfo->pll1.Numerator | ((UWORD)bi->ModeInfo->pll2.Denominator << 8);
-    D(VERBOSE, "SetClock_RGB514: %ld Hz -> word 0x%04lx\n", bi->ModeInfo->PixelClock, (ULONG)word);
+    word = (UWORD)ModeInfo->pll1.Numerator | ((UWORD)ModeInfo->pll2.Denominator << 8);
+    D(VERBOSE, "SetClock_RGB514: %ld Hz -> word 0x%04lx\n", ModeInfo->PixelClock, (ULONG)word);
 
-    writeRGB514Index(bi, 0x06, 0x02); /* DAC Operation */
-    writeRGB514Index(bi, 0x10, 0x01); /* PLL Control 1 */
-    writeRGB514Index(bi, 0x70, 0x01); /* Misc Control 1 */
-    writeRGB514Index(bi, 0x8f, 0x1f); /* PLL Ref. Divider Input */
-    writeRGB514Index(bi, 0x03, 0x00); /* Sync Control */
-    writeRGB514Index(bi, 0x05, 0x00); /* Power Management */
-    writeRGB514Index(bi, 0x20, (UBYTE)(word >> 8));
-    writeRGB514Index(bi, 0x21, (UBYTE)(word & 0xff));
+    writeRGB514Index(this, 0x06, 0x02); /* DAC Operation */
+    writeRGB514Index(this, 0x10, 0x01); /* PLL Control 1 */
+    writeRGB514Index(this, 0x70, 0x01); /* Misc Control 1 */
+    writeRGB514Index(this, 0x8f, 0x1f); /* PLL Ref. Divider Input */
+    writeRGB514Index(this, 0x03, 0x00); /* Sync Control */
+    writeRGB514Index(this, 0x05, 0x00); /* Power Management */
+    writeRGB514Index(this, 0x20, (UBYTE)(word >> 8));
+    writeRGB514Index(this, 0x21, (UBYTE)(word & 0xff));
+}
+
+static void ASM SetClock_RGB514(__REGA0(struct BoardInfo *bi))
+{
+    asMach64(bi)->setClock_RGB514();
 }
 
 /* IBM RGB514: REG06 0x60/61/62 = Border Color R/G/B. */
-static void ASM SetColorArray_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex),
-                                     __REGD1(UWORD count))
+void ASM Mach64Driver::setColorArray_RGB514(__REGD0(UWORD startIndex), __REGD1(UWORD count))
 {
     DFUNC(VERBOSE, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
 
-    SetColorArrayInternal(bi, startIndex, count, bi->CLUT);
+    SetColorArrayInternal(this, startIndex, count, CLUT);
 
     /* DAC border RGB: follow CLUT[0] in 4/8 bpp; black in direct color. */
     if (startIndex == 0 && count > 0) {
         UBYTE r = 0, g = 0, b = 0;
-        if (!bi->ModeInfo || bi->ModeInfo->Depth <= 8) {
-            r = bi->CLUT[0].Red;
-            g = bi->CLUT[0].Green;
-            b = bi->CLUT[0].Blue;
+        if (!ModeInfo || ModeInfo->Depth <= 8) {
+            r = CLUT[0].Red;
+            g = CLUT[0].Green;
+            b = CLUT[0].Blue;
         }
-        writeRGB514Index(bi, RGB514_BORDER_R, r);
-        writeRGB514Index(bi, RGB514_BORDER_G, g);
-        writeRGB514Index(bi, RGB514_BORDER_B, b);
+        writeRGB514Index(this, RGB514_BORDER_R, r);
+        writeRGB514Index(this, RGB514_BORDER_G, g);
+        writeRGB514Index(this, RGB514_BORDER_B, b);
     }
 }
 
-/* ATI68860 cursor colors live in the DAC, not CUR_CLR0/1 (SDK HWCURSOR.C). */
-static void ASM SetSpriteColor_GX(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
-                                  __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE fmt))
+static void ASM SetColorArray_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex),
+                                     __REGD1(UWORD count))
 {
-    ChipData_t *cd = getChipData(bi);
+    asMach64(bi)->setColorArray_RGB514(startIndex, count);
+}
+
+/* ATI68860 cursor colors live in the DAC, not CUR_CLR0/1 (SDK HWCURSOR.C). */
+void ASM Mach64Driver::setSpriteColor_GX(__REGD0(UBYTE index), __REGD1(UBYTE red), __REGD2(UBYTE green), __REGD3(UBYTE blue),
+                                         __REGD7(RGBFTYPE_REG fmt))
+{
+    DRIVER_LOCALS(this);
     UBYTE pen;
 
     (void)fmt;
@@ -1205,20 +1235,25 @@ static void ASM SetSpriteColor_GX(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE i
     cd->cursorRGB[pen][2] = blue;
 
     {
-        MMIOBASE();
-        UBYTE dacCntl0 = R_MMIO_B(DAC_CNTL, 0);
+        UBYTE dacCntl0 = mmio.readB(DAC_CNTL, 0);
 
         /* DAC_CNTL[1:0]=RS2 selects 68860 cursor color bank. */
-        W_MMIO_B(DAC_CNTL, 0, (dacCntl0 & ~(DAC_EXT_SEL_RS2_MASK | DAC_EXT_SEL_RS3_MASK)) | DAC_EXT_SEL_RS2);
-        W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0);
-        W_MMIO_B(DAC_REGS, DAC_W_DATA, cd->cursorRGB[0][0]);
-        W_MMIO_B(DAC_REGS, DAC_W_DATA, cd->cursorRGB[0][1]);
-        W_MMIO_B(DAC_REGS, DAC_W_DATA, cd->cursorRGB[0][2]);
-        W_MMIO_B(DAC_REGS, DAC_W_DATA, cd->cursorRGB[1][0]);
-        W_MMIO_B(DAC_REGS, DAC_W_DATA, cd->cursorRGB[1][1]);
-        W_MMIO_B(DAC_REGS, DAC_W_DATA, cd->cursorRGB[1][2]);
-        W_MMIO_B(DAC_CNTL, 0, R_MMIO_B(DAC_CNTL, 0) & ~(DAC_EXT_SEL_RS2_MASK | DAC_EXT_SEL_RS3_MASK));
+        mmio.writeB(DAC_CNTL, 0, (dacCntl0 & ~(DAC_EXT_SEL_RS2_MASK | DAC_EXT_SEL_RS3_MASK)) | DAC_EXT_SEL_RS2);
+        mmio.writeB(DAC_REGS, DAC_W_INDEX, 0);
+        mmio.writeB(DAC_REGS, DAC_W_DATA, cd->cursorRGB[0][0]);
+        mmio.writeB(DAC_REGS, DAC_W_DATA, cd->cursorRGB[0][1]);
+        mmio.writeB(DAC_REGS, DAC_W_DATA, cd->cursorRGB[0][2]);
+        mmio.writeB(DAC_REGS, DAC_W_DATA, cd->cursorRGB[1][0]);
+        mmio.writeB(DAC_REGS, DAC_W_DATA, cd->cursorRGB[1][1]);
+        mmio.writeB(DAC_REGS, DAC_W_DATA, cd->cursorRGB[1][2]);
+        mmio.writeB(DAC_CNTL, 0, mmio.readB(DAC_CNTL, 0) & ~(DAC_EXT_SEL_RS2_MASK | DAC_EXT_SEL_RS3_MASK));
     }
+}
+
+static void ASM SetSpriteColor_GX(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
+                                  __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE_REG fmt))
+{
+    asMach64(bi)->setSpriteColor_GX(index, red, green, blue, fmt);
 }
 
 /* RGB514 Mode 0: 00=trans, 01=C1, 10=C2, 11=C3. */
@@ -1264,7 +1299,7 @@ static void packRgb514Mode0Cursor(BoardInfo_t *bi)
         cursor[i] = 0;
 
     if (bi->Flags & BIF_HIRESSPRITE) {
-        const ULONG *image = (const ULONG *)bi->MouseImage + 2;
+        const ULONG *image = reinterpret_cast<const ULONG *>(bi->MouseImage) + 2;
         for (y = 0; y < height; ++y) {
             ULONG plane0 = *image++;
             ULONG plane1 = *image++;
@@ -1317,27 +1352,24 @@ static void packRgb514Mode0Cursor(BoardInfo_t *bi)
 
 static void writeRGB514CursorColors(BoardInfo_t *bi)
 {
-    ChipData_t *cd = getChipData(bi);
+    DRIVER_LOCALS(bi);
     UWORD pen;
-
-    MMIOBASE();
     SetRS2RS3(bi, DAC_EXT_SEL_RS2);
-    W_MMIO_B(DAC_REGS, DAC_R_INDEX, 1);
-    W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0x40);
-    W_MMIO_B(DAC_REGS, DAC_W_DATA, 0);
+    mmio.writeB(DAC_REGS, DAC_R_INDEX, 1);
+    mmio.writeB(DAC_REGS, DAC_W_INDEX, 0x40);
+    mmio.writeB(DAC_REGS, DAC_W_DATA, 0);
     for (pen = 0; pen < 3; ++pen) {
-        W_MMIO_B(DAC_REGS, DAC_MASK, cd->cursorRGB[pen][0]);
-        W_MMIO_B(DAC_REGS, DAC_MASK, cd->cursorRGB[pen][1]);
-        W_MMIO_B(DAC_REGS, DAC_MASK, cd->cursorRGB[pen][2]);
+        mmio.writeB(DAC_REGS, DAC_MASK, cd->cursorRGB[pen][0]);
+        mmio.writeB(DAC_REGS, DAC_MASK, cd->cursorRGB[pen][1]);
+        mmio.writeB(DAC_REGS, DAC_MASK, cd->cursorRGB[pen][2]);
     }
     SetRS2RS3(bi, 0);
 }
 
-/* Cursor colors @ 0x40 / 0x43 / 0x46 (Mode 0 uses all three). */
-static void ASM SetSpriteColor_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
-                                      __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE fmt))
+void ASM Mach64Driver::setSpriteColor_RGB514(__REGD0(UBYTE index), __REGD1(UBYTE red), __REGD2(UBYTE green), __REGD3(UBYTE blue),
+                                             __REGD7(RGBFTYPE_REG fmt))
 {
-    ChipData_t *cd = getChipData(bi);
+    ChipData_t *cd = chip();
 
     (void)fmt;
     DFUNC(VERBOSE, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
@@ -1348,11 +1380,17 @@ static void ASM SetSpriteColor_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(UBY
     cd->cursorRGB[index][0] = red;
     cd->cursorRGB[index][1] = green;
     cd->cursorRGB[index][2] = blue;
-    writeRGB514CursorColors(bi);
+    writeRGB514CursorColors(this);
+}
+
+static void ASM SetSpriteColor_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
+                                      __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE_REG fmt))
+{
+    asMach64(bi)->setSpriteColor_RGB514(index, red, green, blue, fmt);
 }
 
 /* Upload Mode0 cursor RAM @ 0x100 + hotspot @ 0x35. */
-static void ASM SetSpriteImage_RGB514(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fmt))
+void ASM Mach64Driver::setSpriteImage_RGB514(__REGD7(RGBFTYPE_REG fmt))
 {
     const UBYTE *src;
     UWORD i;
@@ -1361,50 +1399,54 @@ static void ASM SetSpriteImage_RGB514(__REGA0(struct BoardInfo *bi), __REGD7(RGB
     (void)fmt;
     DFUNC(VERBOSE, "\n");
 
-    packRgb514Mode0Cursor(bi);
-    src = bi->MouseImageBuffer;
+    packRgb514Mode0Cursor(this);
+    src = MouseImageBuffer;
 
     /* Left-aligned image → hotspot is Mouse*Offset (SDK's 64-width+hot is for right-aligned uploads). */
-    hotX = bi->MouseXOffset;
-    hotY = bi->MouseYOffset;
+    hotX = MouseXOffset;
+    hotY = MouseYOffset;
     if (hotX > 63)
         hotX = 63;
     if (hotY > 63)
         hotY = 63;
 
     {
-        MMIOBASE();
-        SetRS2RS3(bi, DAC_EXT_SEL_RS2);
-        W_MMIO_B(DAC_REGS, DAC_R_INDEX, 1);
-        W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0x00);
-        W_MMIO_B(DAC_REGS, DAC_W_DATA, 0x01); /* cursor array @ 0x100 */
+        DRIVER_LOCALS(this);
+        SetRS2RS3(this, DAC_EXT_SEL_RS2);
+        mmio.writeB(DAC_REGS, DAC_R_INDEX, 1);
+        mmio.writeB(DAC_REGS, DAC_W_INDEX, 0x00);
+        mmio.writeB(DAC_REGS, DAC_W_DATA, 0x01); /* cursor array @ 0x100 */
         for (i = 0; i < 1024; ++i)
-            W_MMIO_B(DAC_REGS, DAC_MASK, src[i]);
+            mmio.writeB(DAC_REGS, DAC_MASK, src[i]);
 
-        W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0x35);
-        W_MMIO_B(DAC_REGS, DAC_W_DATA, 0);
-        W_MMIO_B(DAC_REGS, DAC_MASK, hotX);
-        W_MMIO_B(DAC_REGS, DAC_MASK, hotY);
-        SetRS2RS3(bi, 0);
+        mmio.writeB(DAC_REGS, DAC_W_INDEX, 0x35);
+        mmio.writeB(DAC_REGS, DAC_W_DATA, 0);
+        mmio.writeB(DAC_REGS, DAC_MASK, hotX);
+        mmio.writeB(DAC_REGS, DAC_MASK, hotY);
+        SetRS2RS3(this, 0);
     }
 }
 
-static void ASM SetSpritePosition_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(WORD xpos), __REGD1(WORD ypos),
-                                         __REGD7(RGBFTYPE fmt))
+static void ASM SetSpriteImage_RGB514(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE_REG fmt))
+{
+    asMach64(bi)->setSpriteImage_RGB514(fmt);
+}
+
+void ASM Mach64Driver::setSpritePosition_RGB514(__REGD0(WORD xpos), __REGD1(WORD ypos), __REGD7(RGBFTYPE_REG fmt))
 {
     WORD spriteX, spriteY;
 
     (void)fmt;
     DFUNC(VERBOSE, "\n");
 
-    bi->MouseX = xpos;
-    bi->MouseY = ypos;
+    MouseX = xpos;
+    MouseY = ypos;
 
-    spriteX = xpos - bi->XOffset;
-    spriteY = ypos - bi->YOffset + bi->YSplit;
+    spriteX = xpos - XOffset;
+    spriteY = ypos - YOffset + YSplit;
 
     /* Match chip_mach64 SetSpritePosition (DAC position is hotspot on screen). */
-    if (bi->ModeInfo && (bi->ModeInfo->Flags & GMF_DOUBLESCAN))
+    if (ModeInfo && (ModeInfo->Flags & GMF_DOUBLESCAN))
         spriteY *= 2;
 
     if (spriteX < 0)
@@ -1413,45 +1455,56 @@ static void ASM SetSpritePosition_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(
         spriteY = 0;
 
     {
-        MMIOBASE();
-        SetRS2RS3(bi, DAC_EXT_SEL_RS2);
-        W_MMIO_B(DAC_REGS, DAC_R_INDEX, 1);
-        W_MMIO_B(DAC_REGS, DAC_W_INDEX, 0x31);
-        W_MMIO_B(DAC_REGS, DAC_W_DATA, 0);
-        W_MMIO_B(DAC_REGS, DAC_MASK, (UBYTE)(spriteX & 0xff));
-        W_MMIO_B(DAC_REGS, DAC_MASK, (UBYTE)((spriteX >> 8) & 0xff));
-        W_MMIO_B(DAC_REGS, DAC_MASK, (UBYTE)(spriteY & 0xff));
-        W_MMIO_B(DAC_REGS, DAC_MASK, (UBYTE)((spriteY >> 8) & 0xff));
-        SetRS2RS3(bi, 0);
+        DRIVER_LOCALS(this);
+        SetRS2RS3(this, DAC_EXT_SEL_RS2);
+        mmio.writeB(DAC_REGS, DAC_R_INDEX, 1);
+        mmio.writeB(DAC_REGS, DAC_W_INDEX, 0x31);
+        mmio.writeB(DAC_REGS, DAC_W_DATA, 0);
+        mmio.writeB(DAC_REGS, DAC_MASK, (UBYTE)(spriteX & 0xff));
+        mmio.writeB(DAC_REGS, DAC_MASK, (UBYTE)((spriteX >> 8) & 0xff));
+        mmio.writeB(DAC_REGS, DAC_MASK, (UBYTE)(spriteY & 0xff));
+        mmio.writeB(DAC_REGS, DAC_MASK, (UBYTE)((spriteY >> 8) & 0xff));
+        SetRS2RS3(this, 0);
     }
 
     D(CHATTY, "RGB514 SpritePos X: %ld Y: %ld\n", (LONG)spriteX, (LONG)spriteY);
 }
 
-static BOOL ASM SetSprite_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate), __REGD7(RGBFTYPE RGBFormat))
+static void ASM SetSpritePosition_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(WORD xpos), __REGD1(WORD ypos),
+                                         __REGD7(RGBFTYPE_REG fmt))
+{
+    asMach64(bi)->setSpritePosition_RGB514(xpos, ypos, fmt);
+}
+
+BOOL ASM Mach64Driver::setSprite_RGB514(__REGD0(BOOL activate), __REGD7(RGBFTYPE_REG RGBFormat))
 {
     DFUNC(VERBOSE, "activate=%ld\n", (ULONG)activate);
-    MMIOBASE();
+    DRIVER_LOCALS(this);
 
     /* GEN_CUR_ENABLE still required on RGB514 boards (SDK HWCURSOR.C) plus DAC 0x30. */
-    W_MMIO_MASK_L(GEN_TEST_CNTL, GEN_CUR_ENABLE_MASK, (activate ? GEN_CUR_ENABLE : 0));
-    writeRGB514Index(bi, 0x30, activate ? RGB514_CURS_CTRL_ON : RGB514_CURS_CTRL_OFF);
+    mmio.writeMaskL(GEN_TEST_CNTL, GEN_CUR_ENABLE_MASK, (activate ? GEN_CUR_ENABLE : 0));
+    writeRGB514Index(this, 0x30, activate ? RGB514_CURS_CTRL_ON : RGB514_CURS_CTRL_OFF);
 
     if (activate) {
-        bi->SetSpriteColor(bi, 0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, RGBFormat);
-        bi->SetSpriteColor(bi, 1, bi->CLUT[18].Red, bi->CLUT[18].Green, bi->CLUT[18].Blue, RGBFormat);
-        bi->SetSpriteColor(bi, 2, bi->CLUT[19].Red, bi->CLUT[19].Green, bi->CLUT[19].Blue, RGBFormat);
+        drv->SetSpriteColor(drv, 0, CLUT[17].Red, CLUT[17].Green, CLUT[17].Blue, AS_RGBF(RGBFormat));
+        drv->SetSpriteColor(drv, 1, CLUT[18].Red, CLUT[18].Green, CLUT[18].Blue, AS_RGBF(RGBFormat));
+        drv->SetSpriteColor(drv, 2, CLUT[19].Red, CLUT[19].Green, CLUT[19].Blue, AS_RGBF(RGBFormat));
     }
 
     return TRUE;
 }
 
+static BOOL ASM SetSprite_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate), __REGD7(RGBFTYPE_REG RGBFormat))
+{
+    return asMach64(bi)->setSprite_RGB514(activate, RGBFormat);
+}
+
 BOOL InitMach64GX(struct BoardInfo *bi)
 {
     DFUNC(INFO, "\n");
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
 
-    ULONG chipID         = R_MMIO_L(CONFIG_CHIP_ID);
+    ULONG chipID         = mmio.readL(CONFIG_CHIP_ID);
     const char *chipType = "unknown";
     switch (chipID & 0xFFFF) {
     case 0xD7:  // Mach64 GX
@@ -1475,8 +1528,8 @@ BOOL InitMach64GX(struct BoardInfo *bi)
         return FALSE;
     }
 
-    ULONG configStat0 = R_MMIO_L(CONFIG_STAT0);
-    print_CONFIG_STAT0((CONFIG_STAT0_t *)&configStat0);
+    ULONG configStat0 = mmio.readL(CONFIG_STAT0);
+    print_CONFIG_STAT0(reinterpret_cast<CONFIG_STAT0_t *>(&configStat0));
 
     ULONG dacType = (configStat0 >> 9) & 7;
     if (dacType != 1 && dacType != 5) {
@@ -1484,10 +1537,10 @@ BOOL InitMach64GX(struct BoardInfo *bi)
         return FALSE;
     }
 
-    ULONG configStat1 = R_MMIO_L(CONFIG_STAT1);
-    print_CONFIG_STAT1((CONFIG_STAT1_t *)&configStat1);
-    ULONG memCntl = R_MMIO_L(MEM_CNTL);
-    print_MEM_CNTL((MEM_CNTL_t *)&memCntl);
+    ULONG configStat1 = mmio.readL(static_cast<MmioReg::Id>(CONFIG_STAT1));
+    print_CONFIG_STAT1(reinterpret_cast<CONFIG_STAT1_t *>(&configStat1));
+    ULONG memCntl = mmio.readL(MEM_CNTL);
+    print_MEM_CNTL(reinterpret_cast<MEM_CNTL_t *>(&memCntl));
 
     /* Leave factory MCLK (ICS2595 on both 68860 and RGB514 boards). */
     if (!probeMemorySize(bi)) {
@@ -1500,25 +1553,29 @@ BOOL InitMach64GX(struct BoardInfo *bi)
         InitRGB514ClockTable(bi);
         /* RGB514 0x0E=0x00 scanout is BGRA on the LE aperture. */
         bi->RGBFormats |= RGBFF_B8G8R8A8;
-        bi->SetDAC            = SetDAC_RGB514;
-        bi->SetClock          = SetClock_RGB514;
-        bi->SetColorArray     = SetColorArray_RGB514;
+        P96_HOOK(bi->SetDAC, SetDAC_RGB514);
+        P96_HOOK(bi->SetClock, SetClock_RGB514);
+        P96_HOOK(bi->SetColorArray, SetColorArray_RGB514);
         /* On-DAC Mode0 cursor — override image/position/enable, not only colors. */
-        bi->SetSprite         = SetSprite_RGB514;
-        bi->SetSpritePosition = SetSpritePosition_RGB514;
-        bi->SetSpriteImage    = SetSpriteImage_RGB514;
-        bi->SetSpriteColor    = SetSpriteColor_RGB514;
+        P96_HOOK(bi->SetSprite, SetSprite_RGB514);
+        P96_HOOK(bi->SetSpritePosition, SetSpritePosition_RGB514);
+        P96_HOOK(bi->SetSpriteImage, SetSpriteImage_RGB514);
+        P96_HOOK(bi->SetSpriteColor, SetSpriteColor_RGB514);
     } else {
         DFUNC(INFO, "DAC: ATI68860 + ICS2595 VCLK\n");
         getChipSpecific(bi)->computeVCLKFrequency = computeVCLKFrequency_ICS2595;
         InitICS2595ClockTable(bi);
         /* 68860 GMR E3 is RGBA on the LE aperture. */
         bi->RGBFormats |= RGBFF_R8G8B8A8;
-        bi->SetDAC         = SetDAC_GX;
-        bi->SetClock       = SetClock_GX;
+        P96_HOOK(bi->SetDAC, SetDAC_GX);
+        P96_HOOK(bi->SetClock, SetClock_GX);
         /* Keep Mach64 CUR_* sprite path; only colors live in the 68860. */
-        bi->SetSpriteColor = SetSpriteColor_GX;
+        P96_HOOK(bi->SetSpriteColor, SetSpriteColor_GX);
     }
 
     return TRUE;
 }
+
+#ifdef __cplusplus
+}
+#endif

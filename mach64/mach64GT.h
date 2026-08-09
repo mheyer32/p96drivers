@@ -70,6 +70,10 @@
 #define CMDFIFO_SIZE_MODE_MASK (0x3)
 #define CMDFIFO_SIZE_MODE(x)   ((x) & 0x3)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern const UBYTE g_VPLLPostDivider[];
 extern const UBYTE g_VPLLPostDividerCodes[];
 
@@ -77,5 +81,9 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv);
 
 BOOL InitMach64GT(struct BoardInfo *bi);
 void SetMemoryClock_GT(struct BoardInfo *bi, UWORD freqKhz10);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // MACH64GT_H
