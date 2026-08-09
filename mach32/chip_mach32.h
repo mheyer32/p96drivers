@@ -8,6 +8,10 @@
 /*    | RGBFF_A8R8G8B8 |           \
      RGBFF_A8B8G8R8 | RGBFF_R8G8B8A8 | RGBFF_B8G8R8A8*/
 
+/* GE_PITCH / CRT_PITCH: 8-bit field in units of 8 pixels (REG688000-15). */
+#define MACH32_GE_PITCH_MAX     255
+#define MACH32_MAX_PITCH_PIXELS (MACH32_GE_PITCH_MAX * 8) /* 2040 */
+
 typedef struct ChipData
 {
     ULONG GEfgPen;
@@ -23,7 +27,8 @@ typedef struct ChipData
     };
     ULONG patternCacheKey;
     UBYTE lineMode; /* 0 = invalid, 1 = solid (DP replace + mask=1), 2 = patterned mono stipple */
-    UBYTE fifoSlotsCached;
+    /* Cached EXT_FIFO_STATUS after accounting for pending GE writes. */
+    UWORD fifoSlotsCached;
     const struct RamdacOps *ramdacOps;
 } ChipData_t;
 

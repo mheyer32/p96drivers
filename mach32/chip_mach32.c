@@ -42,61 +42,47 @@ const UWORD LibRevision = LIB_REVISION;
 int debugLevel = TELLALL;
 #endif
 
-static INLINE UBYTE countFreeSlots(UWORD s)
+/* EXT_FIFO_STATUS: 0 = empty; ones pack from LSB (same encoding as Mach64 FIFO_STAT). */
+static INLINE UWORD fifoStatConsume(UWORD stat, UBYTE entries)
 {
-    if (!s) {
-        return 16;
-    }
-    UBYTE free = 0;
-    if (!(s & 0xFF00)) {
-        free += 8;
-        s <<= 8;
-    }
-    if (!(s & 0xF000)) {
-        free += 4;
-        s <<= 4;
-    }
-    if (!(s & 0xC000)) {
-        free += 2;
-        s <<= 2;
-    }
-    if (!(s & 0x8000)) {
-        free += 1;
-    }
-    return free;
+    return ((ULONG)(stat + 1) << entries) - 1;
 }
 
-static void INLINE waitFifo(BoardInfo_t *bi, UBYTE slots)
+static INLINE void waitFifo(BoardInfo_t *bi, UBYTE slots)
 {
-    if (!slots) {
-        return;
-    }
-
-    ChipData_t *cd = getChipData(bi);
-
-    if (cd->fifoSlotsCached >= slots) {
-        cd->fifoSlotsCached -= slots;
-        return;
-    }
+    ChipData_t *cd;
+    UWORD mask;
+    UWORD maskSwapped;
+    UWORD raw;
 
     flushWrites();
-    REGBASE();
-    UBYTE freeSlots;
-    do {
-        freeSlots = countFreeSlots(R_IO_W(EXT_FIFO_STATUS));
-    } while (freeSlots < slots);
 
-    if (freeSlots > slots) {
-        cd->fifoSlotsCached = (UBYTE)(freeSlots - slots);
-    } else {
-        cd->fifoSlotsCached = 0;
+    if (!slots)
+        return;
+
+    /* slots free ⇒ top `slots` bits clear. */
+    mask = 0xffffU << (16 - slots);
+
+    cd = getChipData(bi);
+    if (!(cd->fifoSlotsCached & mask)) {
+        cd->fifoSlotsCached = fifoStatConsume(cd->fifoSlotsCached, slots);
+        return;
     }
+
+    maskSwapped = SWAPW_IO(mask);
+    {
+        REGBASE();
+        do {
+            raw = R_IO_NOSWAP_W_QI(EXT_FIFO_STATUS);
+        } while (raw & maskSwapped);
+    }
+
+    cd->fifoSlotsCached = fifoStatConsume(SWAPW_IO(raw), slots);
 }
 
 static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(VERBOSE, "\n");
-    flushWrites();
     REGBASE();
     waitFifo(bi, 16);
     while (TST_IO_W(EXT_GE_STATUS, BIT(13))) {
@@ -330,6 +316,7 @@ void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __RE
         W_IO_W(VERT_OVERSCAN, 0);
     }
 
+    /* Always leave CRT running — reset would stop VBlank IRQs P96 waits on. */
     UWORD disp = CRT_ENABLED | Y_CONTROL_NORMAL;
 
     if (modeFlags & GMF_DOUBLESCAN) {
@@ -340,27 +327,10 @@ void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __RE
     }
 
     W_IO_W(DISP_CNTL, disp);
-}
 
-static UBYTE bppForRgbFormat(RGBFTYPE fmt)
-{
-    switch (fmt) {
-    case RGBFB_NONE:
-    case RGBFB_CLUT:
-        return 1;
-    case RGBFB_R5G6B5PC:
-    case RGBFB_R5G5B5PC:
-    case RGBFB_B5G6R5PC:
-    case RGBFB_B5G5R5PC:
-    case RGBFB_R5G6B5:
-    case RGBFB_R5G5B5:
-        return 2;
-    case RGBFB_R8G8B8:
-    case RGBFB_B8G8R8:
-        return 3;
-    default:
-        return 4;
-    }
+    /* SetDisplay(FALSE): force blank via V_DISP=0 while CRT (and VBlank) keep running. */
+    if (!(bi->ChipFlags & 1))
+        W_IO_W(V_DISP, 0);
 }
 
 void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width), __REGD3(UWORD height),
@@ -413,34 +383,15 @@ UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD widt
     DFUNC(VERBOSE, "width=%lu height=%lu mi=0x%lx fmt=%ld\n", (ULONG)width, (ULONG)height, (ULONG)mi, (ULONG)format);
     (void)bi;
     (void)height;
-    UBYTE bpp = 1;
-    switch (format) {
-    case RGBFB_CLUT:
-        bpp = 1;
-        break;
-    case RGBFB_R5G6B5PC:
-    case RGBFB_R5G5B5PC:
-    case RGBFB_B5G6R5PC:
-    case RGBFB_B5G5R5PC:
-    case RGBFB_R5G6B5:
-    case RGBFB_R5G5B5:
-        bpp = 2;
-        break;
-    case RGBFB_R8G8B8:
-    case RGBFB_B8G8R8:
-        bpp = 3;
-        break;
-    default:
-        bpp = 4;
-        break;
-    }
+    UBYTE bpp = getBPP(format);
 
     // Pitch needs to be 8 pixels aligned
     width     = (width + 7) & ~7;
     UWORD bpr = width * bpp;
 
     if (mi && (mi->Flags & GMF_DOUBLESCAN)) {
-        if (width > 1024) {
+        /* Fake doublescan doubles pitch; GE_PITCH must still fit. */
+        if ((ULONG)width * 2 > MACH32_MAX_PITCH_PIXELS) {
             return 0;
         }
         bpr <<= 1;
@@ -457,11 +408,12 @@ APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD
 {
     APTR mem = getConstCardData(bi)->AllocCardMemDefault(bi, size, force, system, bytesperrow, mi, format);
 
-    if (mem && mi && (mi->Flags & GMF_DOUBLESCAN)) {
+    if (mi && (mi->Flags & GMF_DOUBLESCAN)) {
         struct RenderInfo ri = {
             .Memory = (APTR)((ULONG)mem + bytesperrow / 2), .BytesPerRow = bytesperrow, .RGBFormat = format};
         WaitBlitter(bi);
-        FillRect(bi, &ri, 0, 0, mi->Width, mi->Height, 0, 0xFF, format);
+        /* Bitmap size may differ from ModeInfo; derive from the allocated chunk. */
+        FillRect(bi, &ri, 0, 0, (bytesperrow / 2) / getBPP(format), size / bytesperrow, 0, 0xFF, format);
         WaitBlitter(bi);
     }
 
@@ -576,8 +528,29 @@ void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex),
 BOOL ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 {
     DFUNC(INFO, "state=%ld\n", (ULONG)state);
-    (void)bi;
-    (void)state;
+    REGBASE();
+
+    UWORD disp = CRT_ENABLED | Y_CONTROL_NORMAL;
+    if (bi->ModeInfo) {
+        UWORD modeFlags = bi->ModeInfo->Flags;
+        if (modeFlags & GMF_DOUBLESCAN)
+            disp |= DOUBLE_SCAN_BIT;
+        if (modeFlags & GMF_INTERLACE)
+            disp |= INTERLACE_BIT;
+    }
+    W_IO_W(DISP_CNTL, disp);
+
+    if (bi->ModeInfo) {
+        if (state) {
+            UWORD modeFlags = bi->ModeInfo->Flags;
+            UWORD vDisp     = encodeSkip2Y(toScanLinesY(bi->ModeInfo->Height, modeFlags) - 1);
+            W_IO_W(V_DISP, vDisp & 0x0FFF);
+        } else {
+            W_IO_W(V_DISP, 0);
+        }
+    }
+
+    bi->ChipFlags = (bi->ChipFlags & ~1) | (state & 1);
     return TRUE;
 }
 
@@ -641,10 +614,19 @@ static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
     return TRUE;
 }
 
+#if defined(TESTEXE)
+static volatile ULONG hardVBlankEntries;
+static volatile ULONG hardVBlankHandled;
+#endif
+
 /* Non-static: DEFINE_INTSERVER asm must jsr the C symbol. */
 ULONG ASM VBlankInterruptHandler(__REGA1(struct BoardInfo *bi))
 {
     REGBASE();
+
+#if defined(TESTEXE)
+    hardVBlankEntries++;
+#endif
 
     if (!(R_IO_W_QI(SUBSYS_STATUS) & SUBSYS_VBLANK_INT))
         return 0;
@@ -652,6 +634,9 @@ ULONG ASM VBlankInterruptHandler(__REGA1(struct BoardInfo *bi))
     /* Ack while keeping VBLANK_ENA so continuous IRQs keep firing. */
     W_IO_W_QI(SUBSYS_CNTL, SUBSYS_VBLANK_ACK | SUBSYS_VBLANK_ENA);
 
+#if defined(TESTEXE)
+    hardVBlankHandled++;
+#endif
     {
         LOCAL_SYSBASE();
         Cause(&bi->SoftInterrupt);
@@ -1744,7 +1729,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         cd->GEdrawMode      = 0xFF;
         cd->GEOp            = 0; /* BlitterOp_t None */
         cd->GEfmt           = ~0;
-        cd->fifoSlotsCached = 0;
+        cd->fifoSlotsCached = 0xffff; /* no free slots known yet */
         cd->patternCacheKey = 0xFFFFFFFFu;
         for (int i = 0; i < 8; ++i) {
             cd->patternCache[i] = 0;
@@ -1755,6 +1740,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     bi->GraphicsControllerType = GCT_ATIRV100;
     bi->PaletteChipType        = PCT_Unknown;
+    bi->ChipFlags |= 1; /* display on until SetDisplay(FALSE) */
     bi->Flags |= BIF_GRANTDIRECTACCESS | BIF_BLITTER | BIF_HARDWARESPRITE;
     bi->RGBFormats = MACH32_SUPPORTED_RGBFF;
 
@@ -1802,11 +1788,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->MaxBMHeight = 1536;
 
     bi->BitsPerCannon          = 6;
-    bi->MaxHorValue[PLANAR]    = 2040;
-    bi->MaxHorValue[CHUNKY]    = 2040;
-    bi->MaxHorValue[HICOLOR]   = 2040;
-    bi->MaxHorValue[TRUECOLOR] = 2040;
-    bi->MaxHorValue[TRUEALPHA] = 2040;
+    bi->MaxHorValue[PLANAR]    = MACH32_MAX_PITCH_PIXELS;
+    bi->MaxHorValue[CHUNKY]    = MACH32_MAX_PITCH_PIXELS;
+    bi->MaxHorValue[HICOLOR]   = MACH32_MAX_PITCH_PIXELS;
+    bi->MaxHorValue[TRUECOLOR] = MACH32_MAX_PITCH_PIXELS;
+    bi->MaxHorValue[TRUEALPHA] = MACH32_MAX_PITCH_PIXELS;
 
     bi->MaxVerValue[PLANAR]    = 2047;
     bi->MaxVerValue[CHUNKY]    = 2047;
@@ -1959,6 +1945,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #if defined(TESTEXE) && (!defined(__clang__) || defined(__m68k__))
 
 #include <libraries/openpci.h>
+#include <proto/dos.h>
 #include <proto/openpci.h>
 #include <signal.h>
 #include <stdio.h>
@@ -1973,6 +1960,179 @@ extern struct UtilityBase *UtilityBase;
 #define PCI_DEVICE_MACH32 0x4158
 
 struct Library *OpenPciBase = NULL;
+struct Library *DOSBase;
+
+static volatile ULONG softVBlankCount;
+
+static void ASM SoftVBlankCount(__REGA1(ULONG *count))
+{
+    (*count)++;
+}
+
+/* Count VBLANK_INT edges with ENA=0 (no INTA). Separates CRT events from PCI delivery. */
+static void testVBlankPoll(BoardInfo_t *bi)
+{
+    REGBASE();
+    LOCAL_SYSBASE();
+
+    Disable();
+    W_IO_W(SUBSYS_CNTL, SUBSYS_VBLANK_ACK);
+    Enable();
+
+    ULONG edges   = 0;
+    ULONG lineMin = 0x7FFu;
+    ULONG lineMax = 0;
+    ULONG syncSeen = 0;
+    ULONG syncClear = 0;
+
+    D(ALWAYS, "VBlank poll: CRT edges (ENA=0) for 2s...\n");
+    for (ULONG i = 0; i < 2000; ++i) {
+        UWORD st   = R_IO_W_QI(SUBSYS_STATUS);
+        UWORD line = R_IO_W_QI(VERT_LINE_CNTR) & 0x7FF;
+        UWORD ds   = R_IO_W_QI(DISP_STATUS);
+
+        if (line < lineMin)
+            lineMin = line;
+        if (line > lineMax)
+            lineMax = line;
+        if (ds & DISP_STATUS_VERT_SYNC)
+            syncSeen++;
+        else
+            syncClear++;
+
+        if (st & SUBSYS_VBLANK_INT) {
+            edges++;
+            W_IO_W_QI(SUBSYS_CNTL, SUBSYS_VBLANK_ACK);
+        }
+        delayMilliSeconds(1);
+    }
+
+    D(ALWAYS,
+      "VBlank poll: %lu VBLANK_INT edges, VERT_LINE_CNTR min=%lu max=%lu, "
+      "DISP_STATUS VERT_SYNC hi=%lu lo=%lu, SUBSYS_STATUS=0x%04lx\n",
+      edges, lineMin, lineMax, syncSeen, syncClear, (ULONG)R_IO_W(SUBSYS_STATUS));
+    if (lineMin == lineMax)
+        D(ERROR, "VBlank poll: VERT_LINE_CNTR frozen — CRT not scanning\n");
+    if (edges < 50)
+        D(ERROR, "VBlank poll: too few VBLANK_INT edges (expected ~120 @60Hz)\n");
+}
+
+/* Register PCI VBlank server, enable chip IRQ, count SoftInterrupts for 2s. */
+static void testVBlankInterrupt(BoardInfo_t *bi, struct pci_dev *board)
+{
+    LOCAL_SYSBASE();
+    softVBlankCount     = 0;
+    hardVBlankEntries   = 0;
+    hardVBlankHandled   = 0;
+
+    {
+        ULONG pin = 0, line = 0;
+        GetBoardAttrs(board, PRM_InterruptPin, (Tag)&pin, PRM_InterruptLine, (Tag)&line, TAG_END);
+        D(ALWAYS, "VBlank IRQ test: PCI INT pin=%lu line=%lu HardInt.is_Code=%p\n", pin, line,
+          bi->HardInterrupt.is_Code);
+    }
+
+    /* Chip-side first: does VBLANK_INT latch without host IRQ? */
+    testVBlankPoll(bi);
+
+    bi->SoftInterrupt.is_Node.ln_Type = NT_INTERRUPT;
+    bi->SoftInterrupt.is_Node.ln_Pri  = 0;
+    bi->SoftInterrupt.is_Node.ln_Name = (char *)"TestMach32SoftVBlank";
+    bi->SoftInterrupt.is_Data         = (APTR)&softVBlankCount;
+    bi->SoftInterrupt.is_Code         = (void (*)())SoftVBlankCount;
+
+    bi->HardInterrupt.is_Node.ln_Type = NT_INTERRUPT;
+    bi->HardInterrupt.is_Node.ln_Pri  = 0;
+    bi->HardInterrupt.is_Node.ln_Name = (char *)"TestMach32VBlank";
+    bi->HardInterrupt.is_Data         = bi;
+    /* is_Code set by InitChip */
+
+    /*
+     * Probe with CPU IRQs off: ENA=1 must still latch VBLANK_INT in STATUS.
+     * If it never sets, chip/ENA programming is wrong. If it sets here but PCI
+     * softints stay 0, INTA is not reaching the host (or the hard ISR is dead).
+     */
+    {
+        REGBASE();
+        ULONG waited = 0;
+        UWORD st     = 0;
+
+        Disable();
+        W_IO_W(SUBSYS_CNTL, SUBSYS_VBLANK_ACK);
+        W_IO_W(SUBSYS_CNTL, SUBSYS_VBLANK_ACK | SUBSYS_VBLANK_ENA);
+        for (; waited < 100; ++waited) {
+            st = R_IO_W_QI(SUBSYS_STATUS);
+            if (st & SUBSYS_VBLANK_INT)
+                break;
+            /* Busy-wait ~1ms without Enable() so OpenPCI cannot ACK. */
+            for (volatile ULONG spin = 0; spin < 5000; ++spin)
+                ;
+        }
+        W_IO_W(SUBSYS_CNTL, SUBSYS_VBLANK_ACK); /* ENA=0 again before Enable */
+        Enable();
+
+        D(ALWAYS, "VBlank IRQ test: Disable+ENA latch %s after ~%lums (STATUS=0x%04lx)\n",
+          (st & SUBSYS_VBLANK_INT) ? "OK" : "FAIL", waited, (ULONG)st);
+    }
+
+    /* OpenPCI: server may run immediately — chip must not assert INTA yet. */
+    Disable();
+    {
+        REGBASE();
+        W_IO_W(SUBSYS_CNTL, SUBSYS_VBLANK_ACK);
+    }
+    Enable();
+
+    if (!pci_add_intserver(&bi->HardInterrupt, board)) {
+        D(ERROR, "VBlank IRQ test: pci_add_intserver failed\n");
+        return;
+    }
+
+    bi->Flags |= BIF_VBLANKINTERRUPT;
+    hardVBlankEntries = 0;
+    hardVBlankHandled = 0;
+    softVBlankCount   = 0;
+    bi->SetInterrupt(bi, TRUE);
+
+    {
+        REGBASE();
+        D(ALWAYS, "VBlank IRQ test: SUBSYS_STATUS=0x%04lx — counting softints 2s...\n",
+          (ULONG)R_IO_W(SUBSYS_STATUS));
+    }
+
+    delayMilliSeconds(2000);
+
+    ULONG count   = softVBlankCount;
+    ULONG hardEnt = hardVBlankEntries;
+    ULONG hardOk  = hardVBlankHandled;
+    UWORD stEnd;
+    {
+        REGBASE();
+        stEnd = R_IO_W(SUBSYS_STATUS);
+    }
+    bi->SetInterrupt(bi, FALSE);
+    {
+        REGBASE();
+        W_IO_W(SUBSYS_CNTL, SUBSYS_VBLANK_ACK);
+    }
+    pci_rem_intserver(&bi->HardInterrupt, board);
+    bi->Flags &= ~BIF_VBLANKINTERRUPT;
+
+    D(ALWAYS,
+      "VBlank IRQ test: %lu softints (~%lu Hz), hard entries=%lu handled=%lu, STATUS end=0x%04lx\n",
+      count, count / 2, hardEnt, hardOk, (ULONG)stEnd);
+    if (hardEnt == 0) {
+        D(ERROR, "VBlank IRQ test: hard ISR never entered — PCI INTA not delivered\n");
+    } else if (hardOk == 0) {
+        D(ERROR, "VBlank IRQ test: hard ISR entered but never saw VBLANK_INT\n");
+    } else if (count < 50) {
+        D(ERROR, "VBlank IRQ test: hard ISR OK but softints low (Cause/SoftInterrupt?)\n");
+    }
+}
+
+/* VBLANK/S — args buffer must be long-aligned (static); stack LONGs broke ReadArgs. */
+static const char testArgsTemplate[] = "VBLANK/S";
+static LONG testArgs[1];
 
 /* Lives for the whole test run; SetGC/SetPanning keep pointers into ModeInfo. */
 static struct ModeInfo s_mode640x480;
@@ -2753,7 +2913,19 @@ int main(void)
 {
     signal(SIGINT, onSigInt);
 
-    int rval = EXIT_FAILURE;
+    int rval        = EXIT_FAILURE;
+    BOOL vblankTest = FALSE;
+    struct RDArgs *rdargs = NULL;
+
+    testArgs[0] = 0;
+    rdargs      = ReadArgs((STRPTR)testArgsTemplate, testArgs, NULL);
+    if (!rdargs) {
+        PrintFault(IoErr(), (STRPTR) "TestMach32");
+        return EXIT_FAILURE;
+    }
+    vblankTest = testArgs[0] ? TRUE : FALSE;
+    FreeArgs(rdargs);
+    rdargs = NULL;
 
     if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
         D(ERROR, "TestMach32: cannot open openpci.library v%ld+\n", MIN_OPENPCI_VERSION);
@@ -2780,9 +2952,10 @@ int main(void)
                               (UWORD)(pci_read_config_word(PCI_COMMAND, board) | PCI_COMMAND_MEMORY | PCI_COMMAND_IO),
                               board);
 
-        struct BoardInfo boardInfo;
-        memset(&boardInfo, 0, sizeof(boardInfo));
-        struct BoardInfo *bi = &boardInfo;
+    /* BoardInfo is large — keep off the default CLI stack (see TestS3 / TestMach64). */
+    static struct BoardInfo boardInfo;
+    memset(&boardInfo, 0, sizeof(boardInfo));
+    struct BoardInfo *bi = &boardInfo;
 
         bi->ExecBase                  = SysBase;
         bi->UtilBase                  = (struct Library *)UtilityBase;
@@ -2807,6 +2980,9 @@ int main(void)
 
         D(INFO, "TestMach32: programming 640x480 CLUT / VGA timings + identity palette\n");
         setup640x480Screen(bi);
+
+        if (vblankTest)
+            testVBlankInterrupt(bi, board);
 
         D(INFO, "TestMach32: VRAM XOR byte fill at %p (CPU)\n", bi->MemoryBase);
         testFillPattern8bppBytes(bi, 640, 480);
