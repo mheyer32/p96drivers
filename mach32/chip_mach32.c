@@ -169,15 +169,24 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE idx)
         else if (idx == 2)
             W_REG(CURSOR_COLOR_1, (UBYTE)(17 + idx));
         break;
-    default:
+    default: {
+        UBYTE wr = r, wb = b;
+
+        /* Bt481 RGB 888: cursor shifts B,G,R; DAC expects R,G,B. */
+        if (fmt == RGBFB_R8G8B8 || fmt == RGBFB_R8G8B8A8 || fmt == RGBFB_A8R8G8B8) {
+            wr = b;
+            wb = r;
+        }
+
         if (idx == 0) {
-            W_REG(CURSOR_COLOR_0, b);
-            W_IO_W(EXT_CURSOR_COLOR_0, (UWORD)(((UWORD)(r & 0xF8) << 8) | (UWORD)(g & 0xFC)));
+            W_REG(CURSOR_COLOR_0, wb);
+            W_IO_W(EXT_CURSOR_COLOR_0, (UWORD)(((UWORD)wr << 8) | g));
         } else if (idx == 2) {
-            W_REG(CURSOR_COLOR_1, b);
-            W_IO_W(EXT_CURSOR_COLOR_1, (UWORD)(((UWORD)(r & 0xF8) << 8) | (UWORD)(g & 0xFC)));
+            W_REG(CURSOR_COLOR_1, wb);
+            W_IO_W(EXT_CURSOR_COLOR_1, (UWORD)(((UWORD)wr << 8) | g));
         }
         break;
+    }
     }
 }
 
