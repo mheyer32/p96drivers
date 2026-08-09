@@ -1,4 +1,7 @@
 /_bin/*
 /_o/*
+/tests/regparm_asm/_bin/*
+/tests/regparm_asm/_o/*
+/tests/regparm_asm/generated/*
 .qtc_clangd/*
 .cache/

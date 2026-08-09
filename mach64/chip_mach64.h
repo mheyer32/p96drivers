@@ -23,10 +23,6 @@ typedef struct ChipSpecific
     ComputeFrequencyFromPllValueFunc_t computeVCLKFrequency;
 } ChipSpecific_t;
 
-/* bi->MemoryClock is Hz; ROM clocks are 10 kHz units. */
-UWORD resolveMemoryClockKhz10(BoardInfo_t *bi);
-void SetMemoryClock(BoardInfo_t *bi, UWORD freqKhz10);
-
 struct I2COps;
 typedef struct I2COps I2COps_t;
 
@@ -47,7 +43,7 @@ typedef struct ChipData
 
     UWORD ioSparseBase;
     UBYTE p96VBlankInt;  // P96 SetInterrupt(TRUE): Cause() soft IRQ on VBlank
-    UBYTE chipFamily;  // chip family
+    ChipFamily_t chipFamily;
     ChipSpecific_t *chipSpecific;
 
     const I2COps_t *i2cOps;
@@ -71,6 +67,9 @@ static INLINE const ChipSpecific_t *getConstChipSpecific(const struct BoardInfo 
     return getConstChipData(bi)->chipSpecific;
 }
 
+#ifdef __cplusplus
+#include "mach64_driver.hpp"
+#else
 /* Mark `entries` FIFO slots as used in a FIFO_STAT-shaped value (ones from LSB). */
 static INLINE UWORD fifoStatConsume(UWORD stat, UBYTE entries)
 {
@@ -111,6 +110,25 @@ static inline void waitFifo(BoardInfo_t *bi, UBYTE entries)
     cd->fifoSlotsCached = fifoStatConsume(SWAPW(raw), entries);
 #endif
 }
+#endif /* !__cplusplus */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+/* bi->MemoryClock is Hz; ROM clocks are 10 kHz units. */
+UWORD resolveMemoryClockKhz10(BoardInfo_t *bi);
+void SetMemoryClock(BoardInfo_t *bi, UWORD freqKhz10);
+void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count),
+                               __REGA1(const struct CLUTEntry *colors));
+BOOL InitChip(__REGA0(struct BoardInfo *bi));
+void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGA2(struct Line *line),
+                  __REGD0(UBYTE mask), __REGD7(RGBFTYPE_REG fmt));
+APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system),
+                      __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE_REG format));
+ULONG ASM interruptServer(__REGA1(struct BoardInfo *bi));
+#ifdef __cplusplus
+}
+#endif
 
 typedef struct Mach64RomHeader
 {
@@ -192,9 +210,5 @@ typedef struct MaxColorDepthTableEntry
     UBYTE color_depth;  // max color depth
     UBYTE DUMMY;
 } MaxColorDepthTableEntry_t;
-
-/* Shared CLUT load + chip OVR_CLR (palette index 0). GX DAC wrappers call this. */
-void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count),
-                               __REGA1(const struct CLUTEntry *colors));
 
 #endif

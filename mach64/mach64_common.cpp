@@ -5,6 +5,13 @@
 #include <libraries/pcitags.h>
 #include <proto/openpci.h>
 
+
+using namespace MmioReg;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 ChipFamily_t getChipFamily(UWORD deviceId)
 {
     switch (deviceId) {
@@ -45,15 +52,15 @@ const char *getChipFamilyName(ChipFamily_t family)
 
 UBYTE ReadPLL(BoardInfo_t *bi, UBYTE pllAddr)
 {
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
     // FIXME: its possible older Mach chips want 8bit access here
-    ULONG clockCntl = R_MMIO_AND_L(CLOCK_CNTL, ~(PLL_ADDR_MASK | PLL_DATA_MASK | PLL_WR_ENABLE_MASK));
+    ULONG clockCntl = mmio.readL(CLOCK_CNTL) & ~(PLL_ADDR_MASK | PLL_DATA_MASK | PLL_WR_ENABLE_MASK);
 
     // Set PLL Adress
     clockCntl |= PLL_ADDR(pllAddr);
-    W_MMIO_L(CLOCK_CNTL, clockCntl);
+    mmio.writeL(CLOCK_CNTL, clockCntl);
     // Read back data
-    clockCntl = R_MMIO_L(CLOCK_CNTL);
+    clockCntl = mmio.readL(CLOCK_CNTL);
 
     UBYTE pllValue = (clockCntl >> 16) & 0xFF;
 
@@ -64,39 +71,39 @@ UBYTE ReadPLL(BoardInfo_t *bi, UBYTE pllAddr)
 
 void WritePLL(BoardInfo_t *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllData)
 {
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
 
     // // // FIXME: its possible older Mach chips want 8bit access here
-    // ULONG oldClockCntl = R_MMIO_AND_L(CLOCK_CNTL, ~(PLL_ADDR_MASK | PLL_DATA_MASK | PLL_WR_ENABLE_MASK));
+    // ULONG oldClockCntl = mmio.readL(CLOCK_CNTL) & ~(PLL_ADDR_MASK | PLL_DATA_MASK | PLL_WR_ENABLE_MASK);
 
     // ULONG clockCntl = oldClockCntl;
     // // Set PLL Adress
     // clockCntl |= PLL_ADDR(pllAddr);
-    // W_MMIO_L(CLOCK_CNTL, clockCntl);
+    // mmio.writeL(CLOCK_CNTL, clockCntl);
     // // Read back old data
-    // clockCntl = R_MMIO_L(CLOCK_CNTL);
+    // clockCntl = mmio.readL(CLOCK_CNTL);
     // // write new PLL_DATA
     // clockCntl &= ~PLL_DATA((ULONG)pllDataMask);
     // clockCntl |= PLL_DATA((ULONG)(pllData & pllDataMask));
     // clockCntl |= PLL_WR_ENABLE;
-    // W_MMIO_L(CLOCK_CNTL, clockCntl);
+    // mmio.writeL(CLOCK_CNTL, clockCntl);
 
     // // Read right back again
-    // R_MMIO_L(CLOCK_CNTL);
+    // mmio.readL(CLOCK_CNTL);
 
     // // Disable PLL_WR_EN again
-    // W_MMIO_L(CLOCK_CNTL, oldClockCntl);
+    // mmio.writeL(CLOCK_CNTL, oldClockCntl);
 
     // DFUNC(VERBOSE, "pllAddr: %ld, pllDataMask: 0x%02lx & pllData: 0x%02lx --> pllValue: 0x%02lx\n", (ULONG)pllAddr,
     //       (ULONG)pllDataMask, (ULONG)pllData, (ULONG)(clockCntl >> 16) & 0xFF);
 
     // testing byte access
-    W_MMIO_B(CLOCK_CNTL, CLOCK_CNTL_ADDR, pllAddr << 2);
-    UBYTE oldValue = R_MMIO_B(CLOCK_CNTL, CLOCK_CNTL_DATA);
+    mmio.writeB(CLOCK_CNTL, CLOCK_CNTL_ADDR, pllAddr << 2);
+    UBYTE oldValue = mmio.readB(CLOCK_CNTL, CLOCK_CNTL_DATA);
     UBYTE newValue = (oldValue & ~pllDataMask) | (pllData & pllDataMask);
-    W_MMIO_B(CLOCK_CNTL, CLOCK_CNTL_ADDR, (pllAddr << 2) | 0x02);  // PLL_WR_EN
-    W_MMIO_B(CLOCK_CNTL, CLOCK_CNTL_DATA, newValue);
-    W_MMIO_B(CLOCK_CNTL, CLOCK_CNTL_ADDR, 0x00);
+    mmio.writeB(CLOCK_CNTL, CLOCK_CNTL_ADDR, (pllAddr << 2) | 0x02);  // PLL_WR_EN
+    mmio.writeB(CLOCK_CNTL, CLOCK_CNTL_DATA, newValue);
+    mmio.writeB(CLOCK_CNTL, CLOCK_CNTL_ADDR, 0x00);
 
     // DFUNC(VERBOSE, "pllAddr: %ld, pllDataMask: 0x%02lx & pllData: 0x%02lx --> pllValue: 0x%02lx\n", (ULONG)pllAddr,
     //       (ULONG)pllDataMask, (ULONG)pllData, (ULONG)newValue);
@@ -238,7 +245,8 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
       (ULONG)cs->maxPClock);
 
     // FIXME: there's no free... is there ever a time a chip driver gets expunged?
-    PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_PUBLIC);
+    PLLValue_t *pllValues =
+        static_cast<PLLValue_t *>(AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_PUBLIC));
     if (!pllValues) {
         DFUNC(ERROR, "AllocVec pllValues failed\n");
         return;
@@ -250,7 +258,8 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
     UWORD e          = 0;
     UWORD failStreak = 0;
     while (minFreq < maxFreq && e < maxNumEntries) {
-        ULONG frequency = computePLLValues(bi, minFreq, multipliers, numMultipliers, &pllValues[e]);
+        ULONG frequency =
+            computePLLValues(bi, minFreq, reinterpret_cast<const UBYTE *>(multipliers), numMultipliers, &pllValues[e]);
         if (!frequency) {
             /* Gaps exist between post-div / VCO windows (esp. CT 68–135 MHz).
              * Skip holes; only stop after repeated failures near maxPClock. */
@@ -267,7 +276,8 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
         minFreq += 100;
     }
     if (e < maxNumEntries) {
-        ULONG frequency = computePLLValues(bi, cs->maxPClock, multipliers, numMultipliers, &pllValues[e]);
+        ULONG frequency = computePLLValues(bi, cs->maxPClock, reinterpret_cast<const UBYTE *>(multipliers),
+                                           numMultipliers, &pllValues[e]);
         if (frequency) {
             ++e;
         }
@@ -304,42 +314,51 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
 
 void WriteDefaultRegList(const BoardInfo_t *bi, const UWORD *defaultRegs, int numRegs)
 {
-    MMIOBASE();
+    /* Byte offsets (incl. hi/lo halves); AtiRegAperture is dword-index only. */
+    RegAperture<MACH64_MMIO_ENDIAN, 0, RegLog::Verbose> mmio(asMach64(bi)->mmioBase());
 
     for (int r = 0; r < numRegs; r += 2) {
         // if (!( r % 32)) // not necessary as all regs in default list are < 0x40 DWORD OFFSET
         //     waitFifo(bi, 16);
         D(10, "[%lX_%ldh] = 0x%04lx\n", (ULONG)defaultRegs[r] / 4, (ULONG)defaultRegs[r] % 4,
           (ULONG)defaultRegs[r + 1]);
-        // Register offsets in the defaultRegs list are already BYTE offsets
-        writeMMIO_W(MMIOBase, defaultRegs[r], defaultRegs[r + 1], "defaultRegs");
+        mmio.writeOff<UWORD>(defaultRegs[r], defaultRegs[r + 1]
+#ifdef DBG
+                             ,
+                             "defaultRegs"
+#endif
+        );
     }
 }
 
 void ResetEngine(const BoardInfo_t *bi)
 {
     DFUNC(VERBOSE, "\n");
-    MMIOBASE();
+    Mach64MmioQ mmio = asMach64(bi)->mmioQ();
 
     /* GEN_GUI_RESETB: 0 = hold reset, 1 = run (ATI PRG). */
-    ULONG genTestCntl = R_MMIO_L(GEN_TEST_CNTL) & ~(GEN_GUI_RESETB_MASK | GEN_CUR_ENABLE_MASK);
-    W_MMIO_L(GEN_TEST_CNTL, genTestCntl);
+    ULONG genTestCntl = mmio.readL(GEN_TEST_CNTL) & ~(GEN_GUI_RESETB_MASK | GEN_CUR_ENABLE_MASK);
+    mmio.writeL(GEN_TEST_CNTL, genTestCntl);
     delayMicroSeconds(10);
-    W_MMIO_L(GEN_TEST_CNTL, genTestCntl | GEN_GUI_RESETB);
+    mmio.writeL(GEN_TEST_CNTL, genTestCntl | GEN_GUI_RESETB);
     delayMicroSeconds(10);
 
     if (getConstChipData(bi)->chipFamily < MACH64GT) {
-        W_MMIO_MASK_L(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
+        mmio.writeMaskL(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
     }
 }
 
 UBYTE getAsicVersion(const BoardInfo_t *bi)
 {
-    MMIOBASE();
-    return (R_MMIO_B(CONFIG_CHIP_ID, 3) & 0x7);
+    Mach64MmioQ mmio = asMach64(bi)->mmioQ();
+    return (mmio.readB(CONFIG_CHIP_ID, 3) & 0x7);
 }
 
 BOOL isAsiclessThanV4(const BoardInfo_t *bi)
 {
     return getAsicVersion(bi) < 4;
 }
+
+#ifdef __cplusplus
+}
+#endif

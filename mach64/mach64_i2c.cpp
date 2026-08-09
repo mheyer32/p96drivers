@@ -1,14 +1,20 @@
 #include "mach64_i2c.h"
 #include "chip_mach64.h"
-#include "edid_common.h"
 #include "mach64_common.h"
 
-// LT_GIO register (0x2A) bit definitions for DDC/I2C
-// Offset: 0x2A, Index: 7
-// Based on mach64 GT hardware documentation
-#define LT_GIO_REG 0x2A
 
-// GPIO data bits (read/write the pin state)
+using namespace MmioReg;
+
+#ifdef __cplusplus
+#ifndef _Static_assert
+#define _Static_assert(cond, msg) static_assert(cond, msg)
+#endif
+extern "C" {
+#endif
+
+#include "edid_common.h"
+
+// LT_GIO register (0x2A) bit definitions for DDC/I2C
 #define LT_GIO_GPIO_14 BIT(12)  // GPIO_14 data (Pin: GPIO(14)) - Used for SCL
 #define LT_GIO_GPIO_15 BIT(13)  // GPIO_15 data (Pin: GPIO(15)) - Used for SDA
 #define LT_GIO_GPIO_16 BIT(14)  // GPIO_16 data (Pin: GPIO(16)) - Possibly enable/control
@@ -37,10 +43,10 @@
  */
 BOOL mach64I2cInit(struct BoardInfo *bi)
 {
-    REGBASE();
+    Mach64BlkIo blk = asMach64(bi)->blkIo();
 
     // Read current LT_GIO register value
-    ULONG lt_gio = R_BLKIO_L(LT_GIO_REG);
+    ULONG lt_gio = blk.readL(BlkIoReg::LT_GIO);
 
     // Configure GPIO_14 (SCL) and GPIO_15 (SDA) as inputs initially (released/tri-state)
     // Set direction bits to 0 (input) to allow pull-ups to work
@@ -55,12 +61,12 @@ BOOL mach64I2cInit(struct BoardInfo *bi)
     // This increases output drive strength when pins are configured as outputs
     lt_gio |= LT_GIO_DDC_IO_DRIVE;
 
-    W_BLKIO_L(LT_GIO_REG, lt_gio);
+    blk.writeL(BlkIoReg::LT_GIO, lt_gio);
 
     // Wait a bit for lines to stabilize
     delayMicroSeconds(10);
 
-    lt_gio = R_BLKIO_L(LT_GIO_REG);
+    lt_gio = blk.readL(BlkIoReg::LT_GIO);
     /* Stuck-at-0 means wrong aperture / no LT_GIO — bitbang would spam forever. */
     if (lt_gio == 0) {
         D(WARN, "LT_GIO readback 0 after init — skipping DDC/I2C\n");
@@ -80,14 +86,14 @@ BOOL mach64I2cInit(struct BoardInfo *bi)
 void mach64I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
 {
     DFUNC(VERBOSE, " %s\n", high ? "HIGH" : "LOW");
-    REGBASE();
+    Mach64BlkIo blk = asMach64(bi)->blkIo();
 
-    ULONG lt_gio = R_BLKIO_L(LT_GIO_REG);
+    ULONG lt_gio = blk.readL(BlkIoReg::LT_GIO);
 
     if (high) {
         // Release SCL: switch to input mode (tri-state) to allow pull-up to work
         lt_gio &= ~LT_GIO_SCL_DIR;  // Set direction to input (0)
-        W_BLKIO_L(LT_GIO_REG, lt_gio);
+        blk.writeL(BlkIoReg::LT_GIO, lt_gio);
 
         // Small delay to allow hardware to actually release the line
         delayMicroSeconds(I2C_DELAY_US);
@@ -97,7 +103,7 @@ void mach64I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
         int settle_attempts = 5;
         BOOL scl_high       = FALSE;
         while (settle_attempts-- > 0) {
-            lt_gio = R_BLKIO_L(LT_GIO_REG);
+            lt_gio = blk.readL(BlkIoReg::LT_GIO);
             if (lt_gio & LT_GIO_SCL_DATA) {
                 scl_high = TRUE;
                 break;
@@ -113,14 +119,14 @@ void mach64I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
         if (checkClockStretching) {
             // Check for clock stretching (SCL is already in input mode)
             delayMicroSeconds(I2C_DELAY_US);
-            lt_gio = R_BLKIO_L(LT_GIO_REG);
+            lt_gio = blk.readL(BlkIoReg::LT_GIO);
 
             if (!(lt_gio & LT_GIO_SCL_DATA)) {
                 // SCL is low - slave is clock stretching
                 int timeout = 100;  // Maximum iterations (~1ms with 10us delay)
                 while (timeout-- > 0) {
                     delayMicroSeconds(I2C_DELAY_US);
-                    lt_gio = R_BLKIO_L(LT_GIO_REG);
+                    lt_gio = blk.readL(BlkIoReg::LT_GIO);
                     if (lt_gio & LT_GIO_SCL_DATA) {
                         // SCL is high again, slave has released it
                         D(VERBOSE, "Clock stretching detected and released after %d iterations\n", 100 - timeout);
@@ -137,7 +143,7 @@ void mach64I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
 #ifdef DBG
         // Final verification
         delayMicroSeconds(I2C_DELAY_US);
-        lt_gio = R_BLKIO_L(LT_GIO_REG);
+        lt_gio = blk.readL(BlkIoReg::LT_GIO);
         if (!(lt_gio & LT_GIO_SCL_DATA)) {
             D(ERROR, "I2C SCL not high after release (LT_GIO=0x%08lx)\n", lt_gio);
         }
@@ -146,12 +152,12 @@ void mach64I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
         // Drive SCL low: switch to output mode and drive low
         lt_gio |= LT_GIO_SCL_DIR;    // Set direction to output (1)
         lt_gio &= ~LT_GIO_SCL_DATA;  // Set data bit low (0)
-        W_BLKIO_L(LT_GIO_REG, lt_gio);
+        blk.writeL(BlkIoReg::LT_GIO, lt_gio);
         delayMicroSeconds(I2C_DELAY_US);
 
 #ifdef DBG
         // Verify that SCL is actually low
-        lt_gio = R_BLKIO_L(LT_GIO_REG);
+        lt_gio = blk.readL(BlkIoReg::LT_GIO);
         if (lt_gio & LT_GIO_SCL_DATA) {
             D(ERROR, "I2C SCL failed to go low when driven (LT_GIO=0x%08lx)\n", lt_gio);
         }
@@ -167,31 +173,31 @@ void mach64I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
 void mach64I2cSetSda(struct BoardInfo *bi, BOOL high)
 {
     DFUNC(VERBOSE, " %s\n", high ? "HIGH" : "LOW");
-    REGBASE();
+    Mach64BlkIo blk = asMach64(bi)->blkIo();
 
-    ULONG lt_gio = R_BLKIO_L(LT_GIO_REG);
+    ULONG lt_gio = blk.readL(BlkIoReg::LT_GIO);
 
     if (high) {
         // Release SDA: switch to input mode (tri-state) to allow pull-up to work
         lt_gio &= ~LT_GIO_SDA_DIR;  // Set direction to input (0)
-        W_BLKIO_L(LT_GIO_REG, lt_gio);
+        blk.writeL(BlkIoReg::LT_GIO, lt_gio);
         delayMicroSeconds(I2C_DELAY_US);
 
 #ifdef DBG
         // Verify SDA goes high after release (slave may pull it low during ACK, which is expected)
-        lt_gio = R_BLKIO_L(LT_GIO_REG);
+        lt_gio = blk.readL(BlkIoReg::LT_GIO);
         // This is expected during ACK/NACK, so we don't error, just note it
 #endif
     } else {
         // Drive SDA low: switch to output mode and drive low
         lt_gio |= LT_GIO_SDA_DIR;    // Set direction to output (1)
         lt_gio &= ~LT_GIO_SDA_DATA;  // Set data bit low (0)
-        W_BLKIO_L(LT_GIO_REG, lt_gio);
+        blk.writeL(BlkIoReg::LT_GIO, lt_gio);
         delayMicroSeconds(I2C_DELAY_US);
 
 #ifdef DBG
         // Verify that SDA is actually low
-        lt_gio = R_BLKIO_L(LT_GIO_REG);
+        lt_gio = blk.readL(BlkIoReg::LT_GIO);
         if (lt_gio & LT_GIO_SDA_DATA) {
             D(ERROR, "I2C SDA failed to go low when driven (LT_GIO=0x%08lx)\n", lt_gio);
         }
@@ -206,16 +212,16 @@ void mach64I2cSetSda(struct BoardInfo *bi, BOOL high)
  */
 BOOL mach64I2cReadScl(struct BoardInfo *bi)
 {
-    REGBASE();
-    ULONG lt_gio = R_BLKIO_L(LT_GIO_REG);
+    Mach64BlkIo blk = asMach64(bi)->blkIo();
+    ULONG lt_gio = blk.readL(BlkIoReg::LT_GIO);
 
     // If already in input mode, just read it
     // If in output mode, we need to switch to input to read actual line state
     if (lt_gio & LT_GIO_SCL_DIR) {
         // Currently in output mode, switch to input temporarily
-        W_BLKIO_L(LT_GIO_REG, lt_gio & ~LT_GIO_SCL_DIR);
+        blk.writeL(BlkIoReg::LT_GIO, lt_gio & ~LT_GIO_SCL_DIR);
         delayMicroSeconds(I2C_DELAY_US);
-        lt_gio = R_BLKIO_L(LT_GIO_REG);
+        lt_gio = blk.readL(BlkIoReg::LT_GIO);
         // Note: We leave it in input mode (caller should restore if needed)
     }
 
@@ -230,16 +236,16 @@ BOOL mach64I2cReadScl(struct BoardInfo *bi)
  */
 BOOL mach64I2cReadSda(struct BoardInfo *bi)
 {
-    REGBASE();
-    ULONG lt_gio = R_BLKIO_L(LT_GIO_REG);
+    Mach64BlkIo blk = asMach64(bi)->blkIo();
+    ULONG lt_gio = blk.readL(BlkIoReg::LT_GIO);
 
     // If already in input mode, just read it
     // If in output mode, we need to switch to input to read actual line state
     if (lt_gio & LT_GIO_SDA_DIR) {
         // Currently in output mode, switch to input temporarily
-        W_BLKIO_L(LT_GIO_REG, lt_gio & ~LT_GIO_SDA_DIR);
+        blk.writeL(BlkIoReg::LT_GIO, lt_gio & ~LT_GIO_SDA_DIR);
         delayMicroSeconds(I2C_DELAY_US);
-        lt_gio = R_BLKIO_L(LT_GIO_REG);
+        lt_gio = blk.readL(BlkIoReg::LT_GIO);
         // Note: We leave it in input mode (caller should restore if needed)
     }
 
@@ -296,3 +302,7 @@ BOOL queryEDID(struct BoardInfo *bi)
     return TRUE;
 #endif
 }
+
+#ifdef __cplusplus
+}
+#endif

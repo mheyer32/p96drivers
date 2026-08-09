@@ -3,6 +3,16 @@
 #include "common.h"
 #include "mach64_common.h"
 
+
+using namespace MmioReg;
+
+#ifdef __cplusplus
+#ifndef _Static_assert
+#define _Static_assert static_assert
+#endif
+extern "C" {
+#endif
+
 #define BUS_APER_REG_DIS_GT      BIT(4)
 #define BUS_APER_REG_DIS_GT_MASK BIT(4)
 #define BUS_MASTER_DIS_GT        BIT(6)
@@ -86,6 +96,7 @@ ULONG computeSPLLValues(const BoardInfo_t *bi, ULONG freqKhz10, PLLValue_t *pllV
 static void initSecondaryPLL(BoardInfo_t *bi, UWORD freqKhz10)
 {
     DFUNC(VERBOSE, "Setting GUI Engine Clock to %ld0 KHz\n", freqKhz10);
+    DRIVER_LOCALS(bi);
 
     if (freqKhz10 < 1475) {
         freqKhz10 = 1475;
@@ -143,7 +154,8 @@ void lockDLL(BoardInfo_t *bi)
 
     DFUNC(VERBOSE, "\n");
 
-    REGBASE();
+    DRIVER_LOCALS(bi);
+    Mach64BlkIo blk = drv->blkIo();
 
     // DLL_PWDN = 0 --> power UP DLL
     WRITE_PLL_MASK(PLL_GEN_CNTL, 0x80, 0);
@@ -163,20 +175,20 @@ void lockDLL(BoardInfo_t *bi)
     delayMilliSeconds(5);
 
     // Take Memory Controller out of Reset
-    W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_SOFT_RESET_MASK, 0);
+    blk.writeMaskL(BlkIoReg::GEN_TEST_CNTL, GEN_SOFT_RESET_MASK, 0);
 
     // EXT_MEM_CNTL: MEM_CLK_SELECT is set to 0b00 = SDRAM clock from DLL
-    ULONG ext_mem_cntl = R_BLKIO_L(EXT_MEM_CNTL) & ~(MEM_CYC_TEST_MASK | MEM_SDRAM_RESET_MASK);
+    ULONG ext_mem_cntl = blk.readL(BlkIoReg::EXT_MEM_CNTL) & ~(MEM_CYC_TEST_MASK | MEM_SDRAM_RESET_MASK);
     // Start reset, test cycle 0
-    W_BLKIO_L(EXT_MEM_CNTL, ext_mem_cntl);
+    blk.writeL(BlkIoReg::EXT_MEM_CNTL, ext_mem_cntl);
     // Start reset, initiate test cycle
-    W_BLKIO_L(EXT_MEM_CNTL, ext_mem_cntl | MEM_CYC_TEST(0b10) | MEM_SDRAM_RESET);
+    blk.writeL(BlkIoReg::EXT_MEM_CNTL, ext_mem_cntl | MEM_CYC_TEST(0b10) | MEM_SDRAM_RESET);
     // Test mode sequence run
-    W_BLKIO_L(EXT_MEM_CNTL, ext_mem_cntl | MEM_CYC_TEST(0b11) | MEM_SDRAM_RESET);
+    blk.writeL(BlkIoReg::EXT_MEM_CNTL, ext_mem_cntl | MEM_CYC_TEST(0b11) | MEM_SDRAM_RESET);
 
     delayMicroSeconds(1);
     // Take out of reset and test cycle
-    W_BLKIO_L(EXT_MEM_CNTL, ext_mem_cntl);
+    blk.writeL(BlkIoReg::EXT_MEM_CNTL, ext_mem_cntl);
 }
 
 #define PLL_SLEEP      BIT(0)
@@ -185,6 +197,7 @@ void lockDLL(BoardInfo_t *bi)
 void SetMemoryClock_GT(BoardInfo_t *bi, UWORD freqKhz10)
 {
     DFUNC(VERBOSE, "Setting Memory Clock to %ld0 KHz\n", (ULONG)freqKhz10);
+    DRIVER_LOCALS(bi);
 
     if (freqKhz10 < 1475) {
         freqKhz10 = 1475;
@@ -206,14 +219,14 @@ void SetMemoryClock_GT(BoardInfo_t *bi, UWORD freqKhz10)
     // }
     // ResetEngine(bi);
 
-    REGBASE();
+    Mach64BlkIo blk = drv->blkIo();
 
     // Reset GUI Controller
-    W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_GUI_RESETB_MASK, GEN_GUI_RESETB);
-    W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_GUI_RESETB_MASK, 0);
+    blk.writeMaskL(BlkIoReg::GEN_TEST_CNTL, GEN_GUI_RESETB_MASK, GEN_GUI_RESETB);
+    blk.writeMaskL(BlkIoReg::GEN_TEST_CNTL, GEN_GUI_RESETB_MASK, 0);
 
     // Put Memory Controller in Reset
-    W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_SOFT_RESET_MASK, GEN_SOFT_RESET);
+    blk.writeMaskL(BlkIoReg::GEN_TEST_CNTL, GEN_SOFT_RESET_MASK, GEN_SOFT_RESET);
 
     WRITE_PLL_MASK(PLL_GEN_CNTL, PLL_SLEEP_MASK | PLL_MRESET_MASK, 0);
 
@@ -229,7 +242,6 @@ void SetMemoryClock_GT(BoardInfo_t *bi, UWORD freqKhz10)
     // XCLK = PLLMCLK / x
     WRITE_PLL_MASK(PLL_EXT_CNTL, XCLK_SRC_SEL_MASK, XCLK_SRC_SEL(g_MPLLPostDividerCodes[pllValues.Pidx]));
 
-    ChipData_t *cd     = getChipData(bi);
     ChipSpecific_t *cs = getChipSpecific(bi);
     cs->mclkFBDiv      = pllValues.N;
     cs->mclkPostDiv    = g_MPLLPostDividers[pllValues.Pidx];
@@ -243,8 +255,7 @@ void SetMemoryClock_GT(BoardInfo_t *bi, UWORD freqKhz10)
 void initClocks(struct BoardInfo *bi)
 {
     DFUNC(VERBOSE, "\n");
-
-    REGBASE();
+    DRIVER_LOCALS(bi);
 
     WRITE_PLL(PLL_MPLL_CNTL, 0xAD);
     WRITE_PLL(PLL_VPLL_CNTL, 0xD5);
@@ -285,7 +296,7 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
 {
     DFUNC(VERBOSE, "\n");
 
-    REGBASE();
+    Mach64BlkIo blk = asMach64(bi)->blkIo();
     LOCAL_SYSBASE();
 
     static const ULONG memorySizes[] = {0x800000, 0x600000, 0x400000, 0x200000, 0x100000};
@@ -298,11 +309,11 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
         bi->MemorySize = memorySizes[i];
         D(VERBOSE, "\nProbing memory size %ld\n", bi->MemorySize);
 
-        W_BLKIO_MASK_L(MEM_CNTL, 0xF, memoryCodes[i]);
-        // W_BLKIO_MASK_L(MEM_BUF_CNTL, INVALIDATE_RB_CACHE_MASK, INVALIDATE_RB_CACHE);
+        blk.writeMaskL(BlkIoReg::MEM_CNTL, 0xF, memoryCodes[i]);
+        // blk.writeMaskL(BlkIoReg::MEM_BUF_CNTL, INVALIDATE_RB_CACHE_MASK, INVALIDATE_RB_CACHE);
 
         for (int j = 2; j >= 0; --j) {
-            W_BLKIO_L(MEM_ADDR_CONFIG, j << 8 | j);
+            blk.writeL(BlkIoReg::MEM_ADDR_CONFIG, j << 8 | j);
             flushWrites();
 
             CacheClearU();
@@ -426,13 +437,13 @@ void print_EXT_MEM_CNTL(EXT_MEM_CNTL_t ext_mem_cntl)
 
 static void resetCRTC(BoardInfo_t *bi)
 {
-    REGBASE();
+    Mach64BlkIo blk = asMach64(bi)->blkIo();
 
     // Reset CRTC
-    W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_ENABLE_MASK, 0);
-    W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_ENABLE_MASK, CRTC_ENABLE);
+    blk.writeMaskL(BlkIoReg::CRTC_GEN_CNTL, CRTC_ENABLE_MASK, 0);
+    blk.writeMaskL(BlkIoReg::CRTC_GEN_CNTL, CRTC_ENABLE_MASK, CRTC_ENABLE);
 
-    W_BLKIO_MASK_L(CRTC_GEN_CNTL, CRTC_INT_CNTL, 0);
+    blk.writeMaskL(BlkIoReg::CRTC_GEN_CNTL, CRTC_INT_CNTL, 0);
 }
 
 #define VCLK_SRC_SEL(x)     ((x))
@@ -444,17 +455,16 @@ static void resetCRTC(BoardInfo_t *bi)
 #define ALT_VCLK0_POST      BIT(4)
 #define ALT_VCLK0_POST_MASK BIT(4)
 
-void ASM SetClock_GT(__REGA0(struct BoardInfo *bi))
+void ASM Mach64Driver::setClock_GT()
 {
-    REGBASE();
-
     DFUNC(VERBOSE, "\n");
+    DRIVER_LOCALS(this);
 
-    struct ModeInfo *mi = bi->ModeInfo;
+    struct ModeInfo *mi = ModeInfo;
     ULONG pixelClock    = mi->PixelClock;
 
 #ifdef DBG
-    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    const ChipSpecific_t *cs = getConstChipSpecific(this);
     UBYTE maxPost            = g_VPLLPostDivider[ARRAY_SIZE(g_VPLLPostDivider) - 1];
     ULONG minVClkKhz10       = 2 * cs->referenceFrequency * 128 / (cs->referenceDivider * maxPost);
     if (cs->minPClock && cs->minPClock > minVClkKhz10)
@@ -466,7 +476,7 @@ void ASM SetClock_GT(__REGA0(struct BoardInfo *bi))
         return;
     }
 
-    D(CHATTY, "SetClock: PixelClock %ldHz -> %ldHz \n", bi->ModeInfo->PixelClock, pixelClock);
+    D(CHATTY, "SetClock: PixelClock %ldHz -> %ldHz \n", ModeInfo->PixelClock, pixelClock);
 #endif
 
     // Temporarily select CPUCLK as VCLK source, bring VPLL into reset
@@ -484,7 +494,7 @@ void ASM SetClock_GT(__REGA0(struct BoardInfo *bi))
 
     WRITE_PLL_MASK(PLL_EXT_CNTL, ALT_VCLK0_POST_MASK, (postDivCode & 0x4) ? ALT_VCLK0_POST : 0);
 
-    AdjustDSP(bi, mi->pll1.Numerator, g_VPLLPostDivider[mi->pll2.Denominator]);
+    AdjustDSP(this, mi->pll1.Numerator, g_VPLLPostDivider[mi->pll2.Denominator]);
 
     WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, 0);
     delayMilliSeconds(5);
@@ -493,48 +503,53 @@ void ASM SetClock_GT(__REGA0(struct BoardInfo *bi))
     delayMilliSeconds(5);
 }
 
+static void ASM SetClock_GT(__REGA0(struct BoardInfo *bi))
+{
+    asMach64(bi)->setClock_GT();
+}
+
 BOOL InitMach64GT(struct BoardInfo *bi)
 {
     DFUNC(VERBOSE, "ASIC Version: %ld\n", (ULONG)getAsicVersion(bi));
 
-    REGBASE();
-    MMIOBASE();
+    DRIVER_LOCALS(bi);
+    Mach64BlkIo blk = drv->blkIo();
 
     WriteDefaultRegList(bi, defaultRegs_GT, ARRAY_SIZE(defaultRegs_GT));
 
-    W_BLKIO_MASK_L(BUS_CNTL,
+    blk.writeMaskL(BlkIoReg::BUS_CNTL,
                    BUS_MASTER_DIS_GT_MASK | BUS_APER_REG_DIS_GT_MASK | BUS_PCI_RETRY_EN_GT_MASK | BUS_FIFO_WS_GT_MASK,
                    BUS_MASTER_DIS_GT | BUS_APER_REG_DIS_GT | BUS_PCI_RETRY_EN_GT | BUS_FIFO_WS_GT(0xF));
 
     // Set to SGRAM
-    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_MEM_TYPE_CT_MASK | CFG_CLOCK_EN_CT_MASK,
+    blk.writeMaskL(BlkIoReg::CONFIG_STAT0, CFG_MEM_TYPE_CT_MASK | CFG_CLOCK_EN_CT_MASK,
                    CFG_MEM_TYPE_CT(CFG_MEM_TYPE_VT_SGRAM) | CFG_CLOCK_EN_CT);
 
     // Changes in settings to this register will not take affect until MEM_SDRAM_RESET is pulsed (from 0 –>1).
     // initClocks() will do that
-    W_BLKIO_MASK_L(EXT_MEM_CNTL, MEM_TILE_SELECT_MASK | MEM_ALL_PAGE_DIS_MASK | MEM_SDRAM_RESET_MASK,
+    blk.writeMaskL(BlkIoReg::EXT_MEM_CNTL, MEM_TILE_SELECT_MASK | MEM_ALL_PAGE_DIS_MASK | MEM_SDRAM_RESET_MASK,
                    MEM_TILE_SELECT(0b1000) | MEM_ALL_PAGE_DIS);
 
     // Enable Auto-FastFill. ( block writes seem to cause corruption)
-    W_BLKIO_MASK_L(HW_DEBUG, AUTO_FF_DIS_MASK /*| AUTO_BLKWRT_DIS_MASK | AUTO_BLKWRT_COLOR_DIS_MASK*/, 0);
+    blk.writeMaskL(BlkIoReg::HW_DEBUG, AUTO_FF_DIS_MASK /*| AUTO_BLKWRT_DIS_MASK | AUTO_BLKWRT_COLOR_DIS_MASK*/, 0);
 
     // GUI clock activity controlled
-    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_CLOCK_EN_CT_MASK, CFG_CLOCK_EN_CT);
+    blk.writeMaskL(BlkIoReg::CONFIG_STAT0, CFG_CLOCK_EN_CT_MASK, CFG_CLOCK_EN_CT);
 
     // FIFO must be empty before changing its size. Assuming we only used BLKIO above, there should not have been
     // any FIFO writes yet
-    W_MMIO_MASK_L(GUI_CNTL, CMDFIFO_SIZE_MODE_MASK, CMDFIFO_SIZE_MODE(0b00));  // 196 entries
+    mmio.writeMaskL(static_cast<MmioReg::Id>(GUI_CNTL), CMDFIFO_SIZE_MODE_MASK, CMDFIFO_SIZE_MODE(0b00));  // 196 entries
 
     waitFifo(bi, 4);
 
-    W_MMIO_L(DP_SET_GUI_ENGINE, 0);
+    mmio.writeL(static_cast<MmioReg::Id>(DP_SET_GUI_ENGINE), 0);
 
     /* On GTC (RagePro), we need to reset the 3D engine before */
-    W_MMIO_L(SCALE_3D_CNTL, 0xc0);
+    mmio.writeL(static_cast<MmioReg::Id>(SCALE_3D_CNTL), 0xc0);
     delayMilliSeconds(3);
-    W_MMIO_L(SETUP_CNTL, 0x00);
+    mmio.writeL(static_cast<MmioReg::Id>(SETUP_CNTL), 0x00);
     delayMilliSeconds(3);
-    W_MMIO_L(SCALE_3D_CNTL, 0x00);
+    mmio.writeL(static_cast<MmioReg::Id>(SCALE_3D_CNTL), 0x00);
     delayMilliSeconds(3);
 
     int i = 0;
@@ -557,14 +572,14 @@ BOOL InitMach64GT(struct BoardInfo *bi)
     cs->computeVCLKFrequency = computeVCLKFrequencyKhz10_GT;
     bi->SetClock             = SetClock_GT;
 
-    InitVClockPLLTable(bi, g_VPLLPostDivider, ARRAY_SIZE(g_VPLLPostDivider));
+    InitVClockPLLTable(bi, reinterpret_cast<const BYTE *>(g_VPLLPostDivider), ARRAY_SIZE(g_VPLLPostDivider));
 
 #ifdef DBG
-    ULONG x             = R_BLKIO_L(MEM_CNTL);
-    MEM_CNTL_t mem_cntl = *(MEM_CNTL_t *)&x;
+    ULONG x             = blk.readL(BlkIoReg::MEM_CNTL);
+    MEM_CNTL_t mem_cntl = *reinterpret_cast<const MEM_CNTL_t *>(&x);
     print_MEM_CNTL(mem_cntl);
-    x                           = R_BLKIO_L(EXT_MEM_CNTL);
-    EXT_MEM_CNTL_t ext_mem_cntl = *(EXT_MEM_CNTL_t *)&x;
+    x                           = blk.readL(BlkIoReg::EXT_MEM_CNTL);
+    EXT_MEM_CNTL_t ext_mem_cntl = *reinterpret_cast<const EXT_MEM_CNTL_t *>(&x);
     print_EXT_MEM_CNTL(ext_mem_cntl);
 #endif
 
@@ -576,7 +591,7 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     DFUNC(VERBOSE, "vFBDiv: %ld, vPostDiv: %ld, bpp: %ld\n", (ULONG)vclkFBDiv, (ULONG)vclkPostDiv,
           (ULONG)bi->ModeInfo->Depth);
 
-    REGBASE();
+    Mach64BlkIo blk = asMach64(bi)->blkIo();
     const ChipSpecific_t *cs = getConstChipSpecific(bi);
 
     // Bits per pixel
@@ -664,8 +679,8 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     // Display loop latency (two added for DISP_ACTIVE resynchronization)
     ULONG rloop = (l + 2) << shift;
 
-    ULONG m             = R_BLKIO_L(MEM_CNTL);
-    MEM_CNTL_t mem_cntl = *(MEM_CNTL_t *)&m;
+    ULONG m             = blk.readL(BlkIoReg::MEM_CNTL);
+    MEM_CNTL_t mem_cntl = *reinterpret_cast<const MEM_CNTL_t *>(&m);
 
     // Page fault clocks
     ULONG pfc = mem_cntl.mem_trp + mem_cntl.mem_trcd + mem_cntl.mem_tcrd;
@@ -698,7 +713,11 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     D(VERBOSE, "dspOn: %ld, dspOff: %ld, dspPrecision: %ld, dspXclksPerQword: %ld, dspLoopLatency: %ld\n", (ULONG)dspOn,
       (ULONG)dspOff, (ULONG)dspPrecision, (ULONG)dspXclksPerQword, (ULONG)dspLoopLatency);
 
-    W_BLKIO_L(DSP_CONFIG,
+    blk.writeL(BlkIoReg::DSP_CONFIG,
               DSP_XCLKS_PER_QW(dspXclksPerQword) | DSP_LOOP_LATENCY(dspLoopLatency) | DSP_PRECISION(dspPrecision));
-    W_BLKIO_L(DSP_ON_OFF, DSP_OFF(dspOff) | DSP_ON(dspOn));
+    blk.writeL(BlkIoReg::DSP_ON_OFF, DSP_OFF(dspOff) | DSP_ON(dspOn));
 }
+
+#ifdef __cplusplus
+}
+#endif
