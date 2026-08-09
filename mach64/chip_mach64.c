@@ -767,7 +767,7 @@ static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR memo
     // RagePro manual says that SGRAM needs to be aligned to 64byte and pitch needs to be 64byte aligned
     return (APTR)(((ULONG)mem + 63) & ~63);
 #else
-    return (APTR)(((ULONG)mem + 7) & ~7);
+    return mem; // P96 aligns to 16 byte by default
 #endif
 }
 
@@ -999,7 +999,7 @@ static ULONG ASM GetVBeamPos(__REGA0(struct BoardInfo *bi))
     return (R_MMIO_L(CRTC_VLINE_CRNT_VLINE) & CRTC_CRNT_VLINE_MASK) >> 16;
 }
 
-/* Write only enable bits (+ W1C acks), never status bits back. */
+/* write only enable bits (+ W1C acks), never status bits back. */
 static INLINE void syncCrtcInterruptEnables(BoardInfo_t *bi)
 {
     if (!(bi->Flags & BIF_VBLANKINTERRUPT))
@@ -2202,8 +2202,6 @@ APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD
 #if MACH64_PCI_RETRY
     // SGRAM requires 64byte alignment (CalculateMemory)
     size += 64;
-#else
-    size += 8;
 #endif
     return getConstCardData(bi)->AllocCardMemDefault(bi, size, force, system, bytesperrow, mi, format);
 }
