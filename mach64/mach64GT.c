@@ -182,7 +182,7 @@ void lockDLL(BoardInfo_t *bi)
 #define PLL_SLEEP      BIT(0)
 #define PLL_SLEEP_MASK BIT(0)
 
-static void setMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
+void SetMemoryClock_GT(BoardInfo_t *bi, UWORD freqKhz10)
 {
     DFUNC(VERBOSE, "Setting Memory Clock to %ld0 KHz\n", (ULONG)freqKhz10);
 
@@ -272,7 +272,7 @@ void initClocks(struct BoardInfo *bi)
 
     // WRITE_PLL_MASK(PLL_GEN_CNTL, 0x02, 0x02);  // MH: Test; PLL_MRESET
 
-    setMemoryClock(bi, 10000);
+    SetMemoryClock(bi, resolveMemoryClockKhz10(bi));
 
     // VCLK_SRC_SEL = 0b11 : VCLK_SRC set to PLLVCLK (VPLL primary output
     // (V)PLL_PRESET = 0

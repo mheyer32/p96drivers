@@ -309,30 +309,62 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
 //           (ULONG)cs->referenceFrequency, (ULONG)refDiv, (ULONG)1 << mClkSrcSel, (ULONG)fbDiv);
 // }
 
-void SetMemoryClock(BoardInfo_t *bi, USHORT kHz10)
+UWORD resolveMemoryClockKhz10(BoardInfo_t *bi)
 {
-    // DFUNC(5, "Setting memory clock to %ld0 KHz\n", (ULONG)kHz10);
+    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    ChipFamily_t family      = getChipData(bi)->chipFamily;
+    ULONG khz10;
 
-    // PLLValue_t pllValues;
-    // if (ComputePLLValues(bi, kHz10, &pllValues)) {
-    //     UBYTE minN     = 0x80;
-    //     ULONG xclkCntl = READ_PLL(PLL_XCLK_CNTL);
-    //     if (xclkCntl & MFB_TIMES_4_2b) {
-    //         minN = 0x40;
-    //     }
-    //     if (pllValues.N < minN) {
-    //         DFUNC(WARN, "N value too low for MCLK: %ld\n", (ULONG)pllValues.N);
-    //         return;
-    //     }
-    //     WRITE_PLL_MASK(PLL_GEN_CNTL, (PLL_OVERRIDE_MASK | PLL_MRESET_MASK | OSC_EN_MASK | MCLK_SRC_SEL_MASK),
-    //                    (OSC_EN | MCLK_SRC_SEL(0b100)));
-    //     WRITE_PLL(PLL_MCLK_FB_DIV, pllValues.N);
-    //     delayMilliSeconds(5);
-    //     WRITE_PLL_MASK(PLL_GEN_CNTL, MCLK_SRC_SEL_MASK, MCLK_SRC_SEL(pllValues.Plog2));
-    //     printMemoryClock(bi);
-    // } else {
-    //     DFUNC(0, "Unable to compute PLL values for %ld0 KHz\n", (ULONG)kHz10);
-    // }
+    /* P96 MemoryClock is Hz; ROM table entries are 10 kHz units. */
+    if (bi->MemoryClock)
+        khz10 = bi->MemoryClock / 10000UL;
+    else if (family >= MACH64GT)
+        khz10 = 10000UL; /* previous initClocks default (100 MHz) */
+    else if (cs->memClock)
+        khz10 = cs->memClock;
+    else if (cs->maxDRAMClock)
+        khz10 = cs->maxDRAMClock;
+    else
+        khz10 = 5050UL; /* ~50.5 MHz CT ROM DRAM entry */
+
+    if (cs->minMClock && khz10 < cs->minMClock)
+        khz10 = cs->minMClock;
+
+    {
+        UWORD max = cs->maxDRAMClock;
+        if (family >= MACH64GT) {
+            if (cs->maxVRAMClock > max)
+                max = cs->maxVRAMClock;
+            if (max < 10000)
+                max = 10000;
+        } else if (!max) {
+            max = 6800;
+        }
+        if (khz10 > max)
+            khz10 = max;
+    }
+
+    return (UWORD)khz10;
+}
+
+void SetMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
+{
+    ChipFamily_t family = getChipData(bi)->chipFamily;
+
+    DFUNC(INFO, "MCLK request %ld0 kHz (family %s)\n", (ULONG)freqKhz10, getChipFamilyName(family));
+
+#if !MACH64_PCI_RETRY
+    if (family == MACH64CT)
+        SetMemoryClock_CT(bi, freqKhz10);
+    /* GX: factory ICS2595 MCLK — do not reprogram. */
+#else
+    if (family == MACH64VT)
+        SetMemoryClock_VT(bi, freqKhz10);
+    else if (family >= MACH64GT)
+        SetMemoryClock_GT(bi, freqKhz10);
+#endif
+
+    bi->MemoryClock = (ULONG)freqKhz10 * 10000UL;
 }
 
 #define DAC_W_INDEX 0
@@ -645,6 +677,9 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 #if MACH64_PCI_RETRY
     if (getChipData(bi)->chipFamily == MACH64VT)
         AdjustCrtcFifo_VT(bi);
+#else
+    if (getChipData(bi)->chipFamily == MACH64CT)
+        AdjustCrtcFifo_CT(bi);
 #endif
 
     if (getChipData(bi)->chipFamily < MACH64GT) {
@@ -2440,27 +2475,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         W_IO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
     }
 
-    // ULONG clock = bi->MemoryClock;
-    // const ChipSpecific_t *cs = getConstChipSpecific(bi);
-    // if (!clock) {
-    //     clock = cs->memClock;
-    // } else {
-    //     clock /= 10000;
-    // }
-    // if (clock < cs->minMClock) {
-    //     clock = cs->minMClock;
-    // }
-    // if (clock > cs->maxDRAMClock) {
-    //     clock = cs->maxDRAMClock;
-    // }
-    // SetMemoryClock(bi, clock);
-    // bi->MemoryClock = clock * 10000;
-
-    // D(INFO, "MemorySize: %ldmb\n", bi->MemorySize / (1024 * 1024));
-    // if (bi->MemorySize <= 512 * 1024) {
-    //     DFUNC(ERROR, "Memory size detection failed or not enough memory detected\n");
-    //     return FALSE;
-    // }
+    /* MCLK: CT/VT/GT program in InitMach64*; GX reports ROM default only. */
+    if (cd->chipFamily == MACH64GX && !bi->MemoryClock)
+        bi->MemoryClock = (ULONG)resolveMemoryClockKhz10(bi) * 10000UL;
+    D(INFO, "MemoryClock %ld Hz\n", bi->MemoryClock);
 
     // FIXME: no need to crop FB size on later chips with auxilliary MMIO aperture
     if (bi->MemorySize == 8 * 1024 * 1024 && cd->chipFamily <= MACH64VT) {
@@ -2487,7 +2505,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
                       CRTC_LOCK_REGS_MASK,
                   CRTC_ENABLE | CRTC_EXT_DISP_EN /*| VGA_XCRT_CNT_EN*/);
     if (cd->chipFamily == MACH64CT) {
-        W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK, CRTC_FIFO_LWM(0xF));
+        /* Mode set retunes via AdjustCrtcFifo_CT; start below max (0xF starves GE). */
+        W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK, CRTC_FIFO_LWM(0x8));
     } else if (cd->chipFamily == MACH64VT) {
         W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK | CRTC_FIFO_OVERFILL_VT_MASK | CRTC_DISPREQ_ONLY_VT_MASK,
                       CRTC_FIFO_LWM(0x8) | CRTC_FIFO_OVERFILL_VT(1));

@@ -23,7 +23,7 @@ static const UBYTE g_VPLLPostDividerCodes[] = {
 static const UBYTE g_MPLLPostDividers[]     = {1, 2, 4, 8};
 static const UBYTE g_MPLLPostDividerCodes[] = {0b000, 0b001, 0b010, 0b011};
 
-static void setMemoryClock_CT(BoardInfo_t *bi, UWORD freqKhz10)
+void SetMemoryClock_CT(BoardInfo_t *bi, UWORD freqKhz10)
 {
     DFUNC(VERBOSE, "Setting Memory Clock to %ld0 KHz\n", (ULONG)freqKhz10);
 
@@ -63,6 +63,70 @@ static void setMemoryClock_CT(BoardInfo_t *bi, UWORD freqKhz10)
 static ULONG computeVCLKFrequencyKhz10_CT(const struct BoardInfo *bi, const struct PLLValue *pllValues)
 {
     return computeFrequencyKhz10FromPllValue(bi, pllValues, g_VPLLPostDivider);
+}
+
+/*
+ * Display FIFO LWM for CT DRAM (RRG: higher LWM → more page faults → slower GE).
+ * Reuse depth/clock breakpoints (same as VT MAGIC_FIFO); only program
+ * CRTC_FIFO_LWM — do not touch CT bit21 (EXTRA_FIFO_READ) or OVERFILL.
+ */
+typedef struct
+{
+    UWORD clock10k;
+    UBYTE lwm;
+} FifoEntry_CT_t;
+
+static const FifoEntry_CT_t g_fifo8_CT[] = {
+    {4600, 0x4}, {5600, 0x6}, {7000, 0x6}, {9400, 0x8}, {10000, 0xa}, {11300, 0xc}, {14000, 0xc}, {24000, 0xe},
+};
+static const FifoEntry_CT_t g_fifo16_CT[] = {
+    {2200, 0x6}, {3400, 0x6}, {4200, 0xa}, {5500, 0xa}, {6600, 0xc}, {7000, 0xc}, {7600, 0xe}, {7900, 0xe}, {24000, 0xe},
+};
+static const FifoEntry_CT_t g_fifo24_CT[] = {
+    {2000, 0x8}, {3400, 0xa}, {3800, 0xa}, {4200, 0xa}, {4500, 0xc}, {5200, 0xc}, {24000, 0xe},
+};
+static const FifoEntry_CT_t g_fifo32_CT[] = {
+    {3000, 0xa}, {3500, 0xe}, {4200, 0xe}, {24000, 0xe},
+};
+
+static UBYTE lookupFifoLwm_CT(const FifoEntry_CT_t *tab, UBYTE n, ULONG clock10k)
+{
+    for (UBYTE i = 0; i < n; i++) {
+        if (clock10k <= tab[i].clock10k)
+            return tab[i].lwm;
+    }
+    return tab[n - 1].lwm;
+}
+
+void AdjustCrtcFifo_CT(struct BoardInfo *bi)
+{
+    const struct ModeInfo *mi = bi->ModeInfo;
+    if (!mi)
+        return;
+
+    ULONG clock10k = mi->PixelClock / 10000;
+    UBYTE lwm;
+
+    switch (mi->Depth) {
+    case 15:
+    case 16:
+        lwm = lookupFifoLwm_CT(g_fifo16_CT, ARRAY_SIZE(g_fifo16_CT), clock10k);
+        break;
+    case 24:
+        lwm = lookupFifoLwm_CT(g_fifo24_CT, ARRAY_SIZE(g_fifo24_CT), clock10k);
+        break;
+    case 32:
+        lwm = lookupFifoLwm_CT(g_fifo32_CT, ARRAY_SIZE(g_fifo32_CT), clock10k);
+        break;
+    default:
+        lwm = lookupFifoLwm_CT(g_fifo8_CT, ARRAY_SIZE(g_fifo8_CT), clock10k);
+        break;
+    }
+
+    DFUNC(INFO, "clk %ld0kHz depth %ld → LWM=%ld (was max 15)\n", clock10k, (ULONG)mi->Depth, (ULONG)lwm);
+
+    MMIOBASE();
+    W_MMIO_MASK_L(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK, CRTC_FIFO_LWM(lwm));
 }
 
 static void ASM SetClock_CT(__REGA0(struct BoardInfo *bi))
@@ -105,6 +169,9 @@ static void ASM SetClock_CT(__REGA0(struct BoardInfo *bi))
 
     /* Re-select / strobe VCLK0 into the CRTC (CLOCK_CNTL|STROBE). */
     W_MMIO_MASK_L(CLOCK_CNTL, CLOCK_SEL_MASK | CLOCK_STROBE_MASK, CLOCK_SEL(0) | CLOCK_STROBE);
+
+    /* Lower display FIFO LWM → fewer DRAM page faults → more GE bandwidth (RRG). */
+    AdjustCrtcFifo_CT(bi);
 }
 
 /*
@@ -276,7 +343,7 @@ BOOL InitMach64CT(struct BoardInfo *bi)
                   CRTC_ENABLE | CRTC_EXT_DISP_EN | VGA_XCRT_CNT_EN);
 
     /* DRAM needs internal MCLK before LFB probe (cold boot without VBIOS). */
-    setMemoryClock_CT(bi, cs->maxDRAMClock ? cs->maxDRAMClock : 5050);
+    SetMemoryClock(bi, resolveMemoryClockKhz10(bi));
 
     if (!probeMemorySize(bi)) {
         return FALSE;

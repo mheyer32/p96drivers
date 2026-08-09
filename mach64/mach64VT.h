@@ -5,5 +5,6 @@
 
 BOOL InitMach64VT(struct BoardInfo *bi);
 void AdjustCrtcFifo_VT(struct BoardInfo *bi);
+void SetMemoryClock_VT(struct BoardInfo *bi, UWORD freqKhz10);
 
 #endif  // MACH64VT_H
