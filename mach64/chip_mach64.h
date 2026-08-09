@@ -69,48 +69,7 @@ static INLINE const ChipSpecific_t *getConstChipSpecific(const struct BoardInfo 
 
 #ifdef __cplusplus
 #include "mach64_driver.hpp"
-#else
-/* Mark `entries` FIFO slots as used in a FIFO_STAT-shaped value (ones from LSB). */
-static INLINE UWORD fifoStatConsume(UWORD stat, UBYTE entries)
-{
-    return ((ULONG)(stat + 1) << entries) - 1;
-}
-
-static inline void waitFifo(BoardInfo_t *bi, UBYTE entries)
-{
-#if MACH64_PCI_RETRY
-    (void)bi;
-    (void)entries;
-#else
-    ChipData_t *cd;
-    UWORD mask;
-    UWORD maskSwapped;
-    UWORD raw;
-
-    if (!entries)
-        return;
-
-    /* FIFO_STAT: 0 = empty; ones pack from LSB. entries free ⇒ top entries bits clear. */
-    mask = 0xffffU << (16 - entries);
-
-    cd = getChipData(bi);
-    if (!(cd->fifoSlotsCached & mask)) {
-        cd->fifoSlotsCached = fifoStatConsume(cd->fifoSlotsCached, entries);
-        return;
-    }
-
-    maskSwapped = SWAPW(mask);
-    {
-        MMIOBASE();
-        do {
-            raw = R_MMIO_NOSWAP_W_QI(FIFO_STAT);
-        } while (raw & maskSwapped);
-    }
-
-    cd->fifoSlotsCached = fifoStatConsume(SWAPW(raw), entries);
 #endif
-}
-#endif /* !__cplusplus */
 
 #ifdef __cplusplus
 extern "C" {
