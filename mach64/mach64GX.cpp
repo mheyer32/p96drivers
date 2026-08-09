@@ -16,8 +16,6 @@ using namespace PllReg;
 extern "C" {
 #endif
 
-#define CONFIG_STAT1 (0x3A)
-
 // DAC_REGS sub-registers (same as VGA I/O ports 0x3c8/0x3c7/0x3c9)
 #define DAC_W_INDEX 0
 #define DAC_R_INDEX 3
@@ -1541,7 +1539,7 @@ BOOL InitMach64GX(struct BoardInfo *bi)
         return FALSE;
     }
 
-    ULONG configStat1 = mmio.readL(static_cast<MmioReg::Id>(CONFIG_STAT1));
+    ULONG configStat1 = mmio.readL(CONFIG_STAT1);
     print_CONFIG_STAT1(reinterpret_cast<CONFIG_STAT1_t *>(&configStat1));
     ULONG memCntl = mmio.readL(MEM_CNTL);
     print_MEM_CNTL(reinterpret_cast<MEM_CNTL_t *>(&memCntl));

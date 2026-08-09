@@ -5,220 +5,175 @@
  * Mach64 dword-index register IDs (namespace + unscoped enum Id).
  * Names match ATI programming manuals (FIFO_STAT, CRTC_GEN_CNTL, …).
  *
- * When this header is included, the matching #defines from mach64_common.h are
- * undefined so MmioReg::FIFO_STAT is not macro-expanded. Plain C TUs that never
- * include this header keep the #defines. In .cpp: using namespace MmioReg; then
- * write FIFO_STAT instead of MmioReg::FIFO_STAT (keep BlkIoReg:: when both used).
+ * In .cpp: using namespace MmioReg; then write FIFO_STAT instead of
+ * MmioReg::FIFO_STAT (keep BlkIoReg:: / SparseIoReg:: when both apertures used).
+ *
+ * Under DBG, AtiRegAperture logs via ADL regName(id) (X-macro switch).
  */
 
 #include <exec/types.h>
 
-#ifdef CRTC_H_TOTAL_DISP
-#undef CRTC_H_TOTAL_DISP
-#undef CRTC_H_SYNC_STRT_WID
-#undef CRTC_V_TOTAL_DISP
-#undef CRTC_V_SYNC_STRT_WID
-#undef CRTC_VLINE_CRNT_VLINE
-#undef CRTC_OFF_PITCH
-#undef CRTC_INT_CNTL
-#undef CRTC_GEN_CNTL
-#undef OVR_CLR
-#undef OVR_WID_LEFT_RIGHT
-#undef OVR_WID_TOP_BOTTOM
-#undef CUR_CLR0
-#undef CUR_CLR1
-#undef CUR_OFFSET
-#undef CUR_HORZ_VERT_POSN
-#undef CUR_HORZ_VERT_OFF
-#undef HW_DEBUG
-#undef SCRATCH_REG0
-#undef SCRATCH_REG1
-#undef CLOCK_CNTL
-#undef BUS_CNTL
-#undef MEM_CNTL
-#undef MEM_VGA_WP_SEL
-#undef MEM_VGA_RP_SEL
-#undef DAC_REGS
-#undef DAC_CNTL
-#undef GEN_TEST_CNTL
-#undef CONFIG_CNTL
-#undef CONFIG_CHIP_ID
-#undef CONFIG_STAT0
-#undef MEM_ADDR_CONFIG
-#undef EXT_MEM_CNTL
-#undef DSP_CONFIG
-#undef DSP_ON_OFF
-#undef DST_OFF_PITCH
-#undef DST_Y_X
-#undef DST_HEIGHT_WIDTH
-#undef DST_X_WIDTH
-#undef DST_BRES_LNTH
-#undef DST_BRES_ERR
-#undef DST_BRES_INC
-#undef DST_BRES_DEC
-#undef DST_CNTL
-#undef SRC_OFF_PITCH
-#undef SRC_Y_X
-#undef SRC_HEIGHT1_WIDTH1
-#undef SRC_Y_X_START
-#undef SRC_HEIGHT2_WIDTH2
-#undef SRC_CNTL
-#undef HOST_DATA0
-#undef HOST_CNTL
-#undef PAT_REG0
-#undef PAT_REG1
-#undef PAT_CNTL
-#undef SC_LEFT_RIGHT
-#undef SC_TOP_BOTTOM
-#undef DP_BKGD_CLR
-#undef DP_FRGD_CLR
-#undef DP_WRITE_MSK
-#undef DP_CHAIN_MSK
-#undef DP_PIX_WIDTH
-#undef DP_MIX
-#undef DP_SRC
-#undef CLR_CMP_CLR
-#undef CLR_CMP_MSK
-#undef CLR_CMP_CNTL
-#undef FIFO_STAT
-#undef CONTEXT_MASK
-#undef CONTEXT_LOAD_CNTL
-#undef GUI_TRAJ_CNTL
-#undef GUI_STAT
+#define MACH64_MMIO_REG_LIST(X)           \
+	X(CRTC_H_TOTAL_DISP, 0x00)        \
+	X(CRTC_H_SYNC_STRT_WID, 0x01)     \
+	X(CRTC_V_TOTAL_DISP, 0x02)        \
+	X(CRTC_V_SYNC_STRT_WID, 0x03)     \
+	X(CRTC_VLINE_CRNT_VLINE, 0x04)    \
+	X(CRTC_OFF_PITCH, 0x05)           \
+	X(CRTC_INT_CNTL, 0x06)            \
+	X(CRTC_GEN_CNTL, 0x07)            \
+	X(MEM_ADDR_CONFIG, 0x0D)          \
+	X(OVR_CLR, 0x10)                  \
+	X(OVR_WID_LEFT_RIGHT, 0x11)       \
+	X(OVR_WID_TOP_BOTTOM, 0x12)       \
+	X(CUR_CLR0, 0x18)                 \
+	X(CUR_CLR1, 0x19)                 \
+	X(CUR_OFFSET, 0x1A)               \
+	X(CUR_HORZ_VERT_POSN, 0x1B)       \
+	X(CUR_HORZ_VERT_OFF, 0x1C)        \
+	X(HW_DEBUG, 0x1F)                 \
+	X(SCRATCH_REG0, 0x20)             \
+	X(SCRATCH_REG1, 0x21)             \
+	X(CLOCK_CNTL, 0x24)               \
+	X(BUS_CNTL, 0x28)                 \
+	X(MEM_CNTL, 0x2C)                 \
+	X(MEM_VGA_WP_SEL, 0x2D)           \
+	X(MEM_VGA_RP_SEL, 0x2E)           \
+	X(DAC_REGS, 0x30)                 \
+	X(DAC_CNTL, 0x31)                 \
+	X(GEN_TEST_CNTL, 0x34)            \
+	X(CONFIG_CNTL, 0x37)              \
+	X(CONFIG_CHIP_ID, 0x38)           \
+	X(CONFIG_STAT0, 0x39)             \
+	X(CONFIG_STAT1, 0x3A)             \
+	X(DST_OFF_PITCH, 0x40)            \
+	X(DST_Y_X, 0x43)                  \
+	X(DST_HEIGHT_WIDTH, 0x46)         \
+	X(DST_X_WIDTH, 0x47)              \
+	X(DST_BRES_LNTH, 0x48)            \
+	X(DST_BRES_ERR, 0x49)             \
+	X(DST_BRES_INC, 0x4A)             \
+	X(DST_BRES_DEC, 0x4B)             \
+	X(DST_CNTL, 0x4C)                 \
+	X(SRC_OFF_PITCH, 0x60)            \
+	X(SRC_Y_X, 0x63)                  \
+	X(SRC_HEIGHT1_WIDTH1, 0x66)       \
+	X(SRC_Y_X_START, 0x69)            \
+	X(SRC_HEIGHT2_WIDTH2, 0x6C)       \
+	X(SRC_CNTL, 0x6D)                 \
+	X(HOST_DATA0, 0x80)               \
+	X(HOST_DATA1, 0x81)               \
+	X(HOST_DATA2, 0x82)               \
+	X(HOST_DATA3, 0x83)               \
+	X(HOST_DATA4, 0x84)               \
+	X(HOST_DATA5, 0x85)               \
+	X(HOST_DATA6, 0x86)               \
+	X(HOST_DATA7, 0x87)               \
+	X(HOST_DATA8, 0x88)               \
+	X(HOST_DATA9, 0x89)               \
+	X(HOST_DATA10, 0x8A)              \
+	X(HOST_DATA11, 0x8B)              \
+	X(HOST_DATA12, 0x8C)              \
+	X(HOST_DATA13, 0x8D)              \
+	X(HOST_DATA14, 0x8E)              \
+	X(HOST_DATA15, 0x8F)              \
+	X(HOST_CNTL, 0x90)                \
+	X(PAT_REG0, 0xA0)                 \
+	X(PAT_REG1, 0xA1)                 \
+	X(PAT_CNTL, 0xA2)                 \
+	X(SC_LEFT_RIGHT, 0xAA)            \
+	X(SC_TOP_BOTTOM, 0xAD)            \
+	X(DP_BKGD_CLR, 0xB0)              \
+	X(DP_FRGD_CLR, 0xB1)              \
+	X(DP_WRITE_MSK, 0xB2)             \
+	X(DP_CHAIN_MSK, 0xB3)             \
+	X(DP_PIX_WIDTH, 0xB4)             \
+	X(DP_MIX, 0xB5)                   \
+	X(DP_SRC, 0xB6)                   \
+	X(CLR_CMP_CLR, 0xC0)              \
+	X(CLR_CMP_MSK, 0xC1)              \
+	X(CLR_CMP_CNTL, 0xC2)             \
+	X(FIFO_STAT, 0xC4)                \
+	X(CONTEXT_MASK, 0xC8)             \
+	X(CONTEXT_LOAD_CNTL, 0xCB)        \
+	X(GUI_TRAJ_CNTL, 0xCC)            \
+	X(GUI_STAT, 0xCE)
+
+#define MACH64_BLKIO_REG_LIST(X)   \
+	X(CRTC_H_TOTAL_DISP, 0x00) \
+	X(CRTC_GEN_CNTL, 0x07)     \
+	X(DSP_CONFIG, 0x08)        \
+	X(DSP_ON_OFF, 0x09)        \
+	X(MEM_ADDR_CONFIG, 0x0D)   \
+	X(OVR_CLR, 0x10)           \
+	X(HW_DEBUG, 0x1F)          \
+	X(SCRATCH_REG0, 0x20)      \
+	X(SCRATCH_REG1, 0x21)      \
+	X(CLOCK_CNTL, 0x24)        \
+	X(BUS_CNTL, 0x28)          \
+	X(LT_GIO, 0x2A)            \
+	X(EXT_MEM_CNTL, 0x2B)      \
+	X(MEM_CNTL, 0x2C)          \
+	X(DAC_REGS, 0x30)          \
+	X(DAC_CNTL, 0x31)          \
+	X(GEN_TEST_CNTL, 0x34)     \
+	X(CONFIG_CNTL, 0x37)       \
+	X(CONFIG_CHIP_ID, 0x38)    \
+	X(CONFIG_STAT0, 0x39)
+
+#define MACH64_SPARSEIO_REG_LIST(X) X(CONFIG_CNTL, 0x1A)
+
+#ifdef DBG
+#define MACH64_DEFINE_REG_NAME(LIST)           \
+	inline const char *regName(Id r)       \
+	{                                      \
+		switch (r) {                   \
+			LIST(MACH64_REG_NAME_CASE) \
+		default:                       \
+			return "?";            \
+		}                              \
+	}
+#define MACH64_REG_NAME_CASE(n, v) \
+	case n:                        \
+		return #n;
 #endif
 
 namespace MmioReg {
 enum Id : LONG {
-	CRTC_H_TOTAL_DISP     = 0x00,
-	CRTC_H_SYNC_STRT_WID  = 0x01,
-	CRTC_V_TOTAL_DISP     = 0x02,
-	CRTC_V_SYNC_STRT_WID  = 0x03,
-	CRTC_VLINE_CRNT_VLINE = 0x04,
-	CRTC_OFF_PITCH        = 0x05,
-	CRTC_INT_CNTL         = 0x06,
-	CRTC_GEN_CNTL         = 0x07,
-
-	OVR_CLR            = 0x10,
-	OVR_WID_LEFT_RIGHT = 0x11,
-	OVR_WID_TOP_BOTTOM = 0x12,
-	CUR_CLR0           = 0x18,
-	CUR_CLR1           = 0x19,
-	CUR_OFFSET         = 0x1A,
-	CUR_HORZ_VERT_POSN = 0x1B,
-	CUR_HORZ_VERT_OFF  = 0x1C,
-
-	HW_DEBUG        = 0x1F,
-	SCRATCH_REG0    = 0x20,
-	SCRATCH_REG1    = 0x21,
-	CLOCK_CNTL      = 0x24,
-	BUS_CNTL        = 0x28,
-	MEM_CNTL        = 0x2C,
-	MEM_VGA_WP_SEL  = 0x2D,
-	MEM_VGA_RP_SEL  = 0x2E,
-	DAC_REGS        = 0x30,
-	DAC_CNTL        = 0x31,
-	GEN_TEST_CNTL   = 0x34,
-	CONFIG_CNTL     = 0x37,
-	CONFIG_CHIP_ID  = 0x38,
-	CONFIG_STAT0    = 0x39,
-	MEM_ADDR_CONFIG = 0x0D,
-
-	DST_OFF_PITCH    = 0x40,
-	DST_Y_X          = 0x43,
-	DST_HEIGHT_WIDTH = 0x46,
-	DST_X_WIDTH      = 0x47,
-	DST_BRES_LNTH    = 0x48,
-	DST_BRES_ERR     = 0x49,
-	DST_BRES_INC     = 0x4A,
-	DST_BRES_DEC     = 0x4B,
-	DST_CNTL         = 0x4C,
-
-	SRC_OFF_PITCH      = 0x60,
-	SRC_Y_X            = 0x63,
-	SRC_HEIGHT1_WIDTH1 = 0x66,
-	SRC_Y_X_START      = 0x69,
-	SRC_HEIGHT2_WIDTH2 = 0x6C,
-	SRC_CNTL           = 0x6D,
-
-	HOST_DATA0 = 0x80,
-	HOST_CNTL  = 0x90,
-
-	PAT_REG0 = 0xA0,
-	PAT_REG1 = 0xA1,
-	PAT_CNTL = 0xA2,
-
-	SC_LEFT_RIGHT = 0xAA,
-	SC_TOP_BOTTOM = 0xAD,
-
-	DP_BKGD_CLR  = 0xB0,
-	DP_FRGD_CLR  = 0xB1,
-	DP_WRITE_MSK = 0xB2,
-	DP_CHAIN_MSK = 0xB3,
-	DP_PIX_WIDTH = 0xB4,
-	DP_MIX       = 0xB5,
-	DP_SRC       = 0xB6,
-
-	CLR_CMP_CLR  = 0xC0,
-	CLR_CMP_MSK  = 0xC1,
-	CLR_CMP_CNTL = 0xC2,
-
-	FIFO_STAT         = 0xC4,
-	CONTEXT_MASK      = 0xC8,
-	CONTEXT_LOAD_CNTL = 0xCB,
-	GUI_TRAJ_CNTL     = 0xCC,
-	GUI_STAT          = 0xCE,
+#define MACH64_REG_ENUM(n, v) n = v,
+	MACH64_MMIO_REG_LIST(MACH64_REG_ENUM)
+#undef MACH64_REG_ENUM
 };
+#ifdef DBG
+MACH64_DEFINE_REG_NAME(MACH64_MMIO_REG_LIST)
+#endif
 }
 
 namespace BlkIoReg {
 enum Id : LONG {
-	CRTC_H_TOTAL_DISP = 0x00,
-	CRTC_GEN_CNTL     = 0x07,
-	DSP_CONFIG        = 0x08,
-	DSP_ON_OFF        = 0x09,
-	MEM_ADDR_CONFIG   = 0x0D,
-	OVR_CLR           = 0x10,
-	HW_DEBUG          = 0x1F,
-	SCRATCH_REG0      = 0x20,
-	SCRATCH_REG1      = 0x21,
-	CLOCK_CNTL        = 0x24,
-	LT_GIO            = 0x2A,
-	BUS_CNTL          = 0x28,
-	EXT_MEM_CNTL      = 0x2B,
-	MEM_CNTL          = 0x2C,
-	DAC_REGS          = 0x30,
-	DAC_CNTL          = 0x31,
-	GEN_TEST_CNTL     = 0x34,
-	CONFIG_CNTL       = 0x37,
-	CONFIG_CHIP_ID    = 0x38,
-	CONFIG_STAT0      = 0x39,
+#define MACH64_REG_ENUM(n, v) n = v,
+	MACH64_BLKIO_REG_LIST(MACH64_REG_ENUM)
+#undef MACH64_REG_ENUM
 };
+#ifdef DBG
+MACH64_DEFINE_REG_NAME(MACH64_BLKIO_REG_LIST)
+#endif
 }
 
 namespace SparseIoReg {
 enum Id : LONG {
-	CONFIG_CNTL = 0x1A,
+#define MACH64_REG_ENUM(n, v) n = v,
+	MACH64_SPARSEIO_REG_LIST(MACH64_REG_ENUM)
+#undef MACH64_REG_ENUM
 };
+#ifdef DBG
+MACH64_DEFINE_REG_NAME(MACH64_SPARSEIO_REG_LIST)
+#endif
 }
-
 
 #ifdef DBG
-inline const char *regName(MmioReg::Id r)
-{
-	switch (r) {
-	case MmioReg::FIFO_STAT: return "FIFO_STAT";
-	case MmioReg::GUI_STAT: return "GUI_STAT";
-	case MmioReg::CRTC_GEN_CNTL: return "CRTC_GEN_CNTL";
-	case MmioReg::DP_PIX_WIDTH: return "DP_PIX_WIDTH";
-	case MmioReg::DP_WRITE_MSK: return "DP_WRITE_MSK";
-	case MmioReg::CONFIG_CNTL: return "CONFIG_CNTL";
-	case MmioReg::BUS_CNTL: return "BUS_CNTL";
-	case MmioReg::MEM_CNTL: return "MEM_CNTL";
-	case MmioReg::GEN_TEST_CNTL: return "GEN_TEST_CNTL";
-	case MmioReg::HOST_DATA0: return "HOST_DATA0";
-	default: return "MmioReg::Id";
-	}
-}
+#undef MACH64_DEFINE_REG_NAME
+#undef MACH64_REG_NAME_CASE
 #endif
 
 #endif /* MACH64_REGS_HPP */
