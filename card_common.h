@@ -4,6 +4,10 @@
 #include "common.h"
 #include <exec/types.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Parse a hexadecimal or decimal string to ULONG value
  * Supports both "0x1234" (hex) and "1234" (decimal) formats
@@ -58,6 +62,10 @@ void removePciVBlankInterrupt(struct BoardInfo *bi);
  * @param slot Slot number
  */
 void generateBoardName(char *boardName, const char *cardName, ULONG bus, ULONG slot);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // CARD_COMMON_H
 

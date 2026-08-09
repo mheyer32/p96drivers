@@ -1,6 +1,10 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <SDI_compiler.h>
 #include <exec/types.h>
 #include <mmu/context.h>
@@ -9,6 +13,20 @@
 #include <boardinfo.h>
 // FIXME: copy header into common location
 // #include "endian.h"
+
+#ifdef __cplusplus
+/*
+ * bebbo g++ ignores __asm("dn") on enum-typed parameters ("attributes applied to
+ * 'RGBFTYPE' after definition"). Pass register-bound format args as ULONG.
+ */
+typedef ULONG RGBFTYPE_REG;
+#define AS_RGBF(x) static_cast<RGBFTYPE>(x)
+#define P96_HOOK(field, fn) ((field) = reinterpret_cast<decltype(field)>(fn))
+#else
+typedef RGBFTYPE RGBFTYPE_REG;
+#define AS_RGBF(x) (x)
+#define P96_HOOK(field, fn) ((field) = (fn))
+#endif
 
 #define ALWAYS  0       // Always print when DEBUG is enabled
 #define ERROR   ALWAYS  // Function failed, not recoverable
@@ -33,12 +51,10 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
     if (debugLevel >= (level)) { \
         myPrintF(__VA_ARGS__);   \
     }
-// Helper macro to allow call DFUNC with just one argument (and __VA_ARGS__
-// being empty)
-#define VA_ARGS(...) , ##__VA_ARGS__
-#define DFUNC(level, fmt, ...)                                             \
-    if (debugLevel >= (level)) {                                           \
-        myPrintF("%s:%ld: " fmt, __func__, __LINE__ VA_ARGS(__VA_ARGS__)); \
+/* GNU ,##__VA_ARGS__ eats the comma when the varargs list is empty (C and C++). */
+#define DFUNC(level, fmt, ...)                                                   \
+    if (debugLevel >= (level)) {                                                 \
+        myPrintF("%s:%ld: " fmt, __func__, (long)__LINE__, ##__VA_ARGS__);       \
     }
 #endif
 
@@ -772,10 +788,10 @@ static INLINE unsigned int movew(unsigned short a, unsigned int b)
     return res;
 }
 
-static inline UBYTE getBPP(RGBFTYPE format)
+static inline UBYTE getBPP(ULONG format)
 {
     // FIXME: replace with fixed table?
-    switch (format) {
+    switch ((RGBFTYPE)format) {
     case RGBFB_CLUT:
         return 1;
         break;
@@ -802,10 +818,10 @@ static inline UBYTE getBPP(RGBFTYPE format)
     return 0;
 }
 
-static inline UBYTE getBPPLog2(RGBFTYPE format)
+static inline UBYTE getBPPLog2(ULONG format)
 {
     // FIXME: replace with fixed table?
-    switch (format) {
+    switch ((RGBFTYPE)format) {
     case RGBFB_CLUT:
         return 0;
         break;
@@ -945,5 +961,9 @@ static inline void packAtiHwCursorImage(struct BoardInfo *bi)
 #define MIX_NOT_CURRENT_AND_NEW     0b1101
 #define MIX_CURRENT_AND_NOT_NEW     0b1110
 #define MIX_NOT_CURRENT_AND_NOT_NEW 0b1111
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // COMMON_H

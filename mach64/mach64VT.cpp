@@ -2,6 +2,16 @@
 #include "chip_mach64.h"
 #include "mach64_common.h"
 
+
+using namespace MmioReg;
+
+#ifdef __cplusplus
+#ifndef _Static_assert
+#define _Static_assert static_assert
+#endif
+extern "C" {
+#endif
+
 #define BUS_PCI_RETRY_EN_VT      BIT(15)
 #define BUS_PCI_RETRY_EN_VT_MASK BIT(15)
 #define BUS_FIFO_WS_VT(x)        ((x) << 16)
@@ -167,23 +177,22 @@ void AdjustCrtcFifo_VT(struct BoardInfo *bi)
     DFUNC(VERBOSE, "clk %ld0kHz depth %ld → fifo=0x%02lx LWM=%ld overfill=%ld dispreq=%ld\n", clock10k,
           (ULONG)mi->Depth, (ULONG)fifoVal, (ULONG)lwm, (ULONG)overfill, !!(extra));
 
-    MMIOBASE();
-    W_MMIO_MASK_L(CRTC_GEN_CNTL,
-                  CRTC_FIFO_LWM_MASK | CRTC_FIFO_OVERFILL_VT_MASK | CRTC_DISPREQ_ONLY_VT_MASK | CRTC_LOCK_REGS_MASK,
-                  CRTC_FIFO_LWM(lwm) | CRTC_FIFO_OVERFILL_VT(overfill) | extra);
+    DRIVER_LOCALS(bi);
+    mmio.writeMaskL(CRTC_GEN_CNTL,
+                    CRTC_FIFO_LWM_MASK | CRTC_FIFO_OVERFILL_VT_MASK | CRTC_DISPREQ_ONLY_VT_MASK | CRTC_LOCK_REGS_MASK,
+                    CRTC_FIFO_LWM(lwm) | CRTC_FIFO_OVERFILL_VT(overfill) | extra);
 }
 
-static void ASM SetClock_VT(__REGA0(struct BoardInfo *bi))
+void ASM Mach64Driver::setClock_VT()
 {
-    REGBASE();
-
     DFUNC(VERBOSE, "\n");
+    DRIVER_LOCALS(this);
 
-    struct ModeInfo *mi = bi->ModeInfo;
+    struct ModeInfo *mi = ModeInfo;
     ULONG pixelClock    = mi->PixelClock;
 
 #ifdef DBG
-    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    const ChipSpecific_t *cs = getConstChipSpecific(this);
     ULONG minVClkKhz10       = 2 * cs->referenceFrequency * 128 / (cs->referenceDivider * 8);
 
     D(CHATTY, "minimm VCLK %ldHz\n", minVClkKhz10 * 10000);
@@ -192,7 +201,7 @@ static void ASM SetClock_VT(__REGA0(struct BoardInfo *bi))
         return;
     }
 
-    D(CHATTY, "SetClock: PixelClock %ldHz -> %ldHz \n", bi->ModeInfo->PixelClock, pixelClock);
+    D(CHATTY, "SetClock: PixelClock %ldHz -> %ldHz \n", ModeInfo->PixelClock, pixelClock);
 #endif
 
     // Temporarily select CPUCLK as VCLK source, bring VPLL into reset
@@ -205,9 +214,9 @@ static void ASM SetClock_VT(__REGA0(struct BoardInfo *bi))
     WRITE_PLL_MASK(PLL_VCLK_POST_DIV, VCLK0_POST_MASK, VCLK0_POST(postDivCode));
 
     /* VT A3/A4: CRTC FIFO LWM. VT3+ (asic rev ≥ 1): GTB DSP as well. */
-    AdjustCrtcFifo_VT(bi);
-    if (getAsicVersion(bi) >= 1)
-        AdjustDSP(bi, mi->pll1.Numerator, g_VPLLPostDivider[mi->pll2.Denominator]);
+    AdjustCrtcFifo_VT(this);
+    if (getAsicVersion(this) >= 1)
+        AdjustDSP(this, mi->pll1.Numerator, g_VPLLPostDivider[mi->pll2.Denominator]);
 
     WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, 0);
     delayMilliSeconds(5);
@@ -216,11 +225,16 @@ static void ASM SetClock_VT(__REGA0(struct BoardInfo *bi))
     delayMilliSeconds(5);
 }
 
+static void ASM SetClock_VT(__REGA0(struct BoardInfo *bi))
+{
+    asMach64(bi)->setClock_VT();
+}
+
 static BOOL probeMemorySize(BoardInfo_t *bi)
 {
     DFUNC(VERBOSE, "\n");
 
-    REGBASE();
+    Mach64BlkIo blk = asMach64(bi)->blkIo();
     LOCAL_SYSBASE();
 
     static const ULONG memorySizes[] = {0x400000, 0x200000, 0x100000, 0x80000};
@@ -233,7 +247,7 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
         bi->MemorySize = memorySizes[i];
         D(VERBOSE, "\nProbing memory size %ld\n", bi->MemorySize);
 
-        W_BLKIO_MASK_L(MEM_CNTL, 0x7, memoryCodes[i]);
+        blk.writeMaskL(BlkIoReg::MEM_CNTL, 0x7, memoryCodes[i]);
 
         flushWrites();
 
@@ -269,6 +283,7 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
 void SetMemoryClock_VT(BoardInfo_t *bi, UWORD freqKhz10)
 {
     DFUNC(VERBOSE, "Setting Memory Clock to %ld0 KHz\n", (ULONG)freqKhz10);
+    DRIVER_LOCALS(bi);
 
     if (freqKhz10 < 1475) {
         freqKhz10 = 1475;
@@ -283,11 +298,11 @@ void SetMemoryClock_VT(BoardInfo_t *bi, UWORD freqKhz10)
         return;
     }
 
-    REGBASE();
+    Mach64BlkIo blk = drv->blkIo();
 
     // Reset GUI Controller
-    W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_GUI_RESETB_MASK, GEN_GUI_RESETB);
-    W_BLKIO_MASK_L(GEN_TEST_CNTL, GEN_GUI_RESETB_MASK, 0);
+    blk.writeMaskL(BlkIoReg::GEN_TEST_CNTL, GEN_GUI_RESETB_MASK, GEN_GUI_RESETB);
+    blk.writeMaskL(BlkIoReg::GEN_TEST_CNTL, GEN_GUI_RESETB_MASK, 0);
 
     // Clock MCLK from CPUCLK
     WRITE_PLL_MASK(PLL_GEN_CNTL, MCLK_SRC_SEL_MASK, MCLK_SRC_SEL(0b100));
@@ -306,7 +321,8 @@ void SetMemoryClock_VT(BoardInfo_t *bi, UWORD freqKhz10)
 BOOL InitMach64VT(struct BoardInfo *bi)
 {
     DFUNC(INFO, "\n");
-    REGBASE();
+    DRIVER_LOCALS(bi);
+    Mach64BlkIo blk = drv->blkIo();
 
     WRITE_PLL(PLL_MACRO_CNTL, 0xa0);  // PLL_DUTY_CYC = 5
 
@@ -339,24 +355,24 @@ BOOL InitMach64VT(struct BoardInfo *bi)
     // These values are being set by the Mach64VT BIOS, but are inline with the code, not somewhere in an accessible
     // table. CONFIG_STAT0 is apparently not strapped to the right memory type and only by setting it here we get access
     // to the framebuffer memory.
-    W_BLKIO_MASK_L(CONFIG_STAT0, CFG_MEM_TYPE_CT_MASK | CFG_DUAL_CAS_EN_CT_MASK | CFG_CLOCK_EN_CT_MASK,
+    blk.writeMaskL(BlkIoReg::CONFIG_STAT0, CFG_MEM_TYPE_CT_MASK | CFG_DUAL_CAS_EN_CT_MASK | CFG_CLOCK_EN_CT_MASK,
                    CFG_MEM_TYPE_CT(CFG_MEM_TYPE_VT_PSEUDO_EDO) | CFG_DUAL_CAS_EN_CT | CFG_CLOCK_EN_CT);
 
-    // W_BLKIO_MASK_B(CONFIG_STAT0, 0, ~0xf8, 0x3b);
+    // blk.writeMaskB(BlkIoReg::CONFIG_STAT0, 0, ~0xf8, 0x3b);
 
-    W_BLKIO_MASK_L(BUS_CNTL, BUS_ROM_DIS_MASK | BUS_PCI_RETRY_EN_VT_MASK | BUS_FIFO_WS_VT_MASK,
+    blk.writeMaskL(BlkIoReg::BUS_CNTL, BUS_ROM_DIS_MASK | BUS_PCI_RETRY_EN_VT_MASK | BUS_FIFO_WS_VT_MASK,
                    BUS_PCI_RETRY_EN_VT | BUS_FIFO_WS_VT(0xF));
 
     cs->computeVCLKFrequency = computeVCLKrequencyKhz10_VT;
     bi->SetClock             = SetClock_VT;
 
-    InitVClockPLLTable(bi, g_VPLLPostDivider, ARRAY_SIZE(g_VPLLPostDivider));
+    InitVClockPLLTable(bi, reinterpret_cast<const BYTE *>(g_VPLLPostDivider), ARRAY_SIZE(g_VPLLPostDivider));
 
-    MEM_CNTL_t memCntl;
-    *(ULONG *)&memCntl = R_BLKIO_L(MEM_CNTL);
+    ULONG memCntlRaw = blk.readL(BlkIoReg::MEM_CNTL);
+    MEM_CNTL_t memCntl = *reinterpret_cast<const MEM_CNTL_t *>(&memCntlRaw);
     print_MEM_CNTL_Register(&memCntl);
 
-    W_BLKIO_MASK_L(CRTC_GEN_CNTL,
+    blk.writeMaskL(BlkIoReg::CRTC_GEN_CNTL,
                    CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_DISP_REQ_ENB_MASK | VGA_XCRT_CNT_EN_MASK |
                        CRTC_DISPLAY_DIS_MASK | VGA_ATI_LINEAR_MASK | CRTC_LOCK_REGS_MASK,
                    CRTC_ENABLE | CRTC_EXT_DISP_EN | VGA_XCRT_CNT_EN);
@@ -368,3 +384,7 @@ BOOL InitMach64VT(struct BoardInfo *bi)
 
     return TRUE;
 }
+
+#ifdef __cplusplus
+}
+#endif

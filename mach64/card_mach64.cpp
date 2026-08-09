@@ -16,17 +16,21 @@
 #include <libraries/pcitags.h>
 #include <proto/openpci.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef TESTEXE
-const char LibName[]     = "ATIMach64.card";
-const char LibIdString[] = "ATIMach64 Picasso96 card driver version 1.0";
+extern const char LibName[]     = "ATIMach64.card";
+extern const char LibIdString[] = "ATIMach64 Picasso96 card driver version 1.0";
 #ifndef LIB_VERSION
 #define LIB_VERSION 1
 #endif
 #ifndef LIB_REVISION
 #define LIB_REVISION 0
 #endif
-const UWORD LibVersion   = LIB_VERSION;
-const UWORD LibRevision  = LIB_REVISION;
+extern const UWORD LibVersion  = LIB_VERSION;
+extern const UWORD LibRevision = LIB_REVISION;
 #endif
 
 #ifdef DBG
@@ -65,11 +69,11 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     struct Library *OpenPciBase = NULL;
     if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
         DFUNC(ERROR, "Cannot open openpci.library v%ld+\n", MIN_OPENPCI_VERSION);
-        goto exit;
+        return FALSE;
     }
 
     // Parse tooltypes for card-specific settings (deviceId, vendorId, slot)
-    LONG deviceId = 0, vendorId = VENDOR_ID_ATI, slot = -1, bus = -1;
+    ULONG deviceId = 0, vendorId = VENDOR_ID_ATI, slot = (ULONG)-1, bus = (ULONG)-1;
     if (ToolTypes) {
         parseToolTypes(bi, ToolTypes, &deviceId, &vendorId, &slot, &bus);
     }
@@ -90,13 +94,13 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         tags[numTags].ti_Data = deviceId;
         numTags++;
     }
-    if (slot >= 0) {
+    if ((LONG)slot >= 0) {
         D(INFO, "SLOT: %ld\n", slot);
         tags[numTags].ti_Tag  = PRM_SlotNumber;
         tags[numTags].ti_Data = slot;
         numTags++;
     }
-    if (bus >= 0) {
+    if ((LONG)bus >= 0) {
         D(INFO, "BUS: %ld\n", bus);
         tags[numTags].ti_Tag  = PRM_BusNumber;
         tags[numTags].ti_Data = bus;
@@ -105,18 +109,18 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     tags[numTags].ti_Tag = TAG_END;
 
     struct pci_dev *board = NULL;
-    while (board = FindBoardA(board, tags)) {
+    while ((board = FindBoardA(board, tags))) {
         D(INFO, "ATI board found\n");
 
-        ULONG deviceId, revision;
+        ULONG foundDeviceId, revision;
 
-        ULONG count = GetBoardAttrs(board, PRM_Device, (Tag)&deviceId, PRM_Revision, (Tag)&revision, TAG_END);
+        ULONG count = GetBoardAttrs(board, PRM_Device, (Tag)&foundDeviceId, PRM_Revision, (Tag)&revision, TAG_END);
         if (count < 2) {
             DFUNC(ERROR, "Could not retrieve all required board attributes\n");
             continue;
         }
-        D(INFO, "ATI device %lx revision %lx\n", deviceId, revision);
-        ChipFamily_t chipFamily = getChipFamily(deviceId);
+        D(INFO, "ATI device %lx revision %lx\n", foundDeviceId, revision);
+        ChipFamily_t chipFamily = getChipFamily(foundDeviceId);
         if (chipFamily == UNKNOWN) {
             D(WARN, "Unknown Chip family\n");
             continue;
@@ -124,16 +128,16 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         D(INFO, "%s found\n", getChipFamilyName(chipFamily));
 
         struct Node *owner = NULL;
-        ULONG slot = 0, bus = 0;
-        GetBoardAttrs(board, PRM_BoardOwner, (Tag)&owner, PRM_SlotNumber, (Tag)&slot, PRM_BusNumber, (Tag)&bus,
-                      TAG_END);
+        ULONG foundSlot = 0, foundBus = 0;
+        GetBoardAttrs(board, PRM_BoardOwner, (Tag)&owner, PRM_SlotNumber, (Tag)&foundSlot, PRM_BusNumber,
+                      (Tag)&foundBus, TAG_END);
         if (owner) {
             D(INFO, "Board already owned by: %s\n", (owner && owner->ln_Name) ? owner->ln_Name : "Unknown");
             continue;
         }
 
         // Claim the first matching board
-        cd->boardNode.ln_Name = "ATIMach64.card";
+        cd->boardNode.ln_Name = (char *)"ATIMach64.card";
         if (!SetBoardAttrs(board, PRM_BoardOwner, (Tag)&cd->boardNode, TAG_END)) {
             D(ERROR, "Could not claim board\n");
             continue;
@@ -147,7 +151,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         bi->PaletteChipType        = PCT_ATT_20C492;
 
         // generate unique board name based on bus/slot
-        generateBoardName(getCardData(bi)->boardName, "Mach64", bus, slot);
+        generateBoardName(getCardData(bi)->boardName, "Mach64", foundBus, foundSlot);
         bi->BoardName = getCardData(bi)->boardName;
 
         // Found and claimed the board, break out of first loop
@@ -157,16 +161,16 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     // Second loop: Find all other supported and unclaimed boards to turn off their IO
     // Use only vendor filter (no device/slot/bus restrictions) to find all supported boards
     board = NULL;
-    while (board = FindBoard(board, PRM_Vendor, vendorId)) {
+    while ((board = FindBoard(board, PRM_Vendor, vendorId))) {
         // Skip the board we already claimed
         if (board == cd->board) {
             continue;
         }
 
-        ULONG deviceId, revision;
+        ULONG otherDeviceId, revision;
         struct Node *owner = NULL;
-        ULONG count = GetBoardAttrs(board, PRM_Device, (Tag)&deviceId, PRM_Revision, (Tag)&revision, PRM_BoardOwner,
-                                    (Tag)&owner, TAG_END);
+        ULONG count = GetBoardAttrs(board, PRM_Device, (Tag)&otherDeviceId, PRM_Revision, (Tag)&revision,
+                                    PRM_BoardOwner, (Tag)&owner, TAG_END);
         if (count < 3) {
             continue;
         }
@@ -176,7 +180,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
             continue;
         }
 
-        ChipFamily_t chipFamily = getChipFamily(deviceId);
+        ChipFamily_t chipFamily = getChipFamily(otherDeviceId);
         if (chipFamily == UNKNOWN) {
             continue;
         }
@@ -187,8 +191,6 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         command &= ~(PCI_COMMAND_IO | PCI_COMMAND_MEMORY);
         pci_write_config_word(PCI_COMMAND, command, board);
     }
-
-exit:
 
     if (!cd->board) {
         CloseLibrary(OpenPciBase);
@@ -248,7 +250,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     }
 
     bi->ChipBase                  = ChipBase;
-    getCardData(bi)->legacyIOBase = legacyIOBase + REGISTER_OFFSET;
+    getCardData(bi)->legacyIOBase = (volatile UBYTE *)legacyIOBase + REGISTER_OFFSET;
 
     {
         /* Preserve BusMaster and other command bits (do not replace the word). */
@@ -349,3 +351,7 @@ exit:
     return rval;
 }
 #endif  // TESTEXE
+
+#ifdef __cplusplus
+}
+#endif

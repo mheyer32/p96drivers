@@ -1,5 +1,13 @@
 #include "mach64_eeprom.h"
+#include "chip_mach64.h"
 #include "mach64_common.h"
+
+
+using namespace MmioReg;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*
  * Mach64 external Microwire EEPROM via GEN_TEST_CNTL (ATI.TXT / GX VBIOS eeprom_ReadWord_BX).
@@ -30,12 +38,12 @@ void dumpMach64Eeprom(struct BoardInfo *bi)
 /* RMW only GEN_EE_* bits; quiet MMIO (bit-bang is chatty if logged). */
 static ULONG eeSetBits(BoardInfo_t *bi, ULONG set, ULONG clear)
 {
-    MMIOBASE();
-    ULONG v = R_MMIO_L_QI(GEN_TEST_CNTL);
+    DRIVER_LOCALS(bi);
+    ULONG v = mmio.readL(GEN_TEST_CNTL);
     v       = (v & ~clear) | set;
-    W_MMIO_L_QI(GEN_TEST_CNTL, v);
+    mmio.writeL(GEN_TEST_CNTL, v);
     delayMicroSeconds(2);
-    return R_MMIO_L_QI(GEN_TEST_CNTL);
+    return mmio.readL(GEN_TEST_CNTL);
 }
 
 static ULONG eeClock(BoardInfo_t *bi)
@@ -124,15 +132,15 @@ void dumpMach64Eeprom(struct BoardInfo *bi)
     UBYTE sum;
     unsigned i;
 
-    MMIOBASE();
-    saved = R_MMIO_L_QI(GEN_TEST_CNTL);
+    DRIVER_LOCALS(bi);
+    saved = mmio.readL(GEN_TEST_CNTL);
 
     DFUNC(ALWAYS, "Mach64 EEPROM (GEN_TEST_CNTL Microwire, %lu words):\n", (ULONG)EEPROM_NUM_WORDS);
 
     for (w = 0; w < EEPROM_NUM_WORDS; w++)
         buf[w] = eeReadWord(bi, (UBYTE)w);
 
-    W_MMIO_L_QI(GEN_TEST_CNTL, saved);
+    mmio.writeL(GEN_TEST_CNTL, saved);
 
     for (w = 0; w < EEPROM_NUM_WORDS; w += 8) {
         D(ALWAYS, "  %02lx:", (ULONG)w);
@@ -157,3 +165,7 @@ void dumpMach64Eeprom(struct BoardInfo *bi)
 }
 
 #endif /* DBG */
+
+#ifdef __cplusplus
+}
+#endif
