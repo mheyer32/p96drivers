@@ -15,7 +15,6 @@
 
 #include <string.h>  // memcmp
 
-
 using namespace MmioReg;
 
 #ifdef __cplusplus
@@ -363,7 +362,7 @@ void SetMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
 #if !MACH64_PCI_RETRY
     if (family == MACH64CT)
         SetMemoryClock_CT(bi, freqKhz10);
-    /* GX: factory ICS2595 MCLK — do not reprogram. */
+        /* GX: factory ICS2595 MCLK — do not reprogram. */
 #else
     if (family == MACH64VT)
         SetMemoryClock_VT(bi, freqKhz10);
@@ -383,7 +382,7 @@ void SetMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
 #define DAC_VGA_ADR_EN_MASK BIT(13)
 
 UWORD ASM Mach64Driver::calculateBytesPerRow(__REGD0(UWORD width), __REGD1(UWORD height), __REGA1(struct ModeInfo *mi),
-                                              __REGD7(RGBFTYPE_REG format))
+                                             __REGD7(RGBFTYPE_REG format))
 {
     // Pitch is a multiple of 8 bytes
     UBYTE bpp = getBPP(format);
@@ -401,12 +400,6 @@ UWORD ASM Mach64Driver::calculateBytesPerRow(__REGD0(UWORD width), __REGD1(UWORD
         return 0;
     }
     return bytesPerRow;
-}
-
-static UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
-                                      __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE_REG format))
-{
-    return asMach64(bi)->calculateBytesPerRow(width, height, mi, format);
 }
 
 #define OVR_CLR_8(x)   (x)
@@ -427,7 +420,7 @@ void Mach64Driver::writeOvrClr(UBYTE index8, UBYTE r, UBYTE g, UBYTE b)
 void Mach64Driver::setColorArrayInternal(UWORD startIndex, UWORD count, const struct CLUTEntry *colors)
 {
     DRIVER_LOCALS(this);
-    struct ExecBase *SysBase = drv->ExecBase;
+    struct ExecBase *SysBase = ExecBase;
 
     /* DAC auto-increments R→G→B→next index; an IRQ mid-sequence desyncs the
      * channel (false colors). Same rule as Mach32 SetColorArray. */
@@ -452,22 +445,11 @@ void Mach64Driver::setColorArrayInternal(UWORD startIndex, UWORD count, const st
     }
 }
 
-void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count),
-                               __REGA1(const struct CLUTEntry *colors))
-{
-    asMach64(bi)->setColorArrayInternal(startIndex, count, colors);
-}
-
 void ASM Mach64Driver::setColorArray(__REGD0(UWORD startIndex), __REGD1(UWORD count))
 {
     DFUNC(VERBOSE, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
 
     setColorArrayInternal(startIndex, count, CLUT);
-}
-
-static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count))
-{
-    asMach64(bi)->setColorArray(startIndex, count);
 }
 
 void ASM Mach64Driver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format))
@@ -489,7 +471,7 @@ void ASM Mach64Driver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format
     }
     mmio.writeL(CRTC_GEN_CNTL, crtcGen);
     if (RegisterBase) {
-        drv->blkIo().writeL(BlkIoReg::CRTC_GEN_CNTL, crtcGen);
+        blkIo().writeL(BlkIoReg::CRTC_GEN_CNTL, crtcGen);
     }
     {
         ULONG rb = mmio.readL(CRTC_GEN_CNTL);
@@ -515,11 +497,6 @@ void ASM Mach64Driver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format
     } else {
         setColorArrayInternal(0, 256, CLUT);
     }
-}
-
-static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE_REG format))
-{
-    asMach64(bi)->setDAC(region, format);
 }
 
 static INLINE REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags)
@@ -723,13 +700,8 @@ void ASM Mach64Driver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
     }
 }
 
-static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
-{
-    asMach64(bi)->setGC(mi, border);
-}
-
-void ASM Mach64Driver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), __REGD3(UWORD height), __REGD1(WORD xoffset),
-                                  __REGD2(WORD yoffset), __REGD7(RGBFTYPE_REG format))
+void ASM Mach64Driver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), __REGD3(UWORD height),
+                                  __REGD1(WORD xoffset), __REGD2(WORD yoffset), __REGD7(RGBFTYPE_REG format))
 {
     DRIVER_LOCALS(this);
 
@@ -764,14 +736,8 @@ void ASM Mach64Driver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), 
     mmio.writeL(CRTC_OFF_PITCH, offPitch);
 }
 
-static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width),
-                           __REGD3(UWORD height), __REGD1(WORD xoffset), __REGD2(WORD yoffset),
-                           __REGD7(RGBFTYPE_REG format))
-{
-    asMach64(bi)->setPanning(memory, width, height, xoffset, yoffset, format);
-}
-
-APTR ASM Mach64Driver::calculateMemory(__REGA1(APTR memory), __REGD0(struct RenderInfo *ri), __REGD7(RGBFTYPE_REG format))
+APTR ASM Mach64Driver::calculateMemory(__REGA1(APTR memory), __REGD0(struct RenderInfo *ri),
+                                       __REGD7(RGBFTYPE_REG format))
 {
     UBYTE *mem = (UBYTE *)memory;
 
@@ -794,14 +760,8 @@ APTR ASM Mach64Driver::calculateMemory(__REGA1(APTR memory), __REGD0(struct Rend
     // RagePro manual says that SGRAM needs to be aligned to 64byte and pitch needs to be 64byte aligned
     return (APTR)(((ULONG)mem + 63) & ~63);
 #else
-    return mem; // P96 aligns to 16 byte by default
+    return mem;  // P96 aligns to 16 byte by default
 #endif
-}
-
-static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR memory), __REGD0(struct RenderInfo *ri),
-                                __REGD7(RGBFTYPE_REG format))
-{
-    return asMach64(bi)->calculateMemory(memory, ri, format);
 }
 
 ULONG ASM Mach64Driver::getCompatibleFormats(__REGD7(RGBFTYPE_REG format))
@@ -833,11 +793,6 @@ ULONG ASM Mach64Driver::getCompatibleFormats(__REGD7(RGBFTYPE_REG format))
     return compatible;
 }
 
-static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE_REG format))
-{
-    return asMach64(bi)->getCompatibleFormats(format);
-}
-
 BOOL ASM Mach64Driver::setDisplay(__REGD0(BOOL state))
 {
     DRIVER_LOCALS(this);
@@ -847,11 +802,6 @@ BOOL ASM Mach64Driver::setDisplay(__REGD0(BOOL state))
     mmio.writeMaskL(CRTC_GEN_CNTL, CRTC_DISPLAY_DIS_MASK, state ? 0 : CRTC_DISPLAY_DIS);
 
     return TRUE;
-}
-
-static BOOL ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
-{
-    return asMach64(bi)->setDisplay(state);
 }
 
 void ASM Mach64Driver::setDPMSLevel(__REGD0(ULONG level))
@@ -870,11 +820,6 @@ void ASM Mach64Driver::setDPMSLevel(__REGD0(ULONG level))
 
     DRIVER_LOCALS(this);
     mmio.writeMaskL(CRTC_GEN_CNTL, CRTC_HSYNC_DIS | CRTC_VSYNC_DIS, dpmsBits[level]);
-}
-
-static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level))
-{
-    asMach64(bi)->setDPMSLevel(level);
 }
 
 LONG ASM Mach64Driver::resolvePixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULONG pixelClock),
@@ -935,12 +880,6 @@ LONG ASM Mach64Driver::resolvePixelClock(__REGA1(struct ModeInfo *mi), __REGD0(U
     return lower;
 }
 
-static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
-                                  __REGD0(ULONG pixelClock), __REGD7(RGBFTYPE_REG RGBFormat))
-{
-    return asMach64(bi)->resolvePixelClock(mi, pixelClock, RGBFormat);
-}
-
 ULONG ASM Mach64Driver::getPixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULONG index), __REGD7(RGBFTYPE_REG format))
 {
     DFUNC(VERBOSE, "\n");
@@ -952,12 +891,6 @@ ULONG ASM Mach64Driver::getPixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULON
     UWORD freq = cs->computeVCLKFrequency(this, &cs->vclkPllValues[index]);
 
     return freq * 10000;
-}
-
-static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(ULONG index),
-                               __REGD7(RGBFTYPE_REG format))
-{
-    return asMach64(bi)->getPixelClock(mi, index, format);
 }
 
 // FIXME: split out into family-specific functions
@@ -1023,46 +956,6 @@ void ASM Mach64Driver::setMemoryMode(__REGD7(RGBFTYPE_REG format))
                      : "d0", "d1", "a0", "a1");
 }
 
-static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE_REG format))
-{
-    asMach64(bi)->setMemoryMode(format);
-}
-
-void ASM Mach64Driver::setWriteMask(__REGD0(UBYTE mask))
-{
-    __asm __volatile("\t movem.l d0-d1/a0-a1,-(sp)\n"
-                     : /* no result */
-                     :
-                     :);
-
-    //  SetWriteMaskInternal(bi, format);
-
-    __asm __volatile("\t movem.l (sp)+,d0-d1/a0-a1\n"
-                     : /* no result */
-                     :
-                     : "d0", "d1", "a0", "a1");
-    (void)mask;
-}
-
-static void ASM SetWriteMask(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
-{
-    asMach64(bi)->setWriteMask(mask);
-}
-
-void ASM Mach64Driver::setClearMask(__REGD0(UBYTE mask)) { (void)mask; }
-
-static void ASM SetClearMask(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
-{
-    asMach64(bi)->setClearMask(mask);
-}
-
-void ASM Mach64Driver::setReadPlane(__REGD0(UBYTE mask)) { (void)mask; }
-
-static void ASM SetReadPlane(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
-{
-    asMach64(bi)->setReadPlane(mask);
-}
-
 BOOL ASM Mach64Driver::getVSyncState(__REGD0(BOOL expected))
 {
     DRIVER_LOCALS(this);
@@ -1071,37 +964,20 @@ BOOL ASM Mach64Driver::getVSyncState(__REGD0(BOOL expected))
     return mmio.testL(CRTC_INT_CNTL, CRTC_VBLANK);
 }
 
-static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expected))
-{
-    return asMach64(bi)->getVSyncState(expected);
-}
-
-void ASM Mach64Driver::waitVerticalSync(__REGD0(BOOL end)) { (void)end; }
-
-static void ASM WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL end))
-{
-    asMach64(bi)->waitVerticalSync(end);
-}
-
 ULONG ASM Mach64Driver::getVBeamPos()
 {
     DRIVER_LOCALS(this);
     return (mmio.readL(CRTC_VLINE_CRNT_VLINE) & CRTC_CRNT_VLINE_MASK) >> 16;
 }
 
-static ULONG ASM GetVBeamPos(__REGA0(struct BoardInfo *bi))
-{
-    return asMach64(bi)->getVBeamPos();
-}
-
 /* write only enable bits (+ W1C acks), never status bits back. */
-static INLINE void syncCrtcInterruptEnables(BoardInfo_t *bi)
+void Mach64Driver::syncCrtcInterruptEnables()
 {
-    if (!(bi->Flags & BIF_VBLANKINTERRUPT))
+    if (!(Flags & BIF_VBLANKINTERRUPT))
         return;
 
-    DRIVER_LOCALS(bi);
-    ULONG en = getChipData(bi)->p96VBlankInt ? CRTC_VBLANK_INT_EN : 0;
+    DRIVER_LOCALS(this);
+    ULONG en = cd->p96VBlankInt ? CRTC_VBLANK_INT_EN : 0;
 
     mmio.writeL(CRTC_INT_CNTL, en | CRTC_INT_ACKS);
     mmio.writeL(CRTC_INT_CNTL, en);
@@ -1109,21 +985,15 @@ static INLINE void syncCrtcInterruptEnables(BoardInfo_t *bi)
 
 BOOL ASM Mach64Driver::setInterrupt(__REGD0(BOOL state))
 {
-    BoardInfo *bi = this;
-    LOCAL_SYSBASE();
+    struct ExecBase *SysBase = ExecBase;
     Disable();
 
     chip()->p96VBlankInt = state ? 1 : 0;
-    syncCrtcInterruptEnables(this);
+    syncCrtcInterruptEnables();
 
     Enable();
 
     return TRUE;
-}
-
-static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
-{
-    return asMach64(bi)->setInterrupt(state);
 }
 
 /* OpenPCI/Exec interrupt server: is_Data (BoardInfo *) in a1.
@@ -1141,7 +1011,7 @@ ULONG Mach64Driver::interruptServer()
     mmio.writeL(CRTC_INT_CNTL, (status & CRTC_INT_EN_MASK) | CRTC_VBLANK_INT_AK);
 
     if (cd->p96VBlankInt) {
-        struct ExecBase *SysBase = drv->ExecBase;
+        struct ExecBase *SysBase = ExecBase;
         Cause(&SoftInterrupt);
     }
 
@@ -1151,12 +1021,6 @@ ULONG Mach64Driver::interruptServer()
 
     return 1;
 }
-
-ULONG ASM interruptServer(__REGA1(struct BoardInfo *bi))
-{
-    return asMach64(bi)->interruptServer();
-}
-DEFINE_INTSERVER(interruptServerTrampoline, interruptServer);
 
 #define CUR_OFFSET_X(x)   (x)
 #define CUR_OFFSET_X_MASK (0xFFFFF)
@@ -1213,22 +1077,11 @@ void ASM Mach64Driver::setSpritePosition(__REGD0(WORD xpos), __REGD1(WORD ypos),
     mmio.writeL(CUR_HORZ_VERT_OFF, CUR_HORZ_OFF(offsetX) | CUR_VERT_OFF(offsetY));
 }
 
-static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xpos), __REGD1(WORD ypos),
-                                  __REGD7(RGBFTYPE_REG fmt))
-{
-    asMach64(bi)->setSpritePosition(xpos, ypos, fmt);
-}
-
 void ASM Mach64Driver::setSpriteImage(__REGD7(RGBFTYPE_REG fmt))
 {
     DFUNC(VERBOSE, "\n");
     (void)fmt;
     packAtiHwCursorImage(this);
-}
-
-static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE_REG fmt))
-{
-    asMach64(bi)->setSpriteImage(fmt);
 }
 
 #define CUR_CLR_8(x)   (x)
@@ -1240,8 +1093,8 @@ static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE_R
 #define CUR_CLR_R(x)   ((x) << 24)
 #define CUR_CLR_R_MASK (0xFF << 24)
 
-void ASM Mach64Driver::setSpriteColor(__REGD0(UBYTE index), __REGD1(UBYTE red), __REGD2(UBYTE green), __REGD3(UBYTE blue),
-                                      __REGD7(RGBFTYPE_REG fmt))
+void ASM Mach64Driver::setSpriteColor(__REGD0(UBYTE index), __REGD1(UBYTE red), __REGD2(UBYTE green),
+                                      __REGD3(UBYTE blue), __REGD7(RGBFTYPE_REG fmt))
 {
     DFUNC(VERBOSE, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
     (void)fmt;
@@ -1258,12 +1111,6 @@ void ASM Mach64Driver::setSpriteColor(__REGD0(UBYTE index), __REGD1(UBYTE red), 
     }
 }
 
-static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
-                               __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE_REG fmt))
-{
-    asMach64(bi)->setSpriteColor(index, red, green, blue, fmt);
-}
-
 BOOL ASM Mach64Driver::setSprite(__REGD0(BOOL activate), __REGD7(RGBFTYPE_REG RGBFormat))
 {
     DFUNC(VERBOSE, "\n");
@@ -1272,24 +1119,19 @@ BOOL ASM Mach64Driver::setSprite(__REGD0(BOOL activate), __REGD7(RGBFTYPE_REG RG
     mmio.writeMaskL(GEN_TEST_CNTL, GEN_CUR_ENABLE_MASK, (activate ? GEN_CUR_ENABLE : 0));
 
     if (activate) {
-        SetSpriteColor(this, 0, CLUT[17].Red, CLUT[17].Green, CLUT[17].Blue, AS_RGBF(RGBFormat));
-        SetSpriteColor(this, 1, CLUT[18].Red, CLUT[18].Green, CLUT[18].Blue, AS_RGBF(RGBFormat));
-        SetSpriteColor(this, 2, CLUT[19].Red, CLUT[19].Green, CLUT[19].Blue, AS_RGBF(RGBFormat));
+        setSpriteColor(0, CLUT[17].Red, CLUT[17].Green, CLUT[17].Blue, RGBFormat);
+        setSpriteColor(1, CLUT[18].Red, CLUT[18].Green, CLUT[18].Blue, RGBFormat);
+        setSpriteColor(2, CLUT[19].Red, CLUT[19].Green, CLUT[19].Blue, RGBFormat);
     }
 
     return TRUE;
 }
 
-static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate), __REGD7(RGBFTYPE_REG RGBFormat))
+void Mach64Driver::waitIdle()
 {
-    return asMach64(bi)->setSprite(activate, RGBFormat);
-}
+    DRIVER_LOCALS(this);
 
-static INLINE void waitIdle(BoardInfo_t *bi)
-{
-    DRIVER_LOCALS(bi);
-
-    drv->waitFifo(16);
+    waitFifo(16);
 
     ULONG cnt = 0;
 
@@ -1298,7 +1140,7 @@ static INLINE void waitIdle(BoardInfo_t *bi)
         if (cnt++ > 100) {
             ULONG busCntl = mmio.readL(BUS_CNTL);
             if (busCntl & (BUS_FIFO_ERR_INT | BUS_HOST_ERR_INT)) {
-                ResetEngine(bi);
+                resetEngine();
             }
             break;
         }
@@ -1306,41 +1148,40 @@ static INLINE void waitIdle(BoardInfo_t *bi)
     }
 }
 
-static INLINE void REGARGS setWriteMask(BoardInfo_t *bi, UBYTE mask, ULONG fmt, BYTE waitFifoSlots)
+void Mach64Driver::setWriteMask(UBYTE mask, ULONG fmt, BYTE waitFifoSlots)
 {
-    DRIVER_LOCALS(bi);
+    DRIVER_LOCALS(this);
 
     if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
         // 16/32 bit modes ignore the mask
         cd->GEmask = 0xFF;
-        drv->waitFifo(waitFifoSlots + 1);
+        waitFifo(waitFifoSlots + 1);
         mmio.writeL(DP_WRITE_MSK, 0xFFFFFFFF);
     } else {
         // 8bit modes use the mask
         if (cd->GEmask != mask) {
             cd->GEmask = mask;
 
-            drv->waitFifo(waitFifoSlots + 1);
+            waitFifo(waitFifoSlots + 1);
 
             UWORD wordMask = (mask << 8) | mask;
 
             mmio.writeL(DP_WRITE_MSK, copyToUpper(wordMask));
         } else {
-            drv->waitFifo(waitFifoSlots);
+            waitFifo(waitFifoSlots);
         }
     }
 }
 
-static INLINE LONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
+LONG Mach64Driver::memoryOffset(APTR memory) const
 {
-    LONG offset = (ULONG)memory - (ULONG)bi->MemoryBase;
-    return offset;
+    return (LONG)((ULONG)memory - (ULONG)MemoryBase);
 }
 
-BOOL static isVideoMemory(struct BoardInfo *bi, APTR memory)
+BOOL Mach64Driver::isVideoMemory(APTR memory) const
 {
-    LONG offset = getMemoryOffset(bi, memory);
-    return offset > 0 && offset < bi->MemorySize;
+    LONG offset = memoryOffset(memory);
+    return offset > 0 && offset < MemorySize;
 }
 
 #define DST_OFFSET(x)   (x)
@@ -1357,14 +1198,9 @@ BOOL static isVideoMemory(struct BoardInfo *bi, APTR memory)
 #define DP_BYTE_PIX_ORDER      BIT(24)
 #define DP_BYTE_PIX_ORDER_MASK BIT(24)
 
-// #define HOST_BIG_ENDIAN      BIT(1)
-// #define HOST_BIG_ENDIAN_MASK BIT(1)
-// #define HOST_BYTE_ALIGN      BIT(0)
-// #define HOST_BYTE_ALIGN_MASK BIT(0)
-
-static INLINE BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *ri, ULONG format)
+BOOL Mach64Driver::setDstBuffer(const struct RenderInfo *ri, ULONG format)
 {
-    DRIVER_LOCALS(bi);
+    DRIVER_LOCALS(this);
 
     if (memcmp(ri, &cd->dstBuffer, sizeof(struct RenderInfo)) == 0) {
         return TRUE;
@@ -1372,14 +1208,13 @@ static INLINE BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *r
     cd->dstBuffer = *ri;
     BYTE bppLog2  = getBPPLog2(format);
 
-    drv->waitFifo(2);
+    waitFifo(2);
 
     // Offset is in units of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'
     // So convert BytesPerRow to "number of groups of 8 pixels"
     // FIXME: For SGRAM configuration, DST_OFFSET must be aligned on a 64 byte boundary!!!
     // For SGRAM configuration, DST_PITCH must be a multiple of 64 bytes.
-    mmio.writeL(DST_OFF_PITCH,
-                DST_OFFSET(getMemoryOffset(bi, ri->Memory) / 8) | DST_PITCH(ri->BytesPerRow >> (bppLog2 + 3)));
+    mmio.writeL(DST_OFF_PITCH, DST_OFFSET(memoryOffset(ri->Memory) / 8) | DST_PITCH(ri->BytesPerRow >> (bppLog2 + 3)));
 
     UBYTE dstPixWidth = COLOR_DEPTH_8;
     if (format != RGBFB_CLUT && format != RGBFB_B8G8R8 && format != RGBFB_R8G8B8) {
@@ -1400,23 +1235,23 @@ static INLINE BOOL setDstBuffer(struct BoardInfo *bi, const struct RenderInfo *r
 #define SRC_PITCH(x)    ((x) << 22)
 #define SRC_PITCH_MASK  (0x3FF << 22)
 
-static INLINE BOOL setSrcBuffer(struct BoardInfo *bi, const struct RenderInfo *ri, ULONG format)
+BOOL Mach64Driver::setSrcBuffer(const struct RenderInfo *ri, ULONG format)
 {
-    DRIVER_LOCALS(bi);
+    DRIVER_LOCALS(this);
 
     // if (memcmp(ri, &cd->srcBuffer, sizeof(struct RenderInfo)) == 0) {
     //     return TRUE;
     // }
     // cd->dstBuffer = *ri;
 
-    drv->waitFifo(2);
+    waitFifo(2);
 
     UBYTE bppLog2 = getBPPLog2(format);
 
     // Offset is in unite of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'
     // So convert BytesPerRow for
     mmio.writeL(SRC_OFF_PITCH,
-                SRC_OFFSET(getMemoryOffset(bi, ri->Memory) / 8) | SRC_PITCH((ri->BytesPerRow >> (bppLog2 + 3))));
+                SRC_OFFSET(memoryOffset(ri->Memory) / 8) | SRC_PITCH((ri->BytesPerRow >> (bppLog2 + 3))));
 
     UBYTE srcPixWidth = COLOR_DEPTH_8;
     if (format != RGBFB_CLUT && format != RGBFB_B8G8R8 && format != RGBFB_R8G8B8) {
@@ -1519,9 +1354,9 @@ static INLINE ULONG REGARGS penToColor(ULONG pen, ULONG fmt)
 #define SC_BOTTOM(x)   ((x) << 16)
 #define SC_BOTTOM_MASK (0x7FFF << 16)
 
-static void drawRect(struct BoardInfo *bi, WORD x, WORD y, WORD width, WORD height)
+void Mach64Driver::drawRect(WORD x, WORD y, WORD width, WORD height)
 {
-    Mach64MmioNoSwapQ mmio(asMach64(bi)->mmioBase());
+    Mach64MmioNoSwapQ mmio(mmioBase());
 
     // micro-optimization to save on some redundant rol/swap/rol sequences
     mmio.writeL(DST_Y_X, makeDWORD(swapw(y), swapw(x)));
@@ -1530,7 +1365,8 @@ static void drawRect(struct BoardInfo *bi, WORD x, WORD y, WORD width, WORD heig
 }
 
 void ASM Mach64Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
-                                __REGD3(WORD height), __REGD4(ULONG pen), __REGD5(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+                                __REGD3(WORD height), __REGD4(ULONG pen), __REGD5(UBYTE mask),
+                                __REGD7(RGBFTYPE_REG fmt))
 {
     DFUNC(VERBOSE,
           "\nx %ld, y %ld, w %ld, h %ld\npen %08lx, mask 0x%lx fmt %ld\n"
@@ -1538,14 +1374,14 @@ void ASM Mach64Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x),
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)pen, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
           (ULONG)ri->Memory);
 
-    setDstBuffer(this, ri, fmt);
+    setDstBuffer(ri, fmt);
 
     DRIVER_LOCALS(this);
 
     if (cd->GEOp != FILLRECT) {
         cd->GEOp = FILLRECT;
 
-        drv->waitFifo(3);
+        waitFifo(3);
 
         mmio.writeL(DP_SRC,
                     DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_ONE));
@@ -1559,21 +1395,14 @@ void ASM Mach64Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x),
 
         pen = penToColor(pen, fmt);
 
-        drv->waitFifo(1);
+        waitFifo(1);
 
         mmio.writeL(DP_FRGD_CLR, pen);
     }
 
-    ::setWriteMask(this, mask, fmt, 2);
+    setWriteMask(mask, fmt, 2);
 
-    drawRect(this, x, y, width, height);
-}
-
-static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
-                         __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(ULONG pen),
-                         __REGD5(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
-{
-    asMach64(bi)->fillRect(ri, x, y, width, height, pen, mask, fmt);
+    drawRect(x, y, width, height);
 }
 
 void ASM Mach64Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
@@ -1585,7 +1414,7 @@ void ASM Mach64Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
           (ULONG)ri->Memory);
 
-    setDstBuffer(this, ri, fmt);
+    setDstBuffer(ri, fmt);
 
     DRIVER_LOCALS(this);
 
@@ -1593,7 +1422,7 @@ void ASM Mach64Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x
         cd->GEOp       = INVERTRECT;
         cd->GEdrawMode = 0xFF;  // invalidate minterm cache
 
-        drv->waitFifo(3);
+        waitFifo(3);
 
         mmio.writeL(DP_SRC,
                     DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_ONE));
@@ -1601,16 +1430,9 @@ void ASM Mach64Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x
         mmio.writeL(GUI_TRAJ_CNTL, DST_X_DIR | DST_Y_DIR | DST_LAST_PEL);
     }
 
-    ::setWriteMask(this, mask, fmt, 2);
+    setWriteMask(mask, fmt, 2);
 
-    drawRect(this, x, y, width, height);
-}
-
-static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
-                           __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask),
-                           __REGD7(RGBFTYPE_REG fmt))
-{
-    asMach64(bi)->invertRect(ri, x, y, width, height, mask, fmt);
+    drawRect(x, y, width, height);
 }
 
 const static UWORD minTermToMix[16] = {
@@ -1648,9 +1470,9 @@ const static UWORD minTermToMix[16] = {
 #define SRC_HEIGHT2_MASK (0x7FFF)
 
 void ASM Mach64Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REGA2(struct RenderInfo *dri),
-                                              __REGD0(WORD srcX), __REGD1(WORD srcY), __REGD2(WORD dstX), __REGD3(WORD dstY),
-                                              __REGD4(WORD width), __REGD5(WORD height), __REGD6(UBYTE opCode),
-                                              __REGD7(RGBFTYPE_REG format))
+                                              __REGD0(WORD srcX), __REGD1(WORD srcY), __REGD2(WORD dstX),
+                                              __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height),
+                                              __REGD6(UBYTE opCode), __REGD7(RGBFTYPE_REG format))
 {
     DFUNC(VERBOSE,
           "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
@@ -1659,8 +1481,8 @@ void ASM Mach64Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), _
           (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)opCode, (ULONG)format,
           (ULONG)sri->BytesPerRow, (ULONG)sri->Memory);
 
-    setDstBuffer(this, dri, format);
-    setSrcBuffer(this, sri, format);
+    setDstBuffer(dri, format);
+    setSrcBuffer(sri, format);
 
     DRIVER_LOCALS(this);
 
@@ -1669,7 +1491,7 @@ void ASM Mach64Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), _
         cd->GEmask     = 0xFF;
         cd->GEdrawMode = 0xFF;  // invalidate minterm cache
 
-        drv->waitFifo(2);
+        waitFifo(2);
 
         mmio.writeL(DP_WRITE_MSK, 0xFFFFFFFF);
         mmio.writeL(DP_SRC,
@@ -1679,7 +1501,7 @@ void ASM Mach64Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), _
     if (cd->GEdrawMode != opCode) {
         cd->GEdrawMode = opCode;
 
-        drv->waitFifo(1);
+        waitFifo(1);
         mmio.writeL(DP_MIX, DP_BKGD_MIX(MIX_CURRENT) | DP_FRGD_MIX(minTermToMix[opCode]));
     }
 
@@ -1695,26 +1517,18 @@ void ASM Mach64Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), _
         dstY = dstY + height - 1;
     }
 
-    drv->waitFifo(5);
+    waitFifo(5);
     mmio.writeL(GUI_TRAJ_CNTL, dir);
 
     mmio.writeL(SRC_Y_X, SRC_Y(srcY) | SRC_X(srcX));
     mmio.writeL(SRC_HEIGHT1_WIDTH1, SRC_HEIGHT1(height) | SRC_WIDTH1(width));
 
-    drawRect(this, dstX, dstY, width, height);
+    drawRect(dstX, dstY, width, height);
 }
 
-static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri),
-                                       __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY),
-                                       __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
-                                       __REGD5(WORD height), __REGD6(UBYTE opCode), __REGD7(RGBFTYPE_REG format))
-{
-    asMach64(bi)->blitRectNoMaskComplete(sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, format);
-}
-
-void ASM Mach64Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), __REGD1(WORD srcY), __REGD2(WORD dstX),
-                                __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height), __REGD6(UBYTE mask),
-                                __REGD7(RGBFTYPE_REG fmt))
+void ASM Mach64Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), __REGD1(WORD srcY),
+                                __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height),
+                                __REGD6(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
 {
     DFUNC(VERBOSE,
           "\nx1 %ld, y1 %ld, x2 %ld, y2 %ld, w %ld, \n"
@@ -1724,8 +1538,8 @@ void ASM Mach64Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD src
           (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
 
     // FIXME: optimize into one function
-    setDstBuffer(this, ri, fmt);
-    setSrcBuffer(this, ri, fmt);
+    setDstBuffer(ri, fmt);
+    setSrcBuffer(ri, fmt);
 
     DRIVER_LOCALS(this);
 
@@ -1733,7 +1547,7 @@ void ASM Mach64Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD src
         cd->GEOp       = BLITRECT;
         cd->GEdrawMode = 0xFF;  // invalidate minterm cache
 
-        drv->waitFifo(2);
+        waitFifo(2);
 
         mmio.writeL(DP_SRC,
                     DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_BLIT_SRC) | DP_MONO_SRC(MONO_SRC_ONE));
@@ -1753,77 +1567,62 @@ void ASM Mach64Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD src
     }
 
     // FIFO wait in setWriteMask
-    ::setWriteMask(this, mask, fmt, 5);
+    setWriteMask(mask, fmt, 5);
 
     mmio.writeL(GUI_TRAJ_CNTL, dir);
 
     mmio.writeL(SRC_Y_X, SRC_Y(srcY) | SRC_X(srcX));
     mmio.writeL(SRC_HEIGHT1_WIDTH1, SRC_HEIGHT1(height) | SRC_WIDTH1(width));
 
-    drawRect(this, dstX, dstY, width, height);
+    drawRect(dstX, dstY, width, height);
 }
 
-static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD srcX),
-                         __REGD1(WORD srcY), __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
-                         __REGD5(WORD height), __REGD6(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+void Mach64Driver::setDrawMode(ULONG FgPen, ULONG BgPen, UBYTE DrawMode, ULONG format, BYTE monoSource)
 {
-    asMach64(bi)->blitRect(ri, srcX, srcY, dstX, dstY, width, height, mask, fmt);
-}
-
-static void REGARGS setDrawModeInternal(BoardInfo_t *bi, UBYTE drawMode, ULONG fgPen, ULONG bgPen, BYTE monoSource)
-{
-    UWORD writeMode = (drawMode & COMPLEMENT) ? MIX_NOT_CURRENT : MIX_NEW;
-    UWORD fMix, bMix;
-    switch (drawMode & 1) {
-    case JAM1:
-        fMix = writeMode;
-        bMix = MIX_CURRENT;
-        break;
-    case JAM2:
-        fMix = writeMode;
-        bMix = writeMode;
-        break;
-    }
-
-    UWORD fSrc, bSrc;
-    fSrc = CLR_SRC_FRGD_COLOR;
-    bSrc = CLR_SRC_BKGD_COLOR;
-
-    if (drawMode & INVERSVID) {
-        UWORD t = fMix;
-        fMix    = bMix;
-        bMix    = t;
-        t       = fSrc;
-        fSrc    = bSrc;
-        bSrc    = t;
-    }
-
-    waitFifo(bi, 4);
-
-    DRIVER_LOCALS(bi);
-
-    mmio.writeL(DP_FRGD_CLR, fgPen);
-    mmio.writeL(DP_BKGD_CLR, bgPen);
-
-    mmio.writeL(DP_MIX, DP_BKGD_MIX(bMix) | DP_FRGD_MIX(fMix));
-    mmio.writeL(DP_SRC, DP_FRGD_SRC(fSrc) | DP_BKGD_SRC(bSrc) | DP_MONO_SRC(monoSource));
-}
-
-static INLINE void REGARGS setDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, ULONG format,
-                                       BYTE monoSource)
-{
-    ChipData_t *cd = getChipData(bi);
+    ChipData_t *cd = chip();
 
     if (cd->GEfgPen != FgPen || cd->GEbgPen != BgPen || cd->GEdrawMode != DrawMode) {
         cd->GEfgPen    = FgPen;
         cd->GEbgPen    = BgPen;
         cd->GEdrawMode = DrawMode;
 
-        UWORD frgdMix, bkgdMix;
         ULONG fgPen = penToColor(FgPen, format);
         ULONG bgPen = penToColor(BgPen, format);
 
-        setDrawModeInternal(bi, DrawMode, fgPen, bgPen, monoSource);
+        UWORD writeMode = (DrawMode & COMPLEMENT) ? MIX_NOT_CURRENT : MIX_NEW;
+        UWORD fMix, bMix;
+        switch (DrawMode & 1) {
+        case JAM1:
+            fMix = writeMode;
+            bMix = MIX_CURRENT;
+            break;
+        case JAM2:
+            fMix = writeMode;
+            bMix = writeMode;
+            break;
+        }
+
+        UWORD fSrc = CLR_SRC_FRGD_COLOR;
+        UWORD bSrc = CLR_SRC_BKGD_COLOR;
+
+        if (DrawMode & INVERSVID) {
+            UWORD t = fMix;
+            fMix    = bMix;
+            bMix    = t;
+            t       = fSrc;
+            fSrc    = bSrc;
+            bSrc    = t;
+        }
+
+        waitFifo(4);
+
+        DRIVER_LOCALS(this);
+
+        mmio.writeL(DP_FRGD_CLR, fgPen);
+        mmio.writeL(DP_BKGD_CLR, bgPen);
+
+        mmio.writeL(DP_MIX, DP_BKGD_MIX(bMix) | DP_FRGD_MIX(fMix));
+        mmio.writeL(DP_SRC, DP_FRGD_SRC(fSrc) | DP_BKGD_SRC(bSrc) | DP_MONO_SRC(monoSource));
     }
 }
 
@@ -1837,26 +1636,26 @@ void ASM Mach64Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(stru
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
           (ULONG)ri->Memory);
 
-    if (isVideoMemory(this, tmpl->Memory)) {
+    if (isVideoMemory(tmpl->Memory)) {
         D(ERROR, "Template is in video memory\n");
     }
 
-    setDstBuffer(this, ri, fmt);
+    setDstBuffer(ri, fmt);
 
     DRIVER_LOCALS(this);
-    Mach64MmioNoSwapQ raw(drv->mmioBase());
+    Mach64MmioNoSwapQ raw(mmioBase());
 
     if (cd->GEOp != BLITTEMPLATE) {
         cd->GEOp       = BLITTEMPLATE;
         cd->GEdrawMode = 0xFF;
-        drv->waitFifo(1);
+        waitFifo(1);
         mmio.writeL(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
 
         //        mmio.writeMaskL(DP_PIX_WIDTH, DP_HOST_PIX_WIDTH_MASK, DP_HOST_PIX_WIDTH(COLOR_DEPTH_1));
     }
 
-    setDrawMode(this, tmpl->FgPen, tmpl->BgPen, tmpl->DrawMode, fmt, MONO_SRC_HOST_DATA);
-    ::setWriteMask(this, mask, fmt, 0);
+    setDrawMode(tmpl->FgPen, tmpl->BgPen, tmpl->DrawMode, fmt, MONO_SRC_HOST_DATA);
+    setWriteMask(mask, fmt, 0);
 
     // 0 <= XOffset <= 15
     UWORD blitWidth     = (width + tmpl->XOffset + 31) & ~31;
@@ -1866,7 +1665,7 @@ void ASM Mach64Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(stru
     if (numFifoSlots > 16) {
         numFifoSlots = 16;
     }
-    drv->waitFifo(numFifoSlots);
+    waitFifo(numFifoSlots);
 
     // Since we feed the monochrome expansion in units of 32bit (i.e. 32 pixels width),
     // we need to align the width to the next 32bit boundary. To make that padding not get rendered, use
@@ -1874,7 +1673,7 @@ void ASM Mach64Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(stru
     // and spare ourselves the CPU work to "left-rotate" the template bits.
     mmio.writeL(SC_LEFT_RIGHT, SC_RIGHT(width + x - 1) | SC_LEFT(x));
 
-    drawRect(this, x - tmpl->XOffset, y, blitWidth, height);
+    drawRect(x - tmpl->XOffset, y, blitWidth, height);
 
     // We already used up 3 fifo slots for the setup above
     UWORD hostDataReg = 3;
@@ -1891,54 +1690,46 @@ void ASM Mach64Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(stru
 
             hostDataReg = (hostDataReg + 1) & 15;
             if (!hostDataReg) {
-                drv->waitFifo(16);
+                waitFifo(16);
             }
         }
         bitmap += bitmapPitch;
     }
 
-    drv->waitFifo(1);
+    waitFifo(1);
     // reset right scissor
     mmio.writeL(SC_LEFT_RIGHT, ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK) | SC_LEFT(0));
 }
 
-static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
-                             __REGA2(struct Template *tmpl), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
-                             __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+void Mach64Driver::performBlitPlanar2ChunkyBlits(SHORT dstX, SHORT dstY, SHORT width, SHORT height, UBYTE *bitmap,
+                                                 UWORD dwordsPerLine, WORD bmPitch, UBYTE rol)
 {
-    asMach64(bi)->blitTemplate(ri, tmpl, x, y, width, height, mask, fmt);
-}
-
-static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT dstX, SHORT dstY, SHORT width,
-                                                  SHORT height, UBYTE *bitmap, UWORD dwordsPerLine, WORD bmPitch,
-                                                  UBYTE rol)
-{
-    DRIVER_LOCALS(bi);
-    Mach64MmioNoSwapQ raw(drv->mmioBase());
+    DRIVER_LOCALS(this);
+    Mach64MmioNoSwapQ raw(mmioBase());
 
     if ((ULONG)bitmap == 0x00000000) {
-        drv->waitFifo(3);
+        waitFifo(3);
         mmio.writeL(DP_SRC, DP_FRGD_SRC(CLR_SRC_BKGD_COLOR) | DP_BKGD_SRC(CLR_SRC_FRGD_COLOR) |
-                                          DP_MONO_SRC(MONO_SRC_ONE));  // Background color, 0x0
-        drawRect(bi, dstX, dstY, width, height);
+                                DP_MONO_SRC(MONO_SRC_ONE));  // Background color, 0x0
+        drawRect(dstX, dstY, width, height);
     } else if ((ULONG)bitmap == 0xFFFFFFFF) {
-        drv->waitFifo(3);
+        waitFifo(3);
         mmio.writeL(DP_SRC, DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) |
-                                          DP_MONO_SRC(MONO_SRC_ONE));  // Forground color, 0xFF
-        drawRect(bi, dstX, dstY, width, height);
+                                DP_MONO_SRC(MONO_SRC_ONE));  // Forground color, 0xFF
+        drawRect(dstX, dstY, width, height);
     } else {
         UWORD numFifoSlots = dwordsPerLine * height + 3;
         if (numFifoSlots > 16) {
             numFifoSlots = 16;
         }
-        drv->waitFifo(numFifoSlots);
+        waitFifo(numFifoSlots);
 
         UWORD hostDataReg = 3;
 
         // planar bitmap selects between 0x00 and 0xFF
-        mmio.writeL(DP_SRC,
-                    DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_MONO_SRC(MONO_SRC_HOST_DATA));
-        drawRect(bi, dstX, dstY, width, height);
+        mmio.writeL(DP_SRC, DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) |
+                                DP_MONO_SRC(MONO_SRC_HOST_DATA));
+        drawRect(dstX, dstY, width, height);
 
         if (!rol) {
             for (UWORD y = 0; y < height; ++y) {
@@ -1948,7 +1739,7 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
 
                     hostDataReg = (hostDataReg + 1) & 15;
                     if (!hostDataReg) {
-                        drv->waitFifo(16);
+                        waitFifo(16);
                     }
                 }
                 bitmap += bmPitch;
@@ -1959,12 +1750,11 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
                     ULONG left  = ((ULONG *)bitmap)[x] << rol;
                     ULONG right = ((ULONG *)bitmap)[x + 1] >> (32 - rol);
 
-                    raw.writeL(static_cast<MmioReg::Id>(static_cast<LONG>(HOST_DATA0) + hostDataReg),
-                               (left | right));
+                    raw.writeL(static_cast<MmioReg::Id>(static_cast<LONG>(HOST_DATA0) + hostDataReg), (left | right));
 
                     hostDataReg = (hostDataReg + 1) & 15;
                     if (!hostDataReg) {
-                        drv->waitFifo(16);
+                        waitFifo(16);
                     }
                 }
                 bitmap += bmPitch;
@@ -1973,9 +1763,10 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
     }
 }
 
-void ASM Mach64Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct RenderInfo *ri), __REGD0(SHORT srcX),
-                                         __REGD1(SHORT srcY), __REGD2(SHORT dstX), __REGD3(SHORT dstY), __REGD4(SHORT width),
-                                         __REGD5(SHORT height), __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
+void ASM Mach64Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct RenderInfo *ri),
+                                         __REGD0(SHORT srcX), __REGD1(SHORT srcY), __REGD2(SHORT dstX),
+                                         __REGD3(SHORT dstY), __REGD4(SHORT width), __REGD5(SHORT height),
+                                         __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
 {
     DFUNC(VERBOSE,
           "\nsrcX %ld, srcY %ld, dstX %ld, dstY %ld, w %ld, h %ld"
@@ -1992,7 +1783,7 @@ void ASM Mach64Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(str
     (void)bytesPerRow;
     (void)numPlanarBytes;
 
-    setDstBuffer(this, ri, RGBFB_CLUT);
+    setDstBuffer(ri, RGBFB_CLUT);
 
     if (cd->GEOp != BLITPLANAR2CHUNKY) {
         cd->GEOp = BLITPLANAR2CHUNKY;
@@ -2002,7 +1793,7 @@ void ASM Mach64Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(str
         cd->GEfgPen    = 0xFFFFFFFF;
         cd->GEbgPen    = 0x0;
 
-        drv->waitFifo(3);
+        waitFifo(3);
         mmio.writeL(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
         mmio.writeL(DP_FRGD_CLR, 0xFFFFFFFF);
         mmio.writeL(DP_BKGD_CLR, 0x0);
@@ -2011,13 +1802,13 @@ void ASM Mach64Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(str
     if (cd->GEdrawMode != minTerm) {
         cd->GEdrawMode = minTerm;
 
-        drv->waitFifo(1);
+        waitFifo(1);
         // Set the mix mode (minterm)
         UWORD mixMode = minTermToMix[minTerm];
         mmio.writeL(DP_MIX, DP_BKGD_MIX(mixMode) | DP_FRGD_MIX(mixMode));
     }
 
-    drv->waitFifo(1);
+    waitFifo(1);
     // clip potential 32bit padding
     mmio.writeL(SC_LEFT_RIGHT, SC_RIGHT(dstX + width - 1) | SC_LEFT(dstX));
     // pad up to 32bit
@@ -2035,27 +1826,19 @@ void ASM Mach64Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(str
             continue;
         }
 
-        ::setWriteMask(this, writeMask, RGBFB_CLUT, 0);
+        setWriteMask(writeMask, RGBFB_CLUT, 0);
 
         UBYTE *bitmap = (UBYTE *)bm->Planes[p];
         if (bitmap != 0x0 && (ULONG)bitmap != 0xffffffff) {
             bitmap += bmStartOffset;
         }
 
-        performBlitPlanar2ChunkyBlits(this, dstX, dstY, width, height, bitmap, dwordsPerLine, bmPitch, rol);
+        performBlitPlanar2ChunkyBlits(dstX, dstY, width, height, bitmap, dwordsPerLine, bmPitch, rol);
     }
 
-    drv->waitFifo(1);
+    waitFifo(1);
     // reset right scissor
     mmio.writeL(SC_LEFT_RIGHT, ((SC_RIGHT_MASK >> 1) & SC_RIGHT_MASK) | SC_LEFT(0));
-}
-
-static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct BitMap *bm),
-                                  __REGA2(struct RenderInfo *ri), __REGD0(SHORT srcX), __REGD1(SHORT srcY),
-                                  __REGD2(SHORT dstX), __REGD3(SHORT dstY), __REGD4(SHORT width), __REGD5(SHORT height),
-                                  __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
-{
-    asMach64(bi)->blitPlanar2Chunky(bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
 }
 
 void ASM Mach64Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pattern *pattern), __REGD0(WORD x),
@@ -2073,7 +1856,7 @@ void ASM Mach64Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
         return;
     }
 
-    if (isVideoMemory(this, pattern->Memory)) {
+    if (isVideoMemory(pattern->Memory)) {
         D(ERROR, "Pattern is in video memory\n");
     }
 
@@ -2085,15 +1868,15 @@ void ASM Mach64Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
         cd->GEdrawMode      = 0xFF;
         cd->patternCacheKey = 0xFFFFFFFF;
 
-        drv->waitFifo(2);
+        waitFifo(2);
 
         // Offset is in units of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'.
-        mmio.writeL(SRC_OFF_PITCH, SRC_OFFSET(getMemoryOffset(this, cd->patternVideoBuffer) / 8) | SRC_PITCH(8));
+        mmio.writeL(SRC_OFF_PITCH, SRC_OFFSET(memoryOffset(cd->patternVideoBuffer) / 8) | SRC_PITCH(8));
         mmio.writeMaskL(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH_MASK, DP_SRC_PIX_WIDTH(COLOR_DEPTH_1));
     }
 
-    setDstBuffer(this, ri, fmt);
-    ::setWriteMask(this, mask, fmt, 0);
+    setDstBuffer(ri, fmt);
+    setWriteMask(mask, fmt, 0);
 
     // First, figure out if the new pattern would actually fit into an 8x8 mono pattern.
     // Then we can use the hardware pattern registers, which are much faster.
@@ -2205,23 +1988,23 @@ void ASM Mach64Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
                 }
             }
 
-            drv->waitFifo(3);
+            waitFifo(3);
 
             raw.writeL(PAT_REG0, pat0);
             raw.writeL(PAT_REG1, pat1);
         } else {
-            drv->waitFifo(1);
+            waitFifo(1);
         }
 
         ULONG trajectory = DST_X_DIR | DST_Y_DIR | PAT_MONO_EN;
         mmio.writeL(GUI_TRAJ_CNTL, trajectory);
 
-        setDrawMode(this, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt, MONO_SRC_PATTERN);
+        setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt, MONO_SRC_PATTERN);
 
-        drv->waitFifo(2);
+        waitFifo(2);
     } else {
         if (patternChanged) {
-            waitIdle(this);
+            waitIdle();
 
             for (UWORD i = 0; i < patternHeight; ++i) {
                 // The video pattern has an 8-byte pitch. 64pixels (bits) is the minimum pitch for monochrome src blit
@@ -2230,7 +2013,7 @@ void ASM Mach64Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
             }
         }
 
-        setDrawMode(this, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt, MONO_SRC_BLIT_SRC);
+        setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt, MONO_SRC_BLIT_SRC);
 
         UBYTE xOff = pattern->XOffset & 15;
         UWORD yOff = pattern->YOffset & (patternHeight - 1);
@@ -2239,26 +2022,19 @@ void ASM Mach64Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
         if (pattCacheKey != cd->patternCacheKey) {
             cd->patternCacheKey = pattCacheKey;
 
-            drv->waitFifo(6);
+            waitFifo(6);
 
             mmio.writeL(SRC_Y_X, SRC_X(xOff) | SRC_Y(yOff));
             mmio.writeL(SRC_HEIGHT1_WIDTH1, SRC_HEIGHT1(patternHeight - yOff) | SRC_WIDTH1(16 - xOff));
             mmio.writeL(SRC_HEIGHT2_WIDTH2, SRC_HEIGHT2(patternHeight) | SRC_WIDTH2(16));
         } else {
-            drv->waitFifo(3);
+            waitFifo(3);
         }
         ULONG trajectory = DST_X_DIR | DST_Y_DIR | SRC_PATT_EN | SRC_PATT_ROT_EN;
         mmio.writeL(GUI_TRAJ_CNTL, trajectory);
     }
 
-    drawRect(this, x, y, width, height);
-}
-
-static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
-                            __REGA2(struct Pattern *pattern), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
-                            __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
-{
-    asMach64(bi)->blitPattern(ri, pattern, x, y, width, height, mask, fmt);
+    drawRect(x, y, width, height);
 }
 
 void ASM Mach64Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line *line), __REGD0(UBYTE mask),
@@ -2266,7 +2042,7 @@ void ASM Mach64Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
 {
     DFUNC(VERBOSE, "\n");
 
-    setDstBuffer(this, ri, fmt);
+    setDstBuffer(ri, fmt);
 
     DRIVER_LOCALS(this);
 
@@ -2275,10 +2051,10 @@ void ASM Mach64Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
         cd->GEdrawMode      = 0xFF;
         cd->patternCacheKey = 0xFFFFFFFF;
 
-        drv->waitFifo(4);
+        waitFifo(4);
 
         // Offset is in units of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'.
-        mmio.writeL(SRC_OFF_PITCH, SRC_OFFSET(getMemoryOffset(this, cd->patternVideoBuffer) / 8) | SRC_PITCH(8));
+        mmio.writeL(SRC_OFF_PITCH, SRC_OFFSET(memoryOffset(cd->patternVideoBuffer) / 8) | SRC_PITCH(8));
         mmio.writeMaskL(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH_MASK, DP_SRC_PIX_WIDTH(COLOR_DEPTH_1));
         mmio.writeL(GUI_TRAJ_CNTL, SRC_LINE_X_DIR | SRC_PATT_EN | SRC_PATT_ROT_EN);
         mmio.writeL(SRC_HEIGHT2_WIDTH2, SRC_HEIGHT2(1) | SRC_WIDTH2(16));
@@ -2291,7 +2067,7 @@ void ASM Mach64Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
     if (line->LinePtrn != cachedPattern[0]) {
         cachedPattern[0] = line->LinePtrn;
         patternChanged   = TRUE;
-        waitIdle(this);
+        waitIdle();
         videoMemPattern[0] = line->LinePtrn << 16;
     }
 
@@ -2301,13 +2077,13 @@ void ASM Mach64Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
     if (pattCache != cd->patternCacheKey) {
         cd->patternCacheKey = pattCache;
 
-        drv->waitFifo(5);
+        waitFifo(5);
 
         mmio.writeL(SRC_Y_X, SRC_X(xOff) | SRC_Y(0));
         mmio.writeL(SRC_HEIGHT1_WIDTH1, SRC_HEIGHT1(1) | SRC_WIDTH1(16 - xOff));
     }
 
-    setDrawMode(this, line->FgPen, line->BgPen, line->DrawMode, fmt, MONO_SRC_BLIT_SRC);
+    setDrawMode(line->FgPen, line->BgPen, line->DrawMode, fmt, MONO_SRC_BLIT_SRC);
 
     UWORD direction = 0;
 
@@ -2325,7 +2101,7 @@ void ASM Mach64Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
         direction |= DST_Y_MAJOR;
     }
 
-    ::setWriteMask(this, mask, fmt, 6);
+    setWriteMask(mask, fmt, 6);
 
     mmio.writeL(DST_CNTL, DST_LAST_PEL | direction);
     mmio.writeL(DST_BRES_INC, 2 * absMIN);
@@ -2335,28 +2111,18 @@ void ASM Mach64Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
     mmio.writeL(DST_BRES_LNTH, line->Length + 1);
 }
 
-void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGA2(struct Line *line),
-                  __REGD0(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
-{
-    asMach64(bi)->drawLine(ri, line, mask, fmt);
-}
-
 void ASM Mach64Driver::waitBlitter()
 {
     D(CHATTY, "Waiting for blitter...");
 
-    waitIdle(this);
+    waitIdle();
 
     D(CHATTY, "done\n");
 }
 
-static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
-{
-    asMach64(bi)->waitBlitter();
-}
-
-APTR ASM Mach64Driver::allocCardMem(__REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system), __REGD3(ULONG bytesperrow),
-                                    __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE_REG format))
+APTR ASM Mach64Driver::allocCardMem(__REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system),
+                                    __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi),
+                                    __REGD7(RGBFTYPE_REG format))
 {
 #if MACH64_PCI_RETRY
     // SGRAM requires 64byte alignment (CalculateMemory)
@@ -2365,10 +2131,212 @@ APTR ASM Mach64Driver::allocCardMem(__REGD0(ULONG size), __REGD1(BOOL force), __
     return getConstCardData(this)->AllocCardMemDefault(this, size, force, system, bytesperrow, mi, AS_RGBF(format));
 }
 
+/* P96 BoardInfo entry stubs */
 APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system),
                       __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE_REG format))
 {
     return asMach64(bi)->allocCardMem(size, force, system, bytesperrow, mi, format);
+}
+
+static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
+{
+    asMach64(bi)->setGC(mi, border);
+}
+
+static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width),
+                           __REGD3(UWORD height), __REGD1(WORD xoffset), __REGD2(WORD yoffset),
+                           __REGD7(RGBFTYPE_REG format))
+{
+    asMach64(bi)->setPanning(memory, width, height, xoffset, yoffset, format);
+}
+
+static UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
+                                      __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE_REG format))
+{
+    return asMach64(bi)->calculateBytesPerRow(width, height, mi, format);
+}
+
+static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR memory), __REGD0(struct RenderInfo *ri),
+                                __REGD7(RGBFTYPE_REG format))
+{
+    return asMach64(bi)->calculateMemory(memory, ri, format);
+}
+
+static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE_REG format))
+{
+    return asMach64(bi)->getCompatibleFormats(format);
+}
+
+static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __REGD7(RGBFTYPE_REG format))
+{
+    asMach64(bi)->setDAC(region, format);
+}
+
+static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count))
+{
+    asMach64(bi)->setColorArray(startIndex, count);
+}
+
+void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count),
+                               __REGA1(const struct CLUTEntry *colors))
+{
+    asMach64(bi)->setColorArrayInternal(startIndex, count, colors);
+}
+
+static BOOL ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
+{
+    return asMach64(bi)->setDisplay(state);
+}
+
+static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE_REG format))
+{
+    asMach64(bi)->setMemoryMode(format);
+}
+
+static void ASM SetWriteMask(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
+{
+    (void)bi;
+    (void)mask;
+}
+
+static void ASM SetReadPlane(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
+{
+    (void)bi;
+    (void)mask;
+}
+
+static void ASM SetClearMask(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
+{
+    (void)bi;
+    (void)mask;
+}
+
+static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
+                                  __REGD0(ULONG pixelClock), __REGD7(RGBFTYPE_REG RGBFormat))
+{
+    return asMach64(bi)->resolvePixelClock(mi, pixelClock, RGBFormat);
+}
+
+static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(ULONG index),
+                               __REGD7(RGBFTYPE_REG format))
+{
+    return asMach64(bi)->getPixelClock(mi, index, format);
+}
+
+static void ASM WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL end))
+{
+    (void)bi;
+    (void)end;
+}
+
+static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expected))
+{
+    return asMach64(bi)->getVSyncState(expected);
+}
+
+static ULONG ASM GetVBeamPos(__REGA0(struct BoardInfo *bi))
+{
+    return asMach64(bi)->getVBeamPos();
+}
+
+static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
+{
+    return asMach64(bi)->setInterrupt(state);
+}
+
+ULONG ASM interruptServer(__REGA1(struct BoardInfo *bi))
+{
+    return asMach64(bi)->interruptServer();
+}
+DEFINE_INTSERVER(interruptServerTrampoline, interruptServer);
+
+static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level))
+{
+    asMach64(bi)->setDPMSLevel(level);
+}
+
+static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate), __REGD7(RGBFTYPE_REG RGBFormat))
+{
+    return asMach64(bi)->setSprite(activate, RGBFormat);
+}
+
+static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xpos), __REGD1(WORD ypos),
+                                  __REGD7(RGBFTYPE_REG fmt))
+{
+    asMach64(bi)->setSpritePosition(xpos, ypos, fmt);
+}
+
+static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE_REG fmt))
+{
+    asMach64(bi)->setSpriteImage(fmt);
+}
+
+static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE index), __REGD1(UBYTE red),
+                               __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE_REG fmt))
+{
+    asMach64(bi)->setSpriteColor(index, red, green, blue, fmt);
+}
+
+static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
+{
+    asMach64(bi)->waitBlitter();
+}
+
+static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD srcX),
+                         __REGD1(WORD srcY), __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
+                         __REGD5(WORD height), __REGD6(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+{
+    asMach64(bi)->blitRect(ri, srcX, srcY, dstX, dstY, width, height, mask, fmt);
+}
+
+static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
+                           __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask),
+                           __REGD7(RGBFTYPE_REG fmt))
+{
+    asMach64(bi)->invertRect(ri, x, y, width, height, mask, fmt);
+}
+
+static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
+                         __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(ULONG pen),
+                         __REGD5(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+{
+    asMach64(bi)->fillRect(ri, x, y, width, height, pen, mask, fmt);
+}
+
+static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
+                             __REGA2(struct Template *tmpl), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
+                             __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+{
+    asMach64(bi)->blitTemplate(ri, tmpl, x, y, width, height, mask, fmt);
+}
+
+static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct BitMap *bm),
+                                  __REGA2(struct RenderInfo *ri), __REGD0(SHORT srcX), __REGD1(SHORT srcY),
+                                  __REGD2(SHORT dstX), __REGD3(SHORT dstY), __REGD4(SHORT width), __REGD5(SHORT height),
+                                  __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
+{
+    asMach64(bi)->blitPlanar2Chunky(bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
+}
+
+static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *sri),
+                                       __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY),
+                                       __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width),
+                                       __REGD5(WORD height), __REGD6(UBYTE opCode), __REGD7(RGBFTYPE_REG format))
+{
+    asMach64(bi)->blitRectNoMaskComplete(sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, format);
+}
+
+void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGA2(struct Line *line),
+                  __REGD0(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+{
+    asMach64(bi)->drawLine(ri, line, mask, fmt);
+}
+
+static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
+                            __REGA2(struct Pattern *pattern), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
+                            __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+{
+    asMach64(bi)->blitPattern(ri, pattern, x, y, width, height, mask, fmt);
 }
 
 BOOL InitChip(__REGA0(struct BoardInfo *bi))
@@ -2538,8 +2506,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
 
     // Test scratch register response
-    D(INFO, "MMIO base address: 0x%08lx\n", drv->mmioBase());
-    D(INFO, "Register base address: 0x%08lx\n", drv->ioBase());
+    D(INFO, "MMIO base address: 0x%08lx\n", (ULONG)asMach64(bi)->mmioBase());
+    D(INFO, "Register base address: 0x%08lx\n", (ULONG)asMach64(bi)->ioBase());
     if (cd->chipFamily != MACH64GX) {
         /* CT letter f / VT+: AP_SIZE=2 → 2×8M (LE+BE). GX uses sparse I/O below. */
         if ((mmio.readL(CONFIG_CNTL) & CFG_MEM_AP_SIZE_MASK) != CFG_MEM_AP_SIZE_8M)
@@ -2660,22 +2628,22 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Do not set CRTC_LOCK_REGS — that blocks later CRTC programming.
     // CRTC_DISP_REQ_ENB = 0 _enables_ display requests.
     mmio.writeMaskL(CRTC_GEN_CNTL,
-                  CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_DISP_REQ_ENB_MASK | VGA_XCRT_CNT_EN_MASK |
-                      VGA_ATI_LINEAR_MASK | CRTC_CSYNC_EN | CRTC_PIC_BY_2_EN | CRTC_HSYNC_DIS | CRTC_VSYNC_DIS |
-                      CRTC_LOCK_REGS_MASK,
-                  CRTC_ENABLE | CRTC_EXT_DISP_EN /*| VGA_XCRT_CNT_EN*/);
+                    CRTC_ENABLE_MASK | CRTC_EXT_DISP_EN_MASK | CRTC_DISP_REQ_ENB_MASK | VGA_XCRT_CNT_EN_MASK |
+                        VGA_ATI_LINEAR_MASK | CRTC_CSYNC_EN | CRTC_PIC_BY_2_EN | CRTC_HSYNC_DIS | CRTC_VSYNC_DIS |
+                        CRTC_LOCK_REGS_MASK,
+                    CRTC_ENABLE | CRTC_EXT_DISP_EN /*| VGA_XCRT_CNT_EN*/);
     if (cd->chipFamily == MACH64CT) {
         /* Mode set retunes via AdjustCrtcFifo_CT; start below max (0xF starves GE). */
         mmio.writeMaskL(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK, CRTC_FIFO_LWM(0x8));
     } else if (cd->chipFamily == MACH64VT) {
         mmio.writeMaskL(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK | CRTC_FIFO_OVERFILL_VT_MASK | CRTC_DISPREQ_ONLY_VT_MASK,
-                      CRTC_FIFO_LWM(0x8) | CRTC_FIFO_OVERFILL_VT(1));
+                        CRTC_FIFO_LWM(0x8) | CRTC_FIFO_OVERFILL_VT(1));
     }
 
     // Init Engine
     ResetEngine(bi);
 
-    drv->waitFifo(16);
+    waitFifo(bi, 16);
     mmio.writeL(CONTEXT_MASK, 0xFFFFFFFF);
     mmio.writeL(DST_Y_X, 0);
     mmio.writeL(DST_BRES_ERR, 0);
@@ -2695,12 +2663,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // being tuned off vaia SRC_CNTL?
     mmio.writeL(SRC_CNTL, 0);
 
-    drv->waitFifo(16);
+    waitFifo(bi, 16);
     mmio.writeL(DP_BKGD_CLR, 0x0);
     mmio.writeL(DP_FRGD_CLR, 0xFFFFFFFF);
     mmio.writeL(DP_WRITE_MSK, 0xFFFFFFFF);
     mmio.writeL(DP_PIX_WIDTH,
-             DP_DST_PIX_WIDTH(COLOR_DEPTH_8) | DP_SRC_PIX_WIDTH(COLOR_DEPTH_8) | DP_HOST_PIX_WIDTH(COLOR_DEPTH_8));
+                DP_DST_PIX_WIDTH(COLOR_DEPTH_8) | DP_SRC_PIX_WIDTH(COLOR_DEPTH_8) | DP_HOST_PIX_WIDTH(COLOR_DEPTH_8));
     mmio.writeL(DP_MIX, DP_BKGD_MIX(MIX_ZERO) | DP_FRGD_MIX(MIX_NEW));
     mmio.writeL(DP_SRC, DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_FRGD_COLOR) | DP_MONO_SRC(MONO_SRC_ONE));
     mmio.writeL(CLR_CMP_CNTL, 0x0);
@@ -2722,8 +2690,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // reserve memory for a pattern that can be up to 256 lines high (2kb)
     // Since the minimum pitch for SRC_PITCH is 64 monochrome pixels (8 byte), we need to overallocate.
     // The P96 pattern is just 16 pixels (bits) wide.
-    ULONG patternSize                   = 8 * 256;
-    bi->MemorySize                      = (bi->MemorySize - patternSize) & ~(7);
+    ULONG patternSize      = 8 * 256;
+    bi->MemorySize         = (bi->MemorySize - patternSize) & ~(7);
     cd->patternVideoBuffer = (ULONG *)(bi->MemoryBase + bi->MemorySize);
     cd->patternCacheBuffer = (UWORD *)AllocVec(patternSize, MEMF_PUBLIC);
 
@@ -2812,8 +2780,8 @@ static void verifyPaletteReadback(BoardInfo_t *bi)
     DRIVER_LOCALS(bi);
     LOCAL_SYSBASE();
     static const UWORD idxs[] = {0, 1, 2, 127, 128, 254, 255};
-    ULONG broken = 0;
-    BOOL sixBit  = FALSE;
+    ULONG broken              = 0;
+    BOOL sixBit               = FALSE;
     UBYTE got[7][3];
     UBYTE wr[7][3];
     BOOL bad[7];
@@ -2838,7 +2806,7 @@ static void verifyPaletteReadback(BoardInfo_t *bi)
         got[i][0] = mmio.readB(DAC_REGS, DAC_W_DATA);
         got[i][1] = mmio.readB(DAC_REGS, DAC_W_DATA);
         got[i][2] = mmio.readB(DAC_REGS, DAC_W_DATA);
-        bad[i]     = !lutGunOk(got[i][0], wr[i][0], &sixBit) || !lutGunOk(got[i][1], wr[i][1], &sixBit) ||
+        bad[i]    = !lutGunOk(got[i][0], wr[i][0], &sixBit) || !lutGunOk(got[i][1], wr[i][1], &sixBit) ||
                  !lutGunOk(got[i][2], wr[i][2], &sixBit);
         if (bad[i])
             ++broken;
@@ -2879,9 +2847,8 @@ static void dumpScanout8bpp(BoardInfo_t *bi)
           (ULONG)(cfg0 & CFG_BUS_TYPE_GX_MASK), (ULONG)((cfg0 & CFG_MEM_TYPE_GX_MASK) >> 3),
           (ULONG)((cfg0 & CFG_INIT_DAC_TYPE_GX_MASK) >> 9), !!(cfg0 & CFG_VGA_EN_GX));
     } else {
-        D(ALWAYS, "CONFIG_STAT0_CT mem_type=%ld dual_cas=%ld clock_en=%ld\n",
-          (ULONG)(cfg0 & CFG_MEM_TYPE_CT_MASK), !!(cfg0 & CFG_DUAL_CAS_EN_CT),
-          !!(cfg0 & CFG_CLOCK_EN_CT));
+        D(ALWAYS, "CONFIG_STAT0_CT mem_type=%ld dual_cas=%ld clock_en=%ld\n", (ULONG)(cfg0 & CFG_MEM_TYPE_CT_MASK),
+          !!(cfg0 & CFG_DUAL_CAS_EN_CT), !!(cfg0 & CFG_CLOCK_EN_CT));
     }
     ULONG mem = mmio.readL(MEM_CNTL);
     if (cd->chipFamily == MACH64CT) {
@@ -3031,15 +2998,14 @@ int main()
                 /* Only OR in missing bits — a full rewrite can wedge this CT after a soft reset. */
                 if ((cmd & (PCI_COMMAND_MEMORY | PCI_COMMAND_IO)) != (PCI_COMMAND_MEMORY | PCI_COMMAND_IO)) {
                     pci_write_config_word(PCI_COMMAND, cmd | PCI_COMMAND_MEMORY | PCI_COMMAND_IO, board);
-                    D(ALWAYS, "PCI_COMMAND now 0x%04lx\n",
-                      (ULONG)pci_read_config_word(PCI_COMMAND, board));
+                    D(ALWAYS, "PCI_COMMAND now 0x%04lx\n", (ULONG)pci_read_config_word(PCI_COMMAND, board));
                 } else {
                     D(ALWAYS, "PCI_COMMAND already has MEM+IO\n");
                 }
             }
 
-            D(ALWAYS, "MemoryBase 0x%08lx, MemorySize %ld, BlockIOBase 0x%08lx, Aux MMIO Base 0x%08lx\n",
-              Memory0, Memory0Size, Memory1, Memory2);
+            D(ALWAYS, "MemoryBase 0x%08lx, MemorySize %ld, BlockIOBase 0x%08lx, Aux MMIO Base 0x%08lx\n", Memory0,
+              Memory0Size, Memory1, Memory2);
 
             APTR physicalAddress = pci_logic_to_physic_addr(Memory0, board);
             D(ALWAYS, "physicalAdress 0x%08lx\n", physicalAddress);
@@ -3092,8 +3058,8 @@ int main()
                     bi->MemoryIOBase = (UBYTE *)Memory2 + 1024 + MMIOREGISTER_OFFSET;
                     setCacheMode(bi, Memory2, Memory2Size, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
                 } else {
-                    D(ALWAYS, "Using BAR0 MMIO at 0x%08lx (+0x%lx, BAR0 size %ld)\n",
-                      (BYTE *)Memory0 + mmioOff, mmioOff, Memory0Size);
+                    D(ALWAYS, "Using BAR0 MMIO at 0x%08lx (+0x%lx, BAR0 size %ld)\n", (BYTE *)Memory0 + mmioOff,
+                      mmioOff, Memory0Size);
                     bi->MemoryIOBase = (UBYTE *)Memory0 + mmioOff + MMIOREGISTER_OFFSET;
                     setCacheMode(bi, (BYTE *)Memory0 + mmioOff, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
                 }

@@ -331,10 +331,10 @@ void WriteDefaultRegList(const BoardInfo_t *bi, const UWORD *defaultRegs, int nu
     }
 }
 
-void ResetEngine(const BoardInfo_t *bi)
+void Mach64Driver::resetEngine()
 {
     DFUNC(VERBOSE, "\n");
-    Mach64MmioQ mmio = asMach64(bi)->mmioQ();
+    Mach64MmioQ mmio = mmioQ();
 
     /* GEN_GUI_RESETB: 0 = hold reset, 1 = run (ATI PRG). */
     ULONG genTestCntl = mmio.readL(GEN_TEST_CNTL) & ~(GEN_GUI_RESETB_MASK | GEN_CUR_ENABLE_MASK);
@@ -343,9 +343,14 @@ void ResetEngine(const BoardInfo_t *bi)
     mmio.writeL(GEN_TEST_CNTL, genTestCntl | GEN_GUI_RESETB);
     delayMicroSeconds(10);
 
-    if (getConstChipData(bi)->chipFamily < MACH64GT) {
+    if (chip()->chipFamily < MACH64GT) {
         mmio.writeMaskL(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
     }
+}
+
+void ResetEngine(const BoardInfo_t *bi)
+{
+    asMach64(const_cast<BoardInfo_t *>(bi))->resetEngine();
 }
 
 UBYTE getAsicVersion(const BoardInfo_t *bi)
