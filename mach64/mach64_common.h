@@ -486,6 +486,8 @@ static INLINE void REGARGS writeATIRegisterNoSwapL(volatile UBYTE *regbase, LONG
 
 #undef R_MMIO_L
 #undef W_MMIO_L
+#undef R_MMIO_W
+#undef W_MMIO_W
 #undef R_MMIO_B
 #undef W_MMIO_B
 #undef W_MMIO_MASK_L
@@ -507,16 +509,36 @@ static INLINE ULONG REGARGS readATIRegisterL_qi(volatile UBYTE *regbase, LONG re
     flushWrites();
     ULONG value = *(volatile ULONG *)(regbase + (DWORD_OFFSET(regIndex) - REGISTER_OFFSET));
     asm volatile("" ::"r"(value));
-    return SWAPL_IO(value);
+    return SWAPL(value);
+}
+
+static INLINE ULONG REGARGS readATIRegisterLNoSwap_qi(volatile UBYTE *regbase, LONG regIndex)
+{
+    flushWrites();
+    ULONG value = *(volatile ULONG *)(regbase + (DWORD_OFFSET(regIndex) - REGISTER_OFFSET));
+    /* Keep value in a data register so bit tests can't become byte MMIO btst. */
+    asm volatile("" ::"r"(value));
+    return value;
+}
+
+static INLINE UWORD REGARGS readATIRegisterWNoSwap_qi(volatile UBYTE *regbase, LONG regIndex)
+{
+    flushWrites();
+    UWORD value = *(volatile UWORD *)(regbase + (DWORD_OFFSET(regIndex) - REGISTER_OFFSET));
+    /* Keep value in a data register so bit tests can't become byte MMIO btst. */
+    asm volatile("" ::"r"(value));
+    return value;
 }
 
 static INLINE void REGARGS writeATIRegisterL_qi(volatile UBYTE *regbase, LONG regIndex, ULONG value)
 {
-    *(volatile ULONG *)(regbase + (DWORD_OFFSET(regIndex) - REGISTER_OFFSET)) = SWAPL_IO(value);
+    *(volatile ULONG *)(regbase + (DWORD_OFFSET(regIndex) - REGISTER_OFFSET)) = SWAPL(value);
 }
 
-#define R_MMIO_L_QI(regIndex)        readATIRegisterL_qi(MMIOBase, regIndex)
-#define W_MMIO_L_QI(regIndex, value) writeATIRegisterL_qi(MMIOBase, regIndex, value)
+#define R_MMIO_L_QI(regIndex)         readATIRegisterL_qi(MMIOBase, regIndex)
+#define R_MMIO_NOSWAP_L_QI(regIndex)  readATIRegisterLNoSwap_qi(MMIOBase, regIndex)
+#define R_MMIO_NOSWAP_W_QI(regIndex)  readATIRegisterWNoSwap_qi(MMIOBase, regIndex)
+#define W_MMIO_L_QI(regIndex, value)  writeATIRegisterL_qi(MMIOBase, regIndex, value)
 
 #undef R_IO_L
 #undef W_IO_L

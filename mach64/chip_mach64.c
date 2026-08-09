@@ -2326,7 +2326,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         GetBoardAttrs(board, PRM_Device, (Tag)&deviceId, PRM_Revision, (Tag)&revision, TAG_END);
 
         cd->chipFamily      = getChipFamily(deviceId);
-        cd->fifoSlotsCached = 0;
+        cd->fifoSlotsCached = 0xffff; /* no free slots known yet */
 
         if (cd->chipFamily == UNKNOWN || !mach64ChipFamilySupported(cd->chipFamily)) {
             DFUNC(ERROR, "Unsupported chip family for this driver, aborting\n");

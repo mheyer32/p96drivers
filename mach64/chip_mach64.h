@@ -55,8 +55,8 @@ typedef struct ChipData
     /* GX external DAC cursor pens: 68860 uses [0..1]; RGB514 Mode0 uses [0..2]. */
     UBYTE cursorRGB[3][3];
 
-    /* Remaining free FIFO slots after last waitFifo poll (GX path). */
-    UBYTE fifoSlotsCached;
+    /* Cached FIFO_STAT after accounting for pending GE writes (GX path). */
+    UWORD fifoSlotsCached;
 } ChipData_t;
 
 STATIC_ASSERT(sizeof(ChipData_t) < SIZEOF_MEMBER(BoardInfo_t, ChipData), check_chipdata_size);
@@ -71,62 +71,44 @@ static INLINE const ChipSpecific_t *getConstChipSpecific(const struct BoardInfo 
     return getConstChipData(bi)->chipSpecific;
 }
 
-/* FIFO_STAT[15:0]: 0 empty (16 free), filling from MSB — same encoding as Mach32 EXT_FIFO_STATUS. */
-static INLINE UBYTE countFreeFifoSlots(UWORD s)
+/* Mark `entries` FIFO slots as used in a FIFO_STAT-shaped value (ones from LSB). */
+static INLINE UWORD fifoStatConsume(UWORD stat, UBYTE entries)
 {
-    if (!s)
-        return 16;
-    UBYTE free = 0;
-    if (!(s & 0xFF00)) {
-        free += 8;
-        s <<= 8;
-    }
-    if (!(s & 0xF000)) {
-        free += 4;
-        s <<= 4;
-    }
-    if (!(s & 0xC000)) {
-        free += 2;
-        s <<= 2;
-    }
-    if (!(s & 0x8000))
-        free += 1;
-    return free;
+    return ((ULONG)(stat + 1) << entries) - 1;
 }
 
-static INLINE void waitFifo(BoardInfo_t *bi, UBYTE entries)
+static inline void waitFifo(BoardInfo_t *bi, UBYTE entries)
 {
 #if MACH64_PCI_RETRY
     (void)bi;
     (void)entries;
 #else
     ChipData_t *cd;
-    UBYTE freeSlots;
+    UWORD mask;
+    UWORD maskSwapped;
+    UWORD raw;
 
     if (!entries)
         return;
 
+    /* FIFO_STAT: 0 = empty; ones pack from LSB. entries free ⇒ top entries bits clear. */
+    mask = 0xffffU << (16 - entries);
+
     cd = getChipData(bi);
-    if (cd->fifoSlotsCached >= entries) {
-        cd->fifoSlotsCached -= entries;
+    if (!(cd->fifoSlotsCached & mask)) {
+        cd->fifoSlotsCached = fifoStatConsume(cd->fifoSlotsCached, entries);
         return;
     }
 
-    flushWrites();
+    maskSwapped = SWAPW(mask);
     {
         MMIOBASE();
-        ULONG spins = 0;
         do {
-            freeSlots = countFreeFifoSlots((UWORD)(R_MMIO_L(FIFO_STAT) & 0xffff));
-            if (++spins > 1000000UL) {
-                /* CT with dead MCLK returns stuck FIFO_STAT — don't lock the machine. */
-                cd->fifoSlotsCached = 0;
-                return;
-            }
-        } while (freeSlots < entries);
+            raw = R_MMIO_NOSWAP_W_QI(FIFO_STAT);
+        } while (raw & maskSwapped);
     }
 
-    cd->fifoSlotsCached = (UBYTE)(freeSlots - entries);
+    cd->fifoSlotsCached = fifoStatConsume(SWAPW(raw), entries);
 #endif
 }
 
