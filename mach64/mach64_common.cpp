@@ -7,6 +7,7 @@
 
 
 using namespace MmioReg;
+using namespace PllReg;
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,7 +51,7 @@ const char *getChipFamilyName(ChipFamily_t family)
     }
 }
 
-UBYTE ReadPLL(BoardInfo_t *bi, UBYTE pllAddr)
+UBYTE ReadPLL(BoardInfo_t *bi, PllReg::Id pllAddr)
 {
     DRIVER_LOCALS(bi);
     // FIXME: its possible older Mach chips want 8bit access here
@@ -69,44 +70,18 @@ UBYTE ReadPLL(BoardInfo_t *bi, UBYTE pllAddr)
     return pllValue;
 }
 
-void WritePLL(BoardInfo_t *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllData)
+void WritePLL(BoardInfo_t *bi, PllReg::Id pllAddr, UBYTE pllDataMask, UBYTE pllData)
 {
     DRIVER_LOCALS(bi);
-
-    // // // FIXME: its possible older Mach chips want 8bit access here
-    // ULONG oldClockCntl = mmio.readL(CLOCK_CNTL) & ~(PLL_ADDR_MASK | PLL_DATA_MASK | PLL_WR_ENABLE_MASK);
-
-    // ULONG clockCntl = oldClockCntl;
-    // // Set PLL Adress
-    // clockCntl |= PLL_ADDR(pllAddr);
-    // mmio.writeL(CLOCK_CNTL, clockCntl);
-    // // Read back old data
-    // clockCntl = mmio.readL(CLOCK_CNTL);
-    // // write new PLL_DATA
-    // clockCntl &= ~PLL_DATA((ULONG)pllDataMask);
-    // clockCntl |= PLL_DATA((ULONG)(pllData & pllDataMask));
-    // clockCntl |= PLL_WR_ENABLE;
-    // mmio.writeL(CLOCK_CNTL, clockCntl);
-
-    // // Read right back again
-    // mmio.readL(CLOCK_CNTL);
-
-    // // Disable PLL_WR_EN again
-    // mmio.writeL(CLOCK_CNTL, oldClockCntl);
-
-    // DFUNC(VERBOSE, "pllAddr: %ld, pllDataMask: 0x%02lx & pllData: 0x%02lx --> pllValue: 0x%02lx\n", (ULONG)pllAddr,
-    //       (ULONG)pllDataMask, (ULONG)pllData, (ULONG)(clockCntl >> 16) & 0xFF);
+    UBYTE addr = (UBYTE)pllAddr;
 
     // testing byte access
-    mmio.writeB(CLOCK_CNTL, CLOCK_CNTL_ADDR, pllAddr << 2);
+    mmio.writeB(CLOCK_CNTL, CLOCK_CNTL_ADDR, addr << 2);
     UBYTE oldValue = mmio.readB(CLOCK_CNTL, CLOCK_CNTL_DATA);
     UBYTE newValue = (oldValue & ~pllDataMask) | (pllData & pllDataMask);
-    mmio.writeB(CLOCK_CNTL, CLOCK_CNTL_ADDR, (pllAddr << 2) | 0x02);  // PLL_WR_EN
+    mmio.writeB(CLOCK_CNTL, CLOCK_CNTL_ADDR, (addr << 2) | 0x02);  // PLL_WR_EN
     mmio.writeB(CLOCK_CNTL, CLOCK_CNTL_DATA, newValue);
     mmio.writeB(CLOCK_CNTL, CLOCK_CNTL_ADDR, 0x00);
-
-    // DFUNC(VERBOSE, "pllAddr: %ld, pllDataMask: 0x%02lx & pllData: 0x%02lx --> pllValue: 0x%02lx\n", (ULONG)pllAddr,
-    //       (ULONG)pllDataMask, (ULONG)pllData, (ULONG)newValue);
 }
 
 ULONG computeFrequencyKhz10(UWORD RefFreq, UWORD FBDiv, UWORD RefDiv, UBYTE PostDiv)

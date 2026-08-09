@@ -16,6 +16,7 @@
 #include <string.h>  // memcmp
 
 using namespace MmioReg;
+using namespace PllReg;
 
 #ifdef __cplusplus
 extern "C" {
@@ -2527,10 +2528,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             return FALSE;
         }
     } else {
-        LEGACYIOBASE();
+        Mach64SparseIo sio = asMach64(bi)->sparseIo();
         /* Warm reinit: aperture already 8MB — avoid redundant CONFIG_CNTL RMW. */
-        if ((R_IO_L(CONFIG_CNTL) & CFG_MEM_AP_SIZE_MASK) != CFG_MEM_AP_SIZE_8M)
-            W_IO_MASK_L(CONFIG_CNTL, CFG_MEM_AP_SIZE_MASK, CFG_MEM_AP_SIZE_8M);
+        if ((sio.readL(SparseIoReg::CONFIG_CNTL) & CFG_MEM_AP_SIZE_MASK) != CFG_MEM_AP_SIZE_8M)
+            sio.writeMaskL(SparseIoReg::CONFIG_CNTL, CFG_MEM_AP_SIZE_MASK, CFG_MEM_AP_SIZE_8M);
 
         ULONG saveScratchReg1 = mmio.readL(SCRATCH_REG1);
         mmio.writeL(SCRATCH_REG1, 0xAAAAAAAA);
@@ -2548,12 +2549,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     /* Warm reinit: CFG_VGA_DIS must be clear for Expansion ROM to be accessible*/
     {
-        if (cd->chipFamily == MACH64GX) {
-            LEGACYIOBASE();
-            W_IO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK, 0);
-        } else {
+        if (cd->chipFamily == MACH64GX)
+            asMach64(bi)->sparseIo().writeMaskL(SparseIoReg::CONFIG_CNTL, CFG_VGA_DIS_MASK, 0);
+        else
             mmio.writeMaskL(CONFIG_CNTL, CFG_VGA_DIS_MASK, 0);
-        }
         mmio.writeMaskL(BUS_CNTL, BUS_ROM_DIS_MASK, 0);
     }
 
@@ -2599,8 +2598,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         /* GX: never touch CONFIG_STAT0 (CFG_MEM_TYPE_GX bits 3–5 — wedges BAR0).
          * Set CFG_VGA_DIS for accelerator CRT, knowing it disables ROM access
          * until the next InitChip clears it again (see CFG_VGA_DIS define). */
-        LEGACYIOBASE();
-        W_IO_MASK_L(CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
+        asMach64(bi)->sparseIo().writeMaskL(SparseIoReg::CONFIG_CNTL,
+                                            CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
     }
 
     /* MCLK: CT/VT/GT program in InitMach64*; GX reports ROM default only. */

@@ -38,6 +38,16 @@ class Mach64Driver : public P96Driver
     Mach64BlkIoQ blkIoQ() { return Mach64BlkIoQ(ioBase()); }
     Mach64BlkIoQ blkIoQ() const { return Mach64BlkIoQ(ioBase()); }
 
+    /* GX sparse CONFIG_CNTL etc.: legacyIOBase + ioSparseBase, id << 10. */
+    Mach64SparseIo sparseIo()
+    {
+        return Mach64SparseIo(getCardData(this)->legacyIOBase + chip()->ioSparseBase);
+    }
+    Mach64SparseIo sparseIo() const
+    {
+        return Mach64SparseIo(getConstCardData(this)->legacyIOBase + chip()->ioSparseBase);
+    }
+
     void writeOvrClr(UBYTE index8, UBYTE r, UBYTE g, UBYTE b);
     void setColorArrayInternal(UWORD startIndex, UWORD count, const struct CLUTEntry *colors);
     INLINE void setMemoryModeInternal(RGBFTYPE format);

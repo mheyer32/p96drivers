@@ -8,6 +8,7 @@
 
 
 using namespace MmioReg;
+using namespace PllReg;
 
 /* Touch quiet NoSwap-style bit test (TST_MMIO_* / waitFifo FIFO_STAT poll). */
 BOOL mach64CxxRegSmokeTestFifo(volatile UBYTE *mmioBase, UWORD mask)

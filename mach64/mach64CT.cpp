@@ -4,6 +4,7 @@
 
 
 using namespace MmioReg;
+using namespace PllReg;
 
 #ifdef __cplusplus
 extern "C" {
