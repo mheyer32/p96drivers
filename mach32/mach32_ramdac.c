@@ -120,25 +120,57 @@ static void generic_packPllToModeInfo(BoardInfo_t *bi, UWORD m, UWORD n, UWORD r
     (void)r;
 }
 
-static UBYTE vfifoDepthForFormat(RGBFTYPE fmt)
+static UBYTE vfifoDepthForMode(BoardInfo_t *bi)
 {
-    switch (fmt) {
+    UBYTE depth;
+    ULONG clockHz = 0;
+    UWORD width   = 0;
+
+    switch (bi->RGBFormat) {
     case RGBFB_CLUT:
     case RGBFB_NONE:
-        return 6;
+        depth = 6;
+        break;
     case RGBFB_R5G6B5PC:
     case RGBFB_R5G5B5PC:
-        return 9;
+        depth = 9;
+        break;
     case RGBFB_R8G8B8:
     case RGBFB_B8G8R8:
     case RGBFB_R8G8B8A8:
     case RGBFB_B8G8R8A8:
     case RGBFB_A8R8G8B8:
     case RGBFB_A8B8G8R8:
-        return 15;
+        depth = 14;
+        break;
     default:
-        return 14;
+        depth = 14;
+        break;
     }
+
+    if (bi->ModeInfo) {
+        clockHz = bi->ModeInfo->PixelClock;
+        width   = bi->ModeInfo->Width;
+    }
+
+    /*
+     * CLOCK_SEL VFIFO_DEPTH: refill starts when FIFO occupancy drops below this
+     * (REG688000-15). Raise at high dot clocks / wide lines so CRT keeps priority
+     * when the GE is busy — otherwise the display FIFO underruns.
+     */
+    if (clockHz >= 100000000UL)
+        depth += 2;
+    else if (clockHz >= 80000000UL)
+        depth += 1;
+
+    // if (width > 1024)
+    //     depth += 4;
+    // else if (width > 800)
+    //     depth += 2;
+
+    if (depth > 15)
+        depth = 15;
+    return depth;
 }
 
 static void generic_setClock(BoardInfo_t *bi)
@@ -148,12 +180,13 @@ static void generic_setClock(BoardInfo_t *bi)
     UBYTE selEnc = mi->pll1.Clock;
     UBYTE sel    = selEnc & 0x0F;
     UBYTE div2   = (selEnc & 0x80) != 0;
-    UWORD bits   = CLK_SEL(sel) | VFIFO_DEPTH(vfifoDepthForFormat(bi->RGBFormat));
+    UBYTE vfifo  = vfifoDepthForMode(bi);
+    UWORD bits   = CLK_SEL(sel) | VFIFO_DEPTH(vfifo);
     if (div2) {
         bits |= CLK_DIV;
     }
-    DFUNC(VERBOSE, "SetClock to clock index %ld (/%ld) vfifo=%ld\n", (ULONG)sel, (ULONG)mi->pll2.ClockDivide,
-          (ULONG)vfifoDepthForFormat(bi->RGBFormat));
+    DFUNC(INFO, "SetClock idx=%ld (/%ld) clock=%luHz vfifo=%ld\n", (ULONG)sel, (ULONG)mi->pll2.ClockDivide,
+          mi->PixelClock, (ULONG)vfifo);
 
     REGBASE();
     W_IO_MASK_W(CLOCK_SEL, CLK_SEL_MASK | CLK_DIV_MASK | VFIFO_DEPTH_MASK | PASS_THROUGH_DISABLE_MASK,
