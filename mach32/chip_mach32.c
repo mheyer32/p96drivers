@@ -1202,8 +1202,8 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     /* Set up rectangle; writing DEST_Y_END kicks the engine. */
     drawRect(bi, x, y, blitWidth, height);
 
-    WORD wordsPerLn = blitWidth >> 4;
-    ULONG fifoNeed  = (ULONG)wordsPerLn * (ULONG)height + 3u;
+    WORD wordsPerLn    = blitWidth >> 4;
+    ULONG fifoNeed     = (ULONG)wordsPerLn * (ULONG)height + 3u;
     UBYTE numFifoSlots = fifoNeed > 16u ? 16 : (UBYTE)fifoNeed;
     waitFifo(bi, numFifoSlots);
     WORD usedFifoSlots = 16 - numFifoSlots;
@@ -1258,8 +1258,8 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
     WORD blitWidth = (width + rol + 15) & ~15;
     drawRect(bi, dstX, dstY, blitWidth, height);
 
-    WORD wordsPerLn = blitWidth >> 4;
-    ULONG fifoNeed  = (ULONG)wordsPerLn * (ULONG)height + 3u;
+    WORD wordsPerLn    = blitWidth >> 4;
+    ULONG fifoNeed     = (ULONG)wordsPerLn * (ULONG)height + 3u;
     UBYTE numFifoSlots = fifoNeed > 16u ? 16 : (UBYTE)fifoNeed;
     waitFifo(bi, numFifoSlots);
     WORD usedFifoSlots = 16 - numFifoSlots;
@@ -1454,8 +1454,8 @@ static void REGARGS BlitPatternNon8x8(BoardInfo_t *bi, struct RenderInfo *ri, st
     WORD blitWidth = (width + 15) & ~15;
     drawRect(bi, x, y, blitWidth, height);
 
-    WORD wordsPerLn = blitWidth >> 4;
-    ULONG fifoNeed  = (ULONG)wordsPerLn * (ULONG)height + 3u;
+    WORD wordsPerLn    = blitWidth >> 4;
+    ULONG fifoNeed     = (ULONG)wordsPerLn * (ULONG)height + 3u;
     UBYTE numFifoSlots = fifoNeed > 16u ? 16 : (UBYTE)fifoNeed;
     waitFifo(bi, numFifoSlots);
     WORD usedFifoSlots = 16 - numFifoSlots;
@@ -1988,10 +1988,10 @@ static void testVBlankPoll(BoardInfo_t *bi)
     W_IO_W(SUBSYS_CNTL, SUBSYS_VBLANK_ACK);
     Enable();
 
-    ULONG edges   = 0;
-    ULONG lineMin = 0x7FFu;
-    ULONG lineMax = 0;
-    ULONG syncSeen = 0;
+    ULONG edges     = 0;
+    ULONG lineMin   = 0x7FFu;
+    ULONG lineMax   = 0;
+    ULONG syncSeen  = 0;
     ULONG syncClear = 0;
 
     D(ALWAYS, "VBlank poll: CRT edges (ENA=0) for 2s...\n");
@@ -2030,9 +2030,9 @@ static void testVBlankPoll(BoardInfo_t *bi)
 static void testVBlankInterrupt(BoardInfo_t *bi, struct pci_dev *board)
 {
     LOCAL_SYSBASE();
-    softVBlankCount     = 0;
-    hardVBlankEntries   = 0;
-    hardVBlankHandled   = 0;
+    softVBlankCount   = 0;
+    hardVBlankEntries = 0;
+    hardVBlankHandled = 0;
 
     {
         ULONG pin = 0, line = 0;
@@ -2105,8 +2105,7 @@ static void testVBlankInterrupt(BoardInfo_t *bi, struct pci_dev *board)
 
     {
         REGBASE();
-        D(ALWAYS, "VBlank IRQ test: SUBSYS_STATUS=0x%04lx — counting softints 2s...\n",
-          (ULONG)R_IO_W(SUBSYS_STATUS));
+        D(ALWAYS, "VBlank IRQ test: SUBSYS_STATUS=0x%04lx — counting softints 2s...\n", (ULONG)R_IO_W(SUBSYS_STATUS));
     }
 
     delayMilliSeconds(2000);
@@ -2127,9 +2126,8 @@ static void testVBlankInterrupt(BoardInfo_t *bi, struct pci_dev *board)
     pci_rem_intserver(&bi->HardInterrupt, board);
     bi->Flags &= ~BIF_VBLANKINTERRUPT;
 
-    D(ALWAYS,
-      "VBlank IRQ test: %lu softints (~%lu Hz), hard entries=%lu handled=%lu, STATUS end=0x%04lx\n",
-      count, count / 2, hardEnt, hardOk, (ULONG)stEnd);
+    D(ALWAYS, "VBlank IRQ test: %lu softints (~%lu Hz), hard entries=%lu handled=%lu, STATUS end=0x%04lx\n", count,
+      count / 2, hardEnt, hardOk, (ULONG)stEnd);
     if (hardEnt == 0) {
         D(ERROR, "VBlank IRQ test: hard ISR never entered — PCI INTA not delivered\n");
     } else if (hardOk == 0) {
@@ -2922,8 +2920,8 @@ int main(void)
 {
     signal(SIGINT, onSigInt);
 
-    int rval        = EXIT_FAILURE;
-    BOOL vblankTest = FALSE;
+    int rval              = EXIT_FAILURE;
+    BOOL vblankTest       = FALSE;
     struct RDArgs *rdargs = NULL;
 
     testArgs[0] = 0;
@@ -2961,10 +2959,10 @@ int main(void)
                               (UWORD)(pci_read_config_word(PCI_COMMAND, board) | PCI_COMMAND_MEMORY | PCI_COMMAND_IO),
                               board);
 
-    /* BoardInfo is large — keep off the default CLI stack (see TestS3 / TestMach64). */
-    static struct BoardInfo boardInfo;
-    memset(&boardInfo, 0, sizeof(boardInfo));
-    struct BoardInfo *bi = &boardInfo;
+        /* BoardInfo is large — keep off the default CLI stack (see TestS3 / TestMach64). */
+        static struct BoardInfo boardInfo;
+        memset(&boardInfo, 0, sizeof(boardInfo));
+        struct BoardInfo *bi = &boardInfo;
 
         bi->ExecBase                  = SysBase;
         bi->UtilBase                  = (struct Library *)UtilityBase;
