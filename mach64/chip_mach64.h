@@ -23,6 +23,10 @@ typedef struct ChipSpecific
     ComputeFrequencyFromPllValueFunc_t computeVCLKFrequency;
 } ChipSpecific_t;
 
+/* bi->MemoryClock is Hz; ROM clocks are 10 kHz units. */
+UWORD resolveMemoryClockKhz10(BoardInfo_t *bi);
+void SetMemoryClock(BoardInfo_t *bi, UWORD freqKhz10);
+
 struct I2COps;
 typedef struct I2COps I2COps_t;
 

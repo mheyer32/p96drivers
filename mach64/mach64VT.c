@@ -266,7 +266,7 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
     return FALSE;
 }
 
-static void setMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
+void SetMemoryClock_VT(BoardInfo_t *bi, UWORD freqKhz10)
 {
     DFUNC(VERBOSE, "Setting Memory Clock to %ld0 KHz\n", (ULONG)freqKhz10);
 
@@ -361,7 +361,7 @@ BOOL InitMach64VT(struct BoardInfo *bi)
                        CRTC_DISPLAY_DIS_MASK | VGA_ATI_LINEAR_MASK | CRTC_LOCK_REGS_MASK,
                    CRTC_ENABLE | CRTC_EXT_DISP_EN | VGA_XCRT_CNT_EN);
 
-    setMemoryClock(bi, cs->maxDRAMClock);
+    SetMemoryClock(bi, resolveMemoryClockKhz10(bi));
 
     if (!probeMemorySize(bi))
         return FALSE;

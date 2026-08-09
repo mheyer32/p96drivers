@@ -76,5 +76,6 @@ extern const UBYTE g_VPLLPostDividerCodes[];
 void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv);
 
 BOOL InitMach64GT(struct BoardInfo *bi);
+void SetMemoryClock_GT(struct BoardInfo *bi, UWORD freqKhz10);
 
 #endif  // MACH64GT_H
