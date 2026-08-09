@@ -492,6 +492,15 @@ static INLINE UWORD REGARGS readRegW_qi(volatile UBYTE *regbase, LONG reg)
     return SWAPW_IO(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
 }
 
+static INLINE UWORD REGARGS readRegWNoSwap_qi(volatile UBYTE *regbase, LONG reg)
+{
+    flushWrites();
+    UWORD value = *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET));
+    /* Keep value in a data register so bit tests can't become byte IO btst. */
+    asm volatile("" ::"r"(value));
+    return value;
+}
+
 static INLINE void REGARGS writeRegW_qi(volatile UBYTE *regbase, LONG reg, UWORD value)
 {
     *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = SWAPW_IO(value);
@@ -663,6 +672,7 @@ static INLINE void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UB
 #define R_MMIO_L_QI(reg)                readMMIO_L_qi(MMIOBase, reg)
 #define W_MMIO_L_QI(reg, value)         writeMMIO_L_qi(MMIOBase, reg, value)
 #define R_IO_W_QI(reg)                  readRegW_qi(RegBase, reg)
+#define R_IO_NOSWAP_W_QI(reg)           readRegWNoSwap_qi(RegBase, reg)
 #define W_IO_W_QI(reg, value)           writeRegW_qi(RegBase, reg, value)
 
 #define W_MISC_MASK(mask, value) writeMISC_OUT(RegBase, mask, value)
