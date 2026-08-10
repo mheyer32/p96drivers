@@ -12,10 +12,17 @@ class At3dDriver : public P96Driver
 	ChipData_t *chip() { return getChipData(this); }
 	const ChipData_t *chip() const { return getConstChipData(this); }
 
+	VgaIo vga() { return VgaIo(ioBase()); }
+	VgaIo vga() const { return VgaIo(ioBase()); }
+	VgaIoQ vgaQ() { return VgaIoQ(ioBase()); }
+	VgaIoQ vgaQ() const { return VgaIoQ(ioBase()); }
 	At3dMmio mmio() { return At3dMmio(mmioBase()); }
 	At3dMmio mmio() const { return At3dMmio(mmioBase()); }
 	At3dMmioQ mmioQ() { return At3dMmioQ(mmioBase()); }
 	At3dMmioQ mmioQ() const { return At3dMmioQ(mmioBase()); }
+
+	VgaIo legacyVga() { return VgaIo(getCardData(this)->legacyIOBase); }
+	VgaIo legacyVga() const { return VgaIo(getConstCardData(this)->legacyIOBase); }
 
 	INLINE ULONG waitFifo(UBYTE numSlots)
 	{
@@ -78,5 +85,12 @@ static INLINE ULONG waitFifo(const BoardInfo_t *bi, UBYTE numSlots)
 {
 	return asAt3d(const_cast<BoardInfo_t *>(bi))->waitFifo(numSlots);
 }
+
+#define AT3D_MMIO_ID(x) static_cast<MmioReg::Id>(x)
+
+#define DRIVER_LOCALS(self_)                \
+	At3dDriver *drv = asAt3d(self_);    \
+	VgaIo vga       = drv->vga();       \
+	At3dMmio mmio   = drv->mmio()
 
 #endif

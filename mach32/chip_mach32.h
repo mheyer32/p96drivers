@@ -352,18 +352,6 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 
 #ifdef __cplusplus
 /* Prefer Mach32Driver::writeBee8 / writeExtGeConfigMask in .cpp. */
-#else
-#define W_BEE8(idx, value) W_IO_W(0xBEE8, ((idx << 12) | (value)))
-static inline void readModifyWrite(const BoardInfo_t *bi, LONG readReg, LONG writeReg, UWORD mask, UWORD value,
-                                   const char *writeRegName)
-{
-    REGBASE();
-    UWORD regValue = readRegWNoSwap(RegBase, readReg, writeRegName);
-    regValue       = (regValue & ~SWAPW_IO(mask)) | SWAPW_IO(value & mask);
-    writeRegWNoSwap(RegBase, writeReg, regValue, writeRegName);
-}
-#define W_EXT_GE_CONFIG_MASK(mask, value) \
-    readModifyWrite(bi, R_EXT_GE_CONFIG, EXT_GE_CONFIG, mask, value, "[R_]EXT_GE_CONFIG")
 #endif
 
 /* DISP_CNTL (22E8) — REG688000-15 §8-7 */
