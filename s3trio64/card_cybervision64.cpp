@@ -89,7 +89,8 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *Tooltypes))
         cd->configDev = configDev;
 
         bi->BoardType = BT_CyberVision;
-        bi->BoardName = "CV64";
+        static char boardName[] = "CV64";
+        bi->BoardName = boardName;
 
         getChipData(bi)->chipFamily = TRIO64;
 

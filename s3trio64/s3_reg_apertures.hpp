@@ -28,4 +28,16 @@ using S3IoQ = AbsRegAperture<IoReg::Id, S3_IO_ENDIAN, REGISTER_OFFSET, RegLog::Q
 using S3Mmio  = AbsRegAperture<MmioReg::Id, S3_MMIO_ENDIAN, MMIOREGISTER_OFFSET, RegLog::Verbose>;
 using S3MmioQ = AbsRegAperture<MmioReg::Id, S3_MMIO_ENDIAN, MMIOREGISTER_OFFSET, RegLog::Quiet>;
 
+#if defined(CONFIG_CYBERVISION64)
+/* Roxxler board control (MemBase+0x40001); write-only — use CachedReg + CardData::cv64Ctrl. */
+namespace Cv64Reg {
+enum Id : LONG { CTRL = 0 };
+#ifdef DBG
+static INLINE const char *regName(Id) { return "CV64_CTRL"; }
+#endif
+}
+using Cv64Io = AbsRegAperture<Cv64Reg::Id, RegEndian::NoSwap, REGISTER_OFFSET, RegLog::Verbose>;
+using Cv64Cached = CachedReg<Cv64Io, Cv64Reg::Id, UBYTE>;
+#endif
+
 #endif
