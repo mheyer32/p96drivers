@@ -20,8 +20,8 @@ APTR LibExpunge(__REGA6(struct CardBase *cb));
 LONG LibReserved(void);
 struct CardBase *LibInit(__REGD0(struct CardBase *cb), __REGA0(APTR seglist), __REGA6(struct Library *sysb));
 
-BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes));
-BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes));
+extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes));
+extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes));
 
 int USED _start(void)
 {
@@ -48,8 +48,17 @@ struct InitTable /* do not change */
 /* ------------------- ROM Tag ------------------------ */
 
 USED_VAR const struct Resident ROMTag = /* do not change */
-    {RTC_MATCHWORD,   (APTR)&ROMTag, &ROMTag.rt_Init + 1, RTF_AUTOINIT, 0, NT_LIBRARY, 0, &LibName[0],
-     &LibIdString[0], &InitTab};
+    {RTC_MATCHWORD,
+     const_cast<struct Resident *>(&ROMTag),
+     const_cast<struct Resident *>(&ROMTag + 1),
+     RTF_AUTOINIT,
+     0,
+     NT_LIBRARY,
+     0,
+     const_cast<char *>(&LibName[0]),
+     const_cast<char *>(&LibIdString[0]),
+     &InitTab};
+
 
 /*-------------------------------------------------------------------------*/
 /* INIT                                                                    */

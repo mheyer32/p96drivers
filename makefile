@@ -96,7 +96,7 @@ define build_rules
 # target above
 ${1}%.o: %.c | makefile $$$$(@D)/.
 	@ echo compiling $$< ...
-	@ $$(CC) $$(CFLAGS) -MMD -MP -c $$< -o $$@
+	@ $$(CXX) $$(CFLAGS) -MMD -MP -c $$< -o $$@
 
 ${1}%.o: %.cpp | makefile $$$$(@D)/.
 	@ echo compiling $$< ...
