@@ -121,22 +121,22 @@ static BOOL testRegisterAperture(BoardInfo_t *bi)
         return FALSE;
     }
 
-    REGBASE();
+    VgaIo vga = asAt3d(bi)->vga();
 
     // Test scratch pad register in sequencer registers (0x20-0x27)
     // Sequencer registers are accessed via SEQX (0x3C4) index and SEQ_DATA (0x3C5) data
     // Read current value from scratch pad register
-    UBYTE original = R_SR(SR_SCRATCH_PAD);
+    UBYTE original = vga.readSR(SR_SCRATCH_PAD);
 
     // Write test pattern to scratch pad register
     UBYTE testPattern = 0xAA;
-    W_SR(SR_SCRATCH_PAD, testPattern);
+    vga.writeSR(SR_SCRATCH_PAD, testPattern);
 
     // Read back from scratch pad register
-    UBYTE readback = R_SR(SR_SCRATCH_PAD);
+    UBYTE readback = vga.readSR(SR_SCRATCH_PAD);
 
     // Restore original value
-    W_SR(SR_SCRATCH_PAD, original);
+    vga.writeSR(SR_SCRATCH_PAD, original);
 
     DFUNC(INFO, "Scratch pad register (SR%02lx): wrote 0x%02lx, read 0x%02lx, original 0x%02lx\n",
           (ULONG)SR_SCRATCH_PAD, (ULONG)testPattern, (ULONG)readback, (ULONG)original);
@@ -166,11 +166,11 @@ static BOOL testMMIO(BoardInfo_t *bi)
         return FALSE;
     }
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     // MMVGA window maps PCI configuration space
     // Read device ID from MMVGA window at DEVICE_ID (memory offset 182-183h per AT3D documentation)
-    UWORD deviceId = R_MMIO_W(DEVICE_ID);
+    UWORD deviceId = mmio.readW(AT3D_MMIO_ID(DEVICE_ID));
 
     DFUNC(INFO, "Device ID from PCI config: 0x%04lx, from MMIO window: 0x%04lx\n", (ULONG)pciDeviceId, (ULONG)deviceId);
 
@@ -334,24 +334,24 @@ ULONG setMemoryClock(struct BoardInfo *bi, ULONG clockHz)
     DFUNC(INFO, "MCLK: N=%ld, M=%ld, L=%ld, actual=%ld kHz\n", (ULONG)pllValues.n, (ULONG)pllValues.m,
           (ULONG)pllValues.l, actualFreqKhz);
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
-    W_MMIO_B(MCLK_CTRL, CLK_POSTSCALER(3));
+    mmio.writeB(AT3D_MMIO_ID(MCLK_CTRL), CLK_POSTSCALER(3));
 
     // Write denominator (M) - mask to ensure only valid bits are set
-    W_MMIO_MASK_B(MCLK_DEN, CLK_DEN_MASK, pllValues.m - 1);
+    mmio.writeMaskB(AT3D_MMIO_ID(MCLK_DEN), CLK_DEN_MASK, pllValues.m - 1);
 
     // Write numerator (N) - mask to ensure only valid bits are set
-    W_MMIO_MASK_B(MCLK_NUM, CLK_NUM_MASK, pllValues.n - 1);
+    mmio.writeMaskB(AT3D_MMIO_ID(MCLK_NUM), CLK_NUM_MASK, pllValues.n - 1);
 
     // Wait for PLL to stabilize
     delayMilliSeconds(5);
 
     // Set postscaler in control register and enable MCLK programming
-    W_MMIO_B(MCLK_CTRL, CLK_FREQ_RANGE(0b100) | CLK_POSTSCALER(pllValues.l) | CLK_HIGH_SPEED);
+    mmio.writeB(AT3D_MMIO_ID(MCLK_CTRL), CLK_FREQ_RANGE(0b100) | CLK_POSTSCALER(pllValues.l) | CLK_HIGH_SPEED);
 
     if (clockHz > 50000000) {
-        W_MMIO_MASK_W(DISP_MEM_CFG, FAST_RAS_DISABLE_MASK, FAST_RAS_DISABLE);
+        mmio.writeMaskW(AT3D_MMIO_ID(DISP_MEM_CFG), FAST_RAS_DISABLE_MASK, FAST_RAS_DISABLE);
     }
 
     return actualFreqKhz * 1000;  // convert to hz
@@ -363,13 +363,13 @@ BOOL ASM At3dDriver::setDisplay(__REGD0(BOOL state))
 {
     BoardInfo *bi = this;
     // Clocking Mode Register (ClK_MODE) (SR1)
-    REGBASE();
+    VgaIo vga = asAt3d(bi)->vga();
     LOCAL_SYSBASE();
 
     DFUNC(VERBOSE, " state %ld\n", (ULONG)state);
 
     // SR1 bit 5: Screen Off (1 = screen off, 0 = screen on)
-    W_SR_MASK(0x01, 0x20, (~(UBYTE)state & 1) << 5);
+    vga.writeSRMask(0x01, 0x20, (~(UBYTE)state & 1) << 5);
 
     bi->ChipFlags = (bi->ChipFlags & ~1) | (state & 1);
 
@@ -379,66 +379,66 @@ BOOL ASM At3dDriver::setDisplay(__REGD0(BOOL state))
 BOOL ASM At3dDriver::getVSyncState(__REGD0(BOOL expected))
 {
     BoardInfo *bi = this;
-    REGBASE();
-    return (R_REG(0x3DA) & 0x08) != 0;
+    VgaIo vga = asAt3d(bi)->vga();
+    return (vga.readB(VgaReg::INSTAT1) & 0x08) != 0;
 }
 
 ULONG ASM At3dDriver::getVBeamPos()
 {
     BoardInfo *bi = this;
-    MMIOBASE();
-    return R_MMIO_W(VERTICAL_CURRENT_POS) & 0x7FF;
+    At3dMmio mmio = asAt3d(bi)->mmio();
+    return mmio.readW(AT3D_MMIO_ID(VERTICAL_CURRENT_POS)) & 0x7FF;
 }
 
 static void setDefaultClocks(struct BoardInfo *bi)
 {
     DFUNC(INFO, "\n");
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     {
         USHORT vclk0 = 0x0F0;
         // Set postscaler in control register
-        W_MMIO_B(vclk0, CLK_POSTSCALER_MASK | CLK_POSTSCALER(3));
+        mmio.writeB(AT3D_MMIO_ID(vclk0), CLK_POSTSCALER_MASK | CLK_POSTSCALER(3));
 
         // Write denominator (M-1) - register stores M-1, chip uses (register_value + 1)
-        W_MMIO_MASK_B(vclk0 + 1, CLK_DEN_MASK, 0x01);
+        mmio.writeMaskB(AT3D_MMIO_ID(vclk0 + 1), CLK_DEN_MASK, 0x01);
 
         // Write numerator (N-1) - register stores N-1, chip uses (register_value + 1)
-        W_MMIO_MASK_B(vclk0 + 2, CLK_NUM_MASK, 0x1b);
+        mmio.writeMaskB(AT3D_MMIO_ID(vclk0 + 2), CLK_NUM_MASK, 0x1b);
 
         // Use computed frequency range F from ResolvePixelClock
-        W_MMIO_MASK_B(vclk0, CLK_POSTSCALER_MASK | CLK_FREQ_RANGE_MASK | CLK_POWER_OFF | CLK_BYPASS, 0x6c);
+        mmio.writeMaskB(AT3D_MMIO_ID(vclk0), CLK_POSTSCALER_MASK | CLK_FREQ_RANGE_MASK | CLK_POWER_OFF | CLK_BYPASS, 0x6c);
 
         delayMilliSeconds(1);  // Short delay
 
-        UBYTE vclkCtrlVal = R_MMIO_B(vclk0);
-        W_MMIO_B(vclk0, (vclkCtrlVal & 0xF9) | 0x4);
-        W_MMIO_B(vclk0, (vclkCtrlVal & 0x79) | 0x4);
-        W_MMIO_B(vclk0, (vclkCtrlVal & 0x79) | 0x84);
-        W_MMIO_B(vclk0, vclkCtrlVal);
+        UBYTE vclkCtrlVal = mmio.readB(AT3D_MMIO_ID(vclk0));
+        mmio.writeB(AT3D_MMIO_ID(vclk0), (vclkCtrlVal & 0xF9) | 0x4);
+        mmio.writeB(AT3D_MMIO_ID(vclk0), (vclkCtrlVal & 0x79) | 0x4);
+        mmio.writeB(AT3D_MMIO_ID(vclk0), (vclkCtrlVal & 0x79) | 0x84);
+        mmio.writeB(AT3D_MMIO_ID(vclk0), vclkCtrlVal);
     }
     {
         USHORT vclk1 = 0x0F4;
         // Set postscaler in control register
-        W_MMIO_B(vclk1, CLK_POSTSCALER_MASK | CLK_POSTSCALER(3));
+        mmio.writeB(AT3D_MMIO_ID(vclk1), CLK_POSTSCALER_MASK | CLK_POSTSCALER(3));
 
         // Write denominator (M-1) - register stores M-1, chip uses (register_value + 1)
-        W_MMIO_MASK_B(vclk1 + 1, CLK_DEN_MASK, 0x02);
+        mmio.writeMaskB(AT3D_MMIO_ID(vclk1 + 1), CLK_DEN_MASK, 0x02);
 
         // Write numerator (N-1) - register stores N-1, chip uses (register_value + 1)
-        W_MMIO_MASK_B(vclk1 + 2, CLK_NUM_MASK, 0x2e);
+        mmio.writeMaskB(AT3D_MMIO_ID(vclk1 + 2), CLK_NUM_MASK, 0x2e);
 
         // Use computed frequency range F from ResolvePixelClock
-        W_MMIO_MASK_B(vclk1, CLK_POSTSCALER_MASK | CLK_FREQ_RANGE_MASK | CLK_POWER_OFF | CLK_BYPASS, 0x5c);
+        mmio.writeMaskB(AT3D_MMIO_ID(vclk1), CLK_POSTSCALER_MASK | CLK_FREQ_RANGE_MASK | CLK_POWER_OFF | CLK_BYPASS, 0x5c);
 
         delayMilliSeconds(1);  // Short delay
 
-        UBYTE vclkCtrlVal = R_MMIO_B(vclk1);
-        W_MMIO_B(vclk1, (vclkCtrlVal & 0xF9) | 0x4);
-        W_MMIO_B(vclk1, (vclkCtrlVal & 0x79) | 0x4);
-        W_MMIO_B(vclk1, (vclkCtrlVal & 0x79) | 0x84);
-        W_MMIO_B(vclk1, vclkCtrlVal);
+        UBYTE vclkCtrlVal = mmio.readB(AT3D_MMIO_ID(vclk1));
+        mmio.writeB(AT3D_MMIO_ID(vclk1), (vclkCtrlVal & 0xF9) | 0x4);
+        mmio.writeB(AT3D_MMIO_ID(vclk1), (vclkCtrlVal & 0x79) | 0x4);
+        mmio.writeB(AT3D_MMIO_ID(vclk1), (vclkCtrlVal & 0x79) | 0x84);
+        mmio.writeB(AT3D_MMIO_ID(vclk1), vclkCtrlVal);
     }
 }
 LONG ASM At3dDriver::resolvePixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULONG desiredPixelClock), __REGD7(RGBFTYPE_REG rgbFormat))
@@ -526,12 +526,12 @@ void ASM At3dDriver::setClock()
     D(INFO, "SetClock: PixelClock %ld Hz\n", mi->PixelClock);
 
     {
-        REGBASE();
+        VgaIo vga = asAt3d(bi)->vga();
         if (bi->ModeInfo->Flags & GMF_DOUBLECLOCK) {
             DFUNC(INFO, "SetClock: Clocking halving enabled\n");
-            W_SR_MASK(0x01, BIT(3), BIT(3));  // Enable DCLK = VCLK/2
+            vga.writeSRMask(0x01, BIT(3), BIT(3));  // Enable DCLK = VCLK/2
         } else {
-            W_SR_MASK(0x01, BIT(3), BIT(0));  // Enable DCLK = VCLK/2
+            vga.writeSRMask(0x01, BIT(3), BIT(0));  // Enable DCLK = VCLK/2
         }
     }
 
@@ -553,26 +553,25 @@ void ASM At3dDriver::setClock()
     DFUNC(VERBOSE, "VCLK: N=%ld (reg=0x%lx), M=%ld (reg=0x%lx), L=%ld, F=%ld\n", (ULONG)nActual, (ULONG)nReg,
           (ULONG)mActual, (ULONG)mReg, (ULONG)l, (ULONG)f);
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     // Set postscaler to 8x
-    W_MMIO_MASK_B(VCLK_CTRL, CLK_POSTSCALER_MASK, CLK_POSTSCALER(3));
+    mmio.writeMaskB(AT3D_MMIO_ID(VCLK_CTRL), CLK_POSTSCALER_MASK, CLK_POSTSCALER(3));
 
     // Write denominator (M-1) - register stores M-1, chip uses (register_value + 1)
-    W_MMIO_B(VCLK_DEN, mReg);
+    mmio.writeB(AT3D_MMIO_ID(VCLK_DEN), mReg);
 
     // Write numerator (N-1) - register stores N-1, chip uses (register_value + 1)
-    W_MMIO_B(VCLK_NUM, nReg);
+    mmio.writeB(AT3D_MMIO_ID(VCLK_NUM), nReg);
 
     // Use computed frequency range F from ResolvePixelClock
-    W_MMIO_MASK_B(VCLK_CTRL, CLK_POSTSCALER_MASK | CLK_FREQ_RANGE_MASK | CLK_POWER_OFF | CLK_BYPASS,
-                  CLK_POSTSCALER(l) | CLK_FREQ_RANGE(f));
+    mmio.writeMaskB(AT3D_MMIO_ID(VCLK_CTRL), CLK_POSTSCALER_MASK | CLK_FREQ_RANGE_MASK | CLK_POWER_OFF | CLK_BYPASS, CLK_POSTSCALER(l) | CLK_FREQ_RANGE(f));
 
     delayMicroSeconds(10);  // Short delay
 
     // PLL resync sequence: clear then set CLK_HIGH_SPEED bit
-    W_MMIO_MASK_B(VCLK_CTRL, CLK_HIGH_SPEED, 0);
-    W_MMIO_MASK_B(VCLK_CTRL, CLK_HIGH_SPEED, CLK_HIGH_SPEED);
+    mmio.writeMaskB(AT3D_MMIO_ID(VCLK_CTRL), CLK_HIGH_SPEED, 0);
+    mmio.writeMaskB(AT3D_MMIO_ID(VCLK_CTRL), CLK_HIGH_SPEED, CLK_HIGH_SPEED);
 }
 
 ULONG ASM At3dDriver::getPixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULONG index), __REGD7(RGBFTYPE_REG rgbFormat))
@@ -685,7 +684,7 @@ void ASM At3dDriver::waitBlitter()
 {
     BoardInfo *bi = this;
     DFUNC(CHATTY, "...\n");
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     const ChipData_t *cd = getConstChipData(bi);
     UBYTE numSlots       = cd->chipFamily < AT24 ? 4 : 8;  // AT24+ has a deeper FIFO
@@ -693,7 +692,7 @@ void ASM At3dDriver::waitBlitter()
     ULONG status = asAt3d(bi)->waitFifo(numSlots);  // make sure FIFO is flushed
     // Wait for FiFo idle and
     while (status & EXT_DAC_DRAWING_ENGINE_BUSY) {
-        status = R_MMIO_L(EXT_DAC_STATUS);
+        status = mmio.readL(AT3D_MMIO_ID(EXT_DAC_STATUS));
     }
     DFUNC(CHATTY, "done.\n");
 }
@@ -706,7 +705,7 @@ static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __RE
         return;
     }
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     // Check if format has changed
     if (cd->memFormat == format) {
@@ -717,7 +716,7 @@ static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __RE
     // Setup the bi-endian control register for aperture 1 (8-16MB)
     // This controls byte swapping for non-packed formats
     // Register is at offset 0xDC-0xDD in MMVGA window (BAR0)
-    UWORD biendianCtrl       = R_MMIO_W(BIENDIAN_CTRL);
+    UWORD biendianCtrl       = mmio.readW(AT3D_MMIO_ID(BIENDIAN_CTRL));
     UWORD aperture1Transform = BIENDIAN_NO_TRANSFORM;
 
     switch (format) {
@@ -739,7 +738,7 @@ static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __RE
 
     // Update aperture 1 transform code (bits [3:2])
     biendianCtrl = (biendianCtrl & ~BIENDIAN_APERTURE1_MASK) | (aperture1Transform << 2);
-    W_MMIO_W(BIENDIAN_CTRL, biendianCtrl);
+    mmio.writeW(AT3D_MMIO_ID(BIENDIAN_CTRL), biendianCtrl);
 
     return;
 }
@@ -792,10 +791,10 @@ void ASM At3dDriver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
 #define TO_CLKS(x)        ((x) >> 3)
 #define TO_SCANLINES(y)   toScanLines((y), modeFlags)
 
-    REGBASE();
+    VgaIo vga = asAt3d(bi)->vga();
 
     // For some reason, the auto-reset-disable sometimes gets lost
-    W_CR(CR_EXT_AUTORESET, CR_EXT_AUTORESET_DISABLE);
+    vga.writeCR(CR_EXT_AUTORESET, CR_EXT_AUTORESET_DISABLE);
 
     // VGA CRTC registers
     // All VGA CRTC registers are supported. In addition, the horizontal and vertical timing, start, and
@@ -810,10 +809,10 @@ void ASM At3dDriver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
         // Horizontal Total (CR0)
         UWORD hTotalClk = TO_CLKS(hTotal) - 5;
         D(INFO, "Horizontal Total %ld\n", (ULONG)hTotalClk);
-        W_CR_OVERFLOW1(hTotalClk, 0x00, 0, 8, 0x1B, 0, 1);
+        vga.writeCROverflow1(hTotalClk, 0x00, 0, 8, 0x1B, 0, 1);
 
         // Horizontal interlaced start
-        W_CR_OVERFLOW1(hTotalClk >> 1, 0x19, 0, 8, 0x1B, 4, 1);
+        vga.writeCROverflow1(hTotalClk >> 1, 0x19, 0, 8, 0x1B, 4, 1);
     }
 
     {
@@ -821,7 +820,7 @@ void ASM At3dDriver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
         // One less than the total number of displayed characters
         UWORD hDisplayEnd = TO_CLKS(screenWidth) - 1;
         D(INFO, "Display End %ld\n", (ULONG)hDisplayEnd);
-        W_CR_OVERFLOW1(hDisplayEnd, 0x01, 0, 8, 0x1B, 1, 1);
+        vga.writeCROverflow1(hDisplayEnd, 0x01, 0, 8, 0x1B, 1, 1);
     }
 
     UWORD hBorderSize = ADJUST_HBORDER(mi->HorBlankSize);
@@ -829,49 +828,49 @@ void ASM At3dDriver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
         // Start Horizontal Blank Register (CR2)
         UWORD hBlankStart = TO_CLKS(screenWidth + hBorderSize);
         D(INFO, "Horizontal Blank Start %ld\n", (ULONG)hBlankStart);
-        W_CR_OVERFLOW1(hBlankStart, 0x02, 0, 8, 0x1B, 2, 1);
+        vga.writeCROverflow1(hBlankStart, 0x02, 0, 8, 0x1B, 2, 1);
     }
 
     {
         // End Horizontal Blank Register (CR3)
         UWORD hBlankEnd = TO_CLKS(hTotal - hBorderSize) - 1;
         D(INFO, "Horizontal Blank End %ld\n", (ULONG)hBlankEnd);
-        W_CR_OVERFLOW1(hBlankEnd, 0x03, 0, 5, 0x05, 7, 1);
+        vga.writeCROverflow1(hBlankEnd, 0x03, 0, 5, 0x05, 7, 1);
     }
 
     {
         // Start Horizontal Sync Position Register (CR4)
         UWORD hSyncStart = TO_CLKS(screenWidth + mi->HorSyncStart);
         D(INFO, "HSync start %ld\n", (ULONG)hSyncStart);
-        W_CR_OVERFLOW1(hSyncStart, 0x04, 0, 8, 0x1B, 3, 1);
+        vga.writeCROverflow1(hSyncStart, 0x04, 0, 8, 0x1B, 3, 1);
     }
 
     {
         // End Horizontal Sync Position Register (CR5)
         UWORD endHSync = TO_CLKS(screenWidth + mi->HorSyncStart + mi->HorSyncSize)  - 1;
         D(INFO, "HSync End %ld\n", (ULONG)endHSync);
-        W_CR_MASK(0x05, 0x1f, endHSync);
+        vga.writeCRMask(0x05, 0x1f, endHSync);
     }
 
     {
         // Vertical Total (CR6)
         UWORD vTotal = TO_SCANLINES(mi->VerTotal) - 2;
         D(INFO, "VTotal %ld\n", (ULONG)vTotal);
-        W_CR_OVERFLOW3(vTotal, 0x06, 0, 8, 0x07, 0, 1, 0x07, 5, 1, 0x1A, 0, 1);
+        vga.writeCROverflow3(vTotal, 0x06, 0, 8, 0x07, 0, 1, 0x07, 5, 1, 0x1A, 0, 1);
     }
 
     {
         // Vertical Display End register (CR12)
         UWORD vDisplayEnd = TO_SCANLINES(mi->Height) - 1;
         D(INFO, "Vertical Display End %ld\n", (ULONG)vDisplayEnd);
-        W_CR_OVERFLOW3(vDisplayEnd, 0x12, 0, 8, 0x07, 1, 1, 0x07, 6, 1, 0x1A, 1, 1);
+        vga.writeCROverflow3(vDisplayEnd, 0x12, 0, 8, 0x07, 1, 1, 0x07, 6, 1, 0x1A, 1, 1);
     }
 
     {
         // Vertical Retrace Start Register (VRS) (CR10)
         UWORD vRetraceStart = TO_SCANLINES(mi->Height + mi->VerSyncStart);
         D(INFO, "VRetrace Start %ld\n", (ULONG)vRetraceStart);
-        W_CR_OVERFLOW3(vRetraceStart, 0x10, 0, 8, 0x07, 2, 1, 0x07, 7, 1, 0x1A, 3, 1);
+        vga.writeCROverflow3(vRetraceStart, 0x10, 0, 8, 0x07, 2, 1, 0x07, 7, 1, 0x1A, 3, 1);
     }
 
     {
@@ -880,7 +879,7 @@ void ASM At3dDriver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
         // CR11 bit 7 is write protect (handled separately)
         UWORD vRetraceEnd = TO_SCANLINES(mi->Height + mi->VerSyncStart + mi->VerSyncSize) - 1;
         D(INFO, "VRetrace End %ld, writing low 4 bits 0x%lx", (ULONG)vRetraceEnd, (ULONG)vRetraceEnd & 0xF);
-        W_CR_MASK(0x11, 0x0F, vRetraceEnd);
+        vga.writeCRMask(0x11, 0x0F, vRetraceEnd);
     }
 
     UWORD vBlankSize = ADJUST_VBORDER(mi->VerBlankSize);
@@ -888,35 +887,35 @@ void ASM At3dDriver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
         // Start Vertical Blank Register (SVB) (CR15)
         UWORD vBlankStart = TO_SCANLINES(mi->Height + vBlankSize);
         D(INFO, "VBlank Start %ld\n", (ULONG)vBlankStart);
-        W_CR_OVERFLOW3(vBlankStart, 0x15, 0, 8, 0x07, 3, 1, 0x09, 5, 1, 0x1A, 2, 1);
+        vga.writeCROverflow3(vBlankStart, 0x15, 0, 8, 0x07, 3, 1, 0x09, 5, 1, 0x1A, 2, 1);
     }
 
     {
         // End Vertical Blank Register (EVB) (CR16)
         UWORD vBlankEnd = TO_SCANLINES(mi->VerTotal - vBlankSize) - 1;
         D(6, "VBlank End %ld\n", (ULONG)vBlankEnd);
-        W_CR(0x16, vBlankEnd);
+        vga.writeCR(0x16, vBlankEnd);
     }
 
     // Interlace
     {
-        MMIOBASE();
-        UBYTE interlaceCtrl = R_MMIO_B(MONITOR_INTERLACE_CTRL);
+        At3dMmio mmio = asAt3d(bi)->mmio();
+        UBYTE interlaceCtrl = mmio.readB(AT3D_MMIO_ID(MONITOR_INTERLACE_CTRL));
         if (isInterlaced) {
             interlaceCtrl |= BIT(0);  // Enable interlace (bit 0 of 0D2h)
         } else {
             interlaceCtrl &= ~BIT(0);  // Disable interlace
         }
-        W_MMIO_B(MONITOR_INTERLACE_CTRL, interlaceCtrl);
+        mmio.writeB(AT3D_MMIO_ID(MONITOR_INTERLACE_CTRL), interlaceCtrl);
     }
 
     // Doublescan
     {
-        UBYTE dblScan = R_CR(0x9) & 0x7f;
+        UBYTE dblScan = vga.readCR(0x9) & 0x7f;
         if ((modeFlags & GMF_DOUBLESCAN) != 0) {
             dblScan = dblScan | 0x80;
         }
-        W_CR(0x9, dblScan);
+        vga.writeCR(0x9, dblScan);
     }
 
     // Vsync/HSync polarity
@@ -928,7 +927,7 @@ void ASM At3dDriver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
         if ((modeFlags & GMF_VPOLARITY) != 0) {
             polarities = polarities | 0x80;
         }
-        W_MISC_MASK(0xC0, polarities);
+        vga.writeMiscMask(0xC0, polarities);
     }
 }
 
@@ -937,7 +936,7 @@ void ASM At3dDriver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format))
     BoardInfo *bi = this;
     DFUNC(INFO, "format=%ld\n", (ULONG)format);
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     if (format >= RGBFB_MaxFormats) {
         DFUNC(ERROR, "Invalid format %ld\n", (ULONG)format);
@@ -996,7 +995,7 @@ void ASM At3dDriver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format))
     cd->GEbppLog2  = getBPPLog2((RGBFTYPE)format);
 
     // Read current register value
-    UBYTE regValue = R_MMIO_B(SERIAL_CTRL);
+    UBYTE regValue = mmio.readB(AT3D_MMIO_ID(SERIAL_CTRL));
 
     // Clear pixel depth and format bits
     regValue &= ~(DESKTOP_PIXEL_DEPTH_MASK | DESKTOP_PIXEL_FORMAT_MASK);
@@ -1014,7 +1013,7 @@ void ASM At3dDriver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format))
     // }
 
     // Write the register
-    W_MMIO_B(SERIAL_CTRL, regValue);
+    mmio.writeB(AT3D_MMIO_ID(SERIAL_CTRL), regValue);
 
     DFUNC(VERBOSE, "SetDAC: format=0x%lx, depth=0x%02lx, format=0x%02lx, reg=0x%02lx\n", (ULONG)format,
           (ULONG)pixelDepth, (ULONG)pixelFormat, (ULONG)regValue);
@@ -1030,30 +1029,30 @@ void ASM At3dDriver::setColorArray(__REGD0(UWORD startIndex), __REGD1(UWORD coun
     // This may not be interrupted, so DAC_WR_AD remains set throughout the function
     Disable();
 
-    REGBASE();
-    W_REG(DAC_WR_AD, startIndex);
+    VgaIo vga = asAt3d(bi)->vga();
+    vga.writeB(VgaReg::DAC_WR_INDEX, startIndex);
 
     struct CLUTEntry *entry = &bi->CLUT[startIndex];
 
     // Write color data for each palette entry
     // Do not print these individual register writes as it takes ages
     for (UWORD c = 0; c < count; ++c) {
-        writeReg(RegBase, DAC_DATA, entry->Red);
-        writeReg(RegBase, DAC_DATA, entry->Green);
-        writeReg(RegBase, DAC_DATA, entry->Blue);
+        vga.writeB(VgaReg::DAC_PEL_DATA, entry->Red);
+        vga.writeB(VgaReg::DAC_PEL_DATA, entry->Green);
+        vga.writeB(VgaReg::DAC_PEL_DATA, entry->Blue);
         ++entry;
     }
 
     if (startIndex == 0) {
-        R_REG(0x3DA);  // Reset AFF
+        vga.readB(VgaReg::INSTAT1);  // Reset AFF
         // Background color 0 also sets the border color
         /* 3:3:2 RGB: R[7:5], G[4:2], B[1:0] */
         if (bi->ModeInfo->Depth <= 8) {
-            W_AR(0x11, 0);
+            vga.writeAR(0x11, 0);
         } else {
-            W_AR(0x11, (UBYTE)((bi->CLUT[0].Red & 0xE0) | ((bi->CLUT[0].Green >> 3) & 0x1C) | (bi->CLUT[0].Blue >> 6)));
+            vga.writeAR(0x11, (UBYTE)((bi->CLUT[0].Red & 0xE0) | ((bi->CLUT[0].Green >> 3) & 0x1C) | (bi->CLUT[0].Blue >> 6)));
         }
-        W_REG(ATR_AD, 0x20);  // re-enable normal screen output
+        vga.writeB(VgaReg::ATTR_AD, 0x20);  // re-enable normal screen output
     }
 
     Enable();
@@ -1072,7 +1071,7 @@ static INLINE ULONG REGARGS getMemoryOffset(const struct BoardInfo *bi, APTR mem
 void ASM At3dDriver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), __REGD3(UWORD height), __REGD1(WORD xoffset), __REGD2(WORD yoffset), __REGD7(RGBFTYPE_REG format))
 {
     BoardInfo *bi = this;
-    REGBASE();
+    VgaIo vga = asAt3d(bi)->vga();
     LOCAL_SYSBASE();
 
     DFUNC(INFO,
@@ -1137,16 +1136,16 @@ void ASM At3dDriver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), __
 
     // Set Serial start address: CR0C-0D (low 16 bits), CR1C[3:0] (bits 19:16)
     // Start address is in doublewords (4 bytes)
-    W_CR_OVERFLOW2_ULONG(panOffset, 0x0d, 0, 8, 0x0c, 0, 8, 0x1c, 0, 4);
+    vga.writeCROverflow2U(panOffset, 0x0d, 0, 8, 0x0c, 0, 8, 0x1c, 0, 4);
 
     // Set Serial offset: CR13 (low 8 bits), CR1C[7:4] (bits 11:8)
     // Offset is in units of 8 bytes
     // Thus max pitch is 4095*8 =  32760 bytes
-    W_CR_OVERFLOW1(pitch, 0x13, 0, 8, 0x1c, 4, 4);
+    vga.writeCROverflow1(pitch, 0x13, 0, 8, 0x1c, 4, 4);
 
     // This has weird effects on the lines the cursor image shows
-    // R_REG(0x3DA);  // Reset AFF to latch new start address
-    // W_AR(0x13, xoffset & 7);  // Update border color to match new background color (in case it changed)
+    // vga.readB(VgaReg::INSTAT1);  // Reset AFF to latch new start address
+    // vga.writeAR(0x13, xoffset & 7);  // Update border color to match new background color (in case it changed)
 
     return;
 }
@@ -1172,10 +1171,10 @@ void ASM At3dDriver::setDPMSLevel(__REGD0(ULONG level))
         level = 3;
     }
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     // Set DPMS level in bits [1:0], preserving other bits
-    W_MMIO_MASK_B(DPMS_SYNC_CTRL, 0x03, DPMSLevels[level]);
+    mmio.writeMaskB(AT3D_MMIO_ID(DPMS_SYNC_CTRL), 0x03, DPMSLevels[level]);
 }
 
 // FIXME: Make sure to coordinate with SetDPMSLevel, does the register signals still get produced?
@@ -1189,20 +1188,20 @@ void ASM At3dDriver::waitVerticalSync(__REGD0(BOOL waitForEnd))
         return;
     }
 
-    REGBASE();
+    VgaIo vga = asAt3d(bi)->vga();
     if (waitForEnd) {
         // wait for verticel retrace
-        // Use readReg() so in debug mode slow serial output doesn't make us miss the signals
-        while (!(readReg(RegBase, 0x3DA) & 0x08)) {
+        // Quiet path / VgaIoQ if debug serial would miss the signals
+        while (!(vga.readB(VgaReg::INSTAT1) & 0x08)) {
         };
         // For pixel display (should now be top of frame, i.e. end of retrace)
-        while (!(readReg(RegBase, 0x3DA) & 0x01)) {
+        while (!(vga.readB(VgaReg::INSTAT1) & 0x01)) {
         };
     } else {  // For pixel display first
-        while (!(readReg(RegBase, 0x3DA) & 0x01)) {
+        while (!(vga.readB(VgaReg::INSTAT1) & 0x01)) {
         };
         // wait for verticel retrace starting
-        while (!(readReg(RegBase, 0x3DA) & 0x08)) {
+        while (!(vga.readB(VgaReg::INSTAT1) & 0x08)) {
         };
     }
 }
@@ -1212,19 +1211,19 @@ void ASM At3dDriver::waitVerticalSync(__REGD0(BOOL waitForEnd))
 BOOL ASM At3dDriver::setInterrupt(__REGD0(BOOL state))
 {
     BoardInfo *bi = this;
-    REGBASE();
+    VgaIo vga = asAt3d(bi)->vga();
     LOCAL_SYSBASE();
     Disable();
 
-    UBYTE idx = readReg(RegBase, CRTC_IDX);
-    writeReg(RegBase, CRTC_IDX, 0x11);
-    UBYTE cr11 = readReg(RegBase, CRTC_DATA);
+    UBYTE idx = vga.readB(VgaReg::CRTC_INDEX);
+    vga.writeB(VgaReg::CRTC_INDEX, 0x11);
+    UBYTE cr11 = vga.readB(VgaReg::CRTC_VALUE);
     if (state)
         cr11 = (cr11 & ~BIT(5)) | BIT(4);
     else
         cr11 = (cr11 | BIT(5)) & ~BIT(4);
-    writeReg(RegBase, CRTC_DATA, cr11);
-    writeReg(RegBase, CRTC_IDX, idx);
+    vga.writeB(VgaReg::CRTC_VALUE, cr11);
+    vga.writeB(VgaReg::CRTC_INDEX, idx);
 
     Enable();
     return TRUE;
@@ -1233,22 +1232,21 @@ BOOL ASM At3dDriver::setInterrupt(__REGD0(BOOL state))
 /* Non-static: DEFINE_INTSERVER asm must jsr the C symbol. */
 ULONG ASM At3dDriver::interruptServer()
 {
-    BoardInfo *bi = this;
-    volatile UBYTE *RegBase = getIOBase(bi);
+    VgaIoQ vga = vgaQ();
 
-    if (!(readReg(RegBase, 0x3C2) & BIT(7)))
+    if (!(vga.readB(VgaReg::MISC_OUT_W) & BIT(7)))
         return 0;
 
-    UBYTE idx = readReg(RegBase, CRTC_IDX);
-    writeReg(RegBase, CRTC_IDX, 0x11);
-    UBYTE cr11 = readReg(RegBase, CRTC_DATA);
-    writeReg(RegBase, CRTC_DATA, cr11 & ~BIT(4));
-    writeReg(RegBase, CRTC_DATA, cr11 | BIT(4));
-    writeReg(RegBase, CRTC_IDX, idx);
+    UBYTE idx = vga.readB(VgaReg::CRTC_INDEX);
+    vga.writeB(VgaReg::CRTC_INDEX, 0x11);
+    UBYTE cr11 = vga.readB(VgaReg::CRTC_VALUE);
+    vga.writeB(VgaReg::CRTC_VALUE, cr11 & ~BIT(4));
+    vga.writeB(VgaReg::CRTC_VALUE, cr11 | BIT(4));
+    vga.writeB(VgaReg::CRTC_INDEX, idx);
 
     {
-        struct ExecBase *SysBase = bi->ExecBase;
-        Cause(&bi->SoftInterrupt);
+        struct ExecBase *SysBase = ExecBase;
+        Cause(&SoftInterrupt);
     }
     return 1;
 }
@@ -1272,7 +1270,7 @@ void ASM At3dDriver::setReadPlane(__REGD0(UBYTE mask))
 void ASM At3dDriver::setSplitPosition(__REGD0(SHORT splitPos))
 {
     BoardInfo *bi = this;
-    REGBASE();
+    VgaIo vga = asAt3d(bi)->vga();
     DFUNC(VERBOSE, "%ld\n", (ULONG)splitPos);
 
     bi->YSplit = splitPos;
@@ -1285,7 +1283,7 @@ void ASM At3dDriver::setSplitPosition(__REGD0(SHORT splitPos))
     }
     splitPos -= 1;
 
-    W_CR_OVERFLOW3((UWORD)splitPos, 0x18, 0, 8, 0x7, 4, 1, 0x9, 6, 1, 0x1a, 4, 1);
+    vga.writeCROverflow3((UWORD)splitPos, 0x18, 0, 8, 0x7, 4, 1, 0x9, 6, 1, 0x1a, 4, 1);
 }
 
 /* Hardware cursor: 64x64 at 2 bpp, 16 bytes per row, stored at KB-aligned address.
@@ -1295,7 +1293,7 @@ void ASM At3dDriver::setSpritePosition(__REGD0(WORD xpos), __REGD1(WORD ypos), _
 {
     BoardInfo *bi = this;
     (void)fmt;
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     bi->MouseX = xpos;
     bi->MouseY = ypos;
@@ -1318,10 +1316,10 @@ void ASM At3dDriver::setSpritePosition(__REGD0(WORD xpos), __REGD1(WORD ypos), _
         spriteY = 0;
     }
 
-    W_MMIO_W(HW_CURSOR_X, spriteX & 0xFFF);
-    W_MMIO_W(HW_CURSOR_Y, spriteY & 0xFFF);
-    W_MMIO_B(HW_CURSOR_OFF_X, offsetX & 63);
-    W_MMIO_B(HW_CURSOR_OFF_Y, offsetY & 63);
+    mmio.writeW(AT3D_MMIO_ID(HW_CURSOR_X), spriteX & 0xFFF);
+    mmio.writeW(AT3D_MMIO_ID(HW_CURSOR_Y), spriteY & 0xFFF);
+    mmio.writeB(AT3D_MMIO_ID(HW_CURSOR_OFF_X), offsetX & 63);
+    mmio.writeB(AT3D_MMIO_ID(HW_CURSOR_OFF_Y), offsetY & 63);
 }
 
 void ASM At3dDriver::setSpriteImage(__REGD7(RGBFTYPE_REG fmt))
@@ -1338,7 +1336,7 @@ void ASM At3dDriver::setSpriteColor(__REGD0(UBYTE index), __REGD1(UBYTE red), __
     DFUNC(VERBOSE, "index=%ld, R=%ld, G=%ld, B=%ld, fmt=%ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue,
           (ULONG)fmt);
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
     if (index > 2)
         return;
     // Luckily this bit of index rotation was enough to match the P96 sprite color indices to the AT3D ones
@@ -1348,14 +1346,14 @@ void ASM At3dDriver::setSpriteColor(__REGD0(UBYTE index), __REGD1(UBYTE red), __
     case RGBFB_NONE:
     case RGBFB_CLUT: {
         UBYTE paletteEntry = (UBYTE)(17 + index);
-        W_MMIO_B(reg, paletteEntry);
-        // W_MMIO_MASK_B(HW_CURSOR_CTRL, BIT(2), 0x00);  // Disable "Full Color" mode
+        mmio.writeB(AT3D_MMIO_ID(reg), paletteEntry);
+        // mmio.writeMaskB(AT3D_MMIO_ID(HW_CURSOR_CTRL), BIT(2), 0x00);  // Disable "Full Color" mode
         break;
     }
     default:
         /* 3:3:2 RGB: R[7:5], G[4:2], B[1:0] */
-        W_MMIO_B(reg, (UBYTE)((red & 0xE0) | ((green >> 3) & 0x1C) | (blue >> 6)));
-        // W_MMIO_MASK_B(HW_CURSOR_CTRL, BIT(2), BIT(2));  // Enable "Full Color" mode
+        mmio.writeB(AT3D_MMIO_ID(reg), (UBYTE)((red & 0xE0) | ((green >> 3) & 0x1C) | (blue >> 6)));
+        // mmio.writeMaskB(AT3D_MMIO_ID(HW_CURSOR_CTRL), BIT(2), BIT(2));  // Enable "Full Color" mode
         break;
     }
 }
@@ -1365,11 +1363,11 @@ BOOL ASM At3dDriver::setSprite(__REGD0(BOOL activate), __REGD7(RGBFTYPE_REG RGBF
     BoardInfo *bi = this;
     DFUNC(VERBOSE, "activate=%ld, format=%ld\n", (ULONG)activate, (ULONG)RGBFormat);
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     UBYTE cursorCtrl = BIT(1) | (activate ? BIT(0) : 0);  // 3-color + Enable
 
-    W_MMIO_B(HW_CURSOR_CTRL, cursorCtrl);
+    mmio.writeB(AT3D_MMIO_ID(HW_CURSOR_CTRL), cursorCtrl);
 
     if (activate) {
         this->setSpriteColor( 0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, bi->RGBFormat);
@@ -1443,8 +1441,8 @@ static INLINE BOOL setLocationRegister(const struct BoardInfo *bi, const struct 
     if (location == ~0)
         return FALSE;
 
-    MMIOBASE();
-    W_MMIO_NOSWAP_L(reg, location);
+    At3dMmio mmio = asAt3d(bi)->mmio();
+    mmio.writeLRaw(AT3D_MMIO_ID(reg), location);
     return TRUE;
 }
 
@@ -1462,16 +1460,16 @@ static INLINE BOOL setSrcLocation(struct BoardInfo *bi, const struct RenderInfo 
 
 static INLINE void setDstPitch(struct BoardInfo *bi, UWORD bytesPerRow)
 {
-    MMIOBASE();
-    W_MMIO_W(DST_PITCH, bytesPerRow);
+    At3dMmio mmio = asAt3d(bi)->mmio();
+    mmio.writeW(AT3D_MMIO_ID(DST_PITCH), bytesPerRow);
 }
 
 static INLINE void setDrawSize(struct BoardInfo *bi, UWORD width, UWORD height)
 {
-    MMIOBASE();
-    W_MMIO_W(SRC_SIZE_Y, height);
+    At3dMmio mmio = asAt3d(bi)->mmio();
+    mmio.writeW(AT3D_MMIO_ID(SRC_SIZE_Y), height);
     // write width last as it may start the drawing operation
-    W_MMIO_W(SRC_SIZE_X, width);
+    mmio.writeW(AT3D_MMIO_ID(SRC_SIZE_X), width);
 }
 
 static INLINE void setFormat(struct BoardInfo *bi, RGBFTYPE fmt)
@@ -1506,8 +1504,8 @@ static INLINE void setForegroundPen(struct BoardInfo *bi, ULONG fgPen, RGBFTYPE 
     if (cd->GEfgPen != fgPen) {
         cd->GEfgPen = fgPen;
         fgPen       = penToColor(fgPen, fmt);
-        MMIOBASE();
-        W_MMIO_L(FRGD_COLOR, fgPen);
+        At3dMmio mmio = asAt3d(bi)->mmio();
+        mmio.writeL(AT3D_MMIO_ID(FRGD_COLOR), fgPen);
     }
 }
 
@@ -1517,8 +1515,8 @@ static INLINE void setBackgroundPen(struct BoardInfo *bi, ULONG bgPen, RGBFTYPE 
     if (cd->GEbgPen != bgPen) {
         cd->GEbgPen = bgPen;
         bgPen       = penToColor(bgPen, fmt);
-        MMIOBASE();
-        W_MMIO_L(BKGD_COLOR, bgPen);
+        At3dMmio mmio = asAt3d(bi)->mmio();
+        mmio.writeL(AT3D_MMIO_ID(BKGD_COLOR), bgPen);
     }
 }
 
@@ -1569,8 +1567,8 @@ static INLINE void setDrawCmd(BoardInfo_t *bi, ULONG drawCmd)
     ChipData_t *cd = getChipData(bi);
     if (drawCmd != cd->GEdrawCmd) {
         cd->GEdrawCmd = drawCmd;
-        MMIOBASE();
-        W_MMIO_L(DRAW_CMD, drawCmd);
+        At3dMmio mmio = asAt3d(bi)->mmio();
+        mmio.writeL(AT3D_MMIO_ID(DRAW_CMD), drawCmd);
     }
 }
 
@@ -1623,7 +1621,7 @@ return;
 }
     }
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     if (cd->GEOp != FILLRECT) {
         cd->GEOp          = FILLRECT;
@@ -1631,7 +1629,7 @@ return;
         cd->GEdrawCmd     = 0;
         cd->GEbytesPerRow = 0;
         cd->GEopCode      = 0x81;
-        W_MMIO_B(RASTEROP, ROP_SOURCE);
+        mmio.writeB(AT3D_MMIO_ID(RASTEROP), ROP_SOURCE);
     }
 
     if (isLinear != cd->GElinear || cd->GEbytesPerRow != ri->BytesPerRow || cd->GEFormat != fmt) {
@@ -1707,7 +1705,7 @@ return;
 }
     }
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     if (cd->GEOp != INVERTRECT) {
         cd->GEOp      = INVERTRECT;
@@ -1715,7 +1713,7 @@ return;
         cd->GEdrawCmd = 0;
         cd->GEopCode  = 0x81;
 
-        W_MMIO_B(RASTEROP, ROP_NOT_DST);
+        mmio.writeB(AT3D_MMIO_ID(RASTEROP), ROP_NOT_DST);
     }
 
     if (isLinear != cd->GElinear || cd->GEbytesPerRow != ri->BytesPerRow || cd->GEFormat != fmt) {
@@ -1746,7 +1744,7 @@ void ASM At3dDriver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __R
           (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)opCode, (ULONG)format,
           (ULONG)sri->BytesPerRow, (ULONG)sri->Memory, (ULONG)dri->BytesPerRow, (ULONG)dri->Memory);
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     ChipData_t *cd = getChipData(bi);
 
@@ -1773,7 +1771,7 @@ return;
 
         D(INFO, "minterm 0x%02lX ROP3 0x%02lX\n", (ULONG)opCode, (ULONG)rop3);
 
-        W_MMIO_B(RASTEROP, rop3);
+        mmio.writeB(AT3D_MMIO_ID(RASTEROP), rop3);
     }
 
     UBYTE bppLog2 = cd->GEbppLog2;
@@ -1822,8 +1820,8 @@ return;
     }
     D(INFO, "isSrcLinear %ld, isDstLinear %ld\n", (ULONG)srcLinear, (ULONG)dstLinear);
 
-    // W_MMIO_B(SRC_PITCH, sri->BytesPerRow);
-    // W_MMIO_B(DST_PITCH, dri->BytesPerRow);
+    // mmio.writeB(AT3D_MMIO_ID(SRC_PITCH), sri->BytesPerRow);
+    // mmio.writeB(AT3D_MMIO_ID(DST_PITCH), dri->BytesPerRow);
 
     ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_BLT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(bppLog2 + 1);
     drawCmd |= addrModel;
@@ -1864,7 +1862,7 @@ void ASM At3dDriver::blitRect(__REGA1(struct RenderInfo *sri), __REGD0(WORD srcX
           (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt,
           (ULONG)sri->BytesPerRow, (ULONG)sri->Memory);
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     if (mask != 0xFF) {
         D(WARN, "BlitRect fallback (mask != 0xFF)\n");
@@ -1890,7 +1888,7 @@ return;
         cd->GEdrawCmd = 0;
         cd->GEopCode  = 0x81;
 
-        W_MMIO_B(RASTEROP, ROP_SOURCE);
+        mmio.writeB(AT3D_MMIO_ID(RASTEROP), ROP_SOURCE);
     }
 
     UBYTE bppLog2    = cd->GEbppLog2;
@@ -1966,9 +1964,9 @@ static void setDrawMode(BoardInfo_t *bi, UBYTE drawMode, ULONG fgPen, ULONG bgPe
             break;
         }
         {
-            MMIOBASE();
+            At3dMmio mmio = asAt3d(bi)->mmio();
             // Documentation says that PCI burst writes break writing to ROP right after DRAW_CMD.
-            W_MMIO_B(RASTEROP, rop);
+            mmio.writeB(AT3D_MMIO_ID(RASTEROP), rop);
         }
     }
 }
@@ -1988,7 +1986,7 @@ return;
 }
     }
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
     ChipData_t *cd = getChipData(bi);
 
     setFormat(bi, (RGBFTYPE)fmt);
@@ -2011,7 +2009,7 @@ return;
 
         //    setDstPitch(bi, ri->BytesPerRow);
         /* 11.7.6: Source Location X must be 0 for mono-to-color. Monochrome source must be 64-bit aligned. */
-        W_MMIO_L(SRC_LOCATION_X_LOW, 0);
+        mmio.writeL(AT3D_MMIO_ID(SRC_LOCATION_X_LOW), 0);
     }
     setDstLocation(bi, ri, (UWORD)x, (UWORD)y, bppLog2, isLinear);
 
@@ -2054,7 +2052,7 @@ return;
         D(INFO, "Template data is already in suitable format for direct host BLT\n");
         const ULONG *src = (const ULONG *)tmpl->Memory;
 
-        while (!TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS)) {
+        while (!mmio.testL(AT3D_MMIO_ID(EXT_DAC_STATUS), EXT_DAC_HOST_BLT_IN_PROGRESS)) {
         };
 
         // Round up each line to byte boundary, then to dword boundary since we write in dwords
@@ -2080,7 +2078,7 @@ return;
 
         // D(INFO, "byteWidth %ld, bitmapPitch %ld, rol %ld, dwords %ld\n", (ULONG)byteWidth, (ULONG)bitmapPitch,
         //   (ULONG)rol, dwords);
-        // while (!TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS)) {
+        // while (!mmio.testL(AT3D_MMIO_ID(EXT_DAC_STATUS), EXT_DAC_HOST_BLT_IN_PROGRESS)) {
         // };
         // for (ULONG k = 0; k < dwords; k++) {
         //     ULONG w = 0;
@@ -2109,7 +2107,7 @@ return;
             if (clipR >= maxWidth) {
                 clipR = maxWidth - 1;
             }
-            W_MMIO_W(CLIP_RIGHT, clipR);
+            mmio.writeW(AT3D_MMIO_ID(CLIP_RIGHT), clipR);
         }
 
         // Now Round up to the next multiple of 32
@@ -2121,7 +2119,7 @@ return;
         UWORD bitmapPitch   = (UWORD) tmpl->BytesPerRow;
         UWORD dwordsPerLine = width / 32;
         UBYTE rol           = tmpl->XOffset;
-        while (!TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS)) {
+        while (!mmio.testL(AT3D_MMIO_ID(EXT_DAC_STATUS), EXT_DAC_HOST_BLT_IN_PROGRESS)) {
         };
         volatile ULONG *hostBlt = getHostBltPort(bi);
         if (!rol) {
@@ -2152,20 +2150,20 @@ return;
     {
         int count               = 100;
         volatile ULONG *hostBlt = getHostBltPort(bi);
-        while (TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS) && --count) {
+        while (mmio.testL(AT3D_MMIO_ID(EXT_DAC_STATUS), EXT_DAC_HOST_BLT_IN_PROGRESS) && --count) {
             *hostBlt = 0;
         };
 
         if (count < 99) {
             if (!count)
-                W_MMIO_B(0x1FF, 0x00);  // Byte counting gone wrong, abort host write blit
+                mmio.writeB(AT3D_MMIO_ID(0x1FF), 0x00);  // Byte counting gone wrong, abort host write blit
             D(WARN, "Host BLT completion wait loop iterated %d times\n", 100 - count);
         }
     }
 #endif
 
     if (!isLinear) {
-        W_MMIO_W(CLIP_RIGHT, 0xFFF);
+        mmio.writeW(AT3D_MMIO_ID(CLIP_RIGHT), 0xFFF);
     }
     return;
 
@@ -2254,7 +2252,7 @@ return;
         }
     }
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     if (!isLinear) {
         UWORD originX, originY;
@@ -2270,7 +2268,7 @@ return;
             clipR = maxWidth - 1;
         }
 
-        W_MMIO_W(CLIP_RIGHT, clipR);
+        mmio.writeW(AT3D_MMIO_ID(CLIP_RIGHT), clipR);
     }
 
     ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_BLT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_SRC_MONOCHROME |
@@ -2289,14 +2287,14 @@ return;
     {
         ULONG location = cd->templateStagingOffset >> bppLog2;
         location       = makeDWORD(swapw(location & 0xFFF), swapw(location >> 12));
-        W_MMIO_NOSWAP_L(SRC_LOCATION_X_LOW, location);
+        mmio.writeLRaw(AT3D_MMIO_ID(SRC_LOCATION_X_LOW), location);
     }
 
     setDstLocation(bi, ri, (UWORD)x, (UWORD)y, bppLog2, isLinear);
     setDrawSize(bi, blitWidth, height);
 
     if (!isLinear) {
-        W_MMIO_W(CLIP_RIGHT, 0xFFF);
+        mmio.writeW(AT3D_MMIO_ID(CLIP_RIGHT), 0xFFF);
     }
     return;
 
@@ -2314,14 +2312,14 @@ static void performPlanarPlaneBlit(struct BoardInfo *bi, UWORD width, UWORD heig
 
     DFUNC(INFO, "BlitPlanar2Chunky plane %ld,  w %ld (%ld dwords), h %ld rol %ld, 0x%08lx \n", (ULONG)planeIndex,
           (ULONG)width, (ULONG)dwordsPerLine, (ULONG)height, (ULONG)rol, bitmap);
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     setForegroundPen(bi, 1 << planeIndex, RGBFB_CLUT);
     // setBackgroundPen(bi, 1 << planeIndex, RGBFB_CLUT);
     setDrawSize(bi, width, height);
 
     volatile ULONG *hostBlt = getHostBltPort(bi);
-    while (!TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS)) {
+    while (!mmio.testL(AT3D_MMIO_ID(EXT_DAC_STATUS), EXT_DAC_HOST_BLT_IN_PROGRESS)) {
     }
 
     if ((ULONG)bitmap == 0xFFFFFFFFUL) {
@@ -2352,17 +2350,17 @@ static void performPlanarPlaneBlit(struct BoardInfo *bi, UWORD width, UWORD heig
         }
     }
 
-    //    W_MMIO_L(DRAW_CMD, DRAW_CMD_OP(DRAW_CMD_NOP) | DRAW_ENGINE_START);
+    //    mmio.writeL(AT3D_MMIO_ID(DRAW_CMD), DRAW_CMD_OP(DRAW_CMD_NOP) | DRAW_ENGINE_START);
 
     {
         ChipData_t *cd = getChipData(bi);
         int count      = 100;
-        while (TST_MMIO_L(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS) && --count) {
+        while (mmio.testL(AT3D_MMIO_ID(EXT_DAC_STATUS), EXT_DAC_HOST_BLT_IN_PROGRESS) && --count) {
             *hostBlt = 0xFF00AACC;
         }
         if (!count) {
             D(WARN, "Host BLT completion wait loop iterated too many times, aborting\n");
-            W_MMIO_B(0x1FF, 0x01);
+            mmio.writeB(AT3D_MMIO_ID(0x1FF), 0x01);
         }
     }
 }
@@ -2394,7 +2392,7 @@ void ASM At3dDriver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struc
 
     DFUNC(INFO, "post Fillrect\n");
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
     ChipData_t *cd = getChipData(bi);
 
     if (cd->GEOp != BLITPLANAR2CHUNKY) {
@@ -2402,9 +2400,9 @@ void ASM At3dDriver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struc
         cd->GEdrawCmd = 0;
         cd->GEopCode  = 0x81;
         // ROP3 only available during pattern blits?
-        // W_MMIO_B(RASTEROP, ROP_PATTERN_AND_SOURCE_OR_DST);
-        W_MMIO_B(RASTEROP, ROP_SRC_OR_DST | (mintermToRop3(minTerm) & 0xF0));
-        W_MMIO_L(SRC_LOCATION_X_LOW, 0);
+        // mmio.writeB(AT3D_MMIO_ID(RASTEROP), ROP_PATTERN_AND_SOURCE_OR_DST);
+        mmio.writeB(AT3D_MMIO_ID(RASTEROP), ROP_SRC_OR_DST | (mintermToRop3(minTerm) & 0xF0));
+        mmio.writeL(AT3D_MMIO_ID(SRC_LOCATION_X_LOW), 0);
         setBackgroundPen(bi, 0, RGBFB_CLUT);
     }
 
@@ -2443,7 +2441,7 @@ return;
         if (clipR >= maxWidth) {
             clipR = maxWidth - 1;
         }
-        W_MMIO_W(CLIP_RIGHT, clipR);
+        mmio.writeW(AT3D_MMIO_ID(CLIP_RIGHT), clipR);
     }
 
     // Round up to 32pixels, so we don't have too much hassle with the HOST Blit being byte-aligned.
@@ -2484,19 +2482,19 @@ return;
             UWORD halfHeight2 = height / 2;
 
             setDstLocation(bi, &dstRi, dstX, dstY, 0, isLinear);
-            W_MMIO_W(CLIP_RIGHT, clipR);
+            mmio.writeW(AT3D_MMIO_ID(CLIP_RIGHT), clipR);
             performPlanarPlaneBlit(bi, width, halfHeight1, planeBitmap, dwordsPerLine, bmPitch * 2, rol, p);
 
             if (halfHeight2) {
                 setDstLocation(bi, &dstRi, dstX + 320, dstY, 0, isLinear);
-                W_MMIO_W(CLIP_RIGHT, clipR + 320);
+                mmio.writeW(AT3D_MMIO_ID(CLIP_RIGHT), clipR + 320);
                 performPlanarPlaneBlit(bi, width, halfHeight2, planeBitmap2, dwordsPerLine, bmPitch * 2, rol, p);
             }
         }
     }
 
     if (!isLinear) {
-        W_MMIO_W(CLIP_RIGHT, 0xFFF);
+        mmio.writeW(AT3D_MMIO_ID(CLIP_RIGHT), 0xFFF);
     }
 
     return;
@@ -2655,15 +2653,15 @@ return;
         cd->pat1 = pat1;
     }
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     /* Upload pre-rotated 8x8 pattern to PATTERN register (0x048: two DWORDs).
      * Documentation says: "Write to this register prior to each use.
      * The contents of M048–04F are not sustained across all operations.".
      * So no caching.
      */
-    W_MMIO_NOSWAP_L(PATTERN, cd->pat0);
-    W_MMIO_NOSWAP_L(PATTERN + 4, cd->pat1);
+    mmio.writeLRaw(AT3D_MMIO_ID(PATTERN), cd->pat0);
+    mmio.writeLRaw(AT3D_MMIO_ID(PATTERN + 4), cd->pat1);
 
     ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_RECT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) |
                     DRAW_PIXEL_DEPTH(bppLog2 + 1) | addressModel;
@@ -2749,7 +2747,7 @@ return;
     // }
 
     /* Diagonal: use AT3D vector drawing with DDA */
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     if (cd->GEOp != LINE) {
         cd->GEOp      = LINE;
@@ -2773,10 +2771,10 @@ return;
     WORD absMAX         = myabs(line->lDelta);
     WORD twoTimesAbsMIN = myabs(2 * line->sDelta);
 
-    // W_MMIO_W(DDA_AXIAL_STEP, (UWORD)(2 * absMIN));               /* 2*dmin */
-    // W_MMIO_W(DDA_DIAGONAL_STEP, ); /* (2*dmin)-(2*dmax) */
-    W_MMIO_L(DDA_AXIAL_STEP, makeDWORD(twoTimesAbsMIN - 2 * absMAX, twoTimesAbsMIN)); /* 2*dmin */
-    W_MMIO_W(DDA_ERROR_TERM, line->twoSDminusLD); /* P96 provides correct initial value */
+    // mmio.writeW(AT3D_MMIO_ID(DDA_AXIAL_STEP), (UWORD)(2 * absMIN));               /* 2*dmin */
+    // mmio.writeW(AT3D_MMIO_ID(DDA_DIAGONAL_STEP), ); /* (2*dmin)-(2*dmax) */
+    mmio.writeL(AT3D_MMIO_ID(DDA_AXIAL_STEP), makeDWORD(twoTimesAbsMIN - 2 * absMAX, twoTimesAbsMIN)); /* 2*dmin */
+    mmio.writeW(AT3D_MMIO_ID(DDA_ERROR_TERM), line->twoSDminusLD); /* P96 provides correct initial value */
 
     ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_VECTOR_ENDPOINT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) |
                     DRAW_PIXEL_DEPTH(bppLog2 + 1) | addressModel;
@@ -2797,7 +2795,7 @@ return;
     setDrawCmd(bi, drawCmd);
 
     /* SRC_SIZE_X: Spec Dimension X = dmax + 1; P96 Length = dmax = max(|dx|,|dy|). */
-    W_MMIO_W(SRC_SIZE_X, line->Length + 1);
+    mmio.writeW(AT3D_MMIO_ID(SRC_SIZE_X), line->Length + 1);
     return;
 
 }
@@ -2986,31 +2984,31 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     ChipData_t *cd = getChipData(bi);
 
     {
-        LEGACYIOBASE();
+        VgaIo vga = asAt3d(bi)->legacyVga();
 
         // The older AT 6410 cards had the wakeup registers
         if (cd->chipFamily < AT24) {
-            W_REG(0x46E8, 0x10);
-            W_REG(0x102, 0x01);
-            W_REG(0x46E8, 0x08);
+            vga.writeB(VGA_ID(0x46E8), 0x10);
+            vga.writeB(VGA_ID(0x102), 0x01);
+            vga.writeB(VGA_ID(0x46E8), 0x08);
         }
 
         // Unlock extended registers
-        W_SR(0x10, 0x12);
-        // R_SR(0x10);  // Debug read
+        vga.writeSR(0x10, 0x12);
+        // vga.readSR(0x10);  // Debug read
 
         // Remap Control
         // Map HOST BLT port to last 32K of flat space less final 2K
         // Map ProMotion registers to  last 2K of flat space.
-        W_SR_MASK(0x1b, 0x3F, (0b100 << 3) | (0b100));
+        vga.writeSRMask(0x1b, 0x3F, (0b100 << 3) | (0b100));
 
         // Flat Model Control
         // Enable flat memory access, set aperture to 4MB and disable VGA memory (A000:0–BFFF:F) access
-        W_SR_MASK(0x1c, 0x3F, 0b00111101);
-        R_SR(0x1c);  // Dummy read to force flush of FIFO (is this the right way?)
+        vga.writeSRMask(0x1c, 0x3F, 0b00111101);
+        vga.readSR(0x1c);  // Dummy read to force flush of FIFO (is this the right way?)
     }
 
-    MMIOBASE();
+    At3dMmio mmio = asAt3d(bi)->mmio();
 
     if (getChipData(bi)->chipFamily >= AT24) {
 #define LDEV_MASK (0x3 << 4)
@@ -3018,12 +3016,12 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
         // Enable extended registers, disable classic VGA IO range,
         // enable coprocessor aperture, enable second linear aperture
-        W_MMIO_B(ENABLE_EXT_REGS, 0x0F);
+        mmio.writeB(AT3D_MMIO_ID(ENABLE_EXT_REGS), 0x0F);
         // Doc say about the MMVGA address space:
         // LDEV wait states register field (0xD9[5:4]) must be programmed to value 2 in order to access this space.
-        UBYTE extSigTiming = R_MMIO_B(EXTSIG_TIMING) & 0xC0;
+        UBYTE extSigTiming = mmio.readB(AT3D_MMIO_ID(EXTSIG_TIMING)) & 0xC0;
         extSigTiming |= LDEV(2);  //  I have seen 0x59  used in the ROM
-        W_MMIO_B(EXTSIG_TIMING, extSigTiming);
+        mmio.writeB(AT3D_MMIO_ID(EXTSIG_TIMING), extSigTiming);
     }
 
     if (!testMMIO(bi)) {
@@ -3032,11 +3030,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
 
     // From here on we can access the MMVGA window
-    REGBASE();
+    VgaIo vga = asAt3d(bi)->vga();
 
     char chipId[10] = {0};
     for (int c = 0; c < 9; ++c) {
-        chipId[c] = R_SR(0x11 + c);
+        chipId[c] = vga.readSR(0x11 + c);
     }
 
     D(INFO, "Chip ID: %s\n", chipId);
@@ -3055,81 +3053,81 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     // invoke auto-reset of many non-VGA registers
     {
-        W_CR(CR_EXT_AUTORESET, 0x00);
-        W_CR(0x00, 0x00);
-        W_CR(CR_EXT_AUTORESET, CR_EXT_AUTORESET_DISABLE);
+        vga.writeCR(CR_EXT_AUTORESET, 0x00);
+        vga.writeCR(0x00, 0x00);
+        vga.writeCR(CR_EXT_AUTORESET, CR_EXT_AUTORESET_DISABLE);
         // FIXME: something is off with this register. The readback sometimes returns 0x01, sometimes 0xff
         // and sometimes it seems to get reset to 0 later.
-        while ((R_CR(CR_EXT_AUTORESET) & CR_EXT_AUTORESET_DISABLE) != CR_EXT_AUTORESET_DISABLE) {
-            W_CR(CR_EXT_AUTORESET, CR_EXT_AUTORESET_DISABLE);
+        while ((vga.readCR(CR_EXT_AUTORESET) & CR_EXT_AUTORESET_DISABLE) != CR_EXT_AUTORESET_DISABLE) {
+            vga.writeCR(CR_EXT_AUTORESET, CR_EXT_AUTORESET_DISABLE);
         }
     }
 
     setDefaultClocks(bi);
-    W_MISC_MASK(0x0C, 0);  // Disable programmable VCLK
+    vga.writeMiscMask(0x0C, 0);  // Disable programmable VCLK
 
-    W_MMIO_MASK_W(DISP_MEM_CFG, BIT(5), BIT(5));  // 128bit  graphics engine access. Manual says this MUST be set.
+    mmio.writeMaskW(AT3D_MMIO_ID(DISP_MEM_CFG), BIT(5), BIT(5));  // 128bit  graphics engine access. Manual says this MUST be set.
 
     if (bi->MemorySize >= 2 * 1024 * 1024) {
-        W_MMIO_MASK_W(DISP_MEM_CFG, BIT(8), BIT(8));  // 64bit memory bus
+        mmio.writeMaskW(AT3D_MMIO_ID(DISP_MEM_CFG), BIT(8), BIT(8));  // 64bit memory bus
     }
 
     // Scratchpad registers (6422: 0x21–0x23 only; AT24+: 0x21–0x27)
-    R_SR(0x20);
+    vga.readSR(0x20);
     int scratchEnd = (cd->chipFamily < AT24) ? 0x23 : 0x27;
     for (int i = 0x21; i <= scratchEnd; ++i) {
-        W_SR(i, 0x00);
+        vga.writeSR(i, 0x00);
     }
-    W_MMIO_B(ABORT, 0);
-    W_MMIO_B(COLOR_CORRECTION, BIT(4));  // 8bit per gun palette write (Does not seem to work?!)
+    mmio.writeB(AT3D_MMIO_ID(ABORT), 0);
+    mmio.writeB(AT3D_MMIO_ID(COLOR_CORRECTION), BIT(4));  // 8bit per gun palette write (Does not seem to work?!)
     /* DAC_CTRL 0E4h bit0 = blanking pedestal; BLACKLEVEL=Black clears it. */
-    W_MMIO_B(DAC_CTRL, (bi->CardFlags & CFF_BLACKLEVEL_BLACK) ? 0 : BIT(0));
+    mmio.writeB(AT3D_MMIO_ID(DAC_CTRL), (bi->CardFlags & CFF_BLACKLEVEL_BLACK) ? 0 : BIT(0));
     if (cd->chipFamily >= AT24) {
-        W_MMIO_B(SIGANALYSER_CTRL, 0);  // Disable signal analyser
-        W_MMIO_B(FEATURE_CTRL, 0);
-        W_MMIO_L(VMI_PORT_CTRL, 0);
-        W_MMIO_B(THP_CTRL, 0);
-        W_MMIO_B(GPIO_CTRL, 0);
-        W_MMIO_B(OVERCURRENT_RED, 0);
-        W_MMIO_B(OVERCURRENT_GREEN, 0);
-        W_MMIO_B(OVERCURRENT_BLUE, 0);
+        mmio.writeB(AT3D_MMIO_ID(SIGANALYSER_CTRL), 0);  // Disable signal analyser
+        mmio.writeB(AT3D_MMIO_ID(FEATURE_CTRL), 0);
+        mmio.writeL(AT3D_MMIO_ID(VMI_PORT_CTRL), 0);
+        mmio.writeB(AT3D_MMIO_ID(THP_CTRL), 0);
+        mmio.writeB(AT3D_MMIO_ID(GPIO_CTRL), 0);
+        mmio.writeB(AT3D_MMIO_ID(OVERCURRENT_RED), 0);
+        mmio.writeB(AT3D_MMIO_ID(OVERCURRENT_GREEN), 0);
+        mmio.writeB(AT3D_MMIO_ID(OVERCURRENT_BLUE), 0);
     }
 
-    W_MMIO_B(MONITOR_INTERLACE_CTRL, 0x00);
+    mmio.writeB(AT3D_MMIO_ID(MONITOR_INTERLACE_CTRL), 0x00);
 
     // Force 8 Dot, force Graphics mode, force VCLK PLL,
     UWORD vgaOverride = BIT(5) | BIT(6) | BIT(7) | BIT(9);
     if (cd->chipFamily >= AT24) {
         vgaOverride |= BIT(12);  //  disable VGA IO; 6422 doesn't have the MMVGA regions, thus we still need VGA IO
     }
-    W_MMIO_W(VGA_OVERRIDE, vgaOverride);
+    mmio.writeW(AT3D_MMIO_ID(VGA_OVERRIDE), vgaOverride);
 
     // Enable extended VGA Modes
-    W_MMIO_B(SERIAL_CTRL, BIT(6) | DESKTOP_DEPTH_8BPP | DESKTOP_FORMAT_INDEXED);  //
+    mmio.writeB(AT3D_MMIO_ID(SERIAL_CTRL), BIT(6) | DESKTOP_DEPTH_8BPP | DESKTOP_FORMAT_INDEXED);  //
 
-    W_MMIO_MASK_B(APERTURE_CTRL, PALETTE_ACCESS_MASK, PALETTE_ACCESS(0b01));  // Disable RAMDAC snooping
-    W_MMIO_B(DPMS_SYNC_CTRL, 0x00);  // Clear bits [1:0] to enable both HSYNC and VSYNC
-    W_MMIO_B(PIXEL_FIFO_REQ_POINT, 0x16);
-    W_MMIO_B(PIXEL_FIFO_REQ_POINT + 1, 0x16);
-    W_MMIO_B(PIXEL_FIFO_REQ_POINT + 2, 0x16);
+    mmio.writeMaskB(AT3D_MMIO_ID(APERTURE_CTRL), PALETTE_ACCESS_MASK, PALETTE_ACCESS(0b01));  // Disable RAMDAC snooping
+    mmio.writeB(AT3D_MMIO_ID(DPMS_SYNC_CTRL), 0x00);  // Clear bits [1:0] to enable both HSYNC and VSYNC
+    mmio.writeB(AT3D_MMIO_ID(PIXEL_FIFO_REQ_POINT), 0x16);
+    mmio.writeB(AT3D_MMIO_ID(PIXEL_FIFO_REQ_POINT + 1), 0x16);
+    mmio.writeB(AT3D_MMIO_ID(PIXEL_FIFO_REQ_POINT + 2), 0x16);
 
-    // W_MMIO_B(0xDA, 0x00);  // This used to be an "Internal Register" on older 6210 cards(?)
+    // mmio.writeB(AT3D_MMIO_ID(0xDA), 0x00);  // This used to be an "Internal Register" on older 6210 cards(?)
 
-    W_MMIO_W(DISP_MEM_CFG, 0x0520);  // Single Cycle Page Mode, mem64, 128bit gfx access
+    mmio.writeW(AT3D_MMIO_ID(DISP_MEM_CFG), 0x0520);  // Single Cycle Page Mode, mem64, 128bit gfx access
 
-    W_MMIO_B(VCLK_CTRL, 0x5C);
-    W_MMIO_B(VCLK_DEN, 0x01);
-    W_MMIO_B(VCLK_NUM, 0x1b);
+    mmio.writeB(AT3D_MMIO_ID(VCLK_CTRL), 0x5C);
+    mmio.writeB(AT3D_MMIO_ID(VCLK_DEN), 0x01);
+    mmio.writeB(AT3D_MMIO_ID(VCLK_NUM), 0x1b);
 
-    W_MISC_MASK(0xF, 0b1111);  // enable Host Memory Access, programmable VCLK, Color Mode (3DA, 3D4 and 3D5 enabled))
+    vga.writeMiscMask(0xF, 0b1111);  // enable Host Memory Access, programmable VCLK, Color Mode (3DA, 3D4 and 3D5 enabled))
 
     {
         // Enable writing attribute palette registers, disable video
-        R_REG(0x3DA);
-        W_REG(ATR_AD, 0x0);
+        vga.readB(VgaReg::INSTAT1);
+        vga.writeB(VgaReg::ATTR_AD, 0x0);
 
         // Reset AFF to index register selection
-        R_REG(0x3DA);
+        vga.readB(VgaReg::INSTAT1);
 
         for (int p = 0; p < 16; ++p) {
             /* The attribute controller registers are located atthe same byte I/O
@@ -3144,56 +3142,56 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
                Attribute Controller Index register is read at 3COH, and the Attribute
                Controller Data register is read
                at address 3C1 H.  */
-            W_AR(p, p);
+            vga.writeAR(p, p);
         }
 
-        W_AR(0x10, 0x61);  // 256color mode, separate pixel panning, graphics mode
+        vga.writeAR(0x10, 0x61);  // 256color mode, separate pixel panning, graphics mode
 
         // Enable video
-        R_REG(0x3DA);         // reset AFF
-        W_REG(ATR_AD, 0x20);  // enable video
+        vga.readB(VgaReg::INSTAT1);         // reset AFF
+        vga.writeB(VgaReg::ATTR_AD, 0x20);  // enable video
     }
 
     // Setup 8 pixels per DCLK, screen off
-    W_SR(0x01, BIT(5) | SR_CHAR_CLOCK_8_DOT);
-    W_SR(0x03, 0x00);
-    W_SR(0x04, 0x06);  // >64k present, unchained mode
+    vga.writeSR(0x01, BIT(5) | SR_CHAR_CLOCK_8_DOT);
+    vga.writeSR(0x03, 0x00);
+    vga.writeSR(0x04, 0x06);  // >64k present, unchained mode
 
-    W_GR(0x00, 0x00);
-    W_GR(0x01, 0x00);
-    W_GR(0x02, 0x00);
-    W_GR(0x03, 0x00);
-    W_GR(0x04, 0x00);
-    W_GR(0x05, 0x00);
-    W_GR(0x06, 0x01);
-    W_GR(0x07, 0x0F);
-    W_GR(0x08, 0xFF);
+    vga.writeGR(0x00, 0x00);
+    vga.writeGR(0x01, 0x00);
+    vga.writeGR(0x02, 0x00);
+    vga.writeGR(0x03, 0x00);
+    vga.writeGR(0x04, 0x00);
+    vga.writeGR(0x05, 0x00);
+    vga.writeGR(0x06, 0x01);
+    vga.writeGR(0x07, 0x0F);
+    vga.writeGR(0x08, 0xFF);
 
-    R_CR(CR_EXT_AUTORESET);
+    vga.readCR(CR_EXT_AUTORESET);
 
-    W_CR(0x08, 0x00);
-    W_CR(0x09, 0x00);
-    W_CR(0x0A, 0x00);
-    W_CR(0x0B, 0x00);
-    W_CR(0x0C, 0x00);  // "Serial Start" = Start address of screen to 0
-    W_CR(0x0D, 0x00);
-    W_CR(0x0E, 0x00);
-    W_CR(0x0F, 0x00);
+    vga.writeCR(0x08, 0x00);
+    vga.writeCR(0x09, 0x00);
+    vga.writeCR(0x0A, 0x00);
+    vga.writeCR(0x0B, 0x00);
+    vga.writeCR(0x0C, 0x00);  // "Serial Start" = Start address of screen to 0
+    vga.writeCR(0x0D, 0x00);
+    vga.writeCR(0x0E, 0x00);
+    vga.writeCR(0x0F, 0x00);
 
-    W_CR(0x11, 0x20);  // Disable Vertical Interrupt, ack. Interrupt
-    W_CR(0x11, 0x30);  // Normal retrace
+    vga.writeCR(0x11, 0x20);  // Disable Vertical Interrupt, ack. Interrupt
+    vga.writeCR(0x11, 0x30);  // Normal retrace
 
-    W_CR(0x1C, 0x00);
-    W_CR(0x13, 0x50);    // "Serial Offset" = pitch 80 * 8 = 640 byte
-    W_CR(0x14, BIT(6));  // Enable "Double Word mode"  CRTC display memory addresses incremented by 4
-    W_CR(0x17, BIT(7) | BIT(6) | BIT(5) | BIT(0));  // CRTC  Mode Control Register, enable HSYNC and VSYNC
-    W_CR(0x18, 0xff);                               // Line compare register
+    vga.writeCR(0x1C, 0x00);
+    vga.writeCR(0x13, 0x50);    // "Serial Offset" = pitch 80 * 8 = 640 byte
+    vga.writeCR(0x14, BIT(6));  // Enable "Double Word mode"  CRTC display memory addresses incremented by 4
+    vga.writeCR(0x17, BIT(7) | BIT(6) | BIT(5) | BIT(0));  // CRTC  Mode Control Register, enable HSYNC and VSYNC
+    vga.writeCR(0x18, 0xff);                               // Line compare register
 
-    R_CR(CR_EXT_AUTORESET);
+    vga.readCR(CR_EXT_AUTORESET);
 
-    W_REG(DAC_MASK, 0xFF);
+    vga.writeB(VgaReg::DAC_PEL_MASK, 0xFF);
 
-    UBYTE miscOut = R_REG(MISC_R);
+    UBYTE miscOut = vga.readB(VgaReg::MISC_OUT_R);
     D(INFO, "Monitor is %s present (may be inaccurate)\n", (miscOut & 0x10) ? "" : "not");
 
     D(INFO, "Attempting EDID readout of monitor\n");
@@ -3339,19 +3337,19 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
      * 6422: also reserve 1KB for BlitTemplate6422 mono staging (below cursor). */
     {
         ULONG maxCursorBufferSize = (64 * 64 * 2 / 8); /* 64x64 at 2 bpp = 1024 bytes */
-        MMIOBASE();
+        At3dMmio mmio = asAt3d(bi)->mmio();
 
         bi->MemorySize       = (bi->MemorySize - maxCursorBufferSize) & ~(1024 - 1);
         bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
 
         // DFUNC(INFO, "Cursor offset %ld\n", bi->MemorySize);
 
-        W_MMIO_B(HW_CURSOR_CTRL, 0);
-        W_MMIO_W(HW_CURSOR_BASE, (UWORD)(bi->MemorySize >> 10));
-        W_MMIO_W(HW_CURSOR_X, 0);
-        W_MMIO_W(HW_CURSOR_Y, 0);
-        W_MMIO_B(HW_CURSOR_OFF_X, 0);
-        W_MMIO_B(HW_CURSOR_OFF_Y, 0);
+        mmio.writeB(AT3D_MMIO_ID(HW_CURSOR_CTRL), 0);
+        mmio.writeW(AT3D_MMIO_ID(HW_CURSOR_BASE), (UWORD)(bi->MemorySize >> 10));
+        mmio.writeW(AT3D_MMIO_ID(HW_CURSOR_X), 0);
+        mmio.writeW(AT3D_MMIO_ID(HW_CURSOR_Y), 0);
+        mmio.writeB(AT3D_MMIO_ID(HW_CURSOR_OFF_X), 0);
+        mmio.writeB(AT3D_MMIO_ID(HW_CURSOR_OFF_Y), 0);
     }
 
     if (cd->chipFamily < AT24) {
@@ -3360,13 +3358,13 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         bi->MemorySize            = cd->templateStagingOffset;
     }
 
-    W_MMIO_B(BYTE_MASK, 0xFF);
+    mmio.writeB(AT3D_MMIO_ID(BYTE_MASK), 0xFF);
 
-    W_MMIO_W(CLIP_CTRL, BIT(0));
-    W_MMIO_W(CLIP_LEFT, 0);
-    W_MMIO_W(CLIP_TOP, 0);
-    W_MMIO_W(CLIP_RIGHT, 0xFFF);
-    W_MMIO_W(CLIP_BOTTOM, 0xFFF);
+    mmio.writeW(AT3D_MMIO_ID(CLIP_CTRL), BIT(0));
+    mmio.writeW(AT3D_MMIO_ID(CLIP_LEFT), 0);
+    mmio.writeW(AT3D_MMIO_ID(CLIP_TOP), 0);
+    mmio.writeW(AT3D_MMIO_ID(CLIP_RIGHT), 0xFFF);
+    mmio.writeW(AT3D_MMIO_ID(CLIP_BOTTOM), 0xFFF);
 
     ULONG memClk = bi->MemoryClock;
     if (memClk < 45000000) {

@@ -2,7 +2,7 @@
 #define S3_REG_APERTURES_HPP
 
 #include "s3_regs.hpp"
-#include "reg_access.hpp"
+#include "vga_aperture.hpp"
 
 #if BIGENDIAN_IO
 #define S3_IO_ENDIAN RegEndian::NoSwap
