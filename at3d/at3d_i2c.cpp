@@ -3,6 +3,10 @@
 #include "edid_common.h"
 #include "common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // I2C timing delays (standard I2C: 100kHz)
 #define I2C_DELAY_US 5  // 5 microseconds for standard I2C timing
 
@@ -177,3 +181,6 @@ const I2COps_t *getI2COps(struct BoardInfo *bi)
     return &at3d_i2c_ops;
 }
 
+#ifdef __cplusplus
+}
+#endif

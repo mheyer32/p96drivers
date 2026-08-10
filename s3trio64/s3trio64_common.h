@@ -83,7 +83,7 @@ STATIC_ASSERT(sizeof(ChipData_t) <= sizeof(((BoardInfo_t *)0)->ChipData), ChipDa
 
 typedef struct CardData
 {
-    BYTE *legacyIOBase;  // legacy I/O base address
+    volatile UBYTE *legacyIOBase;  // legacy I/O base address
 #if OPENPCI
     struct Library *OpenPciBase;
     struct pci_dev *board;
@@ -101,11 +101,23 @@ typedef struct CardData
 
 STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);
 
+
+#ifdef __cplusplus
+#include "s3_driver.hpp"
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 extern ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision);
 extern const char *getChipFamilyName(ChipFamily_t family);
 extern BOOL initRegisterAndMemoryBases(BoardInfo_t *bi);
 
 #define LEGACYIOBASE() volatile UBYTE *RegBase = getCardData(bi)->legacyIOBase
+
+#ifdef __cplusplus
+}
+#endif
 
 #ifdef CONFIG_CYBERVISION64
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

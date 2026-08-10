@@ -49,6 +49,10 @@ typedef struct CardData
 
 STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddata_fits_boardinfo);
 
+#ifdef __cplusplus
+#include "mach32_driver.hpp"
+#endif
+
 /*
  * Mach32 coprocessor I/O indices (16-bit word ports at RegisterBase unless noted).
  * ATI REG688000-15 (1993) §8–9, Appendix A.
@@ -346,8 +350,10 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define MEM_SIZE_ALIAS_MASK (0x3 << 2)
 #define MEM_SIZE_ALIAS(x)   ((x) << 2)
 
+#ifdef __cplusplus
+/* Prefer Mach32Driver::writeBee8 / writeExtGeConfigMask in .cpp. */
+#else
 #define W_BEE8(idx, value) W_IO_W(0xBEE8, ((idx << 12) | (value)))
-
 static inline void readModifyWrite(const BoardInfo_t *bi, LONG readReg, LONG writeReg, UWORD mask, UWORD value,
                                    const char *writeRegName)
 {
@@ -358,6 +364,7 @@ static inline void readModifyWrite(const BoardInfo_t *bi, LONG readReg, LONG wri
 }
 #define W_EXT_GE_CONFIG_MASK(mask, value) \
     readModifyWrite(bi, R_EXT_GE_CONFIG, EXT_GE_CONFIG, mask, value, "[R_]EXT_GE_CONFIG")
+#endif
 
 /* DISP_CNTL (22E8) — REG688000-15 §8-7 */
 #define Y_CONTROL_SHIFT  1u
@@ -374,6 +381,13 @@ static inline void readModifyWrite(const BoardInfo_t *bi, LONG readReg, LONG wri
 #define HSYN_CONT    BIT(14)
 #define VSYN_CONT    BIT(15)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 void dumpMach32Eeprom(BoardInfo_t *bi);
+BOOL InitChip(__REGA0(struct BoardInfo *bi));
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // CHIP_MACH32_H

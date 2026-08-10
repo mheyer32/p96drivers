@@ -1,5 +1,9 @@
 #include "mach32_ramdac.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * Sorted by achieved pixel clock (centi-MHz). For each CLK_SEL (except "external"=6),
  * we list both /2 and /1 variants. The corresponding entry in clk_sel_index_sorted is:
@@ -188,8 +192,8 @@ static void generic_setClock(BoardInfo_t *bi)
     DFUNC(INFO, "SetClock idx=%ld (/%ld) clock=%luHz vfifo=%ld\n", (ULONG)sel, (ULONG)mi->pll2.ClockDivide,
           mi->PixelClock, (ULONG)vfifo);
 
-    REGBASE();
-    W_IO_MASK_W(CLOCK_SEL, CLK_SEL_MASK | CLK_DIV_MASK | VFIFO_DEPTH_MASK | PASS_THROUGH_DISABLE_MASK,
+    DRIVER_LOCALS(bi);
+    io.writeMaskW(IoReg::id_CLOCK_SEL, CLK_SEL_MASK | CLK_DIV_MASK | VFIFO_DEPTH_MASK | PASS_THROUGH_DISABLE_MASK,
                 bits | PASS_THROUGH_DISABLE);
 }
 
@@ -209,47 +213,47 @@ static ULONG generic_setMemoryClock(BoardInfo_t *bi, ULONG clockHz)
  */
 static void bt481_enterExtended(BoardInfo_t *bi)
 {
-    REGBASE();
+    DRIVER_LOCALS(bi);
     DAC_ENABLE_RS2()
     delayMicroSeconds(2);
-    W_REG(DAC_MASK, 0x01); /* Command A: A0=1 → extended register access enabled */
+    io.writeB(IoReg::id_DAC_MASK, 0x01); /* Command A: A0=1 → extended register access enabled */
     delayMicroSeconds(2);
     DAC_DISABLE_RS2();
     delayMicroSeconds(2);
 
     // Alternative access mode for cards that have RS2 grounded
-    // W_REG(DAC_MASK, 0xFF);
+    // io.writeB(IoReg::id_DAC_MASK, 0xFF);
     // Read Pixel Read Mask Register 4 times consecutively, so that the next write will be directed to Command Register
-    // A. R_REG(DAC_MASK); R_REG(DAC_MASK); R_REG(DAC_MASK); R_REG(DAC_MASK); W_REG(DAC_MASK, 0x01); /* Command A: A0=1
+    // A. io.readB(IoReg::id_DAC_MASK); io.readB(IoReg::id_DAC_MASK); io.readB(IoReg::id_DAC_MASK); io.readB(IoReg::id_DAC_MASK); io.writeB(IoReg::id_DAC_MASK, 0x01); /* Command A: A0=1
     // → extended set enabled */
 }
 
 static void bt481_exitExtended(BoardInfo_t *bi)
 {
-    REGBASE();
+    DRIVER_LOCALS(bi);
     DAC_ENABLE_RS2()
-    W_REG(DAC_MASK, 0x00); /* Command A: clear A0, exit extended register access*/
+    io.writeB(IoReg::id_DAC_MASK, 0x00); /* Command A: clear A0, exit extended register access*/
     delayMicroSeconds(2);
     DAC_DISABLE_RS2()
     delayMicroSeconds(2);
 
     // Alternative access mode for cards that have RS2 grounded
-    // W_REG(DAC_W_INDEX, 0x00);
-    // W_REG(DAC_MASK, 0xFF);
-    // R_REG(DAC_MASK);
-    // R_REG(DAC_MASK);
-    // R_REG(DAC_MASK);
-    // R_REG(DAC_MASK);
-    // W_REG(DAC_MASK, 0x00); /* Command A: clear A0 */
+    // io.writeB(IoReg::id_DAC_W_INDEX, 0x00);
+    // io.writeB(IoReg::id_DAC_MASK, 0xFF);
+    // io.readB(IoReg::id_DAC_MASK);
+    // io.readB(IoReg::id_DAC_MASK);
+    // io.readB(IoReg::id_DAC_MASK);
+    // io.readB(IoReg::id_DAC_MASK);
+    // io.writeB(IoReg::id_DAC_MASK, 0x00); /* Command A: clear A0 */
 }
 
 static void bt481_writeCommandRegisterB(BoardInfo_t *bi, UBYTE value)
 {
-    REGBASE();
+    DRIVER_LOCALS(bi);
     /* Indirect access: addr reg = 2, then data via "read mask" port (datasheet Table 5). */
-    W_REG(DAC_W_INDEX, 0x02);
+    io.writeB(IoReg::id_DAC_W_INDEX, 0x02);
     delayMicroSeconds(2);
-    W_REG(DAC_MASK, value);
+    io.writeB(IoReg::id_DAC_MASK, value);
 }
 
 /*
@@ -258,11 +262,11 @@ static void bt481_writeCommandRegisterB(BoardInfo_t *bi, UBYTE value)
  */
 BOOL initBt481(BoardInfo_t *bi)
 {
-    REGBASE();
+    DRIVER_LOCALS(bi);
     bt481_enterExtended(bi);
-    W_REG(DAC_W_INDEX, 0x02);  // read Command register B
+    io.writeB(IoReg::id_DAC_W_INDEX, 0x02);  // read Command register B
     delayMicroSeconds(2);
-    UBYTE sig = R_REG(DAC_MASK);
+    UBYTE sig = io.readB(IoReg::id_DAC_MASK);
 
     /* Power-up signature 0x1E, or warm-boot leftover of bits we program. */
     if (sig != BT481_CMD_B_SIGNATURE && (sig & ~(BT481_CMD_B_7_5_IRE | BT481_CMD_B_8BIT_DAC)) != 0) {
@@ -290,17 +294,17 @@ BOOL initBt481(BoardInfo_t *bi)
 /* Brooktree Table 2: RS=000 palette addr write, RS=001 palette RAM data. */
 static void bt481_write_palette_addr_write(BoardInfo_t *bi, UBYTE addr)
 {
-    REGBASE();
-    W_REG(DAC_W_INDEX, addr);
+    DRIVER_LOCALS(bi);
+    io.writeB(IoReg::id_DAC_W_INDEX, addr);
     delayMicroSeconds(2);
 }
 
 static void bt481_write_rgb(BoardInfo_t *bi, UBYTE r, UBYTE g, UBYTE b)
 {
-    REGBASE();
-    W_REG(DAC_DATA, r);
-    W_REG(DAC_DATA, g);
-    W_REG(DAC_DATA, b);
+    DRIVER_LOCALS(bi);
+    io.writeB(IoReg::id_DAC_DATA, r);
+    io.writeB(IoReg::id_DAC_DATA, g);
+    io.writeB(IoReg::id_DAC_DATA, b);
 }
 
 static void bt481_setDac(BoardInfo_t *bi, RGBFTYPE format)
@@ -330,16 +334,16 @@ static void bt481_setDac(BoardInfo_t *bi, RGBFTYPE format)
         break;
     }
 
-    REGBASE();
+    DRIVER_LOCALS(bi);
 
     // If using 32bit dual-edge mode passes a 8-bit VGA "overlay" in the last byte.
     // Mask that out.
-    format == RGBFB_CLUT ? W_REG(DAC_MASK, 0xFF) : W_REG(DAC_MASK, 0x00);
+    format == RGBFB_CLUT ? io.writeB(IoReg::id_DAC_MASK, 0xFF) : io.writeB(IoReg::id_DAC_MASK, 0x00);
 
     DAC_ENABLE_RS2();
-    W_REG(DAC_W_INDEX, 0x01); /* Command Register A */
+    io.writeB(IoReg::id_DAC_W_INDEX, 0x01); /* Command Register A */
     delayMicroSeconds(2);
-    W_REG(DAC_MASK, dacMode);
+    io.writeB(IoReg::id_DAC_MASK, dacMode);
     DAC_DISABLE_RS2();
 }
 
@@ -367,3 +371,7 @@ BOOL InitRAMDAC(BoardInfo_t *bi, DACType dacType)
 
     return TRUE;
 }
+
+#ifdef __cplusplus
+}
+#endif

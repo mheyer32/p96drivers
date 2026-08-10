@@ -4,6 +4,10 @@
 #include <libraries/pcitags.h>
 #include <proto/openpci.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision)
 {
     switch (deviceId) {
@@ -103,7 +107,7 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
     APTR physicalAddress = pci_logic_to_physic_addr(memory0, card->board);
     D(INFO, "physicalAddress 0x%08lx\n", physicalAddress);
 
-    card->legacyIOBase = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
+    card->legacyIOBase = (volatile UBYTE *)legacyIOBase + REGISTER_OFFSET;
     if (chip->chipFamily >= VISION968) {
         // S3Trio64.chip expects register base adress to be offset by 0x8000
         // to be able to address all registers with just regular signed 16bit
@@ -139,7 +143,7 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
         // one to be initialized and thus sit at 0x00000000 in PCI address
         // space. This way 0xA8000 is in the card's BAR and the LAW should be
         // at 0x400000
-        bi->MemoryBase = memory0;
+        bi->MemoryBase = (UBYTE *)memory0;
         if (pci_logic_to_physic_addr(bi->MemoryBase, card->board) <= (APTR)0xB0000) {
             // This shifts the memory base address by 4MB, which should be ok
             // since the S3Trio asks for 8MB PCI address space, typically only
@@ -159,4 +163,8 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
     return TRUE;
 }
 
+#endif
+
+#ifdef __cplusplus
+}
 #endif

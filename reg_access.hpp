@@ -444,6 +444,224 @@ struct AtiRegAperture
     }
 };
 
+/*
+ * Absolute-address aperture (Mach32 port I/O, S3/VGA MMIO): RegId value is the
+ * hardware index/port address; byte address = id - BaseOff (REGISTER_OFFSET /
+ * MMIOREGISTER_OFFSET). Same API shape as AtiRegAperture.
+ */
+template <typename RegId, RegEndian E, LONG BaseOff, RegLog L>
+struct AbsRegAperture
+{
+	volatile UBYTE *base;
+
+	explicit AbsRegAperture(volatile UBYTE *b) : base(b) {}
+
+	static INLINE LONG byteOff(RegId id) { return (LONG)id; }
+
+	template <typename T>
+	INLINE T read(RegId id
+#ifdef DBG
+	              ,
+	              const char *name = 0
+#endif
+	) const
+	{
+		T v = EndianOps<T, E>::in(regLoadRaw((volatile T *)(base + (byteOff(id) - BaseOff))));
+#ifdef DBG
+		RegLogOps<L>::read(name ? name : regName(id), EndianOps<T, E>::dbg(v));
+#endif
+		return v;
+	}
+
+	template <typename T>
+	INLINE void write(RegId id, T v
+#ifdef DBG
+	                  ,
+	                  const char *name = 0
+#endif
+	) const
+	{
+#ifdef DBG
+		RegLogOps<L>::write(name ? name : regName(id), EndianOps<T, E>::dbg(v));
+#endif
+		*(volatile T *)(base + (byteOff(id) - BaseOff)) = EndianOps<T, E>::out(v);
+	}
+
+	INLINE UWORD readW(RegId id
+#ifdef DBG
+	                   ,
+	                   const char *name = 0
+#endif
+	) const
+	{
+		return read<UWORD>(id
+#ifdef DBG
+		                   ,
+		                   name
+#endif
+		);
+	}
+
+	INLINE ULONG readL(RegId id
+#ifdef DBG
+	                   ,
+	                   const char *name = 0
+#endif
+	) const
+	{
+		return read<ULONG>(id
+#ifdef DBG
+		                   ,
+		                   name
+#endif
+		);
+	}
+
+	INLINE UBYTE readB(RegId id
+#ifdef DBG
+	                   ,
+	                   const char *name = 0
+#endif
+	) const
+	{
+		return read<UBYTE>(id
+#ifdef DBG
+		                   ,
+		                   name
+#endif
+		);
+	}
+
+	INLINE void writeW(RegId id, UWORD v
+#ifdef DBG
+	                   ,
+	                   const char *name = 0
+#endif
+	) const
+	{
+		write<UWORD>(id, v
+#ifdef DBG
+		             ,
+		             name
+#endif
+		);
+	}
+
+	INLINE void writeL(RegId id, ULONG v
+#ifdef DBG
+	                   ,
+	                   const char *name = 0
+#endif
+	) const
+	{
+		write<ULONG>(id, v
+#ifdef DBG
+		             ,
+		             name
+#endif
+		);
+	}
+
+	INLINE void writeB(RegId id, UBYTE v
+#ifdef DBG
+	                   ,
+	                   const char *name = 0
+#endif
+	) const
+	{
+		write<UBYTE>(id, v
+#ifdef DBG
+		             ,
+		             name
+#endif
+		);
+	}
+
+	template <typename T>
+	INLINE void writeMask(RegId id, T mask, T val
+#ifdef DBG
+	                      ,
+	                      const char *name = 0
+#endif
+	) const
+	{
+		T regValue = regLoadRaw((volatile T *)(base + (byteOff(id) - BaseOff)));
+		T m        = EndianOps<T, E>::out(mask);
+		T bits     = EndianOps<T, E>::out(val);
+		regValue   = (regValue & ~m) | (m & bits);
+#ifdef DBG
+		RegLogOps<L>::write(name ? name : regName(id), EndianOps<T, E>::dbg(EndianOps<T, E>::in(regValue)));
+#endif
+		*(volatile T *)(base + (byteOff(id) - BaseOff)) = regValue;
+	}
+
+	INLINE void writeMaskW(RegId id, UWORD mask, UWORD val
+#ifdef DBG
+	                       ,
+	                       const char *name = 0
+#endif
+	) const
+	{
+		writeMask<UWORD>(id, mask, val
+#ifdef DBG
+		                 ,
+		                 name
+#endif
+		);
+	}
+
+	INLINE void writeMaskL(RegId id, ULONG mask, ULONG val
+#ifdef DBG
+	                       ,
+	                       const char *name = 0
+#endif
+	) const
+	{
+		writeMask<ULONG>(id, mask, val
+#ifdef DBG
+		                 ,
+		                 name
+#endif
+		);
+	}
+
+	template <typename T>
+	INLINE BOOL test(RegId id, T mask
+#ifdef DBG
+	                 ,
+	                 const char *name = 0
+#endif
+	) const
+	{
+		T raw = regLoadRaw((volatile T *)(base + (byteOff(id) - BaseOff)));
+#ifdef DBG
+		RegLogOps<L>::read(name ? name : regName(id), EndianOps<T, E>::dbg(EndianOps<T, E>::in(raw)));
+#endif
+		return (raw & EndianOps<T, E>::out(mask)) != 0;
+	}
+
+	INLINE BOOL testW(RegId id, UWORD mask
+#ifdef DBG
+	                  ,
+	                  const char *name = 0
+#endif
+	) const
+	{
+		return test<UWORD>(id, mask
+#ifdef DBG
+		                   ,
+		                   name
+#endif
+		);
+	}
+
+	/* Raw (pre-endian) word read — Mach32 FIFO poll / QI path. */
+	INLINE UWORD readWRaw(RegId id) const
+	{
+		return regLoadRaw((volatile UWORD *)(base + (byteOff(id) - BaseOff)));
+	}
+};
+
 /* Software shadow for write-only / unsafe-RMW registers. */
 template <typename Win, typename RegId, typename T = ULONG>
 struct CachedReg

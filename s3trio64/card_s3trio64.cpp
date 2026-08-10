@@ -1,5 +1,9 @@
 #include "card_common.h"
-#include "at3d_common.h"
+#include "s3trio64_common.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define __NOLIBBASE__
 #include <clib/debug_protos.h>
@@ -7,6 +11,7 @@
 #include <exec/types.h>
 #include <proto/exec.h>
 #include <proto/openpci.h>
+#include <proto/picasso96_chip.h>
 #include <proto/timer.h>
 #include <proto/utility.h>
 #include <utility/tagitem.h>
@@ -15,23 +20,26 @@
 #include <libraries/pcitags.h>
 
 #ifndef TESTEXE
-const char LibName[]     = "AT3D.card";
-const char LibIdString[] = "Alliance ProMotion AT3D Picasso96 card driver version 1.0";
+extern const char LibName[]     = "S3Trio64.card";
+extern const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 card driver version 1.0";
 #ifndef LIB_VERSION
 #define LIB_VERSION 1
 #endif
 #ifndef LIB_REVISION
 #define LIB_REVISION 0
 #endif
-const UWORD LibVersion   = LIB_VERSION;
-const UWORD LibRevision  = LIB_REVISION;
+extern const UWORD LibVersion   = LIB_VERSION;
+extern const UWORD LibRevision  = LIB_REVISION;
 #endif
 
 #ifdef DBG
 int debugLevel = VERBOSE;
 #endif
 
-BOOL InitChip(__REGA0(struct BoardInfo *bi));
+#define CHIP_NAME_VISION864  "picasso96/S3Vision864.chip"
+#define CHIP_NAME_TRIO3264   "picasso96/S3Trio3264.chip"
+#define CHIP_NAME_TRIO64PLUS "picasso96/S3Trio64Plus.chip"
+#define CHIP_NAME_TRIO64V2   "picasso96/S3Trio64V2.chip"
 
 BOOL releaseCard(__REGA0(struct BoardInfo *bi))
 {
@@ -57,14 +65,14 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     LOCAL_SYSBASE();
     CardData_t *cd = getCardData(bi);
 
+    ULONG deviceId = 0, vendorId = VENDOR_ID_S3, slot = (ULONG)-1, bus = (ULONG)-1;
     struct Library *OpenPciBase = NULL;
     if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
         DFUNC(ERROR, "Cannot open openpci.library v%ld+\n", MIN_OPENPCI_VERSION);
-        goto exit;
+        return FALSE;
     }
 
     // Parse tooltypes for card-specific settings (deviceId, vendorId, slot)
-    LONG deviceId = 0, vendorId = VENDOR_ID_ALLIANCE, slot = -1, bus = -1;
     if (ToolTypes) {
         parseToolTypes(bi, ToolTypes, &deviceId, &vendorId, &slot, &bus);
     }
@@ -85,13 +93,13 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         tags[numTags].ti_Data = deviceId;
         numTags++;
     }
-    if (slot >= 0) {
+    if ((LONG)slot >= 0) {
         D(INFO, "SLOT: %ld\n", slot);
         tags[numTags].ti_Tag  = PRM_SlotNumber;
         tags[numTags].ti_Data = slot;
         numTags++;
     }
-    if (bus >= 0) {
+    if ((LONG)bus >= 0) {
         D(INFO, "BUS: %ld\n", bus);
         tags[numTags].ti_Tag  = PRM_BusNumber;
         tags[numTags].ti_Data = bus;
@@ -100,8 +108,8 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     tags[numTags].ti_Tag = TAG_END;
 
     struct pci_dev *board = NULL;
-    while (board = FindBoardA(board, tags)) {
-        D(INFO, "AT3D board found 0x%lx\n", board);
+    while ((board = FindBoardA(board, tags))) {
+        D(INFO, "S3 board found 0x%lx\n", board);
 
         ULONG deviceId, revision;
 
@@ -110,7 +118,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
             DFUNC(ERROR, "Could not retrieve all required board attributes\n");
             continue;
         }
-        D(INFO, "AT3D device %lx revision %lx\n", deviceId, revision);
+        D(INFO, "S3 device %lx revision %lx\n", deviceId, revision);
         ChipFamily_t chipFamily = getChipFamily(deviceId, revision);
         if (chipFamily == UNKNOWN) {
             D(WARN, "Unknown Chip family\n");
@@ -128,7 +136,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         }
 
         // Claim the first matching board
-        cd->boardNode.ln_Name = "AT3D.card";
+        cd->boardNode.ln_Name = "S3Trio64.card";
         if (!SetBoardAttrs(board, PRM_BoardOwner, (Tag)&cd->boardNode, TAG_END)) {
             D(ERROR, "Could not claim board\n");
             continue;
@@ -137,22 +145,22 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         cd->board       = board;
         cd->OpenPciBase = OpenPciBase;
 
-        bi->BoardType              = BT_VoodoRush;  // Will need to define BT_AT3D if needed
-        bi->GraphicsControllerType = 0;  // Will need to define GCT_AT3D if needed
-        bi->PaletteChipType        = 0;  // Will need to define PCT_AT3D if needed
+        bi->BoardType              = BT_S3Trio64;
+        bi->GraphicsControllerType = GCT_S3Trio64;
+        bi->PaletteChipType        = PCT_S3Trio64;
 
         // generate unique board name based on bus/slot
-        generateBoardName(getCardData(bi)->boardName, "AT3D", bus, slot);
+        generateBoardName(getCardData(bi)->boardName, "S3Trio64", bus, slot);
         bi->BoardName = getCardData(bi)->boardName;
 
-        // Found and claimed the board, break out of first loop
+        // Found and claimed the board
         break;
     }
 
     // Second loop: Find all other supported and unclaimed boards to turn off their IO
     // Use only vendor filter (no device/slot/bus restrictions) to find all supported boards
     board = NULL;
-    while (board = FindBoard(board, PRM_Vendor, vendorId)) {
+    while ((board = FindBoard(board, PRM_Vendor, vendorId))) {
         // Skip the board we already claimed
         if (board == cd->board) {
             continue;
@@ -198,7 +206,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
     CardData_t *cd = getCardData(bi);
     if (!cd->board || !cd->OpenPciBase) {
-        DFUNC(ERROR, "AT3D.card: No board claimed\n");
+        DFUNC(ERROR, "S3Trio.card: No board claimed\n");
         return FALSE;
     }
 
@@ -208,9 +216,22 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     LOCAL_SYSBASE();
 
     if (!initRegisterAndMemoryBases(bi)) {
-        D(ERROR, "AT3D.card: could not init card\n");
+        D(ERROR, "S3Trio.card: could not init card\n");
         return FALSE;
     }
+
+    static const char *libNames[] = {CHIP_NAME_VISION864, CHIP_NAME_TRIO3264, CHIP_NAME_TRIO64PLUS,CHIP_NAME_TRIO64PLUS,CHIP_NAME_TRIO64V2,
+                                     CHIP_NAME_TRIO64V2, CHIP_NAME_TRIO64V2};
+
+    struct ChipBase *ChipBase = NULL;
+
+    ChipFamily_t chipFamily = (ChipFamily_t)getChipData(bi)->chipFamily;
+    if (!(ChipBase = (struct ChipBase *)OpenLibrary(libNames[chipFamily - 1], 0))) {
+        D(ERROR, "S3Trio.card: could not open chip library %s\n", libNames[chipFamily - 1]);
+        return FALSE;
+    }
+
+    bi->ChipBase = ChipBase;
 
     D(INFO, "calling init chip...\n");
     if (!InitChip(bi)) {
@@ -218,7 +239,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         DFUNC(ERROR, "InitChip() failed\n");
         return FALSE;
     }
-    D(INFO, "AT card has %ldkb usable memory\n", bi->MemorySize / 1024);
+    D(INFO, "card has %ldkb usable memory\n", bi->MemorySize / 1024);
 
     installPciVBlankInterrupt(bi, ToolTypes);
 
@@ -235,6 +256,8 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+//extern BOOL TestCard(BoardInfo_t *bi);
 
 extern struct UtilityBase *UtilityBase;
 
@@ -269,10 +292,14 @@ int main()
         goto exit;
     }
 
-    rval = EXIT_SUCCESS;
+//    rval = TestCard(bi);
+
 exit:
     releaseCard(bi);
     return rval;
 }
 #endif  // TESTEXE
 
+#ifdef __cplusplus
+}
+#endif

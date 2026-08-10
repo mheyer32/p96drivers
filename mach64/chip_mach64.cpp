@@ -1201,13 +1201,19 @@ BOOL Mach64Driver::isVideoMemory(APTR memory) const
 
 BOOL Mach64Driver::setDstBuffer(const struct RenderInfo *ri, ULONG format)
 {
-    DRIVER_LOCALS(this);
+    ChipData_t *cd = chip();
 
-    if (memcmp(ri, &cd->dstBuffer, sizeof(struct RenderInfo)) == 0) {
+    /* Memory + pitch + format drive DST_OFF_PITCH / DP_PIX_WIDTH; ignore pad. */
+    if (cd->dstBuffer.Memory == ri->Memory && cd->dstBuffer.BytesPerRow == ri->BytesPerRow &&
+        (ULONG)cd->dstBuffer.RGBFormat == format) {
         return TRUE;
     }
-    cd->dstBuffer = *ri;
-    BYTE bppLog2  = getBPPLog2(format);
+    cd->dstBuffer.Memory      = ri->Memory;
+    cd->dstBuffer.BytesPerRow = ri->BytesPerRow;
+    cd->dstBuffer.RGBFormat   = (RGBFTYPE)format;
+
+    Mach64MmioQ mmio = mmioQ();
+    BYTE bppLog2     = getBPPLog2(format);
 
     waitFifo(2);
 

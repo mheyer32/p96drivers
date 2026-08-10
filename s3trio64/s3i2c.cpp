@@ -1,6 +1,10 @@
 #include "edid_common.h"
 #include "s3trio64_common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Serial Port Register (MMFF20) - MMIO offset 0xFF20
 #define SERIAL_PORT_REG 0xFF20
 
@@ -213,3 +217,7 @@ const I2COps_t *getI2COps(struct BoardInfo *bi)
 {
     return &s3_i2c_ops;
 }
+
+#ifdef __cplusplus
+}
+#endif
