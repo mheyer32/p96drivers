@@ -26,7 +26,9 @@ ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestMach32Card
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestMach64GX
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestMach64
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestMach64Card
+${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3Trio3264
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3Trio64Plus
+${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3Trio64V2
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3Vision864
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3TrioCard
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestAT3D

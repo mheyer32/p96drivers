@@ -73,6 +73,25 @@ class At3dDriver : public P96Driver
 	void ASM drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line *line), __REGD0(UBYTE mask), __REGD7(RGBFTYPE_REG fmt));
 	void ASM waitBlitter();
 
+	/* internal helpers */
+	ULONG getMemoryOffset(APTR memory);
+	ULONG getLinearPixelOffset(const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2);
+	BOOL getStartCoordinates(const struct RenderInfo *ri, UBYTE bppLog2, UWORD *originX, UWORD *originY);
+	ULONG getLocationRegisterValue(const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2, BOOL useLinearAddressing);
+	BOOL setLocationRegister(const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2, BOOL useLinearAddressing, WORD reg);
+	BOOL setDstLocation(const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2, BOOL useLinearAddressing);
+	BOOL setSrcLocation(const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2, BOOL useLinearAddressing);
+	void setDstPitch(UWORD bytesPerRow);
+	void setDrawSize(UWORD width, UWORD height);
+	void setFormat(RGBFTYPE fmt);
+	void setForegroundPen(ULONG fgPen, RGBFTYPE fmt);
+	void setBackgroundPen(ULONG bgPen, RGBFTYPE fmt);
+	void setDrawCmd(ULONG drawCmd);
+	volatile ULONG *getHostBltPort();
+	void setDrawMode(UBYTE drawMode, ULONG fgPen, ULONG bgPen, RGBFTYPE fmt);
+	void performPlanarPlaneBlit(UWORD width, UWORD height, UBYTE *bitmap, UWORD dwordsPerLine, WORD bmPitch, UBYTE rol, UBYTE planeIndex);
+	void setMemoryModeInternal(RGBFTYPE format);
+
 };
 
 static_assert(sizeof(At3dDriver) == sizeof(BoardInfo), "At3dDriver must not grow BoardInfo");
