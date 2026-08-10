@@ -379,7 +379,7 @@ BOOL ASM At3dDriver::setDisplay(__REGD0(BOOL state))
 BOOL ASM At3dDriver::getVSyncState(__REGD0(BOOL expected))
 {
     VgaIo vga = this->vga();
-    return (vga.readB(VgaReg::INSTAT1) & 0x08) != 0;
+    return (vga.readB(VgaReg::INPUT_STATUS1) & 0x08) != 0;
 }
 
 ULONG ASM At3dDriver::getVBeamPos()
@@ -1037,7 +1037,7 @@ void ASM At3dDriver::setColorArray(__REGD0(UWORD startIndex), __REGD1(UWORD coun
     }
 
     if (startIndex == 0) {
-        vga.readB(VgaReg::INSTAT1);  // Reset AFF
+        vga.readB(VgaReg::INPUT_STATUS1);  // Reset AFF
         // Background color 0 also sets the border color
         /* 3:3:2 RGB: R[7:5], G[4:2], B[1:0] */
         if (this->ModeInfo->Depth <= 8) {
@@ -1139,7 +1139,7 @@ void ASM At3dDriver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), __
     vga.writeCROverflow1(pitch, 0x13, 0, 8, 0x1c, 4, 4);
 
     // This has weird effects on the lines the cursor image shows
-    // vga.readB(VgaReg::INSTAT1);  // Reset AFF to latch new start address
+    // vga.readB(VgaReg::INPUT_STATUS1);  // Reset AFF to latch new start address
     // vga.writeAR(0x13, xoffset & 7);  // Update border color to match new background color (in case it changed)
 
     return;
@@ -1185,16 +1185,16 @@ void ASM At3dDriver::waitVerticalSync(__REGD0(BOOL waitForEnd))
     if (waitForEnd) {
         // wait for verticel retrace
         // Quiet path / VgaIoQ if debug serial would miss the signals
-        while (!(vga.readB(VgaReg::INSTAT1) & 0x08)) {
+        while (!(vga.readB(VgaReg::INPUT_STATUS1) & 0x08)) {
         };
         // For pixel display (should now be top of frame, i.e. end of retrace)
-        while (!(vga.readB(VgaReg::INSTAT1) & 0x01)) {
+        while (!(vga.readB(VgaReg::INPUT_STATUS1) & 0x01)) {
         };
     } else {  // For pixel display first
-        while (!(vga.readB(VgaReg::INSTAT1) & 0x01)) {
+        while (!(vga.readB(VgaReg::INPUT_STATUS1) & 0x01)) {
         };
         // wait for verticel retrace starting
-        while (!(vga.readB(VgaReg::INSTAT1) & 0x08)) {
+        while (!(vga.readB(VgaReg::INPUT_STATUS1) & 0x08)) {
         };
     }
 }
@@ -3069,11 +3069,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     {
         // Enable writing attribute palette registers, disable video
-        vga.readB(VgaReg::INSTAT1);
+        vga.readB(VgaReg::INPUT_STATUS1);
         vga.writeB(VgaReg::ATTR_AD, 0x0);
 
         // Reset AFF to index register selection
-        vga.readB(VgaReg::INSTAT1);
+        vga.readB(VgaReg::INPUT_STATUS1);
 
         for (int p = 0; p < 16; ++p) {
             /* The attribute controller registers are located atthe same byte I/O
@@ -3094,7 +3094,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         vga.writeAR(0x10, 0x61);  // 256color mode, separate pixel panning, graphics mode
 
         // Enable video
-        vga.readB(VgaReg::INSTAT1);         // reset AFF
+        vga.readB(VgaReg::INPUT_STATUS1);         // reset AFF
         vga.writeB(VgaReg::ATTR_AD, 0x20);  // enable video
     }
 

@@ -28,7 +28,7 @@
     X(GRC_VALUE, 0x3CF)     \
     X(CRTC_INDEX, 0x3D4)    \
     X(CRTC_VALUE, 0x3D5)    \
-    X(INSTAT1, 0x3DA)
+    X(INPUT_STATUS1, 0x3DA)
 
 namespace VgaReg {
 enum Id : LONG
