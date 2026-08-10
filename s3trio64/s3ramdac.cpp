@@ -355,7 +355,6 @@ static void sdac_setDac(struct BoardInfo *bi, RGBFTYPE format)
         }
     }
 #endif
-
 }
 
 BOOL InitRAMDAC(struct BoardInfo *bi)
@@ -562,9 +561,9 @@ static BOOL CheckForRGB524(struct BoardInfo *bi)
     // Access the Product Identification Code register (index 0x0001)
     // According to the datasheet, this register should return 0x02 for RGB524
     vga.writeB(VGA_ID(DAC_IDX_HI), 0x00);
-    vga.writeB(VGA_ID(DAC_IDX_LO), 0x00);                // Dac Register index 0x0000
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x00);               // Dac Register index 0x0000
     UBYTE revision = vga.readB(VGA_ID(DAC_IDX_DATA));   // Read the Revision
-    vga.writeB(VGA_ID(DAC_IDX_LO), 0x01);                // Dac register index 0x0001
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x01);               // Dac register index 0x0001
     UBYTE productId = vga.readB(VGA_ID(DAC_IDX_DATA));  // Read the Product ID value
 
     if (productId == 0x02) {
@@ -591,19 +590,20 @@ static BOOL InitRGB524(struct BoardInfo *bi)
     vga.writeB(VGA_ID(DAC_IDX_LO), 0x06);  // DAC operation (DPE = blanking pedestal)
     vga.writeB(VGA_ID(DAC_IDX_DATA), (bi->CardFlags & CFF_BLACKLEVEL_BLACK) ? 0 : BIT(0));
 
-    vga.writeB(VGA_ID(DAC_IDX_LO), 0x0a);  // Pixel Format
-    vga.writeB(VGA_ID(DAC_IDX_DATA), 0b011);   // 8Bit
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x0a);     // Pixel Format
+    vga.writeB(VGA_ID(DAC_IDX_DATA), 0b011);  // 8Bit
 
     vga.writeB(VGA_ID(DAC_IDX_LO), 0x0b);  // 8 Bit Pixel Control
-    vga.writeB(VGA_ID(DAC_IDX_DATA), 0);       // Indirect through Palette enabled
+    vga.writeB(VGA_ID(DAC_IDX_DATA), 0);   // Indirect through Palette enabled
 
-    vga.writeB(VGA_ID(DAC_IDX_LO), 0x0c);                         // 16 Bit Pixel Control
-    vga.writeB(VGA_ID(DAC_IDX_DATA), (0b11 << 6) | BIT(2) | BIT(1));  // Fill low order 0 bits with high order bits and 565 mode
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x0c);  // 16 Bit Pixel Control
+    vga.writeB(VGA_ID(DAC_IDX_DATA),
+               (0b11 << 6) | BIT(2) | BIT(1));  // Fill low order 0 bits with high order bits and 565 mode
 
-    vga.writeB(VGA_ID(DAC_IDX_LO), 0x0d);  // 24 Bit Pixel Control
-    vga.writeB(VGA_ID(DAC_IDX_DATA), 0x01);    // Direct, palette bypass
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x0d);    // 24 Bit Pixel Control
+    vga.writeB(VGA_ID(DAC_IDX_DATA), 0x01);  // Direct, palette bypass
 
-    vga.writeB(VGA_ID(DAC_IDX_LO), 0x0e);           // 32 Bit Pixel Control
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x0e);               // 32 Bit Pixel Control
     vga.writeB(VGA_ID(DAC_IDX_DATA), BIT(2) | (0b11));  // Direct, Palette bypass
 
     DAC_DISABLE_RS2();

@@ -3,7 +3,6 @@
 #include "common.h"
 #include "mach64_common.h"
 
-
 using namespace MmioReg;
 using namespace PllReg;
 
@@ -539,7 +538,8 @@ BOOL InitMach64GT(struct BoardInfo *bi)
 
     // FIFO must be empty before changing its size. Assuming we only used BLKIO above, there should not have been
     // any FIFO writes yet
-    mmio.writeMaskL(static_cast<MmioReg::Id>(GUI_CNTL), CMDFIFO_SIZE_MODE_MASK, CMDFIFO_SIZE_MODE(0b00));  // 196 entries
+    mmio.writeMaskL(static_cast<MmioReg::Id>(GUI_CNTL), CMDFIFO_SIZE_MODE_MASK,
+                    CMDFIFO_SIZE_MODE(0b00));  // 196 entries
 
     waitFifo(bi, 4);
 
@@ -592,7 +592,7 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     DFUNC(VERBOSE, "vFBDiv: %ld, vPostDiv: %ld, bpp: %ld\n", (ULONG)vclkFBDiv, (ULONG)vclkPostDiv,
           (ULONG)bi->ModeInfo->Depth);
 
-    Mach64BlkIo blk = asMach64(bi)->blkIo();
+    Mach64BlkIo blk          = asMach64(bi)->blkIo();
     const ChipSpecific_t *cs = getConstChipSpecific(bi);
 
     // Bits per pixel
@@ -617,8 +617,8 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     ULONG xDenominator = vclkFBDiv * xclkPostDiv * bpp;
 
     if (!xNumerator || !xDenominator) {
-        DFUNC(ERROR, "AdjustDSP: zero ratio terms (vFB=%ld vPost=%ld xFB=%ld xPost=%ld bpp=%ld)\n",
-              (ULONG)vclkFBDiv, (ULONG)vclkPostDiv, xclkFBDiv, xclkPostDiv, bpp);
+        DFUNC(ERROR, "AdjustDSP: zero ratio terms (vFB=%ld vPost=%ld xFB=%ld xPost=%ld bpp=%ld)\n", (ULONG)vclkFBDiv,
+              (ULONG)vclkPostDiv, xclkFBDiv, xclkPostDiv, bpp);
         return;
     }
 
@@ -700,10 +700,10 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
         ron = roff - rloop - (1 << shift);
     }
 
-    ULONG dspOn  = ron & (DSP_ON_MASK >> 16);
-    ULONG dspOff = roff & DSP_OFF_MASK;
+    ULONG dspOn        = ron & (DSP_ON_MASK >> 16);
+    ULONG dspOff       = roff & DSP_OFF_MASK;
     ULONG dspPrecision = p;
-    ULONG xclkShift = 11 - p;
+    ULONG xclkShift    = 11 - p;
     ULONG dspXclksPerQword;
     if (xNumerator > (~0UL >> xclkShift))
         dspXclksPerQword = DSP_XCLKS_PER_QW_MASK;
@@ -715,7 +715,7 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
       (ULONG)dspOff, (ULONG)dspPrecision, (ULONG)dspXclksPerQword, (ULONG)dspLoopLatency);
 
     blk.writeL(BlkIoReg::DSP_CONFIG,
-              DSP_XCLKS_PER_QW(dspXclksPerQword) | DSP_LOOP_LATENCY(dspLoopLatency) | DSP_PRECISION(dspPrecision));
+               DSP_XCLKS_PER_QW(dspXclksPerQword) | DSP_LOOP_LATENCY(dspLoopLatency) | DSP_PRECISION(dspPrecision));
     blk.writeL(BlkIoReg::DSP_ON_OFF, DSP_OFF(dspOff) | DSP_ON(dspOn));
 }
 

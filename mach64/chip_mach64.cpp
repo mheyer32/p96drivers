@@ -2604,8 +2604,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         /* GX: never touch CONFIG_STAT0 (CFG_MEM_TYPE_GX bits 3–5 — wedges BAR0).
          * Set CFG_VGA_DIS for accelerator CRT, knowing it disables ROM access
          * until the next InitChip clears it again (see CFG_VGA_DIS define). */
-        asMach64(bi)->sparseIo().writeMaskL(SparseIoReg::CONFIG_CNTL,
-                                            CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
+        asMach64(bi)->sparseIo().writeMaskL(SparseIoReg::CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK,
+                                            CFG_VGA_DIS);
     }
 
     /* MCLK: CT/VT/GT program in InitMach64*; GX reports ROM default only. */

@@ -33,7 +33,8 @@ extern const char LibIdString[];
 extern const UWORD LibVersion;
 extern const UWORD LibRevision;
 
-USED_VAR void *FuncTable[] = {(APTR)LibOpen, (APTR)LibClose, (APTR)LibExpunge, (APTR)LibReserved, (APTR)InitChip, (APTR)-1};
+USED_VAR void *FuncTable[] = {(APTR)LibOpen,     (APTR)LibClose, (APTR)LibExpunge,
+                              (APTR)LibReserved, (APTR)InitChip, (APTR)-1};
 
 struct InitTable /* do not change */
 {
@@ -67,14 +68,14 @@ struct ChipBase *LibInit(__REGD0(struct ChipBase *cb), __REGA0(APTR seglist), __
 
     cb->LibBase.lib_Node.ln_Type = NT_LIBRARY;
     cb->LibBase.lib_Node.ln_Name = (char *)LibName;
-    cb->LibBase.lib_Flags = LIBF_CHANGED | LIBF_SUMUSED;
-    cb->LibBase.lib_Version = (UWORD)LibVersion;
-    cb->LibBase.lib_Revision = (UWORD)LibRevision;
-    cb->LibBase.lib_IdString = (char *)LibIdString;
+    cb->LibBase.lib_Flags        = LIBF_CHANGED | LIBF_SUMUSED;
+    cb->LibBase.lib_Version      = (UWORD)LibVersion;
+    cb->LibBase.lib_Revision     = (UWORD)LibRevision;
+    cb->LibBase.lib_IdString     = (char *)LibIdString;
 
     /* setup private data */
     cb->ExecBase = SysBase;
-    cb->SegList = seglist;
+    cb->SegList  = seglist;
     return cb;
 }
 

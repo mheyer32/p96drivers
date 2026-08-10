@@ -5,7 +5,6 @@
 #include <libraries/pcitags.h>
 #include <proto/openpci.h>
 
-
 using namespace MmioReg;
 using namespace PllReg;
 
@@ -220,8 +219,7 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
       (ULONG)cs->maxPClock);
 
     // FIXME: there's no free... is there ever a time a chip driver gets expunged?
-    PLLValue_t *pllValues =
-        static_cast<PLLValue_t *>(AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_PUBLIC));
+    PLLValue_t *pllValues = static_cast<PLLValue_t *>(AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_PUBLIC));
     if (!pllValues) {
         DFUNC(ERROR, "AllocVec pllValues failed\n");
         return;
@@ -259,8 +257,8 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
     }
 
     if (e == 0) {
-        DFUNC(ERROR, "PLL table empty (PCLK %ld..%ld, R=%ld M=%ld)\n", (ULONG)cs->minPClock,
-              (ULONG)cs->maxPClock, (ULONG)cs->referenceFrequency, (ULONG)cs->referenceDivider);
+        DFUNC(ERROR, "PLL table empty (PCLK %ld..%ld, R=%ld M=%ld)\n", (ULONG)cs->minPClock, (ULONG)cs->maxPClock,
+              (ULONG)cs->referenceFrequency, (ULONG)cs->referenceDivider);
         return;
     }
 

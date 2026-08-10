@@ -148,7 +148,7 @@ BOOL parseInterruptToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes)
         return TRUE;
     }
 
-    BOOL enable = TRUE;
+    BOOL enable      = TRUE;
     CONST_STRPTR irq = (CONST_STRPTR)FindToolType(ToolTypes, "INTERRUPT");
     if (irq) {
         if (MatchToolValue((STRPTR)irq, "No") || MatchToolValue((STRPTR)irq, "False")) {
@@ -209,14 +209,14 @@ void generateBoardName(char *boardName, const char *cardName, ULONG bus, ULONG s
     // We need to construct: cardName + "_" + bus + "_" + slot
     // For simplicity, we'll use a template approach similar to S3Trio64
     const char template[] = "_B_S";
-    int i = 0;
-    
+    int i                 = 0;
+
     // Copy card name
     while (cardName[i] && i < 12) {  // Leave room for "_B_S" (4 chars) + null terminator
         boardName[i] = cardName[i];
         i++;
     }
-    
+
     // Append template with bus and slot
     int j = 0;
     while (template[j] && (i + j) < 15) {
@@ -231,4 +231,3 @@ void generateBoardName(char *boardName, const char *cardName, ULONG bus, ULONG s
     }
     boardName[i + j] = '\0';
 }
-

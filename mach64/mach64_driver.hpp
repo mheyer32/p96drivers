@@ -21,7 +21,6 @@
 class Mach64Driver : public P96Driver
 {
    public:
-
     /* --- regular members --- */
     ChipData_t *chip() { return getChipData(this); }
     const ChipData_t *chip() const { return getConstChipData(this); }
@@ -39,10 +38,7 @@ class Mach64Driver : public P96Driver
     Mach64BlkIoQ blkIoQ() const { return Mach64BlkIoQ(ioBase()); }
 
     /* GX sparse CONFIG_CNTL etc.: legacyIOBase + ioSparseBase, id << 10. */
-    Mach64SparseIo sparseIo()
-    {
-        return Mach64SparseIo(getCardData(this)->legacyIOBase + chip()->ioSparseBase);
-    }
+    Mach64SparseIo sparseIo() { return Mach64SparseIo(getCardData(this)->legacyIOBase + chip()->ioSparseBase); }
     Mach64SparseIo sparseIo() const
     {
         return Mach64SparseIo(getConstCardData(this)->legacyIOBase + chip()->ioSparseBase);

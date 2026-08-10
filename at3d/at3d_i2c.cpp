@@ -1,7 +1,7 @@
 #include "at3d_i2c.h"
 #include "chip_at3d.h"
-#include "edid_common.h"
 #include "common.h"
+#include "edid_common.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,14 +18,14 @@ extern "C" {
 BOOL at3dI2cInit(struct BoardInfo *bi)
 {
     At3dMmio mmio = asAt3d(bi)->mmio();
-    
+
     // Release both SDA and SCL lines (set to input/tri-state)
     // 0x = input/tri-state (both control bits clear)
     mmio.writeMaskB(AT3D_MMIO_ID(DPMS_SYNC_CTRL), I2C_SCL_CTRL_MASK | I2C_SDA_CTRL_MASK, 0);
-    
+
     // Wait a bit for lines to stabilize
     delayMicroSeconds(10);
-    
+
     D(VERBOSE, "I2C bus initialized\n");
     return TRUE;
 }
@@ -40,20 +40,20 @@ void at3dI2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
 {
     DFUNC(VERBOSE, " %s\n", high ? "HIGH" : "LOW");
     At3dMmio mmio = asAt3d(bi)->mmio();
-    
+
     if (high) {
         // Release SCL (set to input/tri-state)
         // 0x = input/tri-state (both bits clear)
         mmio.writeMaskB(AT3D_MMIO_ID(DPMS_SYNC_CTRL), I2C_SCL_CTRL_MASK, 0);
-        
+
         // Small delay to allow hardware to actually release the line
         delayMicroSeconds(I2C_DELAY_US);
-        
+
 #ifdef DBG
         // Verify that SCL actually goes high (pull-up working)
         // Read from 1FC[17] which is the SCL input
         int settle_attempts = 5;
-        BOOL scl_high = FALSE;
+        BOOL scl_high       = FALSE;
         while (settle_attempts-- > 0) {
             ULONG statusReg = mmio.readL(AT3D_MMIO_ID(EXT_DAC_STATUS));
             if (statusReg & I2C_SCL_IN) {
@@ -62,17 +62,17 @@ void at3dI2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
             }
             delayMicroSeconds(I2C_DELAY_US);
         }
-        
+
         if (!scl_high) {
             D(ERROR, "I2C SCL failed to go high after release - check pull-up resistors\n");
         }
 #endif
-        
+
         if (checkClockStretching) {
             // Check for clock stretching: slave pulls SCL low after master releases it
             delayMicroSeconds(I2C_DELAY_US);
             ULONG statusReg = mmio.readL(AT3D_MMIO_ID(EXT_DAC_STATUS));
-            
+
             if (!(statusReg & I2C_SCL_IN)) {
                 // SCL went high but then went low - slave is clock stretching
                 // Wait for SCL to go high again (slave releases it)
@@ -95,7 +95,7 @@ void at3dI2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
         // Drive SCL low: 10 = drive low (bit 1 set, bit 0 clear)
         mmio.writeMaskB(AT3D_MMIO_ID(DPMS_SYNC_CTRL), I2C_SCL_CTRL_MASK, I2C_SCL_CTRL_LOW);
         delayMicroSeconds(I2C_DELAY_US);
-        
+
 #ifdef DBG
         // Verify that SCL is actually low (we're driving it, so it should be)
         ULONG statusReg = mmio.readL(AT3D_MMIO_ID(EXT_DAC_STATUS));
@@ -115,7 +115,7 @@ void at3dI2cSetSda(struct BoardInfo *bi, BOOL high)
 {
     DFUNC(VERBOSE, " %s\n", high ? "HIGH" : "LOW");
     At3dMmio mmio = asAt3d(bi)->mmio();
-    
+
     if (high) {
         // Release SDA (set to input/tri-state)
         // 0x = input/tri-state (both bits clear)
@@ -125,7 +125,7 @@ void at3dI2cSetSda(struct BoardInfo *bi, BOOL high)
         // Drive SDA low: 10 = drive low (bit 1 set, bit 0 clear)
         mmio.writeMaskB(AT3D_MMIO_ID(DPMS_SYNC_CTRL), I2C_SDA_CTRL_MASK, I2C_SDA_CTRL_LOW);
         delayMicroSeconds(I2C_DELAY_US);
-        
+
 #ifdef DBG
         // Verify that SDA is actually low (we're driving it, so it should be)
         // Read from 1FC[16] which is the SDA input
@@ -164,13 +164,11 @@ BOOL at3dI2cReadSda(struct BoardInfo *bi)
 }
 
 // Static I2C operations structure for mach64 (GT and higher)
-static const I2COps_t at3d_i2c_ops = {
-    .init =   at3dI2cInit,
-    .setScl = at3dI2cSetScl,
-    .setSda = at3dI2cSetSda,
-    .readScl =at3dI2cReadScl,
-    .readSda =at3dI2cReadSda
-};
+static const I2COps_t at3d_i2c_ops = {.init    = at3dI2cInit,
+                                      .setScl  = at3dI2cSetScl,
+                                      .setSda  = at3dI2cSetSda,
+                                      .readScl = at3dI2cReadScl,
+                                      .readSda = at3dI2cReadSda};
 
 /**
  * Get I2C operations for Mach64 card

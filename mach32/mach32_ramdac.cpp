@@ -49,8 +49,8 @@ static ULONG logicalToSynthHzMultiplier(RGBFTYPE fmt)
 
 ULONG HzForClockIndexAsLogicalDotsPerSecond(ULONG index, RGBFTYPE format)
 {
-    ULONG raw   = HzForClockIndex(index);
-    ULONG mult  = logicalToSynthHzMultiplier(format);
+    ULONG raw  = HzForClockIndex(index);
+    ULONG mult = logicalToSynthHzMultiplier(format);
     if (mult <= 1)
         return raw;
     return raw / mult;
@@ -77,10 +77,10 @@ LONG ResolveModeInfoPixelClock(struct ModeInfo *mi, ULONG targetHz, RGBFTYPE for
         }
     }
 
-    DFUNC(VERBOSE, "bestIndex=%ld, synthHz=%lu logicalDotsPerS=%lu\n", (ULONG)bestIndex, HzForClockIndex((ULONG)bestIndex),
-          targetHz);
+    DFUNC(VERBOSE, "bestIndex=%ld, synthHz=%lu logicalDotsPerS=%lu\n", (ULONG)bestIndex,
+          HzForClockIndex((ULONG)bestIndex), targetHz);
 
-    UBYTE selEnc = ati1811_1_clkIndices[bestIndex];
+    UBYTE selEnc   = ati1811_1_clkIndices[bestIndex];
     mi->PixelClock = targetHz;
 
     /* Use the Tseng-style ModeInfo union members: pll1.Clock / pll2.ClockDivide. */
@@ -194,7 +194,7 @@ static void generic_setClock(BoardInfo_t *bi)
 
     DRIVER_LOCALS(bi);
     io.writeMaskW(IoReg::id_CLOCK_SEL, CLK_SEL_MASK | CLK_DIV_MASK | VFIFO_DEPTH_MASK | PASS_THROUGH_DISABLE_MASK,
-                bits | PASS_THROUGH_DISABLE);
+                  bits | PASS_THROUGH_DISABLE);
 }
 
 static ULONG generic_setMemoryClock(BoardInfo_t *bi, ULONG clockHz)
@@ -224,8 +224,8 @@ static void bt481_enterExtended(BoardInfo_t *bi)
     // Alternative access mode for cards that have RS2 grounded
     // io.writeB(IoReg::id_DAC_MASK, 0xFF);
     // Read Pixel Read Mask Register 4 times consecutively, so that the next write will be directed to Command Register
-    // A. io.readB(IoReg::id_DAC_MASK); io.readB(IoReg::id_DAC_MASK); io.readB(IoReg::id_DAC_MASK); io.readB(IoReg::id_DAC_MASK); io.writeB(IoReg::id_DAC_MASK, 0x01); /* Command A: A0=1
-    // → extended set enabled */
+    // A. io.readB(IoReg::id_DAC_MASK); io.readB(IoReg::id_DAC_MASK); io.readB(IoReg::id_DAC_MASK);
+    // io.readB(IoReg::id_DAC_MASK); io.writeB(IoReg::id_DAC_MASK, 0x01); /* Command A: A0=1 → extended set enabled */
 }
 
 static void bt481_exitExtended(BoardInfo_t *bi)

@@ -217,7 +217,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     bi->RegisterBase              = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
     getCardData(bi)->legacyIOBase = bi->RegisterBase;
 
-    bi->MemoryBase = (UBYTE*)memory0;
+    bi->MemoryBase = (UBYTE *)memory0;
     bi->MemorySize = memory0Size;
 
     /* Registers: PCI legacy I/O only (RegisterBase). No framebuffer BAR MMIO alias. */
@@ -268,7 +268,7 @@ int main(void)
 
     struct BoardInfo *bi = &boardInfo;
     bi->ExecBase         = SysBase;
-    bi->UtilBase         = (struct Library*)UtilityBase;
+    bi->UtilBase         = (struct Library *)UtilityBase;
 
     if (!FindCard(bi, NULL)) {
         goto exit;

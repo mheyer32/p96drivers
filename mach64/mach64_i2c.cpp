@@ -2,7 +2,6 @@
 #include "chip_mach64.h"
 #include "mach64_common.h"
 
-
 using namespace MmioReg;
 using namespace PllReg;
 
@@ -214,7 +213,7 @@ void mach64I2cSetSda(struct BoardInfo *bi, BOOL high)
 BOOL mach64I2cReadScl(struct BoardInfo *bi)
 {
     Mach64BlkIo blk = asMach64(bi)->blkIo();
-    ULONG lt_gio = blk.readL(BlkIoReg::LT_GIO);
+    ULONG lt_gio    = blk.readL(BlkIoReg::LT_GIO);
 
     // If already in input mode, just read it
     // If in output mode, we need to switch to input to read actual line state
@@ -238,7 +237,7 @@ BOOL mach64I2cReadScl(struct BoardInfo *bi)
 BOOL mach64I2cReadSda(struct BoardInfo *bi)
 {
     Mach64BlkIo blk = asMach64(bi)->blkIo();
-    ULONG lt_gio = blk.readL(BlkIoReg::LT_GIO);
+    ULONG lt_gio    = blk.readL(BlkIoReg::LT_GIO);
 
     // If already in input mode, just read it
     // If in output mode, we need to switch to input to read actual line state
