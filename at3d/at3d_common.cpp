@@ -1,5 +1,9 @@
 #include "at3d_common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>
 #include <proto/openpci.h>
@@ -70,13 +74,13 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
     bi->MemoryBase      = (UBYTE *)memory0;
     bi->MemorySpaceBase = memory0;
     bi->MemorySpaceSize = memory0Size;
-    getCardData(bi)->legacyIOBase = legacyIOBase + REGISTER_OFFSET;
+    getCardData(bi)->legacyIOBase = (volatile UBYTE *)legacyIOBase + REGISTER_OFFSET;
 
     if (chip->chipFamily <= AT24)
     {
-        bi->RegisterBase = legacyIOBase + REGISTER_OFFSET;
+        bi->RegisterBase = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
         APTR mmioSpace = bi->MemoryBase + 4*1024*1024 - 2048;
-        bi->MemoryIOBase =  mmioSpace + MMIOREGISTER_OFFSET;
+        bi->MemoryIOBase =  (UBYTE *)mmioSpace + MMIOREGISTER_OFFSET;
         setCacheMode(bi, mmioSpace, 2048, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
     }
     else
@@ -95,3 +99,7 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
 
     return TRUE;
 }
+
+#ifdef __cplusplus
+}
+#endif

@@ -2,6 +2,10 @@
 #include "chip_s3trio64.h"
 #include "s3trio64_common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // External RAMDAC helpers (kept private to this translation unit)
 static BOOL CheckForSDAC(struct BoardInfo *bi);
 static BOOL InitSDAC(struct BoardInfo *bi);
@@ -59,7 +63,7 @@ const RamdacOps_t *getRamdacOps(struct BoardInfo *bi)
 
 static void integrated_getPllParams(struct BoardInfo *bi, const struct svga_pll **pll, UWORD *maxFreqMhz)
 {
-    const ChipFamily_t family = getChipData(bi)->chipFamily;
+    const ChipFamily_t family = (ChipFamily_t)getChipData(bi)->chipFamily;
     *pll                      = &s3trio64_pll;
     *maxFreqMhz               = (family >= TRIO64V2) ? 170 : 135;
 }
@@ -104,7 +108,7 @@ static void integrated_setClock(struct BoardInfo *bi)
     // Aurora64 uses a different SR12 layout; its packPllToModeInfo uses r<<6, but setClock is shared.
     // So decode based on chip family here.
     {
-        const ChipFamily_t family = getChipData(bi)->chipFamily;
+        const ChipFamily_t family = (ChipFamily_t)getChipData(bi)->chipFamily;
         UWORD n_reg = (family == AURORA64PLUS) ? (mi->pll2.Denominator & 0x3F) + 2 : (mi->pll2.Denominator & 0x1F) + 2;
         UWORD r_reg =
             (family == AURORA64PLUS) ? (mi->pll2.Denominator >> 6) & 0x03 : (mi->pll2.Denominator >> 5) & 0x03;
@@ -606,3 +610,7 @@ static BOOL InitRGB524(struct BoardInfo *bi)
 
     return TRUE;
 }
+
+#ifdef __cplusplus
+}
+#endif

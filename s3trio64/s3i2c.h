@@ -4,6 +4,10 @@
 #include "chip_s3trio64.h"
 #include "edid_common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // I2C bit-banging function declarations for S3
 // These are low-level functions that manipulate the I2C registers
 
@@ -44,3 +48,7 @@ BOOL s3I2cReadScl(struct BoardInfo *bi);
 BOOL s3I2cReadSda(struct BoardInfo *bi);
 
 #endif  // S3I2C_H
+
+#ifdef __cplusplus
+}
+#endif

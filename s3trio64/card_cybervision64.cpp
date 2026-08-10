@@ -2,6 +2,10 @@
 #include "chip_s3trio64.h"
 #include "s3trio64_common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <clib/debug_protos.h>
 #include <exec/interrupts.h>
 #include <exec/nodes.h>
@@ -15,16 +19,16 @@
 #include <proto/timer.h>
 
 #ifndef TESTEXE
-const char LibName[]     = "Cybervision64.card";
-const char LibIdString[] = "Cybervision64 Picasso96 card driver version 1.0";
+extern const char LibName[]     = "Cybervision64.card";
+extern const char LibIdString[] = "Cybervision64 Picasso96 card driver version 1.0";
 #ifndef LIB_VERSION
 #define LIB_VERSION 1
 #endif
 #ifndef LIB_REVISION
 #define LIB_REVISION 0
 #endif
-const UWORD LibVersion   = LIB_VERSION;
-const UWORD LibRevision  = LIB_REVISION;
+extern const UWORD LibVersion   = LIB_VERSION;
+extern const UWORD LibRevision  = LIB_REVISION;
 #endif
 
 #ifdef DBG
@@ -245,6 +249,7 @@ int main(void)
     int rval              = EXIT_FAILURE;
     BOOL vblankTest       = FALSE;
     struct RDArgs *rdargs = NULL;
+    struct BoardInfo *bi  = &boardInfo;
 
     testArgs[0] = 0;
     rdargs      = ReadArgs((STRPTR)testArgsTemplate, testArgs, NULL);
@@ -259,8 +264,6 @@ int main(void)
     D(ALWAYS, "Args: VBLANK=%ld\n", (LONG)vblankTest);
 
     memset(&boardInfo, 0, sizeof(boardInfo));
-
-    struct BoardInfo *bi = &boardInfo;
 
     bi->ExecBase = SysBase;
     bi->UtilBase = (struct Library *)UtilityBase;
@@ -285,3 +288,7 @@ exit:
     return rval;
 }
 #endif  // TESTEXE
+
+#ifdef __cplusplus
+}
+#endif

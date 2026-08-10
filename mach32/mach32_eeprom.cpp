@@ -1,5 +1,9 @@
 #include "chip_mach32.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define __NOLIBBASE__
 
 #include <exec/types.h>
@@ -35,8 +39,8 @@ void dumpMach32Eeprom(BoardInfo_t *bi)
 
 static void eeWriteExtGe(BoardInfo_t *bi, UWORD baseNoEe, UWORD eeBits)
 {
-    REGBASE();
-    W_IO_W(EXT_GE_CONFIG, (UWORD)(baseNoEe | (eeBits & EXT_GE_EE_MASK)));
+    DRIVER_LOCALS(bi);
+    io.writeW(IoReg::id_EXT_GE_CONFIG, (UWORD)(baseNoEe | (eeBits & EXT_GE_EE_MASK)));
     delayMicroSeconds(2);
 }
 
@@ -50,11 +54,11 @@ static void eeSendBit(BoardInfo_t *bi, UWORD baseNoEe, int di)
 
 static int eeReadDataBit(BoardInfo_t *bi, UWORD baseNoEe)
 {
-    REGBASE();
+    DRIVER_LOCALS(bi);
     UWORD lo = (UWORD)(baseNoEe | BIT(EE_SELECT_BIT) | BIT(EE_CS_BIT));
     eeWriteExtGe(bi, baseNoEe, lo);
     eeWriteExtGe(bi, baseNoEe, (UWORD)(lo | BIT(EE_CLK_BIT)));
-    UWORD st = R_IO_W(EXT_GE_STATUS);
+    UWORD st = io.readW(IoReg::id_EXT_GE_STATUS);
     eeWriteExtGe(bi, baseNoEe, lo);
     return (st & BIT(EE_DATA_IN_BIT)) ? 1 : 0;
 }
@@ -90,12 +94,12 @@ void dumpMach32Eeprom(BoardInfo_t *bi)
 {
     enum { NUM_WORDS = 128u };
 
-    REGBASE();
+    DRIVER_LOCALS(bi);
 
-    UWORD geSaved = R_IO_W(R_EXT_GE_CONFIG);
+    UWORD geSaved = io.readW(IoReg::id_R_EXT_GE_CONFIG);
     UWORD baseNoEe  = (UWORD)(geSaved & (UWORD)~(EXT_GE_EE_MASK | BIT(3)));
 
-    W_IO_MASK_W(DISP_CNTL, ENA_DISPLAY_MASK, CRT_RESET);
+    io.writeMaskW(IoReg::id_DISP_CNTL, ENA_DISPLAY_MASK, CRT_RESET);
 
     DFUNC(ALWAYS, "Mach32 EEPROM (M93C56/C56-class Microwire read, %u words):\n", (unsigned)NUM_WORDS);
 
@@ -113,8 +117,12 @@ void dumpMach32Eeprom(BoardInfo_t *bi)
         }
     }
 
-    W_IO_W(EXT_GE_CONFIG, geSaved);
-    W_IO_MASK_W(DISP_CNTL, ENA_DISPLAY_MASK, CRT_ENABLED);
+    io.writeW(IoReg::id_EXT_GE_CONFIG, geSaved);
+    io.writeMaskW(IoReg::id_DISP_CNTL, ENA_DISPLAY_MASK, CRT_ENABLED);
 }
 
 #endif /* DBG */
+
+#ifdef __cplusplus
+}
+#endif

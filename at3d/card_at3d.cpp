@@ -1,6 +1,10 @@
 #include "card_common.h"
 #include "at3d_common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define __NOLIBBASE__
 #include <clib/debug_protos.h>
 #include <exec/nodes.h>
@@ -15,16 +19,16 @@
 #include <libraries/pcitags.h>
 
 #ifndef TESTEXE
-const char LibName[]     = "AT3D.card";
-const char LibIdString[] = "Alliance ProMotion AT3D Picasso96 card driver version 1.0";
+extern const char LibName[]     = "AT3D.card";
+extern const char LibIdString[] = "Alliance ProMotion AT3D Picasso96 card driver version 1.0";
 #ifndef LIB_VERSION
 #define LIB_VERSION 1
 #endif
 #ifndef LIB_REVISION
 #define LIB_REVISION 0
 #endif
-const UWORD LibVersion   = LIB_VERSION;
-const UWORD LibRevision  = LIB_REVISION;
+extern const UWORD LibVersion   = LIB_VERSION;
+extern const UWORD LibRevision  = LIB_REVISION;
 #endif
 
 #ifdef DBG
@@ -60,11 +64,11 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     struct Library *OpenPciBase = NULL;
     if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
         DFUNC(ERROR, "Cannot open openpci.library v%ld+\n", MIN_OPENPCI_VERSION);
-        goto exit;
+        /* fallthrough exit */
     }
 
     // Parse tooltypes for card-specific settings (deviceId, vendorId, slot)
-    LONG deviceId = 0, vendorId = VENDOR_ID_ALLIANCE, slot = -1, bus = -1;
+    ULONG deviceId = 0, vendorId = VENDOR_ID_ALLIANCE, slot = (ULONG)-1, bus = (ULONG)-1;
     if (ToolTypes) {
         parseToolTypes(bi, ToolTypes, &deviceId, &vendorId, &slot, &bus);
     }
@@ -85,13 +89,13 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         tags[numTags].ti_Data = deviceId;
         numTags++;
     }
-    if (slot >= 0) {
+    if ((LONG)slot >= 0) {
         D(INFO, "SLOT: %ld\n", slot);
         tags[numTags].ti_Tag  = PRM_SlotNumber;
         tags[numTags].ti_Data = slot;
         numTags++;
     }
-    if (bus >= 0) {
+    if ((LONG)bus >= 0) {
         D(INFO, "BUS: %ld\n", bus);
         tags[numTags].ti_Tag  = PRM_BusNumber;
         tags[numTags].ti_Data = bus;
@@ -100,7 +104,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     tags[numTags].ti_Tag = TAG_END;
 
     struct pci_dev *board = NULL;
-    while (board = FindBoardA(board, tags)) {
+    while ((board = FindBoardA(board, tags))) {
         D(INFO, "AT3D board found 0x%lx\n", board);
 
         ULONG deviceId, revision;
@@ -128,7 +132,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         }
 
         // Claim the first matching board
-        cd->boardNode.ln_Name = "AT3D.card";
+        cd->boardNode.ln_Name = (char *)"AT3D.card";
         if (!SetBoardAttrs(board, PRM_BoardOwner, (Tag)&cd->boardNode, TAG_END)) {
             D(ERROR, "Could not claim board\n");
             continue;
@@ -138,8 +142,8 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         cd->OpenPciBase = OpenPciBase;
 
         bi->BoardType              = BT_VoodoRush;  // Will need to define BT_AT3D if needed
-        bi->GraphicsControllerType = 0;  // Will need to define GCT_AT3D if needed
-        bi->PaletteChipType        = 0;  // Will need to define PCT_AT3D if needed
+        bi->GraphicsControllerType = GCT_APM;
+        bi->PaletteChipType        = PCT_APM;
 
         // generate unique board name based on bus/slot
         generateBoardName(getCardData(bi)->boardName, "AT3D", bus, slot);
@@ -262,11 +266,11 @@ int main()
     D(INFO, "UtilityBase 0x%lx\n", bi->UtilBase);
 
     if (!FindCard(bi, NULL)) {
-        goto exit;
+        /* fallthrough exit */
     }
 
     if (!InitCard(bi, NULL)) {
-        goto exit;
+        /* fallthrough exit */
     }
 
     rval = EXIT_SUCCESS;
@@ -276,3 +280,6 @@ exit:
 }
 #endif  // TESTEXE
 
+#ifdef __cplusplus
+}
+#endif

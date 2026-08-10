@@ -199,10 +199,11 @@ P96Headers : Picasso96_card.sfd Picasso96_chip.sfd  makefile
 	sfdc --sdi --output=Picasso96Develop/PrivateInclude/clib/picasso96_chip_protos.h --target=m68k-amigaos --mode=clib Picasso96_chip.sfd
 
 S3TRIO_SRC = common.c \
-             s3trio64/s3trio64_common.c \
-             s3trio64/chip_s3trio64.c \
-             s3trio64/s3ramdac.c \
-             s3trio64/s3i2c.c \
+             s3trio64/s3trio64_common.cpp \
+             s3trio64/chip_s3trio64.cpp \
+             s3trio64/s3ramdac.cpp \
+             s3trio64/s3i2c.cpp \
+             s3trio64/s3_reg_smoke.cpp \
              edid_common.c \
              chip_library.c 
 
@@ -220,9 +221,9 @@ $(eval $(call make_driver,S3Trio64V2.chip,$(BUILDDIR)s3trio64v2/, ${S3TRIO_SRC})
 
 S3TRIOCARD_SRC = common.c \
                  card_common.c \
-                 s3trio64/card_s3trio64.c \
-                 s3trio64/s3trio64_common.c \
-                 s3trio64/s3i2c.c \
+                 s3trio64/card_s3trio64.cpp \
+                 s3trio64/s3trio64_common.cpp \
+                 s3trio64/s3i2c.cpp \
                  edid_common.c \
                  card_library.c
 
@@ -230,10 +231,11 @@ S3Trio64.card : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -D
 $(eval $(call make_driver,S3Trio64.card,$(BUILDDIR)s3triocard/, ${S3TRIOCARD_SRC}))
 
 S3TRIO_TESTEXE_SRC = common.c \
-                     s3trio64/s3trio64_common.c \
-                     s3trio64/s3ramdac.c \
-                     s3trio64/chip_s3trio64.c \
-                     s3trio64/s3i2c.c \
+                     s3trio64/s3trio64_common.cpp \
+                     s3trio64/s3ramdac.cpp \
+                     s3trio64/chip_s3trio64.cpp \
+                     s3trio64/s3_reg_smoke.cpp \
+                     s3trio64/s3i2c.cpp \
                      edid_common.c
 
 TestS3Trio64Plus : CFLAGS+=-DCONFIG_S3TRIO64PLUS -DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include s3trio64/s3config.h 
@@ -246,8 +248,8 @@ $(eval $(call make_exe,TestS3Vision864,$(BUILDDIR)tests3vision864/, ${S3TRIO_TES
 
 S3TRIOCARD_TESTEXE_SRC = common.c \
                          card_common.c \
-                         s3trio64/s3trio64_common.c \
-                         s3trio64/card_s3trio64.c 
+                         s3trio64/s3trio64_common.cpp \
+                         s3trio64/card_s3trio64.cpp 
 
 TestS3TrioCard : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DOPENPCI=1
 $(eval $(call make_exe,TestS3TrioCard,$(BUILDDIR)tests3triocard/, ${S3TRIOCARD_TESTEXE_SRC}))
@@ -255,11 +257,12 @@ $(eval $(call make_exe,TestS3TrioCard,$(BUILDDIR)tests3triocard/, ${S3TRIOCARD_T
 
 CYBERVISION64CARD_SRC = common.c \
                  card_common.c \
-                 s3trio64/card_cybervision64.c \
-                 s3trio64/s3trio64_common.c \
-                 s3trio64/chip_s3trio64.c \
-                 s3trio64/s3ramdac.c \
-                 s3trio64/s3i2c.c \
+                 s3trio64/card_cybervision64.cpp \
+                 s3trio64/s3trio64_common.cpp \
+                 s3trio64/chip_s3trio64.cpp \
+                 s3trio64/s3_reg_smoke.cpp \
+                 s3trio64/s3ramdac.cpp \
+                 s3trio64/s3i2c.cpp \
                  edid_common.c \
                  card_library.c
 
@@ -268,11 +271,12 @@ $(eval $(call make_driver,Cybervision64.card,$(BUILDDIR)cybervision64card/, ${CY
 
 CYBERVISION64CARD_TESTEXE_SRC = common.c \
                  card_common.c \
-                 s3trio64/card_cybervision64.c \
-                 s3trio64/s3trio64_common.c \
-                 s3trio64/chip_s3trio64.c \
-                 s3trio64/s3ramdac.c \
-                 s3trio64/s3i2c.c \
+                 s3trio64/card_cybervision64.cpp \
+                 s3trio64/s3trio64_common.cpp \
+                 s3trio64/chip_s3trio64.cpp \
+                 s3trio64/s3_reg_smoke.cpp \
+                 s3trio64/s3ramdac.cpp \
+                 s3trio64/s3i2c.cpp \
                  edid_common.c
 
 TestCybervision64 : CFLAGS+=-DCONFIG_CYBERVISION64=1 -DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -include s3trio64/s3config.h 
@@ -347,9 +351,10 @@ $(eval $(call make_exe,TestMach64Card,$(BUILDDIR)testmach64card/, ${TESTATIMACH6
 
 
 ATIMACH32_SRC = common.c \
-                mach32/mach32_ramdac.c \
-                mach32/mach32_eeprom.c \
-                mach32/chip_mach32.c \
+                mach32/mach32_ramdac.cpp \
+                mach32/mach32_eeprom.cpp \
+                mach32/chip_mach32.cpp \
+                mach32/mach32_reg_smoke.cpp \
                 chip_library.c
 
 ATIMach32.chip : CFLAGS+= -DCONFIG_ATIMACH32 -include mach32/mach32config.h
@@ -357,37 +362,41 @@ $(eval $(call make_driver,ATIMach32.chip,$(BUILDDIR)mach32/, ${ATIMACH32_SRC}))
 
 ATIMACH32CARD_SRC = common.c \
                       card_common.c \
-                      mach32/mach32_ramdac.c \
-                      mach32/mach32_eeprom.c \
-                      mach32/chip_mach32.c \
-                      mach32/card_mach32.c \
+                      mach32/mach32_ramdac.cpp \
+                      mach32/mach32_eeprom.cpp \
+                      mach32/chip_mach32.cpp \
+                      mach32/mach32_reg_smoke.cpp \
+                      mach32/card_mach32.cpp \
                       card_library.c
 
 ATIMach32.card : CFLAGS+= -DCONFIG_ATIMACH32 -DMACH32_EMBEDDED_CHIP=1 -include mach32/mach32config.h
 $(eval $(call make_driver,ATIMach32.card,$(BUILDDIR)mach32card/, ${ATIMACH32CARD_SRC}))
 
 ATIMACH32_TESTEXE_SRC = common.c \
-                        mach32/mach32_ramdac.c \
-                        mach32/mach32_eeprom.c \
-                        mach32/chip_mach32.c
+                        mach32/mach32_ramdac.cpp \
+                        mach32/mach32_eeprom.cpp \
+                        mach32/chip_mach32.cpp \
+                        mach32/mach32_reg_smoke.cpp
 
 TestMach32 : CFLAGS+= -DCONFIG_ATIMACH32 -include mach32/mach32config.h
 $(eval $(call make_exe,TestMach32,$(BUILDDIR)testmach32/, ${ATIMACH32_TESTEXE_SRC}))
 
 TESTATIMACH32CARD_SRC = common.c \
                         card_common.c \
-                        mach32/mach32_ramdac.c \
-                        mach32/mach32_eeprom.c \
-                        mach32/chip_mach32.c \
-                        mach32/card_mach32.c
+                        mach32/mach32_ramdac.cpp \
+                        mach32/mach32_eeprom.cpp \
+                        mach32/chip_mach32.cpp \
+                        mach32/mach32_reg_smoke.cpp \
+                        mach32/card_mach32.cpp
 
 TestMach32Card : CFLAGS+= -DCONFIG_ATIMACH32 -DMACH32_EMBEDDED_CHIP=1 -include mach32/mach32config.h
 $(eval $(call make_exe,TestMach32Card,$(BUILDDIR)testmach32card/, ${TESTATIMACH32CARD_SRC}))
 
 AT3D_SRC = common.c \
-           at3d/at3d_common.c \
-           at3d/at3d_i2c.c \
-           at3d/chip_at3d.c \
+           at3d/at3d_common.cpp \
+           at3d/at3d_i2c.cpp \
+           at3d/chip_at3d.cpp \
+           at3d/at3d_reg_smoke.cpp \
            edid_common.c \
            chip_library.c
 
@@ -395,9 +404,10 @@ AT3D.chip : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include at3d/at
 $(eval $(call make_driver,AT3D.chip,$(BUILDDIR)at3d/, ${AT3D_SRC}))
 
 AT3D_TESTEXE_SRC = common.c \
-                   at3d/at3d_common.c \
-                   at3d/at3d_i2c.c \
-                   at3d/chip_at3d.c \
+                   at3d/at3d_common.cpp \
+                   at3d/at3d_i2c.cpp \
+                   at3d/chip_at3d.cpp \
+           at3d/at3d_reg_smoke.cpp \
                    edid_common.c
 
 TestAT3D : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include at3d/at3dconfig.h
@@ -405,11 +415,12 @@ $(eval $(call make_exe,TestAT3D,$(BUILDDIR)testat3d/, ${AT3D_TESTEXE_SRC}))
 
 AT3DCARD_SRC = common.c \
                card_common.c \
-               at3d/chip_at3d.c \
+               at3d/chip_at3d.cpp \
+           at3d/at3d_reg_smoke.cpp \
                edid_common.c \
-               at3d/card_at3d.c \
-               at3d/at3d_common.c \
-               at3d/at3d_i2c.c \
+               at3d/card_at3d.cpp \
+               at3d/at3d_common.cpp \
+               at3d/at3d_i2c.cpp \
                card_library.c
 
 AT3D.card : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -DOPENPCI=1 -DAT3D_EMBEDDED_CHIP=1
@@ -417,11 +428,12 @@ $(eval $(call make_driver,AT3D.card,$(BUILDDIR)at3dcard/, ${AT3DCARD_SRC}))
 
 AT3DCARD_TESTEXE_SRC = common.c \
                        card_common.c \
-                       at3d/chip_at3d.c \
+                       at3d/chip_at3d.cpp \
+           at3d/at3d_reg_smoke.cpp \
                        edid_common.c \
-                       at3d/at3d_common.c \
-                       at3d/at3d_i2c.c \
-                       at3d/card_at3d.c
+                       at3d/at3d_common.cpp \
+                       at3d/at3d_i2c.cpp \
+                       at3d/card_at3d.cpp
 
 TestAT3DCard : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -DOPENPCI=1 -DAT3D_EMBEDDED_CHIP=1
 $(eval $(call make_exe,TestAT3DCard,$(BUILDDIR)testat3dcard/, ${AT3DCARD_TESTEXE_SRC}))

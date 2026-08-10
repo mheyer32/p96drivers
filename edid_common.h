@@ -65,6 +65,9 @@ typedef struct EDIDTiming
 // Function to get I2C operations
 // Default implementation in edid_common.c returns NULL
 // Card drivers must provide their own implementation that accesses their CardData structure
+#ifdef __cplusplus
+extern "C" {
+#endif
 const I2COps_t *getI2COps(struct BoardInfo *bi);
 
 // I2C protocol functions (common implementation using I2COps)
@@ -86,6 +89,10 @@ BOOL parseEDIDDetailedTiming(const UBYTE *desc, EDIDTiming_t *timing);
 void getEDIDMaxFrequencies(const UBYTE *edid_data, ULONG *max_h_freq, ULONG *max_v_freq);
 BOOL writeEDIDToFile(struct BoardInfo *bi, const UBYTE *edid_data);
 UBYTE readEDIDWithExtensions(struct BoardInfo *bi, UBYTE *edid_data, UBYTE max_blocks);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // EDID_COMMON_H
 

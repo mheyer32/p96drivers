@@ -1,6 +1,10 @@
 #include "card_common.h"
 #include "s3trio64_common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define __NOLIBBASE__
 #include <clib/debug_protos.h>
 #include <exec/nodes.h>
@@ -16,16 +20,16 @@
 #include <libraries/pcitags.h>
 
 #ifndef TESTEXE
-const char LibName[]     = "S3Trio64.card";
-const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 card driver version 1.0";
+extern const char LibName[]     = "S3Trio64.card";
+extern const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 card driver version 1.0";
 #ifndef LIB_VERSION
 #define LIB_VERSION 1
 #endif
 #ifndef LIB_REVISION
 #define LIB_REVISION 0
 #endif
-const UWORD LibVersion   = LIB_VERSION;
-const UWORD LibRevision  = LIB_REVISION;
+extern const UWORD LibVersion   = LIB_VERSION;
+extern const UWORD LibRevision  = LIB_REVISION;
 #endif
 
 #ifdef DBG
@@ -61,14 +65,14 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     LOCAL_SYSBASE();
     CardData_t *cd = getCardData(bi);
 
+    ULONG deviceId = 0, vendorId = VENDOR_ID_S3, slot = (ULONG)-1, bus = (ULONG)-1;
     struct Library *OpenPciBase = NULL;
     if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
         DFUNC(ERROR, "Cannot open openpci.library v%ld+\n", MIN_OPENPCI_VERSION);
-        goto exit;
+        return FALSE;
     }
 
     // Parse tooltypes for card-specific settings (deviceId, vendorId, slot)
-    LONG deviceId = 0, vendorId = VENDOR_ID_S3, slot = -1, bus = -1;
     if (ToolTypes) {
         parseToolTypes(bi, ToolTypes, &deviceId, &vendorId, &slot, &bus);
     }
@@ -89,13 +93,13 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         tags[numTags].ti_Data = deviceId;
         numTags++;
     }
-    if (slot >= 0) {
+    if ((LONG)slot >= 0) {
         D(INFO, "SLOT: %ld\n", slot);
         tags[numTags].ti_Tag  = PRM_SlotNumber;
         tags[numTags].ti_Data = slot;
         numTags++;
     }
-    if (bus >= 0) {
+    if ((LONG)bus >= 0) {
         D(INFO, "BUS: %ld\n", bus);
         tags[numTags].ti_Tag  = PRM_BusNumber;
         tags[numTags].ti_Data = bus;
@@ -104,7 +108,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     tags[numTags].ti_Tag = TAG_END;
 
     struct pci_dev *board = NULL;
-    while (board = FindBoardA(board, tags)) {
+    while ((board = FindBoardA(board, tags))) {
         D(INFO, "S3 board found 0x%lx\n", board);
 
         ULONG deviceId, revision;
@@ -156,7 +160,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     // Second loop: Find all other supported and unclaimed boards to turn off their IO
     // Use only vendor filter (no device/slot/bus restrictions) to find all supported boards
     board = NULL;
-    while (board = FindBoard(board, PRM_Vendor, vendorId)) {
+    while ((board = FindBoard(board, PRM_Vendor, vendorId))) {
         // Skip the board we already claimed
         if (board == cd->board) {
             continue;
@@ -221,7 +225,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 
     struct ChipBase *ChipBase = NULL;
 
-    ChipFamily_t chipFamily = getChipData(bi)->chipFamily;
+    ChipFamily_t chipFamily = (ChipFamily_t)getChipData(bi)->chipFamily;
     if (!(ChipBase = (struct ChipBase *)OpenLibrary(libNames[chipFamily - 1], 0))) {
         D(ERROR, "S3Trio.card: could not open chip library %s\n", libNames[chipFamily - 1]);
         return FALSE;
@@ -295,3 +299,7 @@ exit:
     return rval;
 }
 #endif  // TESTEXE
+
+#ifdef __cplusplus
+}
+#endif

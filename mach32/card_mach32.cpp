@@ -1,6 +1,10 @@
 #include "card_common.h"
 #include "chip_mach32.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define __NOLIBBASE__
 
 #include <clib/debug_protos.h>
@@ -17,16 +21,16 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi));
 #include <proto/openpci.h>
 
 #ifndef TESTEXE
-const char LibName[]     = "ATIMach32.card";
-const char LibIdString[] = "ATIMach32 Picasso96 card driver version 0.1";
+extern const char LibName[]     = "ATIMach32.card";
+extern const char LibIdString[] = "ATIMach32 Picasso96 card driver version 0.1";
 #ifndef LIB_VERSION
 #define LIB_VERSION 1
 #endif
 #ifndef LIB_REVISION
 #define LIB_REVISION 0
 #endif
-const UWORD LibVersion  = LIB_VERSION;
-const UWORD LibRevision = LIB_REVISION;
+extern const UWORD LibVersion  = LIB_VERSION;
+extern const UWORD LibRevision = LIB_REVISION;
 #endif
 
 #ifdef DBG
@@ -60,10 +64,10 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     LOCAL_SYSBASE();
     CardData_t *cd = getCardData(bi);
 
-    struct Library *OpenPciBase = NULL;
-    if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
+    struct Library *OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION);
+    if (!OpenPciBase) {
         DFUNC(ERROR, "Cannot open openpci.library v%ld+\n", MIN_OPENPCI_VERSION);
-        goto exit;
+        return FALSE;
     }
 
     ULONG matchDevice = DEVICE_ID_MACH32;
@@ -125,7 +129,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
             continue;
         }
 
-        cd->boardNode.ln_Name = "ATIMach32.card";
+        cd->boardNode.ln_Name = (char *)"ATIMach32.card";
         if (!SetBoardAttrs(board, PRM_BoardOwner, (Tag)&cd->boardNode, TAG_END)) {
             D(ERROR, "Could not claim Mach32 board\n");
             continue;
@@ -165,11 +169,8 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         pci_write_config_word(PCI_COMMAND, command, board);
     }
 
-exit:
     if (!cd->board) {
-        if (OpenPciBase) {
-            CloseLibrary(OpenPciBase);
-        }
+        CloseLibrary(OpenPciBase);
         cd->OpenPciBase = NULL;
         return FALSE;
     }
@@ -280,5 +281,9 @@ int main(void)
 exit:
     releaseCard(bi);
     return rval;
+}
+#endif
+
+#ifdef __cplusplus
 }
 #endif

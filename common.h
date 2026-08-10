@@ -108,14 +108,14 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
  * Non-zero handler return → Z clear; zero → Z set.
  * Scratch for IS_CODE: d0-d1/a0-a1/a5-a6 — trampoline preserves the rest.
  */
-#define DEFINE_INTSERVER(entry, handler)           \
-    void entry(void);                              \
-    asm(".text\n"                                  \
-        "	.align	2\n"                           \
-        "	.globl	_" #entry "\n"                \
-        "_" #entry ":\n"                           \
-        "	jsr	_" #handler "\n"              \
-        "	tst.l	d0\n"                         \
+#define DEFINE_INTSERVER(entry, handler)                                     \
+    void entry(void);                                                        \
+    asm(".section .text." #entry ",\"ax\"\n"                                 \
+        "	.align	2\n"                                                 \
+        "	.globl	_" #entry "\n"                                      \
+        "_" #entry ":\n"                                                     \
+        "	jsr	_" #handler "\n"                                        \
+        "	tst.l	d0\n"                                                   \
         "	rts\n")
 
 static inline ULONG swapl(ULONG value)
