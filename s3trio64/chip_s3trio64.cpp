@@ -713,13 +713,13 @@ void ASM S3Driver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
         // Atttribute Controller Index register to AR11 while preserving "Bit 5 ENB
         // PLT - Enable Video Display"
 
-        vga.readB(VgaReg::INSTAT1);
+        vga.readB(VgaReg::INPUT_STATUS1);
         // write AR11 = 0 Border Color Register
         vga.writeAR(0x11, 0);
 
         // Re-enable video out
         vga.writeB(VgaReg::ATTR_AD, 0x20);
-        vga.readB(VgaReg::INSTAT1);
+        vga.readB(VgaReg::INPUT_STATUS1);
 
         Enable();
     }
@@ -827,7 +827,7 @@ void ASM S3Driver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), __RE
 
     Disable();
 
-    vga.readB(VgaReg::INSTAT1);  // Reset AFF flip-flop // FIXME: why?
+    vga.readB(VgaReg::INPUT_STATUS1);  // Reset AFF flip-flop // FIXME: why?
 
     Enable();
     return;
@@ -1131,7 +1131,7 @@ BOOL ASM S3Driver::getVSyncState(__REGD0(BOOL expected))
 {
     DFUNC(VERBOSE, "\n");
     VgaIo vga = this->vga();
-    return (vga.readB(VgaReg::INSTAT1) & 0x08) != 0;
+    return (vga.readB(VgaReg::INPUT_STATUS1) & 0x08) != 0;
 }
 
 // FIXME: implement, but make sure to coordinate with SetDPMSLevel
@@ -1148,16 +1148,16 @@ void ASM S3Driver::waitVerticalSync(__REGD0(BOOL waitForEnd))
     if (waitForEnd) {
         // wait for vertical retrace end
         // Quiet path / VgaIoQ if debug serial would miss the signals
-        while (!(vga.readB(VgaReg::INSTAT1) & 0x08)) {
+        while (!(vga.readB(VgaReg::INPUT_STATUS1) & 0x08)) {
         };
         // For pixel display (should now be top of frame, i.e. end of retrace)
-        while (!(vga.readB(VgaReg::INSTAT1) & 0x01)) {
+        while (!(vga.readB(VgaReg::INPUT_STATUS1) & 0x01)) {
         };
     } else {  // For pixel display first
-        while (!(vga.readB(VgaReg::INSTAT1) & 0x01)) {
+        while (!(vga.readB(VgaReg::INPUT_STATUS1) & 0x01)) {
         };
         // wait for vertical retrace starting
-        while (!(vga.readB(VgaReg::INSTAT1) & 0x08)) {
+        while (!(vga.readB(VgaReg::INPUT_STATUS1) & 0x08)) {
         };
     }
 }
@@ -3693,11 +3693,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     vga.writeGR(0x8, 0xff);
 
     // Enable writing attribute palette registers, disable video
-    vga.readB(VgaReg::INSTAT1);
+    vga.readB(VgaReg::INPUT_STATUS1);
     vga.writeB(VgaReg::ATTR_AD, 0x0);
 
     // Reset AFF to index register selection
-    vga.readB(VgaReg::INSTAT1);
+    vga.readB(VgaReg::INPUT_STATUS1);
 
     for (int p = 0; p < 16; ++p) {
         /* The attribute controller registers are located atthe same byte I/O
@@ -3721,7 +3721,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     vga.writeAR(0x34, 0x0);
 
     // Enable video
-    vga.readB(VgaReg::INSTAT1);  // reset AFF
+    vga.readB(VgaReg::INPUT_STATUS1);  // reset AFF
     vga.writeB(VgaReg::ATTR_AD, 0x20);
 
     switch (chipFamily) {
