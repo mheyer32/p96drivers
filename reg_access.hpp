@@ -864,30 +864,29 @@ struct VgaAperture : AbsRegAperture<VgaReg::Id, E, BaseOff, L>
 	}
 };
 
-/* Software shadow for write-only / unsafe-RMW registers. */
+/* Software shadow for write-only / unsafe-RMW registers. Win is stored by value
+ * (AbsRegAperture is a pointer wrapper). shadow points at durable state (e.g. CardData). */
 template <typename Win, typename RegId, typename T = ULONG>
 struct CachedReg
 {
-    Win *win;
-    RegId id;
-    T shadow;
+	Win win;
+	RegId id;
+	T *shadow;
 
-    CachedReg() : win(0), id(static_cast<RegId>(0)), shadow(0) {}
-    CachedReg(Win *w, RegId i, T initial = 0) : win(w), id(i), shadow(initial) {}
+	CachedReg(Win w, RegId i, T *s) : win(w), id(i), shadow(s) {}
 
-    INLINE void write(T v)
-    {
-        shadow = v;
-        win->template write<T>(id, shadow);
-    }
+	INLINE void write(T v)
+	{
+		*shadow = v;
+		win.template write<T>(id, *shadow);
+	}
 
-    INLINE void writeMask(T mask, T val)
-    {
-        shadow = (shadow & ~mask) | (val & mask);
-        win->template write<T>(id, shadow);
-    }
+	INLINE void writeMask(T mask, T val)
+	{
+		write((T)((*shadow & ~mask) | (val & mask)));
+	}
 
-    INLINE T get() const { return shadow; }
+	INLINE T get() const { return *shadow; }
 };
 
 #endif /* REG_ACCESS_HPP */

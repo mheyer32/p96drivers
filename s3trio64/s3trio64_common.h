@@ -121,26 +121,30 @@ extern BOOL initRegisterAndMemoryBases(BoardInfo_t *bi);
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Cybervision64 specific stuff
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-static INLINE UBYTE readCv64CtrlRegister(const BoardInfo_t *bi)
-{
-    UBYTE value = getConstCardData(bi)->cv64Ctrl;
-    D(VERBOSE, "R CV64 -> 0x%02lx\n", (LONG)value);
-    return value;
-}
-static INLINE void writeCv64CtrlRegister(BoardInfo_t *bi, UBYTE value)
-{
-    getCardData(bi)->cv64Ctrl = value;
-    VgaIo(getCardData(bi)->cv64CtrlReg).writeB(static_cast<VgaReg::Id>(0), value);
-}
-
-#define R_CV64()                 readCv64CtrlRegister(bi)
-#define W_CV64(value)            writeCv64CtrlRegister((bi), value)
-#define W_CV64_MASK(mask, value) writeCv64CtrlRegister((bi), (readCv64CtrlRegister(bi) & ~(mask)) | ((value) & (mask)))
-
 #define CV64_RESET_BIT          0x04  // 0 = Reset, 1 = Normal
 #define CV64_MONITOR_SWITCH_BIT 0x10  // 0 = show passthrough (Amiga), 1 = show Cybervision
 #define CV64_SWAP16_BIT         0x20  // 0 = no word swap, 1 = word swap
 #define CV64_SWAP32_BIT         0x40  // 0 = no dword swap, 1 = dword swap
+
+static INLINE UBYTE readCv64CtrlRegister(const BoardInfo_t *bi)
+{
+	return asS3(const_cast<BoardInfo_t *>(bi))->cv64().get();
+}
+
+static INLINE void writeCv64CtrlRegister(BoardInfo_t *bi, UBYTE value)
+{
+	asS3(bi)->cv64().write(value);
+}
+
+static INLINE void writeCv64CtrlRegisterMask(BoardInfo_t *bi, UBYTE mask, UBYTE value)
+{
+	asS3(bi)->cv64().writeMask(mask, value);
+}
+
+/* Prefer S3Driver::cv64() in methods; these macros remain for card/Init paths with bi. */
+#define R_CV64()                 readCv64CtrlRegister(bi)
+#define W_CV64(value)            writeCv64CtrlRegister((bi), value)
+#define W_CV64_MASK(mask, value) writeCv64CtrlRegisterMask((bi), (mask), (value))
 #endif                                // CONFIG_CYBERVISION64
 
 #endif  // S3TRIO64_COMMON_H
