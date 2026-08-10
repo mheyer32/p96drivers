@@ -68,4 +68,3 @@ void generateBoardName(char *boardName, const char *cardName, ULONG bus, ULONG s
 #endif
 
 #endif  // CARD_COMMON_H
-

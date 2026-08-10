@@ -2,7 +2,6 @@
 #include "chip_mach64.h"
 #include "mach64_common.h"
 
-
 using namespace MmioReg;
 using namespace PllReg;
 
@@ -369,7 +368,7 @@ BOOL InitMach64VT(struct BoardInfo *bi)
 
     InitVClockPLLTable(bi, reinterpret_cast<const BYTE *>(g_VPLLPostDivider), ARRAY_SIZE(g_VPLLPostDivider));
 
-    ULONG memCntlRaw = blk.readL(BlkIoReg::MEM_CNTL);
+    ULONG memCntlRaw   = blk.readL(BlkIoReg::MEM_CNTL);
     MEM_CNTL_t memCntl = *reinterpret_cast<const MEM_CNTL_t *>(&memCntlRaw);
     print_MEM_CNTL_Register(&memCntl);
 

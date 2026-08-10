@@ -169,8 +169,8 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 
         ULONG otherDeviceId, revision;
         struct Node *owner = NULL;
-        ULONG count = GetBoardAttrs(board, PRM_Device, (Tag)&otherDeviceId, PRM_Revision, (Tag)&revision,
-                                    PRM_BoardOwner, (Tag)&owner, TAG_END);
+        ULONG count        = GetBoardAttrs(board, PRM_Device, (Tag)&otherDeviceId, PRM_Revision, (Tag)&revision,
+                                           PRM_BoardOwner, (Tag)&owner, TAG_END);
         if (count < 3) {
             continue;
         }
@@ -241,8 +241,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     D(INFO, "physicalAddress 0x%08lx\n", physicalAddress);
 
     struct ChipBase *ChipBase = NULL;
-    const char *chipName =
-        (chipFamily == MACH64GX || chipFamily == MACH64CT) ? CHIP_NAME_MACH64_GX : CHIP_NAME_MACH64;
+    const char *chipName = (chipFamily == MACH64GX || chipFamily == MACH64CT) ? CHIP_NAME_MACH64_GX : CHIP_NAME_MACH64;
 
     if (!(ChipBase = (struct ChipBase *)OpenLibrary(chipName, 0))) {
         D(ERROR, "ATIMach64.card: could not open chip library %s\n", chipName);
@@ -270,7 +269,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     // Framebuffer is at BAR0
     bi->MemoryBase = (UBYTE *)memory0;
     setCacheMode(bi, memory0, memory0Size, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED, CACHEFLAGS);
-        
+
     if (memory2) {
         // Use Auxiliary Aperture for MMIO if available
         D(INFO, "Using auxiliary register aperture at 0x%08lx\n", memory2);
@@ -283,7 +282,6 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         bi->MemoryIOBase = (UBYTE *)memory0 + mmioOff + MMIOREGISTER_OFFSET;
         setCacheMode(bi, (UBYTE *)memory0 + mmioOff, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
     }
-
 
     D(INFO, "ATIMach64 calling init chip...\n");
     if (!InitChip(bi)) {
@@ -335,7 +333,7 @@ int main()
     struct BoardInfo *bi = &boardInfo;
 
     bi->ExecBase = SysBase;
-    bi->UtilBase = (struct Library*)UtilityBase;
+    bi->UtilBase = (struct Library *)UtilityBase;
 
     if (!FindCard(bi, NULL)) {
         goto exit;

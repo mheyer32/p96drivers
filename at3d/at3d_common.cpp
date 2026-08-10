@@ -71,20 +71,17 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
     D(INFO, "Memory0 (BAR0) 0x%lx, Size %ld\n", memory0, memory0Size);
     D(INFO, "Memory1 (BAR1) 0x%lx, Size %ld\n", memory1, memory1Size);
 
-    bi->MemoryBase      = (UBYTE *)memory0;
-    bi->MemorySpaceBase = memory0;
-    bi->MemorySpaceSize = memory0Size;
+    bi->MemoryBase                = (UBYTE *)memory0;
+    bi->MemorySpaceBase           = memory0;
+    bi->MemorySpaceSize           = memory0Size;
     getCardData(bi)->legacyIOBase = (volatile UBYTE *)legacyIOBase + REGISTER_OFFSET;
 
-    if (chip->chipFamily <= AT24)
-    {
+    if (chip->chipFamily <= AT24) {
         bi->RegisterBase = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
-        APTR mmioSpace = bi->MemoryBase + 4*1024*1024 - 2048;
-        bi->MemoryIOBase =  (UBYTE *)mmioSpace + MMIOREGISTER_OFFSET;
+        APTR mmioSpace   = bi->MemoryBase + 4 * 1024 * 1024 - 2048;
+        bi->MemoryIOBase = (UBYTE *)mmioSpace + MMIOREGISTER_OFFSET;
         setCacheMode(bi, mmioSpace, 2048, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
-    }
-    else
-    {
+    } else {
         bi->MemoryIOBase = bi->MemoryBase + 0xFFEC00 + MMIOREGISTER_OFFSET;
         bi->RegisterBase = bi->MemoryBase + 0xFFF000 + REGISTER_OFFSET;
         setCacheMode(bi, bi->MemoryBase + 0xFFEC00, 2048, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
@@ -95,7 +92,7 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
     D(INFO, "AT3D: Extended Registers 0x%lx\n", bi->MemoryIOBase - MMIOREGISTER_OFFSET);
 
     // enable special cache mode settings
-    //bi->Flags |= BIF_CACHEMODECHANGE;
+    // bi->Flags |= BIF_CACHEMODECHANGE;
 
     return TRUE;
 }

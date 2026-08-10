@@ -284,9 +284,10 @@ ULONG SetMemoryClock(struct BoardInfo *bi, ULONG clockHz)
     return cd->ramdacOps->setMemoryClock(bi, clockHz);
 }
 
-UWORD ASM S3Driver::calculateBytesPerRow(__REGD0(UWORD width), __REGD1(UWORD height), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE_REG format))
+UWORD ASM S3Driver::calculateBytesPerRow(__REGD0(UWORD width), __REGD1(UWORD height), __REGA1(struct ModeInfo *mi),
+                                         __REGD7(RGBFTYPE_REG format))
 {
-// Make the bytes per row compatible with the Graphics Engine's presets
+    // Make the bytes per row compatible with the Graphics Engine's presets
     if (width <= 320) {
         // We allow only small resolutions to have a non-Graphics Engine size.
         // These resolutions (notably 320xY) are often used in games and these games
@@ -360,7 +361,7 @@ void ASM S3Driver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format))
     DFUNC(INFO, "\n");
 
     const RamdacOps_t *ops = chip()->ramdacOps;
-	ops->setDac(bi, AS_RGBF(format));
+    ops->setDac(bi, AS_RGBF(format));
 }
 
 static INLINE REGARGS UWORD toScanLines(UWORD y, UWORD modeFlags)
@@ -382,7 +383,7 @@ static INLINE REGARGS UWORD adjustBorder(UWORD x, BOOL borderEnabled, UWORD minB
 void ASM S3Driver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
 {
     BoardInfo *bi = this;
-    VgaIo vga = this->vga();
+    VgaIo vga     = this->vga();
 
     BOOL isInterlaced;
     UBYTE depth;
@@ -724,10 +725,11 @@ void ASM S3Driver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
     }
 }
 
-void ASM S3Driver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), __REGD3(UWORD height), __REGD1(WORD xoffset), __REGD2(WORD yoffset), __REGD7(RGBFTYPE_REG format))
+void ASM S3Driver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), __REGD3(UWORD height),
+                              __REGD1(WORD xoffset), __REGD2(WORD yoffset), __REGD7(RGBFTYPE_REG format))
 {
     BoardInfo *bi = this;
-    VgaIo vga = this->vga();
+    VgaIo vga     = this->vga();
     LOCAL_SYSBASE();
 
     DFUNC(INFO,
@@ -857,7 +859,7 @@ APTR ASM S3Driver::calculateMemory(__REGA1(APTR mem), __REGD0(struct RenderInfo 
 
 ULONG ASM S3Driver::getCompatibleFormats(__REGD7(RGBFTYPE_REG format))
 {
-DFUNC(VERBOSE, "Format %ld\n", (ULONG)format);
+    DFUNC(VERBOSE, "Format %ld\n", (ULONG)format);
 
     if (format == RGBFB_NONE)
         return (ULONG)0;
@@ -904,14 +906,12 @@ DFUNC(VERBOSE, "Format %ld\n", (ULONG)format);
 
 BOOL ASM S3Driver::setDisplay(__REGD0(BOOL state))
 {
-// Clocking Mode Register (ClK_MODE) (SR1)
+    // Clocking Mode Register (ClK_MODE) (SR1)
     VgaIo vga = this->vga();
 
     DFUNC(VERBOSE, " state %ld\n", (ULONG)state);
 
     vga.writeSRMask(0x01, 0x20, (~(UBYTE)state & 1) << 5);
-
-
 
     //  R_REG(0x3DA);
     //  W_REG(ATR_AD, 0x20);
@@ -920,7 +920,8 @@ BOOL ASM S3Driver::setDisplay(__REGD0(BOOL state))
     return TRUE;
 }
 
-LONG ASM S3Driver::resolvePixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULONG pixelClock), __REGD7(RGBFTYPE_REG RGBFormat))
+LONG ASM S3Driver::resolvePixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULONG pixelClock),
+                                     __REGD7(RGBFTYPE_REG RGBFormat))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
@@ -1016,7 +1017,7 @@ LONG ASM S3Driver::resolvePixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULONG
 
 ULONG ASM S3Driver::getPixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULONG index), __REGD7(RGBFTYPE_REG format))
 {
-DFUNC(INFO, "Index: %ld\n", index);
+    DFUNC(INFO, "Index: %ld\n", index);
 
     const ChipData_t *cd = chip();
 
@@ -1113,7 +1114,7 @@ void S3Driver::setMemoryModeInternal(RGBFTYPE format)
 void ASM S3Driver::setMemoryMode(__REGD7(RGBFTYPE_REG format))
 {
 #if !BUILD_VISION864
-this->setMemoryModeInternal(AS_RGBF(format));
+    this->setMemoryModeInternal(AS_RGBF(format));
 #endif
 }
 
@@ -1122,17 +1123,13 @@ void ASM S3Driver::setWriteMask(__REGD0(UBYTE mask))
     (void)mask;
 }
 
-void ASM S3Driver::setClearMask(__REGD0(UBYTE mask))
-{
-}
+void ASM S3Driver::setClearMask(__REGD0(UBYTE mask)) {}
 
-void ASM S3Driver::setReadPlane(__REGD0(UBYTE mask))
-{
-}
+void ASM S3Driver::setReadPlane(__REGD0(UBYTE mask)) {}
 
 BOOL ASM S3Driver::getVSyncState(__REGD0(BOOL expected))
 {
-DFUNC(VERBOSE, "\n");
+    DFUNC(VERBOSE, "\n");
     VgaIo vga = this->vga();
     return (vga.readB(VgaReg::INSTAT1) & 0x08) != 0;
 }
@@ -1140,7 +1137,7 @@ DFUNC(VERBOSE, "\n");
 // FIXME: implement, but make sure to coordinate with SetDPMSLevel
 void ASM S3Driver::waitVerticalSync(__REGD0(BOOL waitForEnd))
 {
-DFUNC(VERBOSE, "waitForEnd: %ld\n", (ULONG)waitForEnd);
+    DFUNC(VERBOSE, "waitForEnd: %ld\n", (ULONG)waitForEnd);
     VgaIo vga = this->vga();
 
     if (vga.readSR(0x1) & BIT(5)) {
@@ -1170,7 +1167,7 @@ DFUNC(VERBOSE, "waitForEnd: %ld\n", (ULONG)waitForEnd);
 BOOL ASM S3Driver::setInterrupt(__REGD0(BOOL state))
 {
     BoardInfo *bi = this;
-VgaIo vga = this->vga();
+    VgaIo vga     = this->vga();
     LOCAL_SYSBASE();
     Disable();
 
@@ -1192,7 +1189,7 @@ VgaIo vga = this->vga();
 ULONG __attribute__((noinline)) S3Driver::interruptServer()
 {
     BoardInfo *bi = this;
-    VgaIoQ vga = this->vgaQ();
+    VgaIoQ vga    = this->vgaQ();
 
     if (!(vga.readB(VgaReg::MISC_OUT_W) & BIT(7)))
         return 0;
@@ -1213,7 +1210,7 @@ ULONG __attribute__((noinline)) S3Driver::interruptServer()
 
 void ASM S3Driver::setDPMSLevel(__REGD0(ULONG level))
 {
-//  DPMS_ON,      /* Full operation                             */
+    //  DPMS_ON,      /* Full operation                             */
     //  DPMS_STANDBY, /* Optional state of minimal power reduction  */
     //  DPMS_SUSPEND, /* Significant reduction of power consumption */
     //  DPMS_OFF      /* Lowest level of power consumption */
@@ -1227,7 +1224,7 @@ void ASM S3Driver::setDPMSLevel(__REGD0(ULONG level))
 void ASM S3Driver::setSplitPosition(__REGD0(SHORT splitPos))
 {
     BoardInfo *bi = this;
-    VgaIo vga = this->vga();
+    VgaIo vga     = this->vga();
     DFUNC(VERBOSE, "%ld\n", (ULONG)splitPos);
 
     bi->YSplit = splitPos;
@@ -1415,10 +1412,11 @@ void ASM S3Driver::setSpriteImage(__REGD7(RGBFTYPE_REG fmt))
 #endif
 }
 
-void ASM S3Driver::setSpriteColor(__REGD0(UBYTE index), __REGD1(UBYTE red), __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE_REG fmt))
+void ASM S3Driver::setSpriteColor(__REGD0(UBYTE index), __REGD1(UBYTE red), __REGD2(UBYTE green), __REGD3(UBYTE blue),
+                                  __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
-DFUNC(VERBOSE, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
+    DFUNC(VERBOSE, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
     VgaIo vga = this->vga();
     LOCAL_SYSBASE();
 
@@ -1500,14 +1498,13 @@ BOOL ASM S3Driver::setSprite(__REGD0(BOOL activate), __REGD7(RGBFTYPE_REG RGBFor
     vga.writeCRMask(0x45, 0x01, activate ? 0x01 : 0x00);
 
     if (activate) {
-        this->setSpriteColor( 0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, bi->RGBFormat);
-        this->setSpriteColor( 1, bi->CLUT[18].Red, bi->CLUT[18].Green, bi->CLUT[18].Blue, bi->RGBFormat);
-        this->setSpriteColor( 2, bi->CLUT[19].Red, bi->CLUT[19].Green, bi->CLUT[19].Blue, bi->RGBFormat);
+        this->setSpriteColor(0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, bi->RGBFormat);
+        this->setSpriteColor(1, bi->CLUT[18].Red, bi->CLUT[18].Green, bi->CLUT[18].Blue, bi->RGBFormat);
+        this->setSpriteColor(2, bi->CLUT[19].Red, bi->CLUT[19].Green, bi->CLUT[19].Blue, bi->RGBFormat);
     }
 
     return TRUE;
 }
-
 
 #define MByte(x) ((x) * (1024 * 1024))
 static INLINE void REGARGS getGESegmentAndOffset(ULONG memOffset, WORD bytesPerRow, UBYTE bpp, UWORD *segment,
@@ -1758,7 +1755,8 @@ void S3Driver::setBlitDestPos(UWORD dstX, UWORD dstY)
 #define POSITIVE_Y   (0b100 << 5)
 #define Y_MAJOR      (0b010 << 5)
 
-void ASM S3Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(ULONG pen), __REGD5(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+void ASM S3Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
+                            __REGD3(WORD height), __REGD4(ULONG pen), __REGD5(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE,
@@ -1777,7 +1775,8 @@ void ASM S3Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __R
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset, (UWORD *)&yoffset);
+    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+                          (UWORD *)&yoffset);
 
     x += xoffset;
     y += yoffset;
@@ -1789,7 +1788,7 @@ void ASM S3Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __R
 #endif
 
     ChipData_t *cd = chip();
-    S3Mmio mmio = this->mmio();
+    S3Mmio mmio    = this->mmio();
 
     if (cd->GEOp != FILLRECT) {
         cd->GEOp = FILLRECT;
@@ -1828,7 +1827,8 @@ void ASM S3Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __R
     mmio.writeW(S3_MMIO_ID(CMD), cmd);
 }
 
-void ASM S3Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+void ASM S3Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
+                              __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE,
@@ -1849,7 +1849,8 @@ void ASM S3Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), _
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset, (UWORD *)&yoffset);
+    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+                          (UWORD *)&yoffset);
 
     x += xoffset;
     y += yoffset;
@@ -1880,7 +1881,9 @@ void ASM S3Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), _
     mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
 }
 
-void ASM S3Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), __REGD1(WORD srcY), __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height), __REGD6(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+void ASM S3Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), __REGD1(WORD srcY), __REGD2(WORD dstX),
+                            __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height), __REGD6(UBYTE mask),
+                            __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE,
@@ -1902,7 +1905,8 @@ void ASM S3Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), 
     UWORD seg;
     WORD xoffset;
     WORD yoffset;
-    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset, (UWORD *)&yoffset);
+    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+                          (UWORD *)&yoffset);
 
     srcX += xoffset;
     srcY += yoffset;
@@ -1981,7 +1985,10 @@ UWORD mintermToMixMode(UBYTE minterm)
     //   return minterm | (minterm << 4);
 }
 
-void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY), __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height), __REGD6(UBYTE minTerm), __REGD7(RGBFTYPE_REG format))
+void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REGA2(struct RenderInfo *dri),
+                                          __REGD0(WORD srcX), __REGD1(WORD srcY), __REGD2(WORD dstX),
+                                          __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height),
+                                          __REGD6(UBYTE minTerm), __REGD7(RGBFTYPE_REG format))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE,
@@ -1997,7 +2004,8 @@ void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REG
     UBYTE bpp         = getBPP(format);
     if (!bpp || !this->setGEFormat(bytesPerRow, bpp)) {
         DFUNC(INFO, "fallback to BlitRectNoMaskCompleteDefault\n");
-        bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, minTerm, AS_RGBF(format));
+        bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, minTerm,
+                                          AS_RGBF(format));
         return;
     }
 
@@ -2021,13 +2029,15 @@ void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REG
         WORD xoffset;
         WORD yoffset;
         UWORD segDst;
-        getGESegmentAndOffset(this->getMemoryOffset(dri->Memory), sri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset, (UWORD *)&yoffset);
+        getGESegmentAndOffset(this->getMemoryOffset(dri->Memory), sri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset,
+                              (UWORD *)&yoffset);
 
         dstX += xoffset;
         dstY += yoffset;
 
         UWORD segSrc;
-        getGESegmentAndOffset(this->getMemoryOffset(sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset, (UWORD *)&yoffset);
+        getGESegmentAndOffset(this->getMemoryOffset(sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset,
+                              (UWORD *)&yoffset);
 
         srcX += xoffset;
         srcY += yoffset;
@@ -2068,7 +2078,8 @@ void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REG
         WORD xoffset;
         WORD yoffset;
         UWORD segDst;
-        getGESegmentAndOffset(this->getMemoryOffset(dri->Memory), dri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset, (UWORD *)&yoffset);
+        getGESegmentAndOffset(this->getMemoryOffset(dri->Memory), dri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset,
+                              (UWORD *)&yoffset);
 
         dstX += xoffset;
         dstY += yoffset;
@@ -2099,7 +2110,8 @@ void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REG
         WORD xoffset;
         WORD yoffset;
         UWORD segSrc;
-        getGESegmentAndOffset(this->getMemoryOffset(sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset, (UWORD *)&yoffset);
+        getGESegmentAndOffset(this->getMemoryOffset(sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset,
+                              (UWORD *)&yoffset);
 
         srcX += xoffset;
         srcY += yoffset;
@@ -2138,7 +2150,9 @@ void S3Driver::writePIX_TRANS(ULONG value)
 #endif
 }
 
-void ASM S3Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct Template *tmpl), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+void ASM S3Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct Template *tmpl), __REGD0(WORD x),
+                                __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask),
+                                __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE,
@@ -2157,7 +2171,8 @@ void ASM S3Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct T
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset, (UWORD *)&yoffset);
+    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+                          (UWORD *)&yoffset);
 
     x += xoffset;
     y += yoffset;
@@ -2194,8 +2209,8 @@ void ASM S3Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct T
     // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
     WaitForBlitter(bi);
 
-    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
-                      CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
+    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+                                     CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
     // FIXME: there's no promise that tmpl->Memory and tmpl->BytesPerRow
     // are 32bit aligned. This might either be slower than it could be on 030+ or
@@ -2225,7 +2240,9 @@ void ASM S3Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct T
     }
 }
 
-void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pattern *pattern), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pattern *pattern), __REGD0(WORD x),
+                               __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask),
+                               __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE,
@@ -2246,7 +2263,8 @@ void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pa
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset, (UWORD *)&yoffset);
+    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+                          (UWORD *)&yoffset);
 
     x += xoffset;
     y += yoffset;
@@ -2411,8 +2429,8 @@ void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pa
             if (cd->chipFamily == VISION864 || cd->chipFamily == VISION968) {
                 // The vision 864 doesn't have CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED, so we have to transfer the pattern
                 // in 8bit chunks
-                mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
-                                  CMD_WAIT_CPU | CMD_BUS_SIZE_8BIT);
+                mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT |
+                                                 CMD_ACROSS_PLANE | CMD_WAIT_CPU | CMD_BUS_SIZE_8BIT);
                 // FIXME: at this point I wonder if it would be faster to place the 8x8 pattern via CPU writes instead
                 // of blitting it
                 pat0 = swapl(pat0);
@@ -2428,8 +2446,9 @@ void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pa
             }
 #if !BUILD_VISION864
             else {
-                mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
-                                  CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED);
+                mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT |
+                                                 CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+                                                 CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED);
                 this->writePIX_TRANS(pat0);
                 this->writePIX_TRANS(pat1);
             }
@@ -2469,8 +2488,8 @@ void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pa
 
         this->setBlitSrcPosAndSize(x, y, width, height);
 
-        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
-                          CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
+        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+                                         CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
         WORD dwordsPerLine      = (width + 31) / 32;
         UWORD *bitmap           = (UWORD *)pattern->Memory;
@@ -2498,12 +2517,11 @@ void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pa
     }
 }
 
-void S3Driver::performBlitPlanar2ChunkyBlits(SHORT dstX, SHORT dstY, SHORT width,
-                                                  SHORT height, UWORD mixMode, UBYTE *bitmap, UWORD dwordsPerLine,
-                                                  WORD bmPitch, UBYTE rol)
+void S3Driver::performBlitPlanar2ChunkyBlits(SHORT dstX, SHORT dstY, SHORT width, SHORT height, UWORD mixMode,
+                                             UBYTE *bitmap, UWORD dwordsPerLine, WORD bmPitch, UBYTE rol)
 {
     BoardInfo *bi = this;
-    S3Mmio mmio = this->mmio();
+    S3Mmio mmio   = this->mmio();
 
     this->setBlitSrcPosAndSize(dstX, dstY, width, height);
 
@@ -2531,8 +2549,8 @@ void S3Driver::performBlitPlanar2ChunkyBlits(SHORT dstX, SHORT dstY, SHORT width
         // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
         WaitForBlitter(bi);
 
-        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
-                          CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
+        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+                                         CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
         if (!rol) {
             for (UWORD y = 0; y < height; ++y) {
@@ -2554,7 +2572,10 @@ void S3Driver::performBlitPlanar2ChunkyBlits(SHORT dstX, SHORT dstY, SHORT width
     }
 }
 
-void ASM S3Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct RenderInfo *ri), __REGD0(SHORT srcX), __REGD1(SHORT srcY), __REGD2(SHORT dstX), __REGD3(SHORT dstY), __REGD4(SHORT width), __REGD5(SHORT height), __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
+void ASM S3Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct RenderInfo *ri), __REGD0(SHORT srcX),
+                                     __REGD1(SHORT srcY), __REGD2(SHORT dstX), __REGD3(SHORT dstY),
+                                     __REGD4(SHORT width), __REGD5(SHORT height), __REGD6(UBYTE minTerm),
+                                     __REGD7(UBYTE mask))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE,
@@ -2581,7 +2602,8 @@ void ASM S3Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct 
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), bytesPerRow, 1, &seg, (UWORD *)&xoffset, (UWORD *)&yoffset);
+    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), bytesPerRow, 1, &seg, (UWORD *)&xoffset,
+                          (UWORD *)&yoffset);
 
     dstX += xoffset;
     dstY += yoffset;
@@ -2630,22 +2652,24 @@ void ASM S3Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct 
         }
 
         if (!emulate320) {
-            this->performBlitPlanar2ChunkyBlits(dstX, dstY, width, height, mixMode, bitmap, dwordsPerLine, bmPitch, rol);
+            this->performBlitPlanar2ChunkyBlits(dstX, dstY, width, height, mixMode, bitmap, dwordsPerLine, bmPitch,
+                                                rol);
         } else {
             SHORT halfHeight1 = (height + 1) / 2;
             SHORT halfHeight2 = height / 2;
 
             this->performBlitPlanar2ChunkyBlits(dstX, dstY, width, halfHeight1, mixMode, bitmap, dwordsPerLine,
-                                          bmPitch * 2, rol);
+                                                bmPitch * 2, rol);
             if (halfHeight2) {
                 this->performBlitPlanar2ChunkyBlits(dstX + 320, dstY, width, halfHeight2, mixMode, bitmap + bmPitch,
-                                              dwordsPerLine, bmPitch * 2, rol);
+                                                    dwordsPerLine, bmPitch * 2, rol);
             }
         }
     }
 }
 
-void ASM S3Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line *line), __REGD0(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+void ASM S3Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line *line), __REGD0(UBYTE mask),
+                            __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE, "\n");
@@ -2727,7 +2751,7 @@ void ASM S3Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line 
         this->writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
 
         mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
-                          CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED | direction);
+                                         CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED | direction);
 
         // Line->PatternShift selects which bit of the pattern is to be used for the
         // origin of the line and thus shifts the pattern to the indicated number of
@@ -2746,7 +2770,7 @@ void ASM S3Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line 
 /** Read CR36 memory type, log it, and return (CR36>>2)&3 for use by callers (e.g. Trio64 SR0x0A). */
 static UBYTE getMemoryType(struct BoardInfo *bi)
 {
-    VgaIo vga = asS3(bi)->vga();
+    VgaIo vga           = asS3(bi)->vga();
     const UBYTE memType = (vga.readCR(0x36) >> 2) & 3;
     switch (memType) {
     case 0b00:
@@ -2831,7 +2855,7 @@ static BOOL probeFramebufferVision(struct BoardInfo *bi)
 
 static BOOL probeFramebufferTrio64(struct BoardInfo *bi)
 {
-    VgaIo vga = asS3(bi)->vga();
+    VgaIo vga           = asS3(bi)->vga();
     const UBYTE memType = getMemoryType(bi);
 
     ChipFamily_t chipFamily = (ChipFamily_t)getChipData(bi)->chipFamily;
@@ -2929,7 +2953,7 @@ static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
     asS3(bi)->waitBlitter();
 }
 static UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
-                                  __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
+                                      __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
 {
     return asS3(bi)->calculateBytesPerRow(width, height, mi, format);
 }
@@ -3091,7 +3115,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     asS3(bi)->blitPlanar2Chunky(bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
 }
 static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGA2(struct Line *line),
-                  __REGD0(UBYTE mask), __REGD7(RGBFTYPE fmt))
+                         __REGD0(UBYTE mask), __REGD7(RGBFTYPE fmt))
 {
     asS3(bi)->drawLine(ri, line, mask, fmt);
 }
@@ -3236,7 +3260,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #endif
 
     {
-        VgaIo vga = asS3(bi)->vga();
+        VgaIo vga    = asS3(bi)->vga();
         BOOL used3c3 = FALSE;
         if (chipFamily >= TRIO64PLUS) {
             /* Chip wakeup Trio64+ and up*/
@@ -3320,7 +3344,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #endif
 
     VgaIo vga = asS3(bi)->vga();
-    S3Io io = asS3(bi)->io();
+    S3Io io   = asS3(bi)->io();
 
     if (chipFamily == VISION968) {
         vga.writeCRMask(0x36, 0x1e, 0x1e);
@@ -4020,7 +4044,8 @@ BOOL TestCard(BoardInfo_t *bi, BOOL vblankTest)
     static struct ModeInfo modes[6];
     static BOOL modesInit;
     if (!modesInit) {
-        struct {
+        struct
+        {
             UWORD w, h, depth, flags, htot, hblank, hss, hsz, vtot, vblank, vss, vsz;
             ULONG pix;
         } init[] = {
@@ -4055,12 +4080,8 @@ BOOL TestCard(BoardInfo_t *bi, BOOL vblankTest)
     }
 
     static const char *modeNames[] = {
-        "640x480@60 baseline",
-        "320x200 doublescan vtotal=225",
-        "320x200 doublescan vtotal=224",
-        "320x240 doublescan vtotal=263",
-        "320x240 doublescan vtotal=262",
-        "1280x1024@60 8bpp",
+        "640x480@60 baseline",           "320x200 doublescan vtotal=225", "320x200 doublescan vtotal=224",
+        "320x240 doublescan vtotal=263", "320x240 doublescan vtotal=262", "1280x1024@60 8bpp",
     };
 
     if (vblankTest) {
@@ -4275,7 +4296,7 @@ int main(void)
         memset(&boardInfo, 0, sizeof(boardInfo));
         bi = &boardInfo;
 
-        CardData_t *card  = getCardData(bi);
+        CardData_t *card = getCardData(bi);
         P96_HOOK(bi->ExecBase, SysBase);
         P96_HOOK(bi->UtilBase, UtilityBase);
         bi->ChipBase      = NULL;

@@ -27,11 +27,11 @@ void i2cStart(struct BoardInfo *bi)
     ops->setSda(bi, TRUE);
     ops->setScl(bi, TRUE, FALSE);
     delayMicroSeconds(I2C_DELAY_US);
-    
+
     // Start condition: SDA goes low while SCL is high
     ops->setSda(bi, FALSE);
     delayMicroSeconds(I2C_DELAY_US);
-    
+
     // Pull SCL low to prepare for data transfer
     ops->setScl(bi, FALSE, FALSE);
     delayMicroSeconds(I2C_DELAY_US);
@@ -54,11 +54,11 @@ void i2cStop(struct BoardInfo *bi)
     ops->setSda(bi, FALSE);
     ops->setScl(bi, FALSE, FALSE);
     delayMicroSeconds(I2C_DELAY_US);
-    
+
     // Pull SCL high first (check for clock stretching)
     ops->setScl(bi, TRUE, TRUE);
     delayMicroSeconds(I2C_DELAY_US);
-    
+
     // Stop condition: SDA goes high while SCL is high
     ops->setSda(bi, TRUE);
     delayMicroSeconds(I2C_DELAY_US);
@@ -81,15 +81,15 @@ BOOL i2cWriteBit(struct BoardInfo *bi, UBYTE bit)
     // Set SDA to desired value while SCL is low
     ops->setSda(bi, bit != 0);
     delayMicroSeconds(I2C_DELAY_US);
-    
+
     // Clock the bit by pulling SCL high (check for clock stretching)
     ops->setScl(bi, TRUE, TRUE);
     delayMicroSeconds(I2C_DELAY_US);
-    
+
     // Pull SCL low to complete the bit transfer (no clock stretching check)
     ops->setScl(bi, FALSE, FALSE);
     delayMicroSeconds(I2C_DELAY_US);
-    
+
     return TRUE;
 }
 
@@ -109,18 +109,18 @@ UBYTE i2cReadBit(struct BoardInfo *bi)
     // Release SDA (set to input/tri-state)
     ops->setSda(bi, TRUE);
     delayMicroSeconds(I2C_DELAY_US);
-    
+
     // Clock the bit by pulling SCL high (check for clock stretching)
     ops->setScl(bi, TRUE, TRUE);
     delayMicroSeconds(I2C_DELAY_US);
-    
+
     // Read SDA value while SCL is high
     UBYTE bit = ops->readSda(bi) ? 1 : 0;
-    
+
     // Pull SCL low to complete the bit transfer (no clock stretching check)
     ops->setScl(bi, FALSE, FALSE);
     delayMicroSeconds(I2C_DELAY_US);
-    
+
     return bit;
 }
 
@@ -136,10 +136,10 @@ BOOL i2cWriteByte(struct BoardInfo *bi, UBYTE data)
     for (int i = 7; i >= 0; i--) {
         i2cWriteBit(bi, (data >> i) & 1);
     }
-    
+
     // Read ACK bit (slave pulls SDA low for ACK)
     UBYTE ack = i2cReadBit(bi);
-    
+
     return (ack == 0);  // ACK is low (0), NACK is high (1)
 }
 
@@ -152,16 +152,16 @@ BOOL i2cWriteByte(struct BoardInfo *bi, UBYTE data)
 UBYTE i2cReadByte(struct BoardInfo *bi, BOOL ack)
 {
     UBYTE data = 0;
-    
+
     // Read 8 bits, MSB first
     for (int i = 7; i >= 0; i--) {
         UBYTE bit = i2cReadBit(bi);
         data |= (bit << i);
     }
-    
+
     // Send ACK or NACK
     i2cWriteBit(bi, ack ? 0 : 1);  // 0 = ACK, 1 = NACK
-    
+
     return data;
 }
 
@@ -644,9 +644,9 @@ void queryEDIDResolutions(const UBYTE *edid_data)
             const char *hsync_pol  = (timing.flags & 0x02) ? "+" : "-";
             const char *vsync_pol  = (timing.flags & 0x04) ? "+" : "-";
 
-            D(INFO, "  %ldx%ld @ %luHz%s (pixel clock: %lu.%02lu MHz, h-freq: %lu kHz, sync: H%c V%c)\n", (ULONG)timing.width,
-              (ULONG)timing.height, refresh_hz, interlaced, pixel_clock_mhz_int, pixel_clock_mhz_frac, h_freq_khz,
-              hsync_pol[0], vsync_pol[0]);
+            D(INFO, "  %ldx%ld @ %luHz%s (pixel clock: %lu.%02lu MHz, h-freq: %lu kHz, sync: H%c V%c)\n",
+              (ULONG)timing.width, (ULONG)timing.height, refresh_hz, interlaced, pixel_clock_mhz_int,
+              pixel_clock_mhz_frac, h_freq_khz, hsync_pol[0], vsync_pol[0]);
 
             if (timing.image_width_mm > 0 && timing.image_height_mm > 0) {
                 D(INFO, "    Image size: %ld x %ld mm\n", (ULONG)timing.image_width_mm, (ULONG)timing.image_height_mm);
@@ -830,14 +830,14 @@ BOOL writeEDIDToFile(struct BoardInfo *bi, const UBYTE *edid_data)
 
     // If filename is empty or too short, use a default name
     if (filename[0] == '\0' || myStrlen((STRPTR)filename) < 3) {
-        Strncpy((STRPTR)filename, (STRPTR)"Unknown_Monitor", sizeof(filename));
+        Strncpy((STRPTR)filename, (STRPTR) "Unknown_Monitor", sizeof(filename));
     }
 
     // Construct full path: RAM:filename.edid
     char fullpath[256];
-    Strncpy((STRPTR)fullpath, (STRPTR)"RAM:", sizeof(fullpath));
+    Strncpy((STRPTR)fullpath, (STRPTR) "RAM:", sizeof(fullpath));
     Strncat((STRPTR)fullpath, (STRPTR)filename, sizeof(fullpath) - myStrlen((STRPTR)fullpath));
-    Strncat((STRPTR)fullpath, (STRPTR)".edid", sizeof(fullpath) - myStrlen((STRPTR)fullpath));
+    Strncat((STRPTR)fullpath, (STRPTR) ".edid", sizeof(fullpath) - myStrlen((STRPTR)fullpath));
 
     /* Heap — stack BoardInfo in Test* mains is already ~2KB+. */
     UBYTE *all_edid_data = AllocVec(EDID_BLOCK_SIZE * 4, MEMF_ANY);
@@ -928,12 +928,12 @@ UBYTE readEDIDWithExtensions(struct BoardInfo *bi, UBYTE *edid_data, UBYTE max_b
     if (num_extensions > 0 && max_blocks > 1) {
         // Limit to available buffer space
         UBYTE max_extensions = (max_blocks - 1 < num_extensions) ? (max_blocks - 1) : num_extensions;
-        
+
         for (UBYTE ext = 1; ext <= max_extensions; ext++) {
             UBYTE *ext_data = edid_data + (ext * EDID_BLOCK_SIZE);
-            
+
             D(INFO, "Reading EDID extension block %lu...\n", (ULONG)ext);
-            
+
             if (!readEDIDBlock(bi, ext_data, EDID_I2C_ADDR_PRIMARY, ext)) {
                 DFUNC(ERROR, "Failed to read EDID extension block %lu\n", (ULONG)ext);
                 break;  // Stop on first failure
@@ -944,7 +944,7 @@ UBYTE readEDIDWithExtensions(struct BoardInfo *bi, UBYTE *edid_data, UBYTE max_b
             for (int i = 0; i < EDID_BLOCK_SIZE; i++) {
                 checksum += ext_data[i];
             }
-            
+
             if (checksum != 0) {
                 DFUNC(ERROR, "EDID extension block %lu checksum invalid: 0x%02lx\n", (ULONG)ext, (ULONG)checksum);
                 break;  // Stop on checksum error
@@ -959,9 +959,8 @@ UBYTE readEDIDWithExtensions(struct BoardInfo *bi, UBYTE *edid_data, UBYTE max_b
     debugLevel = saved_debug_level;
 #endif
 
-    D(INFO, "Successfully read %lu EDID block(s) (base + %lu extension(s))\n", 
-      (ULONG)blocks_read, (ULONG)(blocks_read - 1));
-    
+    D(INFO, "Successfully read %lu EDID block(s) (base + %lu extension(s))\n", (ULONG)blocks_read,
+      (ULONG)(blocks_read - 1));
+
     return blocks_read;
 }
-

@@ -36,18 +36,18 @@ typedef struct ChipData
     ULONG GEdrawCmd;
     ULONG GEbgPen;
 
-    UBYTE GEbppLog2;   // programmed graphics engine bpp
+    UBYTE GEbppLog2;  // programmed graphics engine bpp
     UBYTE GElinear;   // programmed graphics engine linear/xy address model
 
     UBYTE GEopCode;   // programmed minTerm
-    UBYTE memFormat;   // programmed memory layout/format
+    UBYTE memFormat;  // programmed memory layout/format
 
     UBYTE chipFamily;  // chip family
     UBYTE pad;
 
     UWORD *patternCacheBuffer;  // points to system memory
     ULONG patternCacheKey;
-    ULONG pat0, pat1; // cached value for pattern registers (for pattern cache)
+    ULONG pat0, pat1;  // cached value for pattern registers (for pattern cache)
 
     // PLL table for pixel clocks
     AT3DPLLValue_t *pllValues;
@@ -68,8 +68,6 @@ typedef struct CardData
 } CardData_t;
 
 STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);
-
-
 
 #ifdef __cplusplus
 #include "at3d_driver.hpp"

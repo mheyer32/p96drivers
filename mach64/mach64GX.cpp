@@ -825,10 +825,8 @@ static UBYTE readRGB514Index(BoardInfo_t *bi, UWORD index)
 static void convRGB514PLLValue(UWORD *mhz100)
 {
     static const UWORD pllconvtable[][3] = {
-        {3200, 3220, 3118},   {4990, 5010, 4980},   {5660, 5670, 5670},
-        {6500, 6510, 6490},   {6750, 6760, 6760},   {7500, 7520, 7470},
-        {11000, 11020, 11020},{13500, 13520, 13520},{15600, 15620, 15620},
-        {0, 0, 0},
+        {3200, 3220, 3118}, {4990, 5010, 4980},    {5660, 5670, 5670},    {6500, 6510, 6490},    {6750, 6760, 6760},
+        {7500, 7520, 7470}, {11000, 11020, 11020}, {13500, 13520, 13520}, {15600, 15620, 15620}, {0, 0, 0},
     };
     UWORD i;
 
@@ -883,9 +881,9 @@ static UWORD rgb514_calculateProgramWord(UWORD mhz100)
 
 static UWORD rgb514_freqFromWord(UWORD word)
 {
-    UBYTE m = (UBYTE)(word >> 8);
-    UBYTE n = (UBYTE)(word & 0xff);
-    UBYTE p = m >> 6;
+    UBYTE m  = (UBYTE)(word >> 8);
+    UBYTE n  = (UBYTE)(word & 0xff);
+    UBYTE p  = m >> 6;
     UBYTE mv = m & 0x3f;
 
     if (!n)
@@ -895,7 +893,7 @@ static UWORD rgb514_freqFromWord(UWORD word)
 
 void ASM Mach64Driver::setDAC_RGB514(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format))
 {
-    UBYTE depth = RGBFTYPE_to_colorDepth(format);
+    UBYTE depth                 = RGBFTYPE_to_colorDepth(format);
     const RGB514_DAC_Table *tab = &RGB514_Modes[depth];
 
     (void)region;
@@ -1209,15 +1207,14 @@ void ASM Mach64Driver::setColorArray_RGB514(__REGD0(UWORD startIndex), __REGD1(U
     }
 }
 
-static void ASM SetColorArray_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex),
-                                     __REGD1(UWORD count))
+static void ASM SetColorArray_RGB514(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count))
 {
     asMach64(bi)->setColorArray_RGB514(startIndex, count);
 }
 
 /* ATI68860 cursor colors live in the DAC, not CUR_CLR0/1 (SDK HWCURSOR.C). */
-void ASM Mach64Driver::setSpriteColor_GX(__REGD0(UBYTE index), __REGD1(UBYTE red), __REGD2(UBYTE green), __REGD3(UBYTE blue),
-                                         __REGD7(RGBFTYPE_REG fmt))
+void ASM Mach64Driver::setSpriteColor_GX(__REGD0(UBYTE index), __REGD1(UBYTE red), __REGD2(UBYTE green),
+                                         __REGD3(UBYTE blue), __REGD7(RGBFTYPE_REG fmt))
 {
     DRIVER_LOCALS(this);
     UBYTE pen;
@@ -1368,8 +1365,8 @@ static void writeRGB514CursorColors(BoardInfo_t *bi)
     SetRS2RS3(bi, 0);
 }
 
-void ASM Mach64Driver::setSpriteColor_RGB514(__REGD0(UBYTE index), __REGD1(UBYTE red), __REGD2(UBYTE green), __REGD3(UBYTE blue),
-                                             __REGD7(RGBFTYPE_REG fmt))
+void ASM Mach64Driver::setSpriteColor_RGB514(__REGD0(UBYTE index), __REGD1(UBYTE red), __REGD2(UBYTE green),
+                                             __REGD3(UBYTE blue), __REGD7(RGBFTYPE_REG fmt))
 {
     ChipData_t *cd = chip();
 
