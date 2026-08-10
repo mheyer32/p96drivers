@@ -21,10 +21,42 @@ class S3Driver : public P96Driver
 	S3Io io() const { return S3Io(ioBase()); }
 	S3IoQ ioQ() { return S3IoQ(ioBase()); }
 	S3IoQ ioQ() const { return S3IoQ(ioBase()); }
+	VgaIo vga() { return VgaIo(ioBase()); }
+	VgaIo vga() const { return VgaIo(ioBase()); }
+	VgaIoQ vgaQ() { return VgaIoQ(ioBase()); }
+	VgaIoQ vgaQ() const { return VgaIoQ(ioBase()); }
 	S3Mmio mmio() { return S3Mmio(mmioBase()); }
 	S3Mmio mmio() const { return S3Mmio(mmioBase()); }
 	S3MmioQ mmioQ() { return S3MmioQ(mmioBase()); }
 	S3MmioQ mmioQ() const { return S3MmioQ(mmioBase()); }
+
+	VgaIo legacyVga() { return VgaIo(getCardData(this)->legacyIOBase); }
+	VgaIo legacyVga() const { return VgaIo(getConstCardData(this)->legacyIOBase); }
+
+	/* MULTI_FUNC_CNTL (0xBEE8): index in [15:12], data in [11:0]; MMIO write. */
+	INLINE void writeBee8(UWORD idx, UWORD value)
+	{
+		mmio().writeW(MmioReg::MULTI_FUNC_CNTL, (UWORD)((idx << 12) | (value & 0x0FFF)));
+	}
+
+	/* Read path is I/O-only on older series; index encoding differs from write. */
+	INLINE UWORD readBee8(UBYTE idx)
+	{
+		switch (idx) {
+		case 0xA:
+			idx = 0b0101;
+			break;
+		case 0xD:
+			idx = 0b1010;
+			break;
+		case 0xE:
+			idx = 0b0110;
+			break;
+		}
+		S3Io port = io();
+		port.writeW(IoReg::MULTI_FUNC_CNTL, (UWORD)((0xF << 12) | idx));
+		return port.readW(IoReg::MULTI_FUNC_CNTL) & 0xFFF;
+	}
 
 	INLINE void waitFifo(BYTE numSlots)
 	{
@@ -83,5 +115,14 @@ static INLINE void waitFifo(BoardInfo *bi, BYTE numSlots)
 {
 	asS3(bi)->waitFifo(numSlots);
 }
+
+#define S3_IO_ID(x)   static_cast<IoReg::Id>(x)
+#define S3_MMIO_ID(x) static_cast<MmioReg::Id>(x)
+
+#define DRIVER_LOCALS(self_)                \
+	S3Driver *drv = asS3(self_);        \
+	VgaIo vga     = drv->vga();         \
+	S3Io io       = drv->io();          \
+	S3Mmio mmio   = drv->mmio()
 
 #endif

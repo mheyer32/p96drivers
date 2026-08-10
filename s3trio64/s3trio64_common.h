@@ -113,8 +113,6 @@ extern ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision);
 extern const char *getChipFamilyName(ChipFamily_t family);
 extern BOOL initRegisterAndMemoryBases(BoardInfo_t *bi);
 
-#define LEGACYIOBASE() volatile UBYTE *RegBase = getCardData(bi)->legacyIOBase
-
 #ifdef __cplusplus
 }
 #endif
@@ -132,7 +130,7 @@ static INLINE UBYTE readCv64CtrlRegister(const BoardInfo_t *bi)
 static INLINE void writeCv64CtrlRegister(BoardInfo_t *bi, UBYTE value)
 {
     getCardData(bi)->cv64Ctrl = value;
-    writeRegister(getCardData(bi)->cv64CtrlReg, 0, value, "CV64");
+    VgaIo(getCardData(bi)->cv64CtrlReg).writeB(static_cast<VgaReg::Id>(0), value);
 }
 
 #define R_CV64()                 readCv64CtrlRegister(bi)

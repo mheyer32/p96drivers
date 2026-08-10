@@ -327,7 +327,7 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
 {
     DFUNC(VERBOSE, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
 
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
     LOCAL_SYSBASE();
 
     // FIXME: this should be a constant for the Trio, no need to make it dynamic
@@ -337,15 +337,15 @@ static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD start
     // function
     Disable();
 
-    W_REG(DAC_WR_AD, startIndex);
+    vga.writeB(VgaReg::DAC_WR_INDEX, startIndex);
 
     struct CLUTEntry *entry = &bi->CLUT[startIndex];
 
     // Do not print these individual register writes as it takes ages
     for (UWORD c = 0; c < count; ++c) {
-        writeReg(RegBase, DAC_DATA, entry->Red >> bppDiff);
-        writeReg(RegBase, DAC_DATA, entry->Green >> bppDiff);
-        writeReg(RegBase, DAC_DATA, entry->Blue >> bppDiff);
+        vga.writeB(VgaReg::DAC_PEL_DATA, entry->Red >> bppDiff);
+        vga.writeB(VgaReg::DAC_PEL_DATA, entry->Green >> bppDiff);
+        vga.writeB(VgaReg::DAC_PEL_DATA, entry->Blue >> bppDiff);
         ++entry;
     }
 
@@ -379,7 +379,7 @@ static INLINE REGARGS UWORD adjustBorder(UWORD x, BOOL borderEnabled, UWORD minB
 
 static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     BOOL isInterlaced;
     UBYTE depth;
@@ -403,9 +403,9 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     // Disable Clock Doubling
 #if !BUILD_VISION864
     // W_SR_MASK(0x15, /*BIT(4) |*/ BIT(6), 0);
-    W_SR_MASK(0x18, BIT(7), 0);
+    vga.writeSRMask(0x18, BIT(7), 0);
 #else
-    W_CR_MASK(0x43, BIT(0), 0x00);
+    vga.writeCRMask(0x43, BIT(0), 0x00);
 #endif
 
     hTotal       = mi->HorTotal;
@@ -419,23 +419,23 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
             D(INFO, "8-Bit Mode, NO Border\n");
             // Bit 5 BDR SEL - Blank/Border Select
             // 1 = BLANK is active during entire display inactive period (no border)
-            W_CR_MASK(0x33, 0x20, 0x20);
+            vga.writeCRMask(0x33, 0x20, 0x20);
         } else {
             D(INFO, "8-Bit Mode, Border\n");
             // Bit 5 BDR SEL - Blank/Border Select
             // o = BLANK active time is defined by CR2 and CR3
-            W_CR_MASK(0x33, 0x20, 0x0);
+            vga.writeCRMask(0x33, 0x20, 0x0);
         }
 
         // Disable horizontal counter double mode used for 16/32bit modes
-        W_CR_MASK(0x43, 0x80, 0x00);
+        vga.writeCRMask(0x43, 0x80, 0x00);
 
 #if BUILD_VISION864 && 0
         // FIXME: Do we ever overrun the max register size?
         if (hTotal > ((2 << 9) - 1 + 5)) {
             hTotal /= 2;
             ScreenWidth /= 2;
-            W_CR_MASK(0x43, BIT(7), BIT(7));
+            vga.writeCRMask(0x43, BIT(7), BIT(7));
         }
 #endif
 
@@ -454,33 +454,33 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
             // 1 = RAMDAC clock doubled mode (0001) enabled
             // This bit must be set to 1 when mode 0001 is specified in bits 7-4
             // of CR67 or SRC. Either bit 4 or bit 6 of SR15 must also be set to 1.
-            W_SR_MASK(0x18, BIT(7), BIT(7));
+            vga.writeSRMask(0x18, BIT(7), BIT(7));
 #endif
         }
     } else if (depth <= 16) {
         D(INFO, "16-Bit Mode, No Border\n");
         // Bit 5 BDR SEL - Blank/Border Select
         // o = BLANK active time is defined by CR2 and CR3
-        W_CR_MASK(0x33, 0x20, 0x0);
+        vga.writeCRMask(0x33, 0x20, 0x0);
 
         // Double all horizontal parameters.
-        W_CR_MASK(0x43, 0x80, 0x80);
+        vga.writeCRMask(0x43, 0x80, 0x80);
         border = 0;
     } else {
         D(INFO, "24-Bit Mode, No Border\n");
         // Bit 5 BDR SEL - Blank/Border Select
         // 0 = BLANK active time is defined by CR2 and CR3
-        W_CR_MASK(0x33, 0x20, 0x0);
+        vga.writeCRMask(0x33, 0x20, 0x0);
 
 #if BUILD_VISION864
         // Double all horizontal parameters.
-        W_CR_MASK(0x43, 0x80, 0x80);
+        vga.writeCRMask(0x43, 0x80, 0x80);
         // And double again. We need x4 "dot clocks"
         hTotal      = hTotal * 2;
         screenWidth = screenWidth * 2;
 #else
         // Reset doubling all horizontal parameters.
-        W_CR_MASK(0x43, 0x80, 0x00);
+        vga.writeCRMask(0x43, 0x80, 0x00);
 #endif
         border = 0;
     }
@@ -494,9 +494,9 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // Horizontal Total (CRO)
         UWORD hTotalClk = TO_CLKS(hTotal) - 5;
         D(INFO, "Horizontal Total %ld\n", (ULONG)hTotalClk);
-        W_CR_OVERFLOW1(hTotalClk, 0x0, 0, 8, 0x5D, 0, 1);
+        vga.writeCROverflow1(hTotalClk, 0x0, 0, 8, 0x5D, 0, 1);
         // Interlace Retrace Start Register (IL_RTSTART) (CR3C)
-        W_CR(0x3c, hTotalClk >> 1);
+        vga.writeCR(0x3c, hTotalClk >> 1);
     }
     {
         // Horizontal Display End Register (H_D_END) (CR1)
@@ -505,7 +505,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // active display. Bit 8 of this value is bit 1 of CR5D.
         UWORD hDisplayEnd = TO_CLKS(screenWidth) - 1;
         D(INFO, "Display End %ld\n", (ULONG)hDisplayEnd);
-        W_CR_OVERFLOW1(hDisplayEnd, 0x1, 0, 8, 0x5d, 1, 1);
+        vga.writeCROverflow1(hDisplayEnd, 0x1, 0, 8, 0x5d, 1, 1);
     }
 
     UWORD hBorderSize = ADJUST_HBORDER(mi->HorBlankSize);
@@ -516,7 +516,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         UWORD hBlankStart = TO_CLKS(screenWidth + hBorderSize);
         // Start Horizontal Blank Register (S_H_BLNKI (CR2))
         D(INFO, "Horizontal Blank Start %ld\n", (ULONG)hBlankStart);
-        W_CR_OVERFLOW1(hBlankStart, 0x2, 0, 8, 0x5d, 2, 1);
+        vga.writeCROverflow1(hBlankStart, 0x2, 0, 8, 0x5d, 2, 1);
     }
 
     {
@@ -524,21 +524,21 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         UWORD hBlankEnd = TO_CLKS(hTotal - hBorderSize) - 1;
         D(INFO, "Horizontal Blank End %ld\n", (ULONG)hBlankEnd);
         //    W_CR_OVERFLOW2(hBlankEnd, 0x3, 0, 5, 0x5, 7, 1, 0x5d, 3, 1);
-        W_CR_OVERFLOW1(hBlankEnd, 0x3, 0, 5, 0x5, 7, 1);
+        vga.writeCROverflow1(hBlankEnd, 0x3, 0, 5, 0x5, 7, 1);
     }
 
     UWORD hSyncStart = TO_CLKS(screenWidth + mi->HorSyncStart);
     {
         // Start Horizontal Sync Position Register (S_H_SV _PI (CR4)
         D(INFO, "HSync start %ld\n", (ULONG)hSyncStart);
-        W_CR_OVERFLOW1(hSyncStart, 0x4, 0, 8, 0x5d, 4, 1);
+        vga.writeCROverflow1(hSyncStart, 0x4, 0, 8, 0x5d, 4, 1);
     }
 
     UWORD hSyncEnd = TO_CLKS(screenWidth + mi->HorSyncStart + mi->HorSyncSize) - 1;
     {
         // End Horizontal Sync Position Register (E_H_SY_P) (CR5)
         D(INFO, "HSync End %ld\n", (ULONG)hSyncEnd);
-        W_CR_MASK(0x5, 0x1f, hSyncEnd);
+        vga.writeCRMask(0x5, 0x1f, hSyncEnd);
         //    W_CR_OVERFLOW1(endHSync, 0x5, 0, 5, 0x5d, 5, 1);
     }
 
@@ -555,21 +555,21 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
             startDisplayFifo = hSyncEnd + 1;
         }
         D(INFO, "Start Display Fifo %ld\n", (ULONG)startDisplayFifo);
-        W_CR_OVERFLOW1(startDisplayFifo, 0x3b, 0, 8, 0x5d, 6, 1);
+        vga.writeCROverflow1(startDisplayFifo, 0x3b, 0, 8, 0x5d, 6, 1);
     }
 
     {
         // Vertical Total (CR6)
         UWORD vTotal = TO_SCANLINES(mi->VerTotal) - 2;
         D(INFO, "VTotal %ld\n", (ULONG)vTotal);
-        W_CR_OVERFLOW3(vTotal, 0x6, 0, 8, 0x7, 0, 1, 0x7, 5, 1, 0x5e, 0, 1);
+        vga.writeCROverflow3(vTotal, 0x6, 0, 8, 0x7, 0, 1, 0x7, 5, 1, 0x5e, 0, 1);
     }
 
     {
         // Vertical Display End register (CR12)
         UWORD vDisplayEnd = TO_SCANLINES(mi->Height) - 1;
         D(INFO, "Vertical Display End %ld\n", (ULONG)vDisplayEnd);
-        W_CR_OVERFLOW3(vDisplayEnd, 0x12, 0, 8, 0x7, 1, 1, 0x7, 6, 1, 0x5e, 1, 1);
+        vga.writeCROverflow3(vDisplayEnd, 0x12, 0, 8, 0x7, 1, 1, 0x7, 6, 1, 0x5e, 1, 1);
     }
 
     UWORD vBlankSize = ADJUST_VBORDER(mi->VerBlankSize);
@@ -577,21 +577,21 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // Start Vertical Blank Register (SVB) (CR15)
         UWORD vBlankStart = TO_SCANLINES(mi->Height + vBlankSize);
         D(INFO, "VBlank Start %ld\n", (ULONG)vBlankStart);
-        W_CR_OVERFLOW3(vBlankStart, 0x15, 0, 8, 0x7, 3, 1, 0x9, 5, 1, 0x5e, 2, 1);
+        vga.writeCROverflow3(vBlankStart, 0x15, 0, 8, 0x7, 3, 1, 0x9, 5, 1, 0x5e, 2, 1);
     }
 
     {
         // End Vertical Blank Register (EVB) (CR16)
         UWORD vBlankEnd = TO_SCANLINES(mi->VerTotal - vBlankSize) - 1;
         D(6, "VBlank End %ld\n", (ULONG)vBlankEnd);
-        W_CR(0x16, vBlankEnd);
+        vga.writeCR(0x16, vBlankEnd);
     }
 
     UWORD vRetraceStart = TO_SCANLINES(mi->Height + mi->VerSyncStart);
     {
         // Vertical Retrace Start Register (VRS) (CR10)
         D(INFO, "VRetrace Start %ld\n", (ULONG)vRetraceStart);
-        W_CR_OVERFLOW3(vRetraceStart, 0x10, 0, 8, 0x7, 2, 1, 0x7, 7, 1, 0x5e, 4, 1);
+        vga.writeCROverflow3(vRetraceStart, 0x10, 0, 8, 0x7, 2, 1, 0x7, 7, 1, 0x5e, 4, 1);
     }
 
     {
@@ -603,25 +603,25 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // This allows a maximum VSYNC pulse width of 15 scan line units.
         UWORD vRetraceEnd = TO_SCANLINES(mi->Height + mi->VerSyncStart + mi->VerSyncSize) - 1;
         D(INFO, "VRetrace End %ld\n", (ULONG)vRetraceEnd);
-        W_CR_MASK(0x11, 0x0F, vRetraceEnd);
+        vga.writeCRMask(0x11, 0x0F, vRetraceEnd);
     }
 
     // Enable Interlace
     {
-        UBYTE interlace = R_CR(0x42) & 0xdf;
+        UBYTE interlace = vga.readCR(0x42) & 0xdf;
         if (isInterlaced) {
             interlace = interlace | 0x20;
         }
-        W_CR(0x42, interlace);
+        vga.writeCR(0x42, interlace);
     }
 
     // Enable Doublescan
     {
-        UBYTE dblScan = R_CR(0x9) & 0x7f;
+        UBYTE dblScan = vga.readCR(0x9) & 0x7f;
         if ((modeFlags & GMF_DOUBLESCAN) != 0) {
             dblScan = dblScan | 0x80;
         }
-        W_CR(0x9, dblScan);
+        vga.writeCR(0x9, dblScan);
     }
 
     // Vsync/HSync polarity
@@ -633,7 +633,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         if ((modeFlags & GMF_VPOLARITY) != 0) {
             polarities = polarities | 0x80;
         }
-        W_MISC_MASK(0xC0, polarities);
+        vga.writeMiscMask(0xC0, polarities);
     }
 
     //  {
@@ -688,7 +688,7 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
     //    W_CR(0x54, memClock << 3);
     //  }
 
-    W_CR_MASK(0x54, 0xFC, 0x18);
+    vga.writeCRMask(0x54, 0xFC, 0x18);
 
     {
         // Extended Memory Control 3 Register (EXT-MCTL-3) (CR60)
@@ -696,11 +696,11 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // Value = Number of MCLKs allocated to Streams Processor FIFO filling
         // before control of the memory bus is relinquished. See Section 7.5 for
         // more information.
-        W_CR(0x60, 0xff);
+        vga.writeCR(0x60, 0xff);
     }
     // Backward Compatibility 3 Register (BKWD_3) (CR34)
     // Bit 4 ENB SFF - Enable Start Display FIFO Fetch Register(CR3B)
-    W_CR(0x34, 0x10);
+    vga.writeCR(0x34, 0x10);
 
     {
         LOCAL_SYSBASE();
@@ -709,13 +709,13 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
         // Atttribute Controller Index register to AR11 while preserving "Bit 5 ENB
         // PLT - Enable Video Display"
 
-        R_REG(0x3DA);
+        vga.readB(VgaReg::INSTAT1);
         // write AR11 = 0 Border Color Register
-        W_AR(0x11, 0);
+        vga.writeAR(0x11, 0);
 
         // Re-enable video out
-        W_REG(ATR_AD, 0x20);
-        R_REG(0x3DA);
+        vga.writeB(VgaReg::ATTR_AD, 0x20);
+        vga.readB(VgaReg::INSTAT1);
 
         Enable();
     }
@@ -725,7 +725,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
                            __REGD3(UWORD height), __REGD1(WORD xoffset), __REGD2(WORD yoffset),
                            __REGD7(RGBFTYPE format))
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
     LOCAL_SYSBASE();
 
     DFUNC(INFO,
@@ -785,7 +785,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     // Start Address Low Register (STA(L)) (CRD)
     // Start Address High Register (STA(H)) (CRC)
     // Extended System Control 3 Register (EXT-SCTL-3)(CR69)
-    W_CR_OVERFLOW2_ULONG(panOffset, 0xd, 0, 8, 0xc, 0, 8, 0x69, 0, 4);
+    vga.writeCROverflow2U(panOffset, 0xd, 0, 8, 0xc, 0, 8, 0x69, 0, 4);
 
     //  assert(pitchInDoublwWords < 0xFFFF);
 
@@ -815,7 +815,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
     // CPU-addressing side, each character requires 2 linear bytes (character code
     // byte and attribute byte), for a total of 160 (AO hex) bytes per row.
 
-    W_CR_OVERFLOW1(pitch, 0x13, 0, 8, 0x51, 4, 2);
+    vga.writeCROverflow1(pitch, 0x13, 0, 8, 0x51, 4, 2);
 
     // Bits 5-4 of CR51 are extension bits 9-8 of this register. If these bits are
     // OOb, bit 2 of CR43 is extension bit 8 of this register.
@@ -823,7 +823,7 @@ static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory)
 
     Disable();
 
-    R_REG(0x3DA);  // Reset AFF flip-flop // FIXME: why?
+    vga.readB(VgaReg::INSTAT1);  // Reset AFF flip-flop // FIXME: why?
 
     Enable();
     return;
@@ -904,11 +904,11 @@ static ULONG ASM GetCompatibleFormats(__REGA0(struct BoardInfo *bi), __REGD7(RGB
 static BOOL ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 {
     // Clocking Mode Register (ClK_MODE) (SR1)
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     DFUNC(VERBOSE, " state %ld\n", (ULONG)state);
 
-    W_SR_MASK(0x01, 0x20, (~(UBYTE)state & 1) << 5);
+    vga.writeSRMask(0x01, 0x20, (~(UBYTE)state & 1) << 5);
 
 
 
@@ -1076,7 +1076,7 @@ static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __RE
 #else
 
 #if !BUILD_VISION864
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     if (getChipData(bi)->chipFamily >= TRIO64PLUS)  // Trio64+?
     {
@@ -1092,15 +1092,15 @@ static INLINE void ASM SetMemoryModeInternal(__REGA0(struct BoardInfo *bi), __RE
         switch (format) {
         case RGBFB_A8R8G8B8:
             // swap all the bytes within a double word
-            W_CR_MASK(0x53, 0x06, 0x04);
+            vga.writeCRMask(0x53, 0x06, 0x04);
             break;
         case RGBFB_R5G6B5:
         case RGBFB_R5G5B5:
             // Just swap the bytes within a word
-            W_CR_MASK(0x53, 0x06, 0x02);
+            vga.writeCRMask(0x53, 0x06, 0x02);
             break;
         default:
-            W_CR_MASK(0x53, 0x06, 0x00);
+            vga.writeCRMask(0x53, 0x06, 0x00);
             break;
         }
     }
@@ -1148,34 +1148,34 @@ static void ASM SetReadPlane(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE mask))
 static BOOL ASM GetVSyncState(__REGA0(struct BoardInfo *bi), __REGD0(BOOL expected))
 {
     DFUNC(VERBOSE, "\n");
-    REGBASE();
-    return (R_REG(0x3DA) & 0x08) != 0;
+    VgaIo vga = asS3(bi)->vga();
+    return (vga.readB(VgaReg::INSTAT1) & 0x08) != 0;
 }
 
 // FIXME: implement, but make sure to coordinate with SetDPMSLevel
 static void ASM WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL waitForEnd))
 {
     DFUNC(VERBOSE, "waitForEnd: %ld\n", (ULONG)waitForEnd);
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
-    if (R_SR(0x1) & BIT(5)) {
+    if (vga.readSR(0x1) & BIT(5)) {
         // Don't attempt to time vertical sync if the display is off
         // Though SR1 promised to still generate the HSYNC/VSYNC signals
         return;
     }
     if (waitForEnd) {
         // wait for vertical retrace end
-        // Use readReg() so in debug mode slow serial output doesn't make us miss the signals
-        while (!(readReg(RegBase, 0x3DA) & 0x08)) {
+        // Quiet path / VgaIoQ if debug serial would miss the signals
+        while (!(vga.readB(VgaReg::INSTAT1) & 0x08)) {
         };
         // For pixel display (should now be top of frame, i.e. end of retrace)
-        while (!(readReg(RegBase, 0x3DA) & 0x01)) {
+        while (!(vga.readB(VgaReg::INSTAT1) & 0x01)) {
         };
     } else {  // For pixel display first
-        while (!(readReg(RegBase, 0x3DA) & 0x01)) {
+        while (!(vga.readB(VgaReg::INSTAT1) & 0x01)) {
         };
         // wait for vertical retrace starting
-        while (!(readReg(RegBase, 0x3DA) & 0x08)) {
+        while (!(vga.readB(VgaReg::INSTAT1) & 0x08)) {
         };
     }
 }
@@ -1184,19 +1184,19 @@ static void ASM WaitVerticalSync(__REGA0(struct BoardInfo *bi), __REGD0(BOOL wai
  * INPUTSTATUS0 (0x3C2) bit7 = this CRTC has a pending IRQ. */
 static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
     LOCAL_SYSBASE();
     Disable();
 
-    UBYTE idx = readReg(RegBase, CRTC_IDX);
-    writeReg(RegBase, CRTC_IDX, 0x11);
-    UBYTE cr11 = readReg(RegBase, CRTC_DATA);
+    UBYTE idx = vga.readB(VgaReg::CRTC_INDEX);
+    vga.writeB(VgaReg::CRTC_INDEX, 0x11);
+    UBYTE cr11 = vga.readB(VgaReg::CRTC_VALUE);
     if (state)
         cr11 = (cr11 & ~BIT(5)) | BIT(4);
     else
         cr11 = (cr11 | BIT(5)) & ~BIT(4);
-    writeReg(RegBase, CRTC_DATA, cr11);
-    writeReg(RegBase, CRTC_IDX, idx);
+    vga.writeB(VgaReg::CRTC_VALUE, cr11);
+    vga.writeB(VgaReg::CRTC_INDEX, idx);
 
     Enable();
     return TRUE;
@@ -1205,17 +1205,17 @@ static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 /* Non-static: DEFINE_INTSERVER asm must jsr the C symbol. */
 ULONG ASM VBlankInterruptHandler(__REGA1(struct BoardInfo *bi))
 {
-    volatile UBYTE *RegBase = getIOBase(bi);
+    VgaIoQ vga = asS3(bi)->vgaQ();
 
-    if (!(readReg(RegBase, 0x3C2) & BIT(7)))
+    if (!(vga.readB(VgaReg::MISC_OUT_W) & BIT(7)))
         return 0;
 
-    UBYTE idx = readReg(RegBase, CRTC_IDX);
-    writeReg(RegBase, CRTC_IDX, 0x11);
-    UBYTE cr11 = readReg(RegBase, CRTC_DATA);
-    writeReg(RegBase, CRTC_DATA, cr11 & ~BIT(4));
-    writeReg(RegBase, CRTC_DATA, cr11 | BIT(4));
-    writeReg(RegBase, CRTC_IDX, idx);
+    UBYTE idx = vga.readB(VgaReg::CRTC_INDEX);
+    vga.writeB(VgaReg::CRTC_INDEX, 0x11);
+    UBYTE cr11 = vga.readB(VgaReg::CRTC_VALUE);
+    vga.writeB(VgaReg::CRTC_VALUE, cr11 & ~BIT(4));
+    vga.writeB(VgaReg::CRTC_VALUE, cr11 | BIT(4));
+    vga.writeB(VgaReg::CRTC_INDEX, idx);
 
     {
         struct ExecBase *SysBase = bi->ExecBase;
@@ -1234,13 +1234,13 @@ static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level)
 
     static const UBYTE DPMSLevels[4] = {0x00, 0x90, 0x60, 0x50};
 
-    REGBASE();
-    W_SR_MASK(0xD, 0xF0, DPMSLevels[level]);
+    VgaIo vga = asS3(bi)->vga();
+    vga.writeSRMask(0xD, 0xF0, DPMSLevels[level]);
 }
 
 static void ASM SetSplitPosition(__REGA0(struct BoardInfo *bi), __REGD0(SHORT splitPos))
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
     DFUNC(VERBOSE, "%ld\n", (ULONG)splitPos);
 
     bi->YSplit = splitPos;
@@ -1251,14 +1251,14 @@ static void ASM SetSplitPosition(__REGA0(struct BoardInfo *bi), __REGD0(SHORT sp
             splitPos *= 2;
         }
     }
-    W_CR_OVERFLOW3((UWORD)splitPos, 0x18, 0, 8, 0x7, 4, 1, 0x9, 6, 1, 0x5e, 6, 1);
+    vga.writeCROverflow3((UWORD)splitPos, 0x18, 0, 8, 0x7, 4, 1, 0x9, 6, 1, 0x5e, 6, 1);
 }
 
 static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xpos), __REGD1(WORD ypos),
                                   __REGD7(RGBFTYPE fmt))
 {
     DFUNC(VERBOSE, "\n");
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     bi->MouseX = xpos;
     bi->MouseY = ypos;
@@ -1298,10 +1298,10 @@ static void ASM SetSpritePosition(__REGA0(struct BoardInfo *bi), __REGD0(WORD xp
     D(VERBOSE, "SpritePos X: %ld 0x%lx, Y: %ld 0x%lx\n", (LONG)spriteX, (ULONG)spriteX, (LONG)spriteY, (ULONG)spriteY);
     // should we be able to handle negative values and use the offset registers
     // for that?
-    W_CR_OVERFLOW1(spriteX, 0x47, 0, 8, 0x46, 0, 8);
-    W_CR_OVERFLOW1(spriteY, 0x49, 0, 8, 0x48, 0, 8);
-    W_CR(0x4e, offsetX & 63);
-    W_CR(0x4f, offsetY & 63);
+    vga.writeCROverflow1(spriteX, 0x47, 0, 8, 0x46, 0, 8);
+    vga.writeCROverflow1(spriteY, 0x49, 0, 8, 0x48, 0, 8);
+    vga.writeCR(0x4e, offsetX & 63);
+    vga.writeCR(0x4f, offsetY & 63);
 }
 
 static void ASM SetSpriteImage(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fmt))
@@ -1430,7 +1430,7 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE inde
                                __REGD2(UBYTE green), __REGD3(UBYTE blue), __REGD7(RGBFTYPE fmt))
 {
     DFUNC(VERBOSE, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
     LOCAL_SYSBASE();
 
     if (index != 0 && index != 2)
@@ -1456,7 +1456,7 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE inde
         }
     }
 
-    R_CR(0x45);  // Reset "Graphics Cursor Stack"
+    vga.readCR(0x45);  // Reset "Graphics Cursor Stack"
     switch (fmt) {
     case RGBFB_NONE:
     case RGBFB_CLUT: {
@@ -1466,8 +1466,8 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE inde
         } else {
             paletteEntry = 19;
         }
-        W_CR(reg, paletteEntry);
-        W_REG(CRTC_DATA, paletteEntry);
+        vga.writeCR(reg, paletteEntry);
+        vga.writeB(VgaReg::CRTC_VALUE, paletteEntry);
         // W_REG(CRTC_DATA, paletteEntry);
         // W_REG(CRTC_DATA, paletteEntry);
     } break;
@@ -1475,29 +1475,29 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE inde
     case RGBFB_A8R8G8B8: {
         // No Conversion needed for 24bit RGB
 #if BUILD_VISION864
-        W_CR(reg, red);
-        W_REG(CRTC_DATA, 0);
-        W_REG(CRTC_DATA, blue);
-        W_REG(CRTC_DATA, green);
+        vga.writeCR(reg, red);
+        vga.writeB(VgaReg::CRTC_VALUE, 0);
+        vga.writeB(VgaReg::CRTC_VALUE, blue);
+        vga.writeB(VgaReg::CRTC_VALUE, green);
 #else
-        W_CR(reg, blue);
-        W_REG(CRTC_DATA, green);
-        W_REG(CRTC_DATA, red);
+        vga.writeCR(reg, blue);
+        vga.writeB(VgaReg::CRTC_VALUE, green);
+        vga.writeB(VgaReg::CRTC_VALUE, red);
 #endif
     } break;
     case RGBFB_R5G5B5PC:
     case RGBFB_R5G5B5: {
         UBYTE a = (blue >> 3) | ((green << 2) & 0xe);  // 16bit, just need to write the first two byte
         UBYTE b = (green >> 6) | ((red >> 1) & ~0x3);
-        W_CR(reg, a);
-        W_REG(CRTC_DATA, b);
+        vga.writeCR(reg, a);
+        vga.writeB(VgaReg::CRTC_VALUE, b);
     } break;
     case RGBFB_R5G6B5PC:
     case RGBFB_R5G6B5: {
         UBYTE a = (blue >> 3) | ((green << 3) & 0xe);  // // 16bit, just need to write the first two byte
         UBYTE b = (green >> 5) | (red & 0xf8);
-        W_CR(reg, a);
-        W_REG(CRTC_DATA, b);
+        vga.writeCR(reg, a);
+        vga.writeB(VgaReg::CRTC_VALUE, b);
     } break;
     }
 }
@@ -1505,9 +1505,9 @@ static void ASM SetSpriteColor(__REGA0(struct BoardInfo *bi), __REGD0(UBYTE inde
 static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate), __REGD7(RGBFTYPE RGBFormat))
 {
     DFUNC(VERBOSE, "\n");
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
-    W_CR_MASK(0x45, 0x01, activate ? 0x01 : 0x00);
+    vga.writeCRMask(0x45, 0x01, activate ? 0x01 : 0x00);
 
     if (activate) {
         SetSpriteColor(bi, 0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, bi->RGBFormat);
@@ -1545,7 +1545,7 @@ static INLINE ULONG REGARGS getMemoryOffset(struct BoardInfo *bi, APTR memory)
 
 static INLINE BOOL setGEFormat(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bpp)
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     ChipData_t *cd = getChipData(bi);
     if (cd->GEbytesPerRow == bytesPerRow && cd->GEbpp == bpp) {
@@ -1593,19 +1593,19 @@ static INLINE BOOL setGEFormat(struct BoardInfo *bi, UWORD bytesPerRow, UBYTE bp
 
     WaitBlitter(bi);
 
-    W_CR_MASK(0x50, 0xF1, CR50_76_0 | ((bpp - 1) << 4));
-    W_CR_MASK(0x31, (1 << 1), CR31_1);
+    vga.writeCRMask(0x50, 0xF1, CR50_76_0 | ((bpp - 1) << 4));
+    vga.writeCRMask(0x31, (1 << 1), CR31_1);
 
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
     if (bpp >= 3) {
-        W_BEE8(MULT_MISC, BIT(9));
-        W_MMIO_L(WRT_MASK, ~0);
+        asS3(bi)->writeBee8(MULT_MISC, BIT(9));
+        mmio.writeL(S3_MMIO_ID(WRT_MASK), ~0);
         // Invalidate the mask and fg/bg color caches because we need to write them again.
         // Only in 32bpp mode, these registers are 32bit
         cd->GEmask  = 0xFF;
         cd->GEbgPen = cd->GEfgPen = 0x80000001;
     } else {
-        W_BEE8(MULT_MISC, 0);
+        asS3(bi)->writeBee8(MULT_MISC, 0);
         cd->GEmask  = 0x0;
         cd->GEbgPen = cd->GEfgPen = 0x80000001;
     }
@@ -1656,37 +1656,37 @@ static INLINE void REGARGS drawModeToMixMode(UBYTE drawMode, UWORD *frgdMix, UWO
 
 static INLINE void REGARGS setMix(struct BoardInfo *bi, UWORD frgdMix, UWORD bkgdMix)
 {
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 #if HAS_PACKED_MMIO
-    W_MMIO_L(ALT_MIX, makeDWORD(frgdMix, bkgdMix));
+    mmio.writeL(S3_MMIO_ID(ALT_MIX), makeDWORD(frgdMix, bkgdMix));
 #else
-    W_MMIO_W(FRGD_MIX, frgdMix);
-    W_MMIO_W(BKGD_MIX, bkgdMix);
+    mmio.writeW(S3_MMIO_ID(FRGD_MIX), frgdMix);
+    mmio.writeW(S3_MMIO_ID(BKGD_MIX), bkgdMix);
 #endif
 }
 
 static INLINE void setForegroundColor32(struct BoardInfo *bi, ULONG fgPen)
 {
-    MMIOBASE();
-    W_MMIO_L(FRGD_COLOR, fgPen);
+    S3Mmio mmio = asS3(bi)->mmio();
+    mmio.writeL(S3_MMIO_ID(FRGD_COLOR), fgPen);
 }
 
 static INLINE void setBackgroundColor32(struct BoardInfo *bi, ULONG bgPen)
 {
-    MMIOBASE();
-    W_MMIO_L(BKGD_COLOR, bgPen);
+    S3Mmio mmio = asS3(bi)->mmio();
+    mmio.writeL(S3_MMIO_ID(BKGD_COLOR), bgPen);
 }
 
 static INLINE void setForegroundColor(struct BoardInfo *bi, UWORD fgPen)
 {
-    MMIOBASE();
-    W_MMIO_W(FRGD_COLOR, fgPen);
+    S3Mmio mmio = asS3(bi)->mmio();
+    mmio.writeW(S3_MMIO_ID(FRGD_COLOR), fgPen);
 }
 
 static INLINE void setBackgroundColor(struct BoardInfo *bi, UWORD bgPen)
 {
-    MMIOBASE();
-    W_MMIO_W(BKGD_COLOR, bgPen);
+    S3Mmio mmio = asS3(bi)->mmio();
+    mmio.writeW(S3_MMIO_ID(BKGD_COLOR), bgPen);
 }
 
 static INLINE void REGARGS setDrawMode(struct BoardInfo *bi, ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format)
@@ -1729,8 +1729,8 @@ static INLINE void REGARGS setGEWriteMask(struct BoardInfo *bi, UBYTE mask, RGBF
         cd->GEmask = mask;
 
         waitFifo(bi, waitFifoSlots + 1);
-        MMIOBASE();
-        W_MMIO_B(WRT_MASK, mask);
+        S3Mmio mmio = asS3(bi)->mmio();
+        mmio.writeB(S3_MMIO_ID(WRT_MASK), mask);
     } else {
         waitFifo(bi, waitFifoSlots);
     }
@@ -1738,26 +1738,26 @@ static INLINE void REGARGS setGEWriteMask(struct BoardInfo *bi, UBYTE mask, RGBF
 
 static INLINE void REGARGS setBlitSrcPosAndSize(struct BoardInfo *bi, UWORD x, UWORD y, UWORD w, UWORD h)
 {
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 #if HAS_PACKED_MMIO
-    W_MMIO_L(ALT_CURXY, makeDWORD(x, y));
-    W_MMIO_L(ALT_PCNT, makeDWORD(w - 1, h - 1));
+    mmio.writeL(S3_MMIO_ID(ALT_CURXY), makeDWORD(x, y));
+    mmio.writeL(S3_MMIO_ID(ALT_PCNT), makeDWORD(w - 1, h - 1));
 #else
-    W_MMIO_W(CUR_X, x);
-    W_MMIO_W(CUR_Y, y);
-    W_MMIO_W(MAJ_AXIS_PCNT, w - 1);
-    W_BEE8(MIN_AXIS_PCNT, h - 1);
+    mmio.writeW(S3_MMIO_ID(CUR_X), x);
+    mmio.writeW(S3_MMIO_ID(CUR_Y), y);
+    mmio.writeW(S3_MMIO_ID(MAJ_AXIS_PCNT), w - 1);
+    asS3(bi)->writeBee8(MIN_AXIS_PCNT, h - 1);
 #endif
 }
 
 static INLINE void REGARGS setBlitDestPos(struct BoardInfo *bi, UWORD dstX, UWORD dstY)
 {
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 #if HAS_PACKED_MMIO
-    W_MMIO_L(ALT_STEP, makeDWORD(dstX, dstY));
+    mmio.writeL(S3_MMIO_ID(ALT_STEP), makeDWORD(dstX, dstY));
 #else
-    W_MMIO_W(DESTX_DIASTP, dstX);
-    W_MMIO_W(DESTY_AXSTP, dstY);
+    mmio.writeW(S3_MMIO_ID(DESTX_DIASTP), dstX);
+    mmio.writeW(S3_MMIO_ID(DESTY_AXSTP), dstY);
 #endif
 }
 
@@ -1801,14 +1801,14 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 #endif
 
     ChipData_t *cd = getChipData(bi);
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 
     if (cd->GEOp != FILLRECT) {
         cd->GEOp = FILLRECT;
 
         waitFifo(bi, 2);
-        W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        W_MMIO_W(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
+        asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        mmio.writeW(S3_MMIO_ID(FRGD_MIX), CLR_SRC_FRGD_COLOR | MIX_NEW);
     }
 
     setGEWriteMask(bi, mask, fmt, 0);
@@ -1831,13 +1831,13 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     }
 
     // This could/should get chached as well
-    W_BEE8(MULT_MISC2, seg << 4);
+    asS3(bi)->writeBee8(MULT_MISC2, seg << 4);
 
     setBlitSrcPosAndSize(bi, x, y, width, height);
 
     UWORD cmd = CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT;
 
-    W_MMIO_W(CMD, cmd);
+    mmio.writeW(S3_MMIO_ID(CMD), cmd);
 }
 
 static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD x),
@@ -1850,7 +1850,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
           (ULONG)ri->Memory);
 
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 
     UBYTE bpp = getBPP(fmt);
     if (!bpp || !setGEFormat(bi, ri->BytesPerRow, bpp)) {
@@ -1879,18 +1879,18 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
 
         waitFifo(bi, 2);
 
-        W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        W_MMIO_W(FRGD_MIX, CLR_SRC_MEMORY | MIX_NOT_CURRENT);
+        asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        mmio.writeW(S3_MMIO_ID(FRGD_MIX), CLR_SRC_MEMORY | MIX_NOT_CURRENT);
     }
 
     setGEWriteMask(bi, mask, fmt, 6);
 
     // This could/should get chached as well
-    W_BEE8(MULT_MISC2, seg << 4);
+    asS3(bi)->writeBee8(MULT_MISC2, seg << 4);
 
     setBlitSrcPosAndSize(bi, x, y, width, height);
 
-    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
+    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
 }
 
 static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGD0(WORD srcX),
@@ -1904,7 +1904,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
           (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt,
           (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
 
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 
     UBYTE bpp = getBPP(fmt);
     if (!bpp || !setGEFormat(bi, ri->BytesPerRow, bpp)) {
@@ -1953,18 +1953,18 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 
         waitFifo(bi, 2);
 
-        W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        W_MMIO_W(FRGD_MIX, CLR_SRC_MEMORY | MIX_NEW);
+        asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        mmio.writeW(S3_MMIO_ID(FRGD_MIX), CLR_SRC_MEMORY | MIX_NEW);
     }
 
     setGEWriteMask(bi, mask, fmt, 8);
 
-    W_BEE8(MULT_MISC2, seg << 4 | seg);
+    asS3(bi)->writeBee8(MULT_MISC2, seg << 4 | seg);
 
     setBlitSrcPosAndSize(bi, srcX, srcY, width, height);
     setBlitDestPos(bi, dstX, dstY);
 
-    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
+    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
 }
 
 const static UWORD minTermToMix[16] = {
@@ -2007,7 +2007,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
           (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)minTerm,
           (ULONG)format, (ULONG)sri->BytesPerRow, (ULONG)sri->Memory);
 
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 
     UWORD bytesPerRow = dri->BytesPerRow > sri->BytesPerRow ? dri->BytesPerRow : sri->BytesPerRow;
     UBYTE bpp         = getBPP(format);
@@ -2023,14 +2023,14 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         cd->GEdrawMode = 0xFF;  // invalidate minterm cache
 
         setGEWriteMask(bi, ~0, format, 1);
-        W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
     }
 
     if (cd->GEdrawMode != minTerm) {
         cd->GEdrawMode = minTerm;
 
         waitFifo(bi, 1);
-        W_MMIO_W(FRGD_MIX, CLR_SRC_MEMORY | mintermToMixMode(minTerm));
+        mmio.writeW(S3_MMIO_ID(FRGD_MIX), CLR_SRC_MEMORY | mintermToMixMode(minTerm));
     }
 
     if (sri->BytesPerRow == dri->BytesPerRow) {
@@ -2074,12 +2074,12 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
 
         waitFifo(bi, 8);
 
-        W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
+        asS3(bi)->writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
 
         setBlitSrcPosAndSize(bi, srcX, srcY, width, height);
         setBlitDestPos(bi, dstX, dstY);
 
-        W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
+        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
     } else if (sri->BytesPerRow < dri->BytesPerRow) {
         WORD xoffset;
         WORD yoffset;
@@ -2102,12 +2102,12 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
             getGESegmentAndOffset(memOffset, dri->BytesPerRow, bpp, &segSrc, (UWORD *)&x, (UWORD *)&y);
 
             waitFifo(bi, 8);
-            W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
+            asS3(bi)->writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
 
             setBlitSrcPosAndSize(bi, x, y, width, 1);
             setBlitDestPos(bi, dstX, dstY + h);
 
-            W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
+            mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
 
             memOffset += sri->BytesPerRow;
         }
@@ -2131,12 +2131,12 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
             getGESegmentAndOffset(memOffset, sri->BytesPerRow, bpp, &segDst, (UWORD *)&x, (UWORD *)&y);
 
             waitFifo(bi, 8);
-            W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
+            asS3(bi)->writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
 
             setBlitSrcPosAndSize(bi, srcX, srcY + h, width, 1);
             setBlitDestPos(bi, x, y);
 
-            W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
+            mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
 
             memOffset += dri->BytesPerRow;
         }
@@ -2145,12 +2145,12 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
 
 static INLINE void writePIX_TRANS(const struct BoardInfo *bi, ULONG value)
 {
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 #if HAS_ROXXLER
     // in a twist of luck, we need to write the swapped value here
-    W_MMIO_L(PIX_TRANS, swapl(value));
+    mmio.writeL(S3_MMIO_ID(PIX_TRANS), swapl(value));
 #else
-    W_MMIO_L(PIX_TRANS, value);
+    mmio.writeL(S3_MMIO_ID(PIX_TRANS), value);
 #endif
 }
 
@@ -2185,7 +2185,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     }
 #endif
 
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 
     ChipData_t *cd = getChipData(bi);
 
@@ -2197,21 +2197,21 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
 
         waitFifo(bi, 1);
 
-        W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+        asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
     }
 
     setDrawMode(bi, tmpl->FgPen, tmpl->BgPen, tmpl->DrawMode, fmt);
     setGEWriteMask(bi, mask, fmt, 6);
 
     // This could/should get chached as well
-    W_BEE8(MULT_MISC2, seg << 4);
+    asS3(bi)->writeBee8(MULT_MISC2, seg << 4);
 
     setBlitSrcPosAndSize(bi, x, y, width, height);
 
     // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
     WaitForBlitter(bi);
 
-    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                       CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
     // FIXME: there's no promise that tmpl->Memory and tmpl->BytesPerRow
@@ -2252,7 +2252,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
           (ULONG)x, (ULONG)y, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt, (ULONG)ri->BytesPerRow,
           (ULONG)ri->Memory);
 
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 
     UBYTE bpp = getBPP(fmt);
     if (!bpp || !setGEFormat(bi, ri->BytesPerRow, bpp)) {
@@ -2284,7 +2284,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         cd->GEdrawMode = 0xFF;
         cd->patternCacheKey &= ~0x80000000;
 
-        W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+        asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
     }
 
     // First, figure out if the new pattern would actually fit into an 8x8 mono pattern.
@@ -2418,8 +2418,8 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
                 setBackgroundColor(bi, 0);
             }
 
-            W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
-            W_BEE8(MULT_MISC2, cd->pattSegment << 4);
+            asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
+            asS3(bi)->writeBee8(MULT_MISC2, cd->pattSegment << 4);
 
             setMix(bi, CLR_SRC_FRGD_COLOR | MIX_NEW, CLR_SRC_BKGD_COLOR | MIX_NEW);
             setBlitSrcPosAndSize(bi, cd->pattX, cd->pattY, 8, 8);
@@ -2429,24 +2429,24 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
             if (cd->chipFamily == VISION864 || cd->chipFamily == VISION968) {
                 // The vision 864 doesn't have CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED, so we have to transfer the pattern
                 // in 8bit chunks
-                W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+                mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
                                   CMD_WAIT_CPU | CMD_BUS_SIZE_8BIT);
                 // FIXME: at this point I wonder if it would be faster to place the 8x8 pattern via CPU writes instead
                 // of blitting it
                 pat0 = swapl(pat0);
                 pat1 = swapl(pat1);
                 for (int i = 0; i < 4; ++i) {
-                    W_MMIO_B(PIX_TRANS, pat0);
+                    mmio.writeB(S3_MMIO_ID(PIX_TRANS), pat0);
                     pat0 >>= 8;
                 }
                 for (int i = 0; i < 4; ++i) {
-                    W_MMIO_B(PIX_TRANS, pat1);
+                    mmio.writeB(S3_MMIO_ID(PIX_TRANS), pat1);
                     pat1 >>= 8;
                 }
             }
 #if !BUILD_VISION864
             else {
-                W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+                mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
                                   CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED);
                 writePIX_TRANS(bi, pat0);
                 writePIX_TRANS(bi, pat1);
@@ -2454,11 +2454,11 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 #endif
 
             waitFifo(bi, 1);
-            W_BEE8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
+            asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
         } else {
             if (!was8x8) {
                 waitFifo(bi, 1);
-                W_BEE8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
+                asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
             }
         }
 
@@ -2467,11 +2467,11 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
 
         waitFifo(bi, 8);
-        W_BEE8(MULT_MISC2, (cd->pattSegment << 4) | seg);
+        asS3(bi)->writeBee8(MULT_MISC2, (cd->pattSegment << 4) | seg);
         setBlitDestPos(bi, x, y);
         setBlitSrcPosAndSize(bi, cd->pattX, cd->pattY, width, height);
 
-        W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_PAT_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
+        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_PAT_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
     } else {
         cd->patternCacheKey &= ~0x80000000;
 
@@ -2480,14 +2480,14 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
         setGEWriteMask(bi, mask, fmt, 7);
 
         if (was8x8) {
-            W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+            asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
         }
         // This could/should get chached as well
-        W_BEE8(MULT_MISC2, seg << 4);
+        asS3(bi)->writeBee8(MULT_MISC2, seg << 4);
 
         setBlitSrcPosAndSize(bi, x, y, width, height);
 
-        W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                           CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
         WORD dwordsPerLine      = (width + 31) / 32;
@@ -2520,7 +2520,7 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
                                                   SHORT height, UWORD mixMode, UBYTE *bitmap, UWORD dwordsPerLine,
                                                   WORD bmPitch, UBYTE rol)
 {
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 
     setBlitSrcPosAndSize(bi, dstX, dstY, width, height);
 
@@ -2528,27 +2528,27 @@ static void REGARGS performBlitPlanar2ChunkyBlits(struct BoardInfo *bi, SHORT ds
     // first to establish that pattern. IDK how much this feature is used, though. I guess its meant
     // to support planar images with less than 8 bitplanes.
     if ((ULONG)bitmap == 0x00000000) {
-        W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        W_MMIO_W(FRGD_MIX, (CLR_SRC_BKGD_COLOR | mixMode));
-        W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
+        asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        mmio.writeW(S3_MMIO_ID(FRGD_MIX), (CLR_SRC_BKGD_COLOR | mixMode));
+        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
 
     } else if ((ULONG)bitmap == 0xFFFFFFFF) {
-        W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        W_MMIO_W(FRGD_MIX, (CLR_SRC_FRGD_COLOR | mixMode));
-        W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
+        asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        mmio.writeW(S3_MMIO_ID(FRGD_MIX), (CLR_SRC_FRGD_COLOR | mixMode));
+        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
 
     } else {
         // FIXME: Should I have a path for 16bit aligned width?
         // The only argument for not doing it is unaligned 32bit reads from CPU
         // memory. PCI transfers are 32bit anyways, so wasting bus cycles by
         // transferring in chunks of 16bit seems wasteful
-        W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+        asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
         setMix(bi, (CLR_SRC_FRGD_COLOR | mixMode), (CLR_SRC_BKGD_COLOR | mixMode));
 
         // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
         WaitForBlitter(bi);
 
-        W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                           CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
         if (!rol) {
@@ -2624,10 +2624,10 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     cd->GEdrawMode = minTerm;
     cd->GEFormat   = RGBFB_CLUT;
 
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 
     // This could/should get chached as well
-    W_BEE8(MULT_MISC2, seg << 4);
+    asS3(bi)->writeBee8(MULT_MISC2, seg << 4);
 
     WORD bmPitch        = bm->BytesPerRow;
     ULONG bmStartOffset = (srcY * bmPitch) + (srcX / 32) * 4;
@@ -2698,10 +2698,10 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
 
     waitFifo(bi, 1);
 
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 
     // This could/should get chached as well
-    W_BEE8(MULT_MISC2, seg << 4);
+    asS3(bi)->writeBee8(MULT_MISC2, seg << 4);
 
     setDrawMode(bi, line->FgPen, line->BgPen, line->DrawMode, fmt);
     setGEWriteMask(bi, mask, fmt, 0);
@@ -2726,26 +2726,26 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     waitFifo(bi, 8);
 
 #if HAS_PACKED_MMIO
-    W_MMIO_L(ALT_CURXY, makeDWORD(x, y));
-    W_MMIO_L(ALT_STEP, makeDWORD(2 * (absMIN - absMAX), (2 * absMIN)));
+    mmio.writeL(S3_MMIO_ID(ALT_CURXY), makeDWORD(x, y));
+    mmio.writeL(S3_MMIO_ID(ALT_STEP), makeDWORD(2 * (absMIN - absMAX), (2 * absMIN)));
 #else
-    W_MMIO_W(CUR_X, x);
-    W_MMIO_W(CUR_Y, y);
-    W_MMIO_W(DESTX_DIASTP, 2 * (absMIN - absMAX));
-    W_MMIO_W(DESTY_AXSTP, (2 * absMIN));
+    mmio.writeW(S3_MMIO_ID(CUR_X), x);
+    mmio.writeW(S3_MMIO_ID(CUR_Y), y);
+    mmio.writeW(S3_MMIO_ID(DESTX_DIASTP), 2 * (absMIN - absMAX));
+    mmio.writeW(S3_MMIO_ID(DESTY_AXSTP), (2 * absMIN));
 #endif
 
-    W_MMIO_W(MAJ_AXIS_PCNT, line->Length - 1);
-    W_MMIO_W(ERR_TERM, errTerm);
+    mmio.writeW(S3_MMIO_ID(MAJ_AXIS_PCNT), line->Length - 1);
+    mmio.writeW(S3_MMIO_ID(ERR_TERM), errTerm);
 
     BOOL isSolid = (line->LinePtrn == 0xFFFF);
     if (isSolid) {
-        W_BEE8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | direction);
+        asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | direction);
     } else {
-        W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
+        asS3(bi)->writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
 
-        W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                           CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED | direction);
 
         // Line->PatternShift selects which bit of the pattern is to be used for the
@@ -2765,8 +2765,8 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
 /** Read CR36 memory type, log it, and return (CR36>>2)&3 for use by callers (e.g. Trio64 SR0x0A). */
 static UBYTE getMemoryType(struct BoardInfo *bi)
 {
-    REGBASE();
-    const UBYTE memType = (R_CR(0x36) >> 2) & 3;
+    VgaIo vga = asS3(bi)->vga();
+    const UBYTE memType = (vga.readCR(0x36) >> 2) & 3;
     switch (memType) {
     case 0b00:
         D(INFO, "1-cycle EDO/VRAM\n");
@@ -2805,7 +2805,7 @@ static BOOL testFramebufferReadWrite(struct BoardInfo *bi)
 
 static BOOL probeFramebufferVision(struct BoardInfo *bi)
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
     getMemoryType(bi);
 
     ChipFamily_t chipFamily = (ChipFamily_t)getChipData(bi)->chipFamily;
@@ -2832,8 +2832,8 @@ static BOOL probeFramebufferVision(struct BoardInfo *bi)
                 LAWSize = 0b01;
                 MemSize = 0b110;
             }
-            W_CR_MASK(0x36, 0xE0, MemSize << 5);
-            W_CR_MASK(0x58, 0x13, LAWSize | BIT(4));
+            vga.writeCRMask(0x36, 0xE0, MemSize << 5);
+            vga.writeCRMask(0x58, 0x13, LAWSize | BIT(4));
         }
         if (testFramebufferReadWrite(bi)) {
             break;
@@ -2850,13 +2850,13 @@ static BOOL probeFramebufferVision(struct BoardInfo *bi)
 
 static BOOL probeFramebufferTrio64(struct BoardInfo *bi)
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
     const UBYTE memType = getMemoryType(bi);
 
     ChipFamily_t chipFamily = (ChipFamily_t)getChipData(bi)->chipFamily;
 
     if (chipFamily == TRIO64 || chipFamily == TRIO64PLUS) {
-        W_CR_MASK(0x68, BIT(7), BIT(7));
+        vga.writeCRMask(0x68, BIT(7), BIT(7));
     }
 
     bi->MemorySize = 0x400000;
@@ -2875,23 +2875,23 @@ static BOOL probeFramebufferTrio64(struct BoardInfo *bi)
                 LAWSize = 0b11;
                 MemSize = 0b000;
                 if ((chipFamily == TRIO64 || chipFamily == TRIO64PLUS) && memType == 0b11) {
-                    W_SR_MASK(0x0A, BIT(6), BIT(6));
+                    vga.writeSRMask(0x0A, BIT(6), BIT(6));
                 }
             } else if (bi->MemorySize >= 0x200000) {
                 LAWSize = 0b10;
                 MemSize = 0b100;
                 if (chipFamily == TRIO64 || chipFamily == TRIO64PLUS) {
-                    W_SR_MASK(0x0A, BIT(6), 0);
+                    vga.writeSRMask(0x0A, BIT(6), 0);
                 }
             } else {
                 LAWSize = 0b01;
                 MemSize = 0b110;
                 if (chipFamily == TRIO64 || chipFamily == TRIO64PLUS) {
-                    W_CR_MASK(0x68, BIT(7), 0);
+                    vga.writeCRMask(0x68, BIT(7), 0);
                 }
             }
-            W_CR_MASK(0x36, 0xE0, MemSize << 5);
-            W_CR_MASK(0x58, 0x13, LAWSize | BIT(4));
+            vga.writeCRMask(0x36, 0xE0, MemSize << 5);
+            vga.writeCRMask(0x58, 0x13, LAWSize | BIT(4));
         }
         if (testFramebufferReadWrite(bi)) {
             break;
@@ -2908,7 +2908,7 @@ static BOOL probeFramebufferTrio64(struct BoardInfo *bi)
 
 static BOOL probeFramebufferAurora64(struct BoardInfo *bi)
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
     getMemoryType(bi);
 
     static const UBYTE memSizes[]     = {4, 2, 2, 1};
@@ -2926,8 +2926,8 @@ static BOOL probeFramebufferAurora64(struct BoardInfo *bi)
     for (; m < ARRAY_SIZE(memSizes); ++m) {
         bi->MemorySize = memSizes[m] << 20;
         D(VERBOSE, "\nProbing memory size %ld\n", bi->MemorySize);
-        W_CR_MASK(0x36, 0xE0, memSizeCodes[m] << 5);
-        W_CR_MASK(0x58, 0x13, lawSizeCodes[m] | BIT(4));
+        vga.writeCRMask(0x36, 0xE0, memSizeCodes[m] << 5);
+        vga.writeCRMask(0x58, 0x13, lawSizeCodes[m] | BIT(4));
         if (testFramebufferReadWrite(bi)) {
             break;
         }
@@ -3087,37 +3087,37 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #endif
 
     {
-        REGBASE();
+        VgaIo vga = asS3(bi)->vga();
         BOOL used3c3 = FALSE;
         if (chipFamily >= TRIO64PLUS) {
             /* Chip wakeup Trio64+ and up*/
-            W_REG(0x3C3, 0x01);
+            vga.writeB(VGA_ID(0x3C3), 0x01);
             used3c3 = TRUE;
         } else {
             /* Chip wakeup Trio64/32 */
-            W_REG(0x46E8, 0x10);
-            W_REG(0x102, 0x01);
-            W_REG(0x46E8, 0x08);
+            vga.writeB(VGA_ID(0x46E8), 0x10);
+            vga.writeB(VGA_ID(0x102), 0x01);
+            vga.writeB(VGA_ID(0x46E8), 0x08);
         }
 
     retry:
-        W_MISC_MASK(0x0F, 0x0F);  // Enable RAM access and Color-Emulation, 0x3D4/5 for CR_IDX/DATA
+        vga.writeMiscMask(0x0F, 0x0F);  // Enable RAM access and Color-Emulation, 0x3D4/5 for CR_IDX/DATA
 
-        W_CR(0x38, 0x48);  // provide access to extended CRTC registers CR2D-CR3F
-        W_CR(0x39, 0xa5);  // provide access to extended CRTC registers CR40-CRFF
-        W_SR(0x08, 0x06);  // unlock extended sequencer registers SR9-SR1C
+        vga.writeCR(0x38, 0x48);  // provide access to extended CRTC registers CR2D-CR3F
+        vga.writeCR(0x39, 0xa5);  // provide access to extended CRTC registers CR40-CRFF
+        vga.writeSR(0x08, 0x06);  // unlock extended sequencer registers SR9-SR1C
 
         if (chipFamily >= TRIO64) {
             DFUNC(INFO, "Checking register response...\n");
-            UBYTE chipId = R_CR(0x30) >> 4;
+            UBYTE chipId = vga.readCR(0x30) >> 4;
             if (chipId != 0xE) {
                 DFUNC(ERROR, "CR30 Chip ID: expected 0xE, got 0x%1lX\n", (ULONG)chipId);
 
                 if (used3c3 == FALSE) {
-                    R_REG(0x65);
-                    W_REG(0x3C3, 0x10);
-                    W_REG(0x102, 0x01);
-                    W_REG(0x3C3, 0x08);
+                    vga.readB(VGA_ID(0x65));
+                    vga.writeB(VGA_ID(0x3C3), 0x10);
+                    vga.writeB(VGA_ID(0x102), 0x01);
+                    vga.writeB(VGA_ID(0x3C3), 0x08);
 
                     used3c3 = TRUE;
                     goto retry;
@@ -3125,8 +3125,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
                 return FALSE;
             }
-            UBYTE deviceIdHi = R_CR(0x2D);
-            UBYTE deviceIdLo = R_CR(0x2E);
+            UBYTE deviceIdHi = vga.readCR(0x2D);
+            UBYTE deviceIdLo = vga.readCR(0x2E);
             if (chipFamily == TRIO64) {
                 deviceIdLo |= 0x01;  // TRIO32 reports 0x10 in CR2E instead  of 0x11, so make it 0x11
             }
@@ -3138,9 +3138,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             D(INFO, "register response Good.\n");
             if (chipFamily <= TRIO64) {
                 if (used3c3) {
-                    W_REG_MASK(0x65, BIT(2), 0);
+                    vga.writeMaskB(VGA_ID(0x65), BIT(2), 0);
                 } else {
-                    W_REG_MASK(0x65, BIT(2), BIT(2));
+                    vga.writeMaskB(VGA_ID(0x65), BIT(2), BIT(2));
                 }
             }
         } else {
@@ -3170,33 +3170,34 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
 #endif
 
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
+    S3Io io = asS3(bi)->io();
 
     if (chipFamily == VISION968) {
-        W_CR_MASK(0x36, 0x1e, 0x1e);
-        W_CR(0x37, 0xff);
-        W_CR(0x68, 0xec);
+        vga.writeCRMask(0x36, 0x1e, 0x1e);
+        vga.writeCR(0x37, 0xff);
+        vga.writeCR(0x68, 0xec);
     } else if (chipFamily == AURORA64PLUS) {
-        R_SR(0x1A);  // This register allows to override the 3.3v/5v autoselection found in SR1B
-        R_SR(0x1B);
-        R_SR(0x0B);
+        vga.readSR(0x1A);  // This register allows to override the 3.3v/5v autoselection found in SR1B
+        vga.readSR(0x1B);
+        vga.readSR(0x0B);
         // Try to power down Controller2 as much as possible
-        W_SR(0x21, BIT(4) | BIT(5));
-        W_SR(0x1E, BIT(1));  // Power down Controller 2 DCLK when Controller 2 is  not enabled
+        vga.writeSR(0x21, BIT(4) | BIT(5));
+        vga.writeSR(0x1E, BIT(1));  // Power down Controller 2 DCLK when Controller 2 is  not enabled
     }
 
 #if !BUILD_VISION864
-    W_SR(0x15, 0x00);
-    W_SR(0x18, 0x00);
+    vga.writeSR(0x15, 0x00);
+    vga.writeSR(0x18, 0x00);
 
     // The power-on default value for SR13 in conjunction with the power-on default value for SR12
     // generate a DCLK value of 25.175 MHz. The default value is automatically placed in this register
     //  when bits 3-2 of 3C2H are programmed to OOb.
     // FIXME: This doesn't seem do load SR11/SR12?!
-    W_MISC_MASK(0x0C, 0x00);  //
+    vga.writeMiscMask(0x0C, 0x00);  //
 
     // Init PLL to a known state
-    W_MISC_MASK(0x0C, 0x0C);  // Enables loading of DCLK PLL parameters in SR12 and SR13
+    vga.writeMiscMask(0x0C, 0x0C);  // Enables loading of DCLK PLL parameters in SR12 and SR13
 
     // When new DCLK PLL values are programmed, this bit can be set to 1 to load these
     // values in the PLL. Bits 3-2 of 3C2H must also be set to 11b ifthey are not already at
@@ -3220,24 +3221,24 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     if (chipFamily >= VISION968) {
         // Enable BYTE-Swapping for MMIO register reads/writes
         // This allows us to write to WORD/DWORD MMIO registers without swapping
-        W_CR_MASK(0x54, 0x03, 0b11);
+        vga.writeCRMask(0x54, 0x03, 0b11);
     } else {
         D(ERROR, "architecture doesn't support bigendian MMIO\n");
         return FALSE;
     }
 #endif
     // Enable 4MB Linear Address Window (LAW)
-    W_CR(0x58, 0x13);
+    vga.writeCR(0x58, 0x13);
     if (chipFamily >= VISION968) {
         // Enable Trio64+ "New MMIO". This should be on by default on PCI cards.
         D(INFO, "setup newstyle MMIO\n");
-        W_CR_MASK(0x53, 0x18, 0x08);
+        vga.writeCRMask(0x53, 0x18, 0x08);
     } else {
         // FIXME: this code should not exist with MMIO_ONLY or BIGENDIAN_MMIO
         D(INFO, "setup compatible MMIO\n");
         // Enable Trio64 old style MMIO. This hardcodes the MMIO range to 0xA8000
         // physical address. Need to make sure, nothing else sits there
-        W_CR_MASK(0x53, 0x10, 0x10);
+        vga.writeCRMask(0x53, 0x10, 0x10);
 
         // Test, also enable MMIO and Linear addressing via the other register
         // W_REG_MASK(ADVFUNC_CNTL, 0x30, 0x30);
@@ -3258,8 +3259,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // Setup the Linear Address Window (LAW)  position
         // Beware: while bi->MemoryBase is a 'virtual' address, the register wants a physical address
         // We basically achieve this translation by chopping off the topmost bits.
-        W_CR_MASK(0x5a, 0x40, (ULONG)bi->MemoryBase >> 16);
-        D(INFO, "CR59: 0x%lx CR5A: 0x%lx\n", (ULONG)R_CR(0x59), (ULONG)R_CR(0x5a));
+        vga.writeCRMask(0x5a, 0x40, (ULONG)bi->MemoryBase >> 16);
+        D(INFO, "CR59: 0x%lx CR5A: 0x%lx\n", (ULONG)vga.readCR(0x59), (ULONG)vga.readCR(0x5a));
         // Upper address bits may  not be touched as they would result in shifting
         // the PCI window
         //    W_CR_MASK(0x59, physAddress >> 24);
@@ -3267,17 +3268,17 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         // On the Cybervision the VRAM is mapped at a specific fixed address from the Trio's point of view.
         // I guess, this is done such the LAW window is not at 0x0 (and thus would overlap withe legacy VGA Window at
         // 0xA0000)
-        W_CR(0x59, 0x00);
-        W_CR(0x5a, 0x40);
+        vga.writeCR(0x59, 0x00);
+        vga.writeCR(0x5a, 0x40);
 #endif
     }
 
 #if defined(CONFIG_S3TRIO64PLUS) || defined(CONFIG_STRIO64V2)
-    W_CR_MASK(0x66, BIT(7) | BIT(3), BIT(7) | BIT(3));  // enable PCI Disconnect on FIFO full
+    vga.writeCRMask(0x66, BIT(7) | BIT(3), BIT(7) | BIT(3));  // enable PCI Disconnect on FIFO full
 #endif
     D(INFO, "MMIO base address: 0x%08lx, IO base address: 0x%08lx \n", (ULONG)getMMIOBase(bi), (ULONG)getIOBase(bi));
 
-    MMIOBASE();
+    S3Mmio mmio = asS3(bi)->mmio();
 
     if (!InitRAMDAC(bi)) {
         DFUNC(ERROR, "InitRAMDAC() failed\n");
@@ -3287,7 +3288,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Initialize PLL table for pixel clocks (RAMDAC ops provide PLL limits)
     initPixelClockPLLTable(bi);
 
-    UBYTE chipRevision = R_CR(0x2F);
+    UBYTE chipRevision = vga.readCR(0x2F);
     if (chipFamily >= VISION968) {
         D(INFO, "Chip supports BigEndian aperture, enabling more formats\n");
 
@@ -3296,7 +3297,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         bi->RGBFormats |= RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
 
         if (chipFamily == TRIO64PLUS) {
-            UBYTE cr6F = R_CR(0x6F);
+            UBYTE cr6F = vga.readCR(0x6F);
             D(INFO, "Trio64+ card is in %s mode \n", TESTBIT(cr6F, 0) ? "Trio64 compatibility" : "LPB");
         }
     } else {
@@ -3307,7 +3308,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
        by setting bit 0 of the System Configuration register (CR40) to 1.
        After that, bitO of4AE8H must be setto 1 to enable Enhanced mode functions.
     */
-    W_CR_MASK(0x40, 0x01, 0x01);
+    vga.writeCRMask(0x40, 0x01, 0x01);
 
     /* Now that we enabled enhanced mode register access;
      * Enable enhanced mode functions,  write lower byte of 0x4AE8
@@ -3322,14 +3323,14 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // In "new MMIO only" mode, don't enable enhanced functions via MMIO write to ADVFUNC_CNTL.
     // Writing to ADVFUNC_CNTL just hung on Trio64+ cards.
     // Instead, chose CR66 to enable it. CR66 Bit0 has different meanings on pre-Trio64Plus chips
-    W_CR_MASK(0x66, BIT(1) | BIT(0), BIT(1) | BIT(0));
-    W_CR_MASK(0x66, BIT(1), 0);
+    vga.writeCRMask(0x66, BIT(1) | BIT(0), BIT(1) | BIT(0));
+    vga.writeCRMask(0x66, BIT(1), 0);
 #else
     // Trio64+ and Trio64M writing to ADVFUNC_CNTL via MMIO hangs the machine
     // USHORT sysCntl = R_IO_W(SUBSYS_STAT);
-    USHORT advCntl = R_IO_W(ADVFUNC_CNTL);
+    USHORT advCntl = io.readW(S3_IO_ID(ADVFUNC_CNTL));
     advCntl |= BIT(0);  // | BIT(4) | BIT(7);
-    W_IO_W(ADVFUNC_CNTL, advCntl);
+    io.writeW(S3_IO_ID(ADVFUNC_CNTL), advCntl);
     // sysCntl = R_IO_W(SUBSYS_STAT);
 #endif
 
@@ -3338,27 +3339,27 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
      When a non-zero value is programmed in this field, bits 3-0 of CR35
      and 3-2 of CR51 (the old CPU base address bits) are ignored.
      Bit 0 of CR31 must be set to 1 to enable this field.  */
-    W_CR(0x6a, 0x0);
+    vga.writeCR(0x6a, 0x0);
 
-    W_SR(0x00, 0x00);
-    W_SR(0x01, 0x21);  // 8 DCLK per character clock, Display off
-    W_SR(0x02, 0x0f);
-    W_SR(0x03, 0x00);
-    W_SR(0x04, 0x02);
+    vga.writeSR(0x00, 0x00);
+    vga.writeSR(0x01, 0x21);  // 8 DCLK per character clock, Display off
+    vga.writeSR(0x02, 0x0f);
+    vga.writeSR(0x03, 0x00);
+    vga.writeSR(0x04, 0x02);
 #if MMIO_ONLY
     // Bit 7 MMIO-ONLY - Memory-mapped I/O register access only
     // 0 = When MMIO is enabled, both programmed I/O and memory-mapped I/O register accesses are allowed
     // 1 = When MMIO is enabled, only memory-mapped I/O register accesses are allowed
-    W_SR(0x09, 0x80);
+    vga.writeSR(0x09, 0x80);
 #endif
-    R_SR(0x09);
-    W_SR(0x0D, 0x00);
-    W_SR(0x14, 0x00);
+    vga.readSR(0x09);
+    vga.writeSR(0x0D, 0x00);
+    vga.writeSR(0x14, 0x00);
 
     // FIXME: this has memory setting implications potentially only valid for the
 #ifdef CONFIG_CYBERVISION64
-    W_SR(0x0A, BIT(6));  // Support 4MB FPM RAM and 2MCLK memory writes
-    W_SR(0x18, BIT(6));  // 1 DCLK LUT Write Cycle
+    vga.writeSR(0x0A, BIT(6));  // Support 4MB FPM RAM and 2MCLK memory writes
+    vga.writeSR(0x18, BIT(6));  // 1 DCLK LUT Write Cycle
 #endif
 
     ULONG clock = bi->MemoryClock;
@@ -3389,28 +3390,28 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     clock           = SetMemoryClock(bi, clock);
     bi->MemoryClock = clock;
 
-    W_CR(0x0, 0x5f);
-    W_CR(0x1, 0x4f);
-    W_CR(0x2, 0x50);
-    W_CR(0x3, 0x82);
-    W_CR(0x4, 0x54);
-    W_CR(0x5, 0x80);
-    W_CR(0x6, 0xbf);
-    W_CR(0x7, 0x1f);
-    W_CR(0x8, 0x0);
-    W_CR(0x9, 0x40);
-    W_CR(0xa, 0x0);
-    W_CR(0xb, 0x0);
-    W_CR(0xc, 0x0);
-    W_CR(0xd, 0x0);
-    W_CR(0xe, 0x0);
-    W_CR(0xf, 0x0);
-    W_CR(0x10, 0x9c);
+    vga.writeCR(0x0, 0x5f);
+    vga.writeCR(0x1, 0x4f);
+    vga.writeCR(0x2, 0x50);
+    vga.writeCR(0x3, 0x82);
+    vga.writeCR(0x4, 0x54);
+    vga.writeCR(0x5, 0x80);
+    vga.writeCR(0x6, 0xbf);
+    vga.writeCR(0x7, 0x1f);
+    vga.writeCR(0x8, 0x0);
+    vga.writeCR(0x9, 0x40);
+    vga.writeCR(0xa, 0x0);
+    vga.writeCR(0xb, 0x0);
+    vga.writeCR(0xc, 0x0);
+    vga.writeCR(0xd, 0x0);
+    vga.writeCR(0xe, 0x0);
+    vga.writeCR(0xf, 0x0);
+    vga.writeCR(0x10, 0x9c);
 
     // 5 DRAM refresh cycles, unlock CR0/CR7, disable Vertical Interrupt
-    W_CR(0x11, 0x70);
+    vga.writeCR(0x11, 0x70);
 
-    W_CR(0x12, 0x8f);
+    vga.writeCR(0x12, 0x8f);
 
     // Offset Register (SCREEN-OFFSET) (CR13)
     // Specifies the logical screen width (pitch). Bits 5-4 of CR51 are extension
@@ -3421,7 +3422,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // byte addresses of two consecutive scan lines. This register contains the
     // least significant 8 bits of this
 
-    W_CR(0x13, 0x50);  // == 160, meaning 640byte in double word mode
+    vga.writeCR(0x13, 0x50);  // == 160, meaning 640byte in double word mode
 
     // Underline Location Register (ULL) (CR14) (affects address
     // counting)
@@ -3434,10 +3435,10 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     //      0 = The memory addresses are byte or word addresses
     //      1 = The memory addresses are doubleword addresses
     //
-    W_CR(0x14, 0x40);
+    vga.writeCR(0x14, 0x40);
 
-    W_CR(0x15, 0x96);  // Start Vertical Blank Register (SVB) (CR15)
-    W_CR(0x16, 0xb9);  // End Vertical Blank Register (EVB) (CR16)
+    vga.writeCR(0x15, 0x96);  // Start Vertical Blank Register (SVB) (CR15)
+    vga.writeCR(0x16, 0xb9);  // End Vertical Blank Register (EVB) (CR16)
 
     //  CRTC Mode Control Register (CRT _MO) (CR17
     //  Bit 3 CNT BY2 - Select Word Mode
@@ -3451,9 +3452,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     //          significant bit of the counter appears on the least significant
     //          bit of the memory address output
     //      1 = Byte address mode
-    W_CR(0x17, 0xC3);  // Byte Adressing mode, V/HSync pulses enabled
+    vga.writeCR(0x17, 0xC3);  // Byte Adressing mode, V/HSync pulses enabled
 
-    W_CR(0x18, 0xff);  // Line compare register
+    vga.writeCR(0x18, 0xff);  // Line compare register
 
     // Memory Configuration Register (MEM_CNFG) (eR31)
     // Bit 3 ENH MAP - Use Enhanced Mode Memory Mapping
@@ -3462,9 +3463,9 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Setting this bit to 1 overrides the settings of bit 6 of CR14 and bit 3 of
     // CR17 and causes the use of doubleword memory addressing mode. Also, the
     // function of bits 3- 2 of GR6 is overridden with a fixed 64K map at AOOOOH.
-    W_CR(0x31, 0x08);  // Enhanced memory mapping, Doubleword mode
+    vga.writeCR(0x31, 0x08);  // Enhanced memory mapping, Doubleword mode
 
-    W_CR(0x32, 0x10);
+    vga.writeCR(0x32, 0x10);
 
     // BackWard Compatibility 2 Register (BKWD_2) (CR33)
     // Bit 1 DIS VDE - Disable Vertical Display End Extension Bits Write
@@ -3472,11 +3473,11 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     //  0 = VDE protection enabled
     //  1 = Disables the write protect setting of the bit 7 of CR11 on bits 1
     //      and 6 of CR7
-    W_CR(0x33, 0x02);
+    vga.writeCR(0x33, 0x02);
 
     // Backward Compatibility 3 Register (BKWD_3) (CR34)
     // Bit 4 ENB SFF - Enable Start Display FIFO Fetch Register(CR3B)
-    W_CR_MASK(0x34, BIT(4), BIT(4));
+    vga.writeCRMask(0x34, BIT(4), BIT(4));
 
     /* Miscellaneous 1 (CR3A)
      * Bits 1-0 REF-CNT - Alternate Refresh Count Control
@@ -3485,18 +3486,18 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
          1 = Alternate refresh count control (bits 1-0) is enabled
        Bit 4 ENH 256 - Enable 8 Bits/Pixel or Greater Color Enhanced Mode
        Bit 5 HST DFW - Enable High Speed Text Font Writing */
-    W_CR(0x3a, 0x35);
+    vga.writeCR(0x3a, 0x35);
     // Start Display FIFO Fetch (CR3B)
-    W_CR(0x3b, 0x5a);
+    vga.writeCR(0x3b, 0x5a);
 
     // Extended Mode Register (EXT_MODE) (CR43)
-    W_CR(0x43, 0x00);
+    vga.writeCR(0x43, 0x00);
 
     // Extended System Conttrol 1 Register (EX_SCTL_1)  (CR50)
-    W_CR(0x50, 0x00);
+    vga.writeCR(0x50, 0x00);
 
     // Extended System Control 2 Register (EX_SCTL_2) (CR51)
-    W_CR(0x51, 0x00);
+    vga.writeCR(0x51, 0x00);
 
     // MCLK M Parameter
     // 6-bit Value = maximum number of MCLKs that the LPB, CPU and Graphics Engine can
@@ -3504,26 +3505,26 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Bit 2 is the high order bit of this value.
     // W_CR_MASK(0x54, 0xF8, 0x70);
 
-    W_CR(0x60, 0xff);
+    vga.writeCR(0x60, 0xff);
 
-    W_CR(0x5d, 0x0);
-    W_CR(0x5e, 0x40);
-    W_GR(0x0, 0x0);
-    W_GR(0x1, 0x0);
-    W_GR(0x2, 0x0);
-    W_GR(0x3, 0x0);
-    W_GR(0x4, 0x0);
-    W_GR(0x5, 0x40);
-    W_GR(0x6, 0x1);
-    W_GR(0x7, 0xf);
-    W_GR(0x8, 0xff);
+    vga.writeCR(0x5d, 0x0);
+    vga.writeCR(0x5e, 0x40);
+    vga.writeGR(0x0, 0x0);
+    vga.writeGR(0x1, 0x0);
+    vga.writeGR(0x2, 0x0);
+    vga.writeGR(0x3, 0x0);
+    vga.writeGR(0x4, 0x0);
+    vga.writeGR(0x5, 0x40);
+    vga.writeGR(0x6, 0x1);
+    vga.writeGR(0x7, 0xf);
+    vga.writeGR(0x8, 0xff);
 
     // Enable writing attribute palette registers, disable video
-    R_REG(0x3DA);
-    W_REG(ATR_AD, 0x0);
+    vga.readB(VgaReg::INSTAT1);
+    vga.writeB(VgaReg::ATTR_AD, 0x0);
 
     // Reset AFF to index register selection
-    R_REG(0x3DA);
+    vga.readB(VgaReg::INSTAT1);
 
     for (int p = 0; p < 16; ++p) {
         /* The attribute controller registers are located atthe same byte I/O
@@ -3538,17 +3539,17 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
            Attribute Controller Index register is read at 3COH, and the Attribute
            Controller Data register is read
            at address 3C1 H.  */
-        W_AR(p, p);
+        vga.writeAR(p, p);
     }
-    W_AR(0x30, 0x61);
-    W_AR(0x31, 0x0);
-    W_AR(0x32, 0xf);
-    W_AR(0x33, 0x0);
-    W_AR(0x34, 0x0);
+    vga.writeAR(0x30, 0x61);
+    vga.writeAR(0x31, 0x0);
+    vga.writeAR(0x32, 0xf);
+    vga.writeAR(0x33, 0x0);
+    vga.writeAR(0x34, 0x0);
 
     // Enable video
-    R_REG(0x3DA);  // reset AFF
-    W_REG(ATR_AD, 0x20);
+    vga.readB(VgaReg::INSTAT1);  // reset AFF
+    vga.writeB(VgaReg::ATTR_AD, 0x20);
 
     switch (chipFamily) {
     case VISION864:
@@ -3579,7 +3580,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
                  CACHEFLAGS);
 
     // Input Status ? Register (STATUS_O)
-    D(1, "Monitor is %s present\n", ((R_REG(0x3C2) & 0x10) ? "" : "NOT"));
+    D(1, "Monitor is %s present\n", ((vga.readB(VgaReg::MISC_OUT_W) & 0x10) ? "" : "NOT"));
 
     // FIXME VISION968:
     // The hardware graphics cursor requires the use of the pixel address bus. However this
@@ -3596,51 +3597,51 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
 
     // Start Address in terms of 1024byte segments
-    W_CR(0x4c, 0);  // init to 0
-    W_CR(0x4d, 0);
-    W_CR_OVERFLOW1((bi->MemorySize >> 10), 0x4d, 0, 8, 0x4c, 0, 4);
+    vga.writeCR(0x4c, 0);  // init to 0
+    vga.writeCR(0x4d, 0);
+    vga.writeCROverflow1((bi->MemorySize >> 10), 0x4d, 0, 8, 0x4c, 0, 4);
     // Sprite image offsets
-    W_CR(0x4e, 0);
-    W_CR(0x4f, 0);
+    vga.writeCR(0x4e, 0);
+    vga.writeCR(0x4f, 0);
     // Reset cursor position
-    W_CR(0x46, 0);
-    W_CR(0x47, 0);
-    W_CR(0x48, 0);
-    W_CR(0x49, 0);
+    vga.writeCR(0x46, 0);
+    vga.writeCR(0x47, 0);
+    vga.writeCR(0x48, 0);
+    vga.writeCR(0x49, 0);
 
     WaitForIdle(bi);
 
     // Write conservative scissors
-    W_BEE8(SCISSORS_T, 0x0000);
-    W_BEE8(SCISSORS_L, 0x0000);
-    W_BEE8(SCISSORS_B, 0x0fff);
-    W_BEE8(SCISSORS_R, 0x0fff);
+    asS3(bi)->writeBee8(SCISSORS_T, 0x0000);
+    asS3(bi)->writeBee8(SCISSORS_L, 0x0000);
+    asS3(bi)->writeBee8(SCISSORS_B, 0x0fff);
+    asS3(bi)->writeBee8(SCISSORS_R, 0x0fff);
 
-    W_BEE8(MULT_MISC2, 0);
+    asS3(bi)->writeBee8(MULT_MISC2, 0);
 
     {
-        const UBYTE memType    = (R_CR(0x36) >> 2) & 3;
+        const UBYTE memType    = (vga.readCR(0x36) >> 2) & 3;
         const BOOL oneCycleEDO = (memType == 0b00);
         UWORD multMisc         = oneCycleEDO ? 0 : BIT(10);
         (void)multMisc;
     }
 
     // Init GE write/read masks.
-    W_BEE8(MULT_MISC, (1 << 9));
+    asS3(bi)->writeBee8(MULT_MISC, (1 << 9));
 
     // Flush FIFO
-    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
 
     waitFifo(bi, 16);
-    W_MMIO_L(WRT_MASK, ~0);
-    W_MMIO_L(RD_MASK, ~0);
-    W_MMIO_L(COLOR_CMP, 0);
+    mmio.writeL(S3_MMIO_ID(WRT_MASK), ~0);
+    mmio.writeL(S3_MMIO_ID(RD_MASK), ~0);
+    mmio.writeL(S3_MMIO_ID(COLOR_CMP), 0);
 
-    W_MMIO_W(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
-    W_MMIO_W(BKGD_MIX, CLR_SRC_BKGD_COLOR | MIX_NEW);
+    mmio.writeW(S3_MMIO_ID(FRGD_MIX), CLR_SRC_FRGD_COLOR | MIX_NEW);
+    mmio.writeW(S3_MMIO_ID(BKGD_MIX), CLR_SRC_BKGD_COLOR | MIX_NEW);
 
     // Flush FIFO
-    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
 
     {
         LOCAL_SYSBASE();
@@ -3810,13 +3811,13 @@ static void testVBlankInterrupt(BoardInfo_t *bi)
     bi->SetInterrupt(bi, TRUE);
 
     {
-        REGBASE();
-        UBYTE idx = readReg(RegBase, CRTC_IDX);
-        writeReg(RegBase, CRTC_IDX, 0x11);
-        UBYTE cr11 = readReg(RegBase, CRTC_DATA);
-        writeReg(RegBase, CRTC_IDX, idx);
+        VgaIo vga = asS3(bi)->vga();
+        UBYTE idx = vga.readB(VgaReg::CRTC_INDEX);
+        vga.writeB(VgaReg::CRTC_INDEX, 0x11);
+        UBYTE cr11 = vga.readB(VgaReg::CRTC_VALUE);
+        vga.writeB(VgaReg::CRTC_INDEX, idx);
         D(ALWAYS, "VBlank IRQ test: CR11=0x%02lx INPUTSTATUS0=0x%02lx — counting 2s...\n", (ULONG)cr11,
-          (ULONG)readReg(RegBase, 0x3C2));
+          (ULONG)vga.readB(VgaReg::MISC_OUT_W));
     }
 
     delayMilliSeconds(2000);
@@ -3982,28 +3983,29 @@ BOOL TestCard(BoardInfo_t *bi, BOOL vblankTest)
     }
 #endif
 
-    REGBASE();
-    MMIOBASE();
+    VgaIo vga = asS3(bi)->vga();
+    S3Io io = asS3(bi)->io();
+    S3Mmio mmio = asS3(bi)->mmio();
 
-    W_BEE8(MULT_MISC, (1 << 9));
+    asS3(bi)->writeBee8(MULT_MISC, (1 << 9));
     // Flush FIFO
-    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
 
     WaitBlitter(bi);
     flushWrites();
     WaitForIdle(bi);
 
-    R_BEE8(MULT_MISC);
-    R_IO_L(WRT_MASK);
+    asS3(bi)->readBee8(MULT_MISC);
+    io.readL(S3_IO_ID(WRT_MASK));
 
     setGEFormat(bi, 640 * 4, 4);
-    W_BEE8(MULT_MISC, (1 << 9));
+    asS3(bi)->writeBee8(MULT_MISC, (1 << 9));
 
     // Flush FIFO
-    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
     flushWrites();
     WaitForIdle(bi);
-    R_BEE8(MULT_MISC);
+    asS3(bi)->readBee8(MULT_MISC);
     // R_IO_L(WRT_MASK);
 
     // W_IO_L(WRT_MASK, 0xaabbccdd);
@@ -4012,38 +4014,38 @@ BOOL TestCard(BoardInfo_t *bi, BOOL vblankTest)
 
     // Flush FIFO
     D(INFO, "1");
-    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
     flushWrites();
     WaitForIdle(bi);
 
     D(INFO, "2");
-    R_BEE8(MULT_MISC);
+    asS3(bi)->readBee8(MULT_MISC);
     // R_MMIO_W(WRT_MASK);
     // R_IO_L(WRT_MASK);
 
     // W_IO_L(WRT_MASK, 0xbaadf00d);
     // Flush FIFO
     D(INFO, "3");
-    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
     flushWrites();
     WaitForIdle(bi);
 
     D(INFO, "4");
-    R_BEE8(MULT_MISC);
+    asS3(bi)->readBee8(MULT_MISC);
     // R_MMIO_W(WRT_MASK);
     // R_IO_L(WRT_MASK);
 
-    W_MMIO_L(WRT_MASK, 0xcafebabe);
+    mmio.writeL(S3_MMIO_ID(WRT_MASK), 0xcafebabe);
     // Flush FIFO
     D(INFO, "3");
-    W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
     flushWrites();
     WaitForIdle(bi);
 
     D(INFO, "4");
-    R_BEE8(MULT_MISC);
+    asS3(bi)->readBee8(MULT_MISC);
     // R_MMIO_W(WRT_MASK);
-    R_MMIO_L(WRT_MASK);
+    mmio.readL(S3_MMIO_ID(WRT_MASK));
 
     return TRUE;
 #endif /* disabled legacy TestCard code */

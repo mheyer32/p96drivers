@@ -174,13 +174,15 @@ all : S3Trio64V2.chip \
       TestMach64GX \
       TestMach64 \
       TestMach64Card \
+      TestS3Trio3264 \
       TestS3Trio64Plus \
+      TestS3Trio64V2 \
+      TestS3Vision864 \
       TestS3TrioCard \
       AT3D.card \
       TestAT3D \
       TestAT3DCard \
-      TestCybervision64 \
-      TestS3Vision864
+      TestCybervision64
 
 openpci.h : openpci/openpci.fd openpci/clib/openpci_protos.h
 	@$(MKDIR) -p openpci/inline
@@ -238,12 +240,16 @@ S3TRIO_TESTEXE_SRC = common.c \
                      s3trio64/s3i2c.cpp \
                      edid_common.c
 
-TestS3Trio64Plus : CFLAGS+=-DCONFIG_S3TRIO64PLUS -DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include s3trio64/s3config.h 
+TestS3Trio3264 : CFLAGS+=-DCONFIG_S3TRIO3264 -DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include s3trio64/s3config.h
+$(eval $(call make_exe,TestS3Trio3264,$(BUILDDIR)tests3trio3264/, ${S3TRIO_TESTEXE_SRC}))
 
+TestS3Trio64Plus : CFLAGS+=-DCONFIG_S3TRIO64PLUS -DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include s3trio64/s3config.h
 $(eval $(call make_exe,TestS3Trio64Plus,$(BUILDDIR)tests3trio64plus/, ${S3TRIO_TESTEXE_SRC}))
 
-TestS3Vision864 : CFLAGS+=-DCONFIG_VISION864 -DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include s3trio64/s3config.h 
+TestS3Trio64V2 : CFLAGS+=-DCONFIG_S3TRIO64V2 -DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include s3trio64/s3config.h
+$(eval $(call make_exe,TestS3Trio64V2,$(BUILDDIR)tests3trio64v2/, ${S3TRIO_TESTEXE_SRC}))
 
+TestS3Vision864 : CFLAGS+=-DCONFIG_VISION864 -DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include s3trio64/s3config.h
 $(eval $(call make_exe,TestS3Vision864,$(BUILDDIR)tests3vision864/, ${S3TRIO_TESTEXE_SRC}))
 
 S3TRIOCARD_TESTEXE_SRC = common.c \

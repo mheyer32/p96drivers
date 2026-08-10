@@ -2,7 +2,7 @@
 #define AT3D_REG_APERTURES_HPP
 
 #include "at3d_regs.hpp"
-#include "reg_access.hpp"
+#include "vga_aperture.hpp"
 
 #if BIGENDIAN_MMIO
 #define AT3D_MMIO_ENDIAN RegEndian::NoSwap

@@ -99,7 +99,7 @@ static void sdac_packPllToModeInfo(struct BoardInfo *bi, UWORD m, UWORD n, UWORD
 
 static void integrated_setClock(struct BoardInfo *bi)
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     struct ModeInfo *mi = bi->ModeInfo;
 
@@ -122,23 +122,23 @@ static void integrated_setClock(struct BoardInfo *bi)
 
     // SR15 bit 4 selects DCLK = VCLK/2 (used for low clocks / pixel multiplex)
     if (mi->PixelClock < MIN_PLLCLOCK_HZ || mi->Flags & GMF_DOUBLECLOCK) {
-        W_SR_MASK(0x15, BIT(4), BIT(4));
+        vga.writeSRMask(0x15, BIT(4), BIT(4));
     } else {
-        W_SR_MASK(0x15, BIT(4), 0);
+        vga.writeSRMask(0x15, BIT(4), 0);
     }
 
-    W_SR(0x12, mi->pll2.Denominator);  // write N and R
-    W_SR(0x13, mi->pll1.Numerator);    // write M
+    vga.writeSR(0x12, mi->pll2.Denominator);  // write N and R
+    vga.writeSR(0x13, mi->pll1.Numerator);    // write M
 
     // Load new DCLK frequency (SR15 bit 1: 0->1)
-    UBYTE sr15 = R_SR(0x15) & ~BIT(1);
-    W_SR(0x15, sr15);
-    W_SR(0x15, sr15 | BIT(1));
+    UBYTE sr15 = vga.readSR(0x15) & ~BIT(1);
+    vga.writeSR(0x15, sr15);
+    vga.writeSR(0x15, sr15 | BIT(1));
 }
 
 static void sdac_setClock(struct BoardInfo *bi)
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     struct ModeInfo *mi = bi->ModeInfo;
 
@@ -159,30 +159,30 @@ static void sdac_setClock(struct BoardInfo *bi)
     // But do not clock down for 32bit modes where double the clock is actually needed
     if (mi->PixelClock <= MIN_PLLCLOCK_HZ && mi->Depth < 24) {
         // SR1 bit 3 selects DCLK = VCLK/2.
-        W_SR_MASK(0x1, BIT(3), BIT(3));
+        vga.writeSRMask(0x1, BIT(3), BIT(3));
         // // Invert VCLK
         // W_CR_MASK(0x33, BIT(0), BIT(0));
         // // Invert VCLK
         // W_CR_MASK(0x67, BIT(0), BIT(0));
     } else {
-        W_SR_MASK(0x1, BIT(3), 0);
-        W_CR_MASK(0x33, BIT(0),0);
-        W_CR_MASK(0x67, BIT(0), 0);
+        vga.writeSRMask(0x1, BIT(3), 0);
+        vga.writeCRMask(0x33, BIT(0), 0);
+        vga.writeCRMask(0x67, BIT(0), 0);
     }
 
     DAC_ENABLE_RS2();
 
     // CLK0 f2 parameters (f0/1 are not programmable on some SDAC variants; this matches existing code path)
-    W_REG(SDAC_WR_ADR, 0x02);
-    W_REG(SDAC_PLL_PARAM, mi->pll1.Numerator);
-    W_REG(SDAC_PLL_PARAM, mi->pll2.Denominator);
+    vga.writeB(VgaReg::DAC_WR_INDEX, 0x02);
+    vga.writeB(VgaReg::DAC_PEL_DATA, mi->pll1.Numerator);
+    vga.writeB(VgaReg::DAC_PEL_DATA, mi->pll2.Denominator);
 
     DAC_DISABLE_RS2();
 }
 
 static ULONG integrated_setMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     USHORT m, n, r;
     UBYTE regval;
@@ -192,25 +192,25 @@ static ULONG integrated_setMemoryClock(struct BoardInfo *bi, ULONG clockHz)
         return clockHz;
     }
 
-    W_SR(0x10, (r << 5) | (n - 2));
-    W_SR(0x11, m - 2);
+    vga.writeSR(0x10, (r << 5) | (n - 2));
+    vga.writeSR(0x11, m - 2);
 
-    regval = R_SR(0x15) & ~BIT(0);
-    W_SR(0x15, regval);
-    W_SR(0x15, regval | BIT(0));
-    W_SR(0x15, regval);
+    regval = vga.readSR(0x15) & ~BIT(0);
+    vga.writeSR(0x15, regval);
+    vga.writeSR(0x15, regval | BIT(0));
+    vga.writeSR(0x15, regval);
 
     // Keep existing perf tweak behavior (SR0x0A bit7 and SR15 bit7)
     if (clockHz <= 57000000) {
-        W_SR_MASK(0xA, BIT(7), BIT(7));
+        vga.writeSRMask(0xA, BIT(7), BIT(7));
         if (clockHz >= 55000000) {
-            W_SR_MASK(0x15, BIT(7), BIT(7));
+            vga.writeSRMask(0x15, BIT(7), BIT(7));
         } else {
-            W_SR_MASK(0x15, BIT(7), 0);
+            vga.writeSRMask(0x15, BIT(7), 0);
         }
     } else {
-        W_SR_MASK(0xA, BIT(7), 0x00);
-        W_SR_MASK(0x15, BIT(7), 0x00);
+        vga.writeSRMask(0xA, BIT(7), 0x00);
+        vga.writeSRMask(0x15, BIT(7), 0x00);
     }
 
     return (ULONG)currentKhz * 1000;
@@ -218,7 +218,7 @@ static ULONG integrated_setMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 
 static ULONG sdac_setMemoryClock(struct BoardInfo *bi, ULONG clockHz)
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     USHORT m, n, r;
 
@@ -228,9 +228,9 @@ static ULONG sdac_setMemoryClock(struct BoardInfo *bi, ULONG clockHz)
     }
 
     DAC_ENABLE_RS2();
-    W_REG(SDAC_WR_ADR, 0x0A);
-    W_REG(SDAC_PLL_PARAM, m - 2);
-    W_REG(SDAC_PLL_PARAM, (r << 5) | (n - 2));
+    vga.writeB(VgaReg::DAC_WR_INDEX, 0x0A);
+    vga.writeB(VgaReg::DAC_PEL_DATA, m - 2);
+    vga.writeB(VgaReg::DAC_PEL_DATA, (r << 5) | (n - 2));
     DAC_DISABLE_RS2();
 
     return (ULONG)currentKhz * 1000;
@@ -263,7 +263,7 @@ static void integrated_setDac(struct BoardInfo *bi, RGBFTYPE format)
         0x00,  // RGBFB_YUV422PAPC
     };
 
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     UBYTE dacMode;
     if ((format == RGBFB_CLUT) && ((bi->ModeInfo->Flags & GMF_DOUBLECLOCK) != 0)) {
@@ -272,7 +272,7 @@ static void integrated_setDac(struct BoardInfo *bi, RGBFTYPE format)
     } else {
         dacMode = DAC_ColorModes[format];
     }
-    W_CR_MASK(0x67, 0xF1, dacMode);
+    vga.writeCRMask(0x67, 0xF1, dacMode);
 }
 
 // SDAC/GENDAC (Vision864, Vision968 fallback):
@@ -326,7 +326,7 @@ static void sdac_setDac(struct BoardInfo *bi, RGBFTYPE format)
         0x00,  // RGBFB_YUV422PAPC
     };
 
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     UBYTE sdacMode;
     UBYTE dacMode;
@@ -339,19 +339,19 @@ static void sdac_setDac(struct BoardInfo *bi, RGBFTYPE format)
         dacMode  = DAC_ColorModes[format];
     }
     DAC_ENABLE_RS2();
-    W_REG(SDAC_COMMAND, sdacMode);
+    vga.writeB(VgaReg::DAC_PEL_MASK, sdacMode);
     DAC_DISABLE_RS2();
-    W_CR_MASK(0x67, 0xF1, dacMode);
+    vga.writeCRMask(0x67, 0xF1, dacMode);
 
 #if BUILD_VISION864
     // Adjust cursor sprite format
     if (getChipData(bi)->chipFamily <= VISION864) {
         UBYTE bpp = getBPP(format);
         if (bpp < 3) {
-            W_CR_MASK(0x45, 0x0C, 0b0000);
+            vga.writeCRMask(0x45, 0x0C, 0b0000);
         } else {
             // Set Cursor pixel mode to 24/32bit
-            W_CR_MASK(0x45, 0x0C, 0b0100);
+            vga.writeCRMask(0x45, 0x0C, 0b0100);
         }
     }
 #endif
@@ -360,11 +360,11 @@ static void sdac_setDac(struct BoardInfo *bi, RGBFTYPE format)
 
 BOOL InitRAMDAC(struct BoardInfo *bi)
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     ChipData_t *cd = getChipData(bi);
 
-    W_REG(DAC_MASK, 0xff);
+    vga.writeB(VgaReg::DAC_PEL_MASK, 0xff);
 
     cd->ramdacOps = NULL;
 
@@ -373,8 +373,8 @@ BOOL InitRAMDAC(struct BoardInfo *bi)
         // Select clock 2 (see initialization of 0x3C2).
         // This should have no effect as the SDAC is set to ignore the clock select and
         // instead produce the clock programmed through its PLLs, but keep existing init behavior.
-        W_CR(0x42, 0x02);
-        W_CR(0x55, 0x00);  // RS2 = 0
+        vga.writeCR(0x42, 0x02);
+        vga.writeCR(0x55, 0x00);  // RS2 = 0
         if (!CheckForSDAC(bi)) {
             DFUNC(ERROR, "Unsupported RAMDAC.\n");
             return FALSE;
@@ -391,13 +391,13 @@ BOOL InitRAMDAC(struct BoardInfo *bi)
             // Configure VRAM memory for 64 bit SID (existing InitChip logic)
             // 00 = 64-bit serial (non-interleaved) SID bus operation
             // Bit6 : Tristate PA[0..7], because we're using SID to feed the RAMDAC
-            W_CR_MASK(0x66, (3 << 5) | BIT(6), (0b00 << 5) | BIT(6));
+            vga.writeCRMask(0x66, (3 << 5) | BIT(6), (0b00 << 5) | BIT(6));
 
             // Serial VRAM addressing
-            W_CR_MASK(0x53, BIT(5), 0);
+            vga.writeCRMask(0x53, BIT(5), 0);
 
             // Serial Access Mode 256 Words Control
-            W_CR_MASK(0x58, BIT(6), BIT(6));
+            vga.writeCRMask(0x58, BIT(6), BIT(6));
 
             // Clock programming for RGB524 is not implemented separately yet; reuse SDAC-style programming for now.
             cd->ramdacOps = &sdac_ops;
@@ -419,13 +419,13 @@ BOOL InitRAMDAC(struct BoardInfo *bi)
     case TRIO64V2:
     case VIRGE3D:
         /* Integrated RAMDAC: SR1A bit 5 = blanking pedestal (same as ViRGE / Trio64V2). */
-        W_SR_MASK(0x1A, BIT(5), (bi->CardFlags & CFF_BLACKLEVEL_BLACK) ? 0 : BIT(5));
+        vga.writeSRMask(0x1A, BIT(5), (bi->CardFlags & CFF_BLACKLEVEL_BLACK) ? 0 : BIT(5));
         cd->ramdacOps = &integrated_ops;
         return TRUE;
 
     case AURORA64PLUS:
         cd->ramdacOps = &aurora64_ops;
-        W_SR_MASK(0x1A, BIT(7), BIT(0));  // 3.3V RAMDAC, so we can go up to 110Mhz(?)
+        vga.writeSRMask(0x1A, BIT(7), BIT(0));  // 3.3V RAMDAC, so we can go up to 110Mhz(?)
         // W_SR_MASK(0x1A, BIT(7), BIT(7));  // 5V RAMDAC, so we can go up to 135Mhz(?)
         return TRUE;
 
@@ -438,7 +438,7 @@ BOOL InitRAMDAC(struct BoardInfo *bi)
 
 static BOOL CheckForSDAC(struct BoardInfo *bi)
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     /* probe for S3 GENDAC or SDAC */
     /*
@@ -457,82 +457,82 @@ static BOOL CheckForSDAC(struct BoardInfo *bi)
     BOOL found = FALSE;
 
     // Set OLD RS2 to 0
-    saveCR43 = R_CR(0x43);
-    W_CR_MASK(0x43, 0x20, 0);
+    saveCR43 = vga.readCR(0x43);
+    vga.writeCRMask(0x43, 0x20, 0);
 
-    saveCR55 = R_CR(0x55);
+    saveCR55 = vga.readCR(0x55);
     // Extended RAMDAC Control Register (EX_DAC_CT) (CR55)
     // Make RS2 take on the value o CR43 (see above)
-    W_CR_MASK(0x55, 0x01, 0);
+    vga.writeCRMask(0x55, 0x01, 0);
 
     // This is done to restore the state of a RAMDAC, in case its not an SDAC
     // Read Index
-    W_REG(0x3c7, 0);
+    vga.writeB(VGA_ID(0x3c7), 0);
     for (int i = 0; i < 2 * 3; i++) { /* save first two LUT entries */
-        savelut[i] = R_REG(0x3c9);
+        savelut[i] = vga.readB(VGA_ID(0x3c9));
     }
-    W_REG(0x3c8, 0);
+    vga.writeB(VGA_ID(0x3c8), 0);
     for (int i = 0; i < 2 * 3; i++) { /* set first two LUT entries to zero */
-        W_REG(0x3c9, 0);
+        vga.writeB(VGA_ID(0x3c9), 0);
     }
 
     // Force RS2 = 1
-    W_CR_MASK(0x55, 0x01, 0x01);
+    vga.writeCRMask(0x55, 0x01, 0x01);
 
     // Read Index
-    W_REG(0x3c7, 0);
+    vga.writeB(VGA_ID(0x3c7), 0);
     for (int i = clock01 = 0; i < 4; i++) {
-        clock01 = (clock01 << 8) | R_REG(0x3c9);
+        clock01 = (clock01 << 8) | vga.readB(VGA_ID(0x3c9));
     }
     for (int i = clock23 = 0; i < 4; i++) {
-        clock23 = (clock23 << 8) | R_REG(0x3c9);
+        clock23 = (clock23 << 8) | vga.readB(VGA_ID(0x3c9));
     }
 
     // Back to regular palette access?
-    W_CR_MASK(0x55, 0x01, 0);
+    vga.writeCRMask(0x55, 0x01, 0);
 
-    W_REG(0x3c8, 0);
+    vga.writeB(VGA_ID(0x3c8), 0);
     for (int i = 0; i < 2 * 3; i++) /* restore first two LUT entries */
-        W_REG(0x3c9, savelut[i]);
+        vga.writeB(VGA_ID(0x3c9), savelut[i]);
 
-    W_CR(0x55, saveCR55);
+    vga.writeCR(0x55, saveCR55);
 
     if (clock01 == 0x28613d62 || (clock01 == 0x7f7f7f7f && clock23 != 0x7f7f7f7f)) {
-        W_REG(0x3c8, 0);
+        vga.writeB(VGA_ID(0x3c8), 0);
         // Reading DAC Mask returns chip ID?
-        R_REG(0x3c6);
-        R_REG(0x3c6);
-        R_REG(0x3c6);
+        vga.readB(VGA_ID(0x3c6));
+        vga.readB(VGA_ID(0x3c6));
+        vga.readB(VGA_ID(0x3c6));
 
         /* the fourth read will show the SDAC chip ID and revision */
-        if ((R_REG(0x3c6) & 0xf0) == 0x70) {
+        if ((vga.readB(VGA_ID(0x3c6)) & 0xf0) == 0x70) {
             DFUNC(0, "Found S3 SDAC\n");
         } else {
             DFUNC(0, "Found S3 GENDAC\n");
         }
         saveCR43 &= ~0x02;
-        W_REG(0x3c8, 0);
+        vga.writeB(VGA_ID(0x3c8), 0);
 
         found = TRUE;
     } else {
         DFUNC(0, "Unknown RAMDAC\n");
     }
 
-    W_CR(0x43, saveCR43);
+    vga.writeCR(0x43, saveCR43);
 
     return found;
 }
 
 static BOOL InitSDAC(struct BoardInfo *bi)
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     DAC_ENABLE_RS2();
 
-    W_REG(SDAC_WR_ADR, 0x0E);  // PLL Control register
+    vga.writeB(VgaReg::DAC_WR_INDEX, 0x0E);  // PLL Control register
     // In the ICS 5430, f0 and f1 are fixed clocks and cannot be programmed
-    W_REG(SDAC_PLL_PARAM, BIT(5) | 0x02);  // Enable internal clock select. Select CLK0 = 2 and CLK1 = fA;
-    W_REG(SDAC_PLL_PARAM, 0);              // Pseudo 2nd byte write to realize the change
+    vga.writeB(VgaReg::DAC_PEL_DATA, BIT(5) | 0x02);  // Enable internal clock select. Select CLK0 = 2 and CLK1 = fA;
+    vga.writeB(VgaReg::DAC_PEL_DATA, 0);              // Pseudo 2nd byte write to realize the change
 
     DAC_DISABLE_RS2();
 
@@ -546,7 +546,7 @@ static BOOL InitSDAC(struct BoardInfo *bi)
 
 static BOOL CheckForRGB524(struct BoardInfo *bi)
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     /* probe for IBM RGB524 RAMDAC */
     /*
@@ -561,11 +561,11 @@ static BOOL CheckForRGB524(struct BoardInfo *bi)
 
     // Access the Product Identification Code register (index 0x0001)
     // According to the datasheet, this register should return 0x02 for RGB524
-    W_REG(DAC_IDX_HI, 0x00);
-    W_REG(DAC_IDX_LO, 0x00);                // Dac Register index 0x0000
-    UBYTE revision = R_REG(DAC_IDX_DATA);   // Read the Revision
-    W_REG(DAC_IDX_LO, 0x01);                // Dac register index 0x0001
-    UBYTE productId = R_REG(DAC_IDX_DATA);  // Read the Product ID value
+    vga.writeB(VGA_ID(DAC_IDX_HI), 0x00);
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x00);                // Dac Register index 0x0000
+    UBYTE revision = vga.readB(VGA_ID(DAC_IDX_DATA));   // Read the Revision
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x01);                // Dac register index 0x0001
+    UBYTE productId = vga.readB(VGA_ID(DAC_IDX_DATA));  // Read the Product ID value
 
     if (productId == 0x02) {
         DFUNC(0, "Found IBM RGB524 RAMDAC (Product ID: 0x%02x)\n", productId);
@@ -581,30 +581,30 @@ static BOOL CheckForRGB524(struct BoardInfo *bi)
 
 static BOOL InitRGB524(struct BoardInfo *bi)
 {
-    REGBASE();
+    VgaIo vga = asS3(bi)->vga();
 
     DAC_ENABLE_RS2();
 
-    W_REG(DAC_IDX_CNTL, 0x01);  // auto-increment register indices
-    W_REG(DAC_IDX_HI, 0x00);
+    vga.writeB(VGA_ID(DAC_IDX_CNTL), 0x01);  // auto-increment register indices
+    vga.writeB(VGA_ID(DAC_IDX_HI), 0x00);
 
-    W_REG(DAC_IDX_LO, 0x06);  // DAC operation (DPE = blanking pedestal)
-    W_REG(DAC_IDX_DATA, (bi->CardFlags & CFF_BLACKLEVEL_BLACK) ? 0 : BIT(0));
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x06);  // DAC operation (DPE = blanking pedestal)
+    vga.writeB(VGA_ID(DAC_IDX_DATA), (bi->CardFlags & CFF_BLACKLEVEL_BLACK) ? 0 : BIT(0));
 
-    W_REG(DAC_IDX_LO, 0x0a);  // Pixel Format
-    W_REG(DAC_IDX_DATA, 0b011);   // 8Bit
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x0a);  // Pixel Format
+    vga.writeB(VGA_ID(DAC_IDX_DATA), 0b011);   // 8Bit
 
-    W_REG(DAC_IDX_LO, 0x0b);  // 8 Bit Pixel Control
-    W_REG(DAC_IDX_DATA, 0);       // Indirect through Palette enabled
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x0b);  // 8 Bit Pixel Control
+    vga.writeB(VGA_ID(DAC_IDX_DATA), 0);       // Indirect through Palette enabled
 
-    W_REG(DAC_IDX_LO, 0x0c);                         // 16 Bit Pixel Control
-    W_REG(DAC_IDX_DATA, (0b11 << 6) | BIT(2) | BIT(1));  // Fill low order 0 bits with high order bits and 565 mode
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x0c);                         // 16 Bit Pixel Control
+    vga.writeB(VGA_ID(DAC_IDX_DATA), (0b11 << 6) | BIT(2) | BIT(1));  // Fill low order 0 bits with high order bits and 565 mode
 
-    W_REG(DAC_IDX_LO, 0x0d);  // 24 Bit Pixel Control
-    W_REG(DAC_IDX_DATA, 0x01);    // Direct, palette bypass
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x0d);  // 24 Bit Pixel Control
+    vga.writeB(VGA_ID(DAC_IDX_DATA), 0x01);    // Direct, palette bypass
 
-    W_REG(DAC_IDX_LO, 0x0e);           // 32 Bit Pixel Control
-    W_REG(DAC_IDX_DATA, BIT(2) | (0b11));  // Direct, Palette bypass
+    vga.writeB(VGA_ID(DAC_IDX_LO), 0x0e);           // 32 Bit Pixel Control
+    vga.writeB(VGA_ID(DAC_IDX_DATA), BIT(2) | (0b11));  // Direct, Palette bypass
 
     DAC_DISABLE_RS2();
 

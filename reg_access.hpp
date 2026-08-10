@@ -8,6 +8,7 @@
  */
 
 #include "common.h"
+#include "vga_regs.hpp"
 
 enum class RegEndian
 {
@@ -595,6 +596,21 @@ struct AbsRegAperture
 		*(volatile T *)(base + (byteOff(id) - BaseOff)) = regValue;
 	}
 
+	INLINE void writeMaskB(RegId id, UBYTE mask, UBYTE val
+#ifdef DBG
+	                       ,
+	                       const char *name = 0
+#endif
+	) const
+	{
+		writeMask<UBYTE>(id, mask, val
+#ifdef DBG
+		                 ,
+		                 name
+#endif
+		);
+	}
+
 	INLINE void writeMaskW(RegId id, UWORD mask, UWORD val
 #ifdef DBG
 	                       ,
@@ -655,10 +671,196 @@ struct AbsRegAperture
 		);
 	}
 
+	INLINE BOOL testL(RegId id, ULONG mask
+#ifdef DBG
+	                  ,
+	                  const char *name = 0
+#endif
+	) const
+	{
+		return test<ULONG>(id, mask
+#ifdef DBG
+		                   ,
+		                   name
+#endif
+		);
+	}
+
 	/* Raw (pre-endian) word read — Mach32 FIFO poll / QI path. */
 	INLINE UWORD readWRaw(RegId id) const
 	{
 		return regLoadRaw((volatile UWORD *)(base + (byteOff(id) - BaseOff)));
+	}
+
+	/* Raw long write — legacy W_MMIO_NOSWAP_L. */
+	INLINE void writeLRaw(RegId id, ULONG v
+#ifdef DBG
+	                      ,
+	                      const char *name = 0
+#endif
+	) const
+	{
+#ifdef DBG
+		RegLogOps<L>::write(name ? name : regName(id), EndianOps<ULONG, E>::dbg(EndianOps<ULONG, E>::in(v)));
+#endif
+		*(volatile ULONG *)(base + (byteOff(id) - BaseOff)) = v;
+	}
+};
+
+/*
+ * Standard VGA port aperture: flat DAC/MISC/INSTAT access plus CR/SR/GR/AR
+ * index/data helpers. Shared by S3, AT3D, and any VGA-compatible chip.
+ */
+template <RegEndian E, LONG BaseOff, RegLog L>
+struct VgaAperture : AbsRegAperture<VgaReg::Id, E, BaseOff, L>
+{
+	using Base = AbsRegAperture<VgaReg::Id, E, BaseOff, L>;
+	using Base::base;
+	using Base::readB;
+	using Base::writeB;
+	using Base::writeMaskB;
+
+	explicit VgaAperture(volatile UBYTE *b) : Base(b) {}
+
+	INLINE UBYTE readCR(UBYTE idx) const
+	{
+		storeB(VgaReg::CRTC_INDEX, idx);
+		UBYTE value = loadB(VgaReg::CRTC_VALUE);
+		D(VERBOSE, "R CR%lX -> 0x%02lx\n", (LONG)idx, (LONG)value);
+		return value;
+	}
+
+	INLINE void writeCR(UBYTE idx, UBYTE value) const
+	{
+		storeB(VgaReg::CRTC_INDEX, idx);
+		storeB(VgaReg::CRTC_VALUE, value);
+		D(VERBOSE, "W CR%lX <- 0x%02lx\n", (LONG)idx, (LONG)value);
+	}
+
+	INLINE void writeCRMask(UBYTE idx, UBYTE mask, UBYTE value) const
+	{
+		UBYTE regvalue = (readCR(idx) & ~mask) | (value & mask);
+		storeB(VgaReg::CRTC_VALUE, regvalue);
+		D(VERBOSE, "W CR%lX <- 0x%02lx\n", (LONG)idx, (LONG)regvalue);
+	}
+
+	INLINE UBYTE readSR(UBYTE idx) const
+	{
+		storeB(VgaReg::SEQ_INDEX, idx);
+		UBYTE value = loadB(VgaReg::SEQ_VALUE);
+		D(VERBOSE, "R SR%lX -> 0x%02lx\n", (LONG)idx, (LONG)value);
+		return value;
+	}
+
+	INLINE void writeSR(UBYTE idx, UBYTE value) const
+	{
+		storeB(VgaReg::SEQ_INDEX, idx);
+		storeB(VgaReg::SEQ_VALUE, value);
+		D(VERBOSE, "W SR%lX <- 0x%02lx\n", (LONG)idx, (LONG)value);
+	}
+
+	INLINE void writeSRMask(UBYTE idx, UBYTE mask, UBYTE value) const
+	{
+		storeB(VgaReg::SEQ_INDEX, idx);
+		UBYTE regvalue = (loadB(VgaReg::SEQ_VALUE) & ~mask) | (value & mask);
+		D(VERBOSE, "W SR%lX <- 0x%02lx\n", (LONG)idx, (ULONG)regvalue);
+		storeB(VgaReg::SEQ_VALUE, regvalue);
+	}
+
+	INLINE UBYTE readGR(UBYTE idx) const
+	{
+		storeB(VgaReg::GRC_INDEX, idx);
+		UBYTE value = loadB(VgaReg::GRC_VALUE);
+		D(VERBOSE, "R GR%lX -> 0x%02lx\n", (LONG)idx, (LONG)value);
+		return value;
+	}
+
+	INLINE void writeGR(UBYTE idx, UBYTE value) const
+	{
+		storeB(VgaReg::GRC_INDEX, idx);
+		storeB(VgaReg::GRC_VALUE, value);
+		D(VERBOSE, "W GR%lX <- 0x%02lx\n", (LONG)idx, (LONG)value);
+	}
+
+	INLINE UBYTE readAR(UBYTE idx) const
+	{
+		storeB(VgaReg::ATTR_AD, idx);
+		UBYTE value = loadB(VgaReg::ATTR_DATA_R);
+		D(VERBOSE, "R AR%lX -> 0x%lx\n", (LONG)idx, (LONG)value);
+		return value;
+	}
+
+	INLINE void writeAR(UBYTE idx, UBYTE value) const
+	{
+		storeB(VgaReg::ATTR_AD, (UBYTE)(idx | 0x20));
+		storeB(VgaReg::ATTR_DATA_W, value);
+		D(VERBOSE, "W AR%lX <- 0x%02lx\n", (LONG)idx, (LONG)value);
+	}
+
+	INLINE void writeMiscMask(UBYTE mask, UBYTE value) const
+	{
+		UBYTE misc = (readB(VgaReg::MISC_OUT_R) & ~mask) | (value & mask);
+		writeB(VgaReg::MISC_OUT_W, misc);
+	}
+
+	INLINE void writeCROverflow1(UWORD value, UBYTE reg, UBYTE bitPos1, UBYTE numBits1, UBYTE overflowReg,
+	                             UBYTE bitPos2, UBYTE numBits2) const
+	{
+		writeCROfField(value, reg, bitPos1, numBits1);
+		writeCROfField(value >> numBits1, overflowReg, bitPos2, numBits2);
+	}
+
+	INLINE void writeCROverflow2(UWORD value, UBYTE reg, UBYTE bitPos1, UBYTE numBits1, UBYTE overflowReg,
+	                             UBYTE bitPos2, UBYTE numBits2, UBYTE extOverflowReg, UBYTE bitPos3,
+	                             UBYTE numBits3) const
+	{
+		writeCROfField(value, reg, bitPos1, numBits1);
+		writeCROfField(value >> numBits1, overflowReg, bitPos2, numBits2);
+		writeCROfField(value >> (numBits1 + numBits2), extOverflowReg, bitPos3, numBits3);
+	}
+
+	INLINE void writeCROverflow2U(ULONG value, UBYTE reg, UBYTE bitPos1, UBYTE numBits1, UBYTE overflowReg,
+	                              UBYTE bitPos2, UBYTE numBits2, UBYTE extOverflowReg, UBYTE bitPos3,
+	                              UBYTE numBits3) const
+	{
+		writeCROfField(value, reg, bitPos1, numBits1);
+		value >>= numBits1;
+		writeCROfField(value, overflowReg, bitPos2, numBits2);
+		value >>= numBits2;
+		writeCROfField(value, extOverflowReg, bitPos3, numBits3);
+	}
+
+	INLINE void writeCROverflow3(UWORD value, UBYTE reg, UBYTE bitPos1, UBYTE numBits1, UBYTE overflowReg,
+	                             UBYTE bitPos2, UBYTE numBits2, UBYTE extOverflowReg, UBYTE bitPos3,
+	                             UBYTE numBits3, UBYTE extOverflowReg2, UBYTE bitPos4, UBYTE numBits4) const
+	{
+		writeCROfField(value, reg, bitPos1, numBits1);
+		value >>= numBits1;
+		writeCROfField(value, overflowReg, bitPos2, numBits2);
+		value >>= numBits2;
+		writeCROfField(value, extOverflowReg, bitPos3, numBits3);
+		value >>= numBits3;
+		writeCROfField(value, extOverflowReg2, bitPos4, numBits4);
+	}
+
+      private:
+	INLINE void storeB(VgaReg::Id port, UBYTE v) const { base[(LONG)port - BaseOff] = v; }
+
+	INLINE UBYTE loadB(VgaReg::Id port) const
+	{
+		flushWrites();
+		return base[(LONG)port - BaseOff];
+	}
+
+	INLINE void writeCROfField(ULONG value, UBYTE reg, UBYTE bitPos, UBYTE numBits) const
+	{
+		if (numBits < 8) {
+			UBYTE m = ((1 << numBits) - 1) << bitPos;
+			UBYTE v = (UBYTE)(value << bitPos);
+			writeCRMask(reg, m, v);
+		} else {
+			writeCR(reg, (UBYTE)value);
+		}
 	}
 };
 
