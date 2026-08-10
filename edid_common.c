@@ -840,7 +840,7 @@ BOOL writeEDIDToFile(struct BoardInfo *bi, const UBYTE *edid_data)
     Strncat((STRPTR)fullpath, (STRPTR) ".edid", sizeof(fullpath) - myStrlen((STRPTR)fullpath));
 
     /* Heap — stack BoardInfo in Test* mains is already ~2KB+. */
-    UBYTE *all_edid_data = AllocVec(EDID_BLOCK_SIZE * 4, MEMF_ANY);
+    UBYTE *all_edid_data = (UBYTE*)AllocVec(EDID_BLOCK_SIZE * 4, MEMF_ANY);
     if (!all_edid_data) {
         DFUNC(ERROR, "Failed to allocate EDID buffer\n");
         CloseLibrary(DOSBase);

@@ -20,7 +20,7 @@ APTR LibExpunge(__REGA6(struct ChipBase *cb));
 LONG LibReserved(void);
 struct ChipBase *LibInit(__REGD0(struct ChipBase *cb), __REGA0(APTR seglist), __REGA6(struct Library *sysb));
 
-BOOL InitChip(__REGA0(struct BoardInfo *bi));
+extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
 int USED _start(void)
 {
@@ -47,8 +47,16 @@ struct InitTable /* do not change */
 /* ------------------- ROM Tag ------------------------ */
 
 USED_VAR const struct Resident ROMTag = /* do not change */
-    {RTC_MATCHWORD,   (APTR)&ROMTag, &ROMTag.rt_Init + 1, RTF_AUTOINIT, 0, NT_LIBRARY, 0, &LibName[0],
-     &LibIdString[0], &InitTab};
+    {RTC_MATCHWORD,
+     const_cast<struct Resident *>(&ROMTag),
+     const_cast<struct Resident *>(&ROMTag + 1),
+     RTF_AUTOINIT,
+     0,
+     NT_LIBRARY,
+     0,
+     const_cast<char *>(&LibName[0]),
+     const_cast<char *>(&LibIdString[0]),
+     &InitTab};
 
 /*-------------------------------------------------------------------------*/
 /* INIT                                                                    */
@@ -71,7 +79,7 @@ struct ChipBase *LibInit(__REGD0(struct ChipBase *cb), __REGA0(APTR seglist), __
     cb->LibBase.lib_Flags        = LIBF_CHANGED | LIBF_SUMUSED;
     cb->LibBase.lib_Version      = (UWORD)LibVersion;
     cb->LibBase.lib_Revision     = (UWORD)LibRevision;
-    cb->LibBase.lib_IdString     = (char *)LibIdString;
+    cb->LibBase.lib_IdString     = const_cast<char *>(LibIdString);
 
     /* setup private data */
     cb->ExecBase = SysBase;

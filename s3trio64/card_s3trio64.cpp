@@ -136,7 +136,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         }
 
         // Claim the first matching board
-        cd->boardNode.ln_Name = "S3Trio64.card";
+        cd->boardNode.ln_Name = (char*)"S3Trio64.card";
         if (!SetBoardAttrs(board, PRM_BoardOwner, (Tag)&cd->boardNode, TAG_END)) {
             D(ERROR, "Could not claim board\n");
             continue;
