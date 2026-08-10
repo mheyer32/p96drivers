@@ -1,5 +1,5 @@
-#include "card_common.h"
 #include "at3d_common.h"
+#include "card_common.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,8 +27,8 @@ extern const char LibIdString[] = "Alliance ProMotion AT3D Picasso96 card driver
 #ifndef LIB_REVISION
 #define LIB_REVISION 0
 #endif
-extern const UWORD LibVersion   = LIB_VERSION;
-extern const UWORD LibRevision  = LIB_REVISION;
+extern const UWORD LibVersion  = LIB_VERSION;
+extern const UWORD LibRevision = LIB_REVISION;
 #endif
 
 #ifdef DBG

@@ -28,8 +28,8 @@ extern const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 card d
 #ifndef LIB_REVISION
 #define LIB_REVISION 0
 #endif
-extern const UWORD LibVersion   = LIB_VERSION;
-extern const UWORD LibRevision  = LIB_REVISION;
+extern const UWORD LibVersion  = LIB_VERSION;
+extern const UWORD LibRevision = LIB_REVISION;
 #endif
 
 #ifdef DBG
@@ -220,8 +220,9 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
         return FALSE;
     }
 
-    static const char *libNames[] = {CHIP_NAME_VISION864, CHIP_NAME_TRIO3264, CHIP_NAME_TRIO64PLUS,CHIP_NAME_TRIO64PLUS,CHIP_NAME_TRIO64V2,
-                                     CHIP_NAME_TRIO64V2, CHIP_NAME_TRIO64V2};
+    static const char *libNames[] = {CHIP_NAME_VISION864,  CHIP_NAME_TRIO3264, CHIP_NAME_TRIO64PLUS,
+                                     CHIP_NAME_TRIO64PLUS, CHIP_NAME_TRIO64V2, CHIP_NAME_TRIO64V2,
+                                     CHIP_NAME_TRIO64V2};
 
     struct ChipBase *ChipBase = NULL;
 
@@ -257,7 +258,7 @@ BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 #include <stdlib.h>
 #include <string.h>
 
-//extern BOOL TestCard(BoardInfo_t *bi);
+// extern BOOL TestCard(BoardInfo_t *bi);
 
 extern struct UtilityBase *UtilityBase;
 
@@ -292,7 +293,7 @@ int main()
         goto exit;
     }
 
-//    rval = TestCard(bi);
+    //    rval = TestCard(bi);
 
 exit:
     releaseCard(bi);

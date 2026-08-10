@@ -48,12 +48,12 @@ int debugLevel = INFO;
 
 void ASM Mach32Driver::waitBlitter()
 {
-	DFUNC(VERBOSE, "\n");
-	this->waitFifo(16);
-	Mach32IoQ io = ioQ();
-	while (io.testW(IoReg::id_EXT_GE_STATUS, BIT(13))) {
-		/* wait for GE idle */
-	}
+    DFUNC(VERBOSE, "\n");
+    this->waitFifo(16);
+    Mach32IoQ io = ioQ();
+    while (io.testW(IoReg::id_EXT_GE_STATUS, BIT(13))) {
+        /* wait for GE idle */
+    }
 }
 
 static INLINE ULONG getMemoryOffset(struct BoardInfo *bi, APTR memory)
@@ -123,7 +123,8 @@ void ASM Mach32Driver::setReadPlane(__REGD0(UBYTE mask))
     (void)mask;
 }
 
-void ASM Mach32Driver::setSpriteColor(__REGD0(UBYTE idx), __REGD1(UBYTE r), __REGD2(UBYTE g), __REGD3(UBYTE b), __REGD7(RGBFTYPE_REG fmt))
+void ASM Mach32Driver::setSpriteColor(__REGD0(UBYTE idx), __REGD1(UBYTE r), __REGD2(UBYTE g), __REGD3(UBYTE b),
+                                      __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE, "idx=%ld r=%ld g=%ld b=%ld fmt=%ld\n", (ULONG)idx, (ULONG)r, (ULONG)g, (ULONG)b, (ULONG)fmt);
@@ -186,9 +187,9 @@ BOOL ASM Mach32Driver::setSprite(__REGD0(BOOL show), __REGD7(RGBFTYPE_REG fmt))
     io.writeW(IoReg::id_CURSOR_OFFSET_HI, hi);
 
     if (show) {
-        this->setSpriteColor( 0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, fmt);
-        this->setSpriteColor( 1, bi->CLUT[18].Red, bi->CLUT[18].Green, bi->CLUT[18].Blue, fmt);
-        this->setSpriteColor( 2, bi->CLUT[19].Red, bi->CLUT[19].Green, bi->CLUT[19].Blue, fmt);
+        this->setSpriteColor(0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, fmt);
+        this->setSpriteColor(1, bi->CLUT[18].Red, bi->CLUT[18].Green, bi->CLUT[18].Blue, fmt);
+        this->setSpriteColor(2, bi->CLUT[19].Red, bi->CLUT[19].Green, bi->CLUT[19].Blue, fmt);
     }
 
     return TRUE;
@@ -312,7 +313,8 @@ void ASM Mach32Driver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
         io.writeW(IoReg::id_V_DISP, 0);
 }
 
-void ASM Mach32Driver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), __REGD3(UWORD height), __REGD1(WORD xoffset), __REGD2(WORD yoffset), __REGD7(RGBFTYPE_REG format))
+void ASM Mach32Driver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), __REGD3(UWORD height),
+                                  __REGD1(WORD xoffset), __REGD2(WORD yoffset), __REGD7(RGBFTYPE_REG format))
 {
     BoardInfo *bi = this;
     DFUNC(INFO,
@@ -356,7 +358,8 @@ void ASM Mach32Driver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), 
     D(VERBOSE, "panOffset 0x%lx, pitch %ld qwords\n", panOffset, (ULONG)pitch);
 }
 
-UWORD ASM Mach32Driver::calculateBytesPerRow(__REGD0(UWORD width), __REGD1(UWORD height), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE_REG format))
+UWORD ASM Mach32Driver::calculateBytesPerRow(__REGD0(UWORD width), __REGD1(UWORD height), __REGA1(struct ModeInfo *mi),
+                                             __REGD7(RGBFTYPE_REG format))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE, "width=%lu height=%lu mi=0x%lx fmt=%ld\n", (ULONG)width, (ULONG)height, (ULONG)mi, (ULONG)format);
@@ -379,19 +382,21 @@ UWORD ASM Mach32Driver::calculateBytesPerRow(__REGD0(UWORD width), __REGD1(UWORD
 }
 /* removed forward decl: FillRect (now FillRect method) */
 
-APTR ASM Mach32Driver::allocCardMem(__REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system), __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE_REG format))
+APTR ASM Mach32Driver::allocCardMem(__REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system),
+                                    __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi),
+                                    __REGD7(RGBFTYPE_REG format))
 {
     BoardInfo *bi = this;
     APTR mem = getConstCardData(bi)->AllocCardMemDefault(bi, size, force, system, bytesperrow, mi, AS_RGBF(format));
 
     if (mi && (mi->Flags & GMF_DOUBLESCAN)) {
         struct RenderInfo ri;
-        ri.Memory = (APTR)((ULONG)mem + bytesperrow / 2);
+        ri.Memory      = (APTR)((ULONG)mem + bytesperrow / 2);
         ri.BytesPerRow = bytesperrow;
-        ri.RGBFormat = AS_RGBF(format);
+        ri.RGBFormat   = AS_RGBF(format);
         this->waitBlitter();
         /* Bitmap size may differ from ModeInfo; derive from the allocated chunk. */
-        this->fillRect( &ri, 0, 0, (bytesperrow / 2) / getBPP(format), size / bytesperrow, 0, 0xFF, AS_RGBF(format));
+        this->fillRect(&ri, 0, 0, (bytesperrow / 2) / getBPP(format), size / bytesperrow, 0, 0xFF, AS_RGBF(format));
         this->waitBlitter();
     }
 
@@ -426,9 +431,9 @@ void ASM Mach32Driver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format
     UWORD dac8 = (format == RGBFB_CLUT && bi->BitsPerCannon == 8) ? DAC_8BIT_EN : 0;
 
     asMach32(bi)->writeExtGeConfigMask(DISPLAY_PIXEL_SIZE_MASK | PIXEL_WIDTH_MASK | _16_BIT_COLOR_MODE_MASK |
-                             _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK |
-                             MULTIPLEX_PIXELS_MASK,
-                         PIXEL_WIDTH(1) | DISPLAY_PIXEL_SIZE | dac8);
+                                           _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK |
+                                           MULTIPLEX_PIXELS_MASK,
+                                       PIXEL_WIDTH(1) | DISPLAY_PIXEL_SIZE | dac8);
 
     ops->setDac(bi, AS_RGBF(format));
 
@@ -468,9 +473,9 @@ void ASM Mach32Driver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format
     config |= DISPLAY_PIXEL_SIZE | dac8;
 
     asMach32(bi)->writeExtGeConfigMask(DISPLAY_PIXEL_SIZE_MASK | PIXEL_WIDTH_MASK | _16_BIT_COLOR_MODE_MASK |
-                             _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK |
-                             MULTIPLEX_PIXELS_MASK,
-                         config);
+                                           _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK |
+                                           MULTIPLEX_PIXELS_MASK,
+                                       config);
 }
 
 void ASM Mach32Driver::setColorArray(__REGD0(UWORD startIndex), __REGD1(UWORD count))
@@ -541,7 +546,8 @@ void ASM Mach32Driver::setMemoryMode(__REGD7(RGBFTYPE_REG format))
     (void)format;
 }
 
-LONG ASM Mach32Driver::resolvePixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULONG pixelClock), __REGD7(RGBFTYPE_REG RGBFormat))
+LONG ASM Mach32Driver::resolvePixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULONG pixelClock),
+                                         __REGD7(RGBFTYPE_REG RGBFormat))
 {
     BoardInfo *bi = this;
     DFUNC(CHATTY, "mi=0x%lx target=%lu fmt=%ld\n", (ULONG)mi, pixelClock, (ULONG)RGBFormat);
@@ -833,7 +839,9 @@ static void drawRect(BoardInfo_t *bi, WORD x, WORD y, WORD width, WORD height)
     flushWrites();
 }
 
-void ASM Mach32Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(ULONG pen), __REGD5(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+void ASM Mach32Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
+                                __REGD3(WORD height), __REGD4(ULONG pen), __REGD5(UBYTE mask),
+                                __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE,
@@ -876,7 +884,8 @@ void ASM Mach32Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x),
     drawRect(bi, x, y, width, height);
 }
 
-void ASM Mach32Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+void ASM Mach32Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
+                                  __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE,
@@ -911,7 +920,9 @@ void ASM Mach32Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x
     drawRect(bi, x, y, width, height);
 }
 
-void ASM Mach32Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), __REGD1(WORD srcY), __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height), __REGD6(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+void ASM Mach32Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), __REGD1(WORD srcY),
+                                __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height),
+                                __REGD6(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE,
@@ -1002,7 +1013,10 @@ static const UBYTE minTermToMix[16] = {
     MIX_ONE,                      // 1111
 };
 
-void ASM Mach32Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REGA2(struct RenderInfo *dri), __REGD0(WORD srcX), __REGD1(WORD srcY), __REGD2(WORD dstX), __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height), __REGD6(UBYTE opCode), __REGD7(RGBFTYPE_REG fmt))
+void ASM Mach32Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REGA2(struct RenderInfo *dri),
+                                              __REGD0(WORD srcX), __REGD1(WORD srcY), __REGD2(WORD dstX),
+                                              __REGD3(WORD dstY), __REGD4(WORD width), __REGD5(WORD height),
+                                              __REGD6(UBYTE opCode), __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE,
@@ -1292,7 +1306,10 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
     }
 }
 
-void ASM Mach32Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct RenderInfo *ri), __REGD0(SHORT srcX), __REGD1(SHORT srcY), __REGD2(SHORT dstX), __REGD3(SHORT dstY), __REGD4(SHORT width), __REGD5(SHORT height), __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
+void ASM Mach32Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct RenderInfo *ri),
+                                         __REGD0(SHORT srcX), __REGD1(SHORT srcY), __REGD2(SHORT dstX),
+                                         __REGD3(SHORT dstY), __REGD4(SHORT width), __REGD5(SHORT height),
+                                         __REGD6(UBYTE minTerm), __REGD7(UBYTE mask))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE,
@@ -1452,9 +1469,9 @@ static void REGARGS BlitPatternNon8x8(BoardInfo_t *bi, struct RenderInfo *ri, st
     flushWrites();
 }
 
-void ASM Mach32Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pattern *pattern),
-                                   __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height),
-                                   __REGD4(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+void ASM Mach32Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pattern *pattern), __REGD0(WORD x),
+                                   __REGD1(WORD y), __REGD2(WORD width), __REGD3(WORD height), __REGD4(UBYTE mask),
+                                   __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE,
@@ -1548,7 +1565,8 @@ void ASM Mach32Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
     drawRect(bi, x, y, width, height);
 }
 
-void ASM Mach32Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line *line), __REGD0(UBYTE mask), __REGD7(RGBFTYPE_REG fmt))
+void ASM Mach32Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line *line), __REGD0(UBYTE mask),
+                                __REGD7(RGBFTYPE_REG fmt))
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE, "\n");
@@ -1737,23 +1755,25 @@ static void ASM SetGC(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi
 {
     asMach32(bi)->setGC(mi, border);
 }
-static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width), __REGD3(UWORD height),
-                    __REGD1(WORD xoffset), __REGD2(WORD yoffset), __REGD7(RGBFTYPE format))
+static void ASM SetPanning(__REGA0(struct BoardInfo *bi), __REGA1(UBYTE *memory), __REGD0(UWORD width),
+                           __REGD3(UWORD height), __REGD1(WORD xoffset), __REGD2(WORD yoffset),
+                           __REGD7(RGBFTYPE format))
 {
     asMach32(bi)->setPanning(memory, width, height, xoffset, yoffset, format);
 }
 static UWORD ASM CalculateBytesPerRow(__REGA0(struct BoardInfo *bi), __REGD0(UWORD width), __REGD1(UWORD height),
-                               __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
+                                      __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
 {
     return asMach32(bi)->calculateBytesPerRow(width, height, mi, format);
 }
-static APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system),
-                      __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE format))
+static APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force),
+                             __REGD2(BOOL system), __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi),
+                             __REGD7(RGBFTYPE format))
 {
     return asMach32(bi)->allocCardMem(size, force, system, bytesperrow, mi, format);
 }
 static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem), __REGD0(struct RenderInfo *ri),
-                         __REGD7(RGBFTYPE format))
+                                __REGD7(RGBFTYPE format))
 {
     return asMach32(bi)->calculateMemory(mem, ri, format);
 }
@@ -1777,13 +1797,13 @@ static void ASM SetMemoryMode(__REGA0(struct BoardInfo *bi), __REGD7(RGBFTYPE fo
 {
     asMach32(bi)->setMemoryMode(format);
 }
-static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(ULONG pixelClock),
-                           __REGD7(RGBFTYPE RGBFormat))
+static LONG ASM ResolvePixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi),
+                                  __REGD0(ULONG pixelClock), __REGD7(RGBFTYPE RGBFormat))
 {
     return asMach32(bi)->resolvePixelClock(mi, pixelClock, RGBFormat);
 }
 static ULONG ASM GetPixelClock(__REGA0(struct BoardInfo *bi), __REGA1(struct ModeInfo *mi), __REGD0(ULONG index),
-                        __REGD7(RGBFTYPE format))
+                               __REGD7(RGBFTYPE format))
 {
     return asMach32(bi)->getPixelClock(mi, index, format);
 }
@@ -2242,7 +2262,8 @@ static void testVBlankInterrupt(BoardInfo_t *bi, struct pci_dev *board)
 
     {
         DRIVER_LOCALS(bi);
-        D(ALWAYS, "VBlank IRQ test: SUBSYS_STATUS=0x%04lx — counting softints 2s...\n", (ULONG)io.readW(IoReg::id_SUBSYS_STATUS));
+        D(ALWAYS, "VBlank IRQ test: SUBSYS_STATUS=0x%04lx — counting softints 2s...\n",
+          (ULONG)io.readW(IoReg::id_SUBSYS_STATUS));
     }
 
     delayMilliSeconds(2000);

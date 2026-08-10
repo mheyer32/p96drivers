@@ -2,7 +2,6 @@
 #include "chip_mach64.h"
 #include "mach64_common.h"
 
-
 using namespace MmioReg;
 using namespace PllReg;
 
@@ -88,13 +87,17 @@ static const FifoEntry_CT_t g_fifo8_CT[] = {
     {4600, 0x4}, {5600, 0x6}, {7000, 0x6}, {9400, 0x8}, {10000, 0xa}, {11300, 0xc}, {14000, 0xc}, {24000, 0xe},
 };
 static const FifoEntry_CT_t g_fifo16_CT[] = {
-    {2200, 0x6}, {3400, 0x6}, {4200, 0xa}, {5500, 0xa}, {6600, 0xc}, {7000, 0xc}, {7600, 0xe}, {7900, 0xe}, {24000, 0xe},
+    {2200, 0x6}, {3400, 0x6}, {4200, 0xa}, {5500, 0xa},  {6600, 0xc},
+    {7000, 0xc}, {7600, 0xe}, {7900, 0xe}, {24000, 0xe},
 };
 static const FifoEntry_CT_t g_fifo24_CT[] = {
     {2000, 0x8}, {3400, 0xa}, {3800, 0xa}, {4200, 0xa}, {4500, 0xc}, {5200, 0xc}, {24000, 0xe},
 };
 static const FifoEntry_CT_t g_fifo32_CT[] = {
-    {3000, 0xa}, {3500, 0xe}, {4200, 0xe}, {24000, 0xe},
+    {3000, 0xa},
+    {3500, 0xe},
+    {4200, 0xe},
+    {24000, 0xe},
 };
 
 static UBYTE lookupFifoLwm_CT(const FifoEntry_CT_t *tab, UBYTE n, ULONG clock10k)

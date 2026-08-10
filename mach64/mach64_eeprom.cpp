@@ -2,7 +2,6 @@
 #include "chip_mach64.h"
 #include "mach64_common.h"
 
-
 using namespace MmioReg;
 using namespace PllReg;
 
@@ -117,11 +116,11 @@ static void dumpCrtcTable(const UWORD *buf, UWORD wordOff, int idx)
           "  accel: modeSel=0x%02lx flags=0x%04lx dbl=%ld int=%ld mux=%ld\n"
           "  H tot=%ld disp=%ld sync=%ld wid=%ld\n"
           "  V tot=%ld disp=%ld sync=%ld wid=%ld clk=0x%02lx dot=%ld\n",
-          (ULONG)(w1 >> 8), (ULONG)w2, (ULONG)!!(w2 & BIT(8)), (ULONG)!!(w2 & BIT(9)), (ULONG)!!(w2 & BIT(13)),
+          (ULONG)(w1 >> 8), (ULONG)w2, (ULONG) !!(w2 & BIT(8)), (ULONG) !!(w2 & BIT(9)), (ULONG) !!(w2 & BIT(13)),
           (ULONG)(t[3] & 0xFF), (ULONG)(t[3] >> 8), (ULONG)(t[4] & 0xFF), (ULONG)(t[4] >> 8), (ULONG)(t[5] & 0x7FF),
           (ULONG)(t[6] & 0x7FF), (ULONG)(t[7] & 0x7FF), (ULONG)(t[8] & 0xFF), (ULONG)(t[8] >> 8), (ULONG)t[9]);
     } else {
-        D(ALWAYS, "  vga/other: dbl=%ld int=%ld\n", (ULONG)!!(w2 & BIT(8)), (ULONG)!!(w2 & BIT(9)));
+        D(ALWAYS, "  vga/other: dbl=%ld int=%ld\n", (ULONG) !!(w2 & BIT(8)), (ULONG) !!(w2 & BIT(9)));
     }
 }
 
@@ -155,8 +154,8 @@ void dumpMach64Eeprom(struct BoardInfo *bi)
         sum += (UBYTE)(buf[w] & 0xFF);
         sum += (UBYTE)(buf[w] >> 8);
     }
-    D(ALWAYS, "header: writes=%ld cksum_byte=0x%02lx (sum8=0x%02lx) rev=%ld\n", (ULONG)buf[0],
-      (ULONG)(buf[1] & 0xFF), (ULONG)sum, (ULONG)(buf[3] & 0xF));
+    D(ALWAYS, "header: writes=%ld cksum_byte=0x%02lx (sum8=0x%02lx) rev=%ld\n", (ULONG)buf[0], (ULONG)(buf[1] & 0xFF),
+      (ULONG)sum, (ULONG)(buf[3] & 0xF));
 
     for (i = 0; i < sizeof(g_crtcTableOff) / sizeof(g_crtcTableOff[0]); i++) {
         if ((ULONG)g_crtcTableOff[i] + 15u > EEPROM_NUM_WORDS)

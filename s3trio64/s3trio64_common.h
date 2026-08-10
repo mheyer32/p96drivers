@@ -101,7 +101,6 @@ typedef struct CardData
 
 STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);
 
-
 #ifdef __cplusplus
 #include "s3_driver.hpp"
 #endif
@@ -128,23 +127,23 @@ extern BOOL initRegisterAndMemoryBases(BoardInfo_t *bi);
 
 static INLINE UBYTE readCv64CtrlRegister(const BoardInfo_t *bi)
 {
-	return asS3(const_cast<BoardInfo_t *>(bi))->cv64().get();
+    return asS3(const_cast<BoardInfo_t *>(bi))->cv64().get();
 }
 
 static INLINE void writeCv64CtrlRegister(BoardInfo_t *bi, UBYTE value)
 {
-	asS3(bi)->cv64().write(value);
+    asS3(bi)->cv64().write(value);
 }
 
 static INLINE void writeCv64CtrlRegisterMask(BoardInfo_t *bi, UBYTE mask, UBYTE value)
 {
-	asS3(bi)->cv64().writeMask(mask, value);
+    asS3(bi)->cv64().writeMask(mask, value);
 }
 
 /* Prefer S3Driver::cv64() in methods; these macros remain for card/Init paths with bi. */
 #define R_CV64()                 readCv64CtrlRegister(bi)
 #define W_CV64(value)            writeCv64CtrlRegister((bi), value)
 #define W_CV64_MASK(mask, value) writeCv64CtrlRegisterMask((bi), (mask), (value))
-#endif                                // CONFIG_CYBERVISION64
+#endif  // CONFIG_CYBERVISION64
 
 #endif  // S3TRIO64_COMMON_H

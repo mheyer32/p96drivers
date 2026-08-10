@@ -19,7 +19,7 @@ typedef enum
     BT475,
     BT481,
     ATI68860
-}  DACType;
+} DACType;
 
 struct ModeInfo;
 struct svga_pll;

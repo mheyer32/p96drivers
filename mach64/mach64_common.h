@@ -44,53 +44,53 @@ STATIC_ASSERT(sizeof(ChipFamily_t) == 1, chipfamily_is_byte);
 /* CFG_MEM_AP_SIZE bits 0–1 (RRG §3-9). Same numeric value, different meaning:
  * GX letter a: 0=off, 1=4M, 2=8M, 3=reserved
  * CT letter f: 0/1 reserved, 2=2×8M (LE @0 + BE @+8M), 3=reserved */
-#define CFG_MEM_AP_SIZE(x)     ((x) & 3)
-#define CFG_MEM_AP_SIZE_MASK   (0x3)
-#define CFG_MEM_AP_SIZE_8M     2 /* GX: single 8M; CT/VT+: 2×8M dual */
+#define CFG_MEM_AP_SIZE(x)   ((x) & 3)
+#define CFG_MEM_AP_SIZE_MASK (0x3)
+#define CFG_MEM_AP_SIZE_8M   2 /* GX: single 8M; CT/VT+: 2×8M dual */
 
 /* CONFIG_STAT0 — GX/CX (ATI.TXT / RRG 3-10). Do not write on cold GX. */
-#define CFG_BUS_TYPE_GX(x)         ((x) & 7)
-#define CFG_BUS_TYPE_GX_MASK       (0x7)
-#define CFG_BUS_TYPE_GX_ISA        0
-#define CFG_BUS_TYPE_GX_EISA       1
-#define CFG_BUS_TYPE_GX_VLB        6
-#define CFG_BUS_TYPE_GX_PCI        7
+#define CFG_BUS_TYPE_GX(x)   ((x) & 7)
+#define CFG_BUS_TYPE_GX_MASK (0x7)
+#define CFG_BUS_TYPE_GX_ISA  0
+#define CFG_BUS_TYPE_GX_EISA 1
+#define CFG_BUS_TYPE_GX_VLB  6
+#define CFG_BUS_TYPE_GX_PCI  7
 
-#define CFG_MEM_TYPE_GX(x)         (((x) & 7) << 3)
-#define CFG_MEM_TYPE_GX_MASK       (0x7 << 3)
-#define CFG_MEM_TYPE_GX_DRAM4      0 /* DRAM 256Kx4 */
-#define CFG_MEM_TYPE_GX_VRAM       1 /* VRAM 256Kx4/x8/x16 */
-#define CFG_MEM_TYPE_GX_VRAM_SSR   2 /* VRAM short shift */
-#define CFG_MEM_TYPE_GX_DRAM16     3
-#define CFG_MEM_TYPE_GX_GDRAM      4
-#define CFG_MEM_TYPE_GX_EVRAM      5
-#define CFG_MEM_TYPE_GX_EVRAM_SSR  6
+#define CFG_MEM_TYPE_GX(x)        (((x) & 7) << 3)
+#define CFG_MEM_TYPE_GX_MASK      (0x7 << 3)
+#define CFG_MEM_TYPE_GX_DRAM4     0 /* DRAM 256Kx4 */
+#define CFG_MEM_TYPE_GX_VRAM      1 /* VRAM 256Kx4/x8/x16 */
+#define CFG_MEM_TYPE_GX_VRAM_SSR  2 /* VRAM short shift */
+#define CFG_MEM_TYPE_GX_DRAM16    3
+#define CFG_MEM_TYPE_GX_GDRAM     4
+#define CFG_MEM_TYPE_GX_EVRAM     5
+#define CFG_MEM_TYPE_GX_EVRAM_SSR 6
 
-#define CFG_DUAL_CAS_EN_GX         BIT(6)
-#define CFG_DUAL_CAS_EN_GX_MASK    BIT(6)
-#define CFG_INIT_DAC_TYPE_GX(x)    (((x) & 7) << 9)
-#define CFG_INIT_DAC_TYPE_GX_MASK  (0x7 << 9)
-#define CFG_VGA_EN_GX              BIT(23)
-#define CFG_VGA_EN_GX_MASK         BIT(23)
+#define CFG_DUAL_CAS_EN_GX        BIT(6)
+#define CFG_DUAL_CAS_EN_GX_MASK   BIT(6)
+#define CFG_INIT_DAC_TYPE_GX(x)   (((x) & 7) << 9)
+#define CFG_INIT_DAC_TYPE_GX_MASK (0x7 << 9)
+#define CFG_VGA_EN_GX             BIT(23)
+#define CFG_VGA_EN_GX_MASK        BIT(23)
 
 /* CONFIG_STAT0 — CT layout (RRG §3-12 letter z/aa+), not GX §3-10.
  * Low byte redefined vs GX: do not decode with CFG_*_GX.
  * CT mem_type (z): 0=disable, 1=DRAM, 2=EDO, 3–7 reserved on CT. */
-#define CFG_MEM_TYPE_CT(x)         ((x) & 7)
-#define CFG_MEM_TYPE_CT_MASK       (0x7)
-#define CFG_MEM_TYPE_CT_DISABLE    0b000
-#define CFG_MEM_TYPE_CT_DRAM       0b001
-#define CFG_MEM_TYPE_CT_EDO        0b010
+#define CFG_MEM_TYPE_CT(x)      ((x) & 7)
+#define CFG_MEM_TYPE_CT_MASK    (0x7)
+#define CFG_MEM_TYPE_CT_DISABLE 0b000
+#define CFG_MEM_TYPE_CT_DRAM    0b001
+#define CFG_MEM_TYPE_CT_EDO     0b010
 /* VT/GT+ encodings of the same field (CFG_MEM_TYPE_*) — invalid on CT. */
-#define CFG_MEM_TYPE_VT_PSEUDO_EDO 0b011
-#define CFG_MEM_TYPE_VT_SDRAM      0b100
-#define CFG_MEM_TYPE_VT_SGRAM      0b101
+#define CFG_MEM_TYPE_VT_PSEUDO_EDO  0b011
+#define CFG_MEM_TYPE_VT_SDRAM       0b100
+#define CFG_MEM_TYPE_VT_SGRAM       0b101
 #define CFG_MEM_TYPE_VT_SDRAM_32BIT 0b110
 
-#define CFG_DUAL_CAS_EN_CT         BIT(3)
-#define CFG_DUAL_CAS_EN_CT_MASK    BIT(3)
-#define CFG_CLOCK_EN_CT            BIT(5)
-#define CFG_CLOCK_EN_CT_MASK       BIT(5)
+#define CFG_DUAL_CAS_EN_CT      BIT(3)
+#define CFG_DUAL_CAS_EN_CT_MASK BIT(3)
+#define CFG_CLOCK_EN_CT         BIT(5)
+#define CFG_CLOCK_EN_CT_MASK    BIT(5)
 
 #define GEN_OVS_EN          BIT(5)
 #define GEN_OVS_EN_MASK     BIT(5)
@@ -126,22 +126,22 @@ STATIC_ASSERT(sizeof(ChipFamily_t) == 1, chipfamily_is_byte);
 #define XCLK_SRC_SEL(x)   (x)
 #define XCLK_SRC_SEL_MASK (7)
 
-#define CRTC_DBL_SCAN_EN      BIT(0)
-#define CRTC_INTERLACE_EN     BIT(1)
-#define CRTC_HSYNC_DIS        BIT(2)
-#define CRTC_VSYNC_DIS        BIT(3)
-#define CRTC_CSYNC_EN         BIT(4) /* composite sync on HSYNC — breaks separate H/V monitors */
-#define CRTC_PIC_BY_2_EN      BIT(5)
-#define CRTC_DISPLAY_DIS      BIT(6)
-#define CRTC_DISPLAY_DIS_MASK BIT(6)
-#define CRTC_PIX_WIDTH(x)     ((x) << 8)
-#define CRTC_PIX_WIDTH_MASK   (0x7 << 8)
-#define CRTC_BYTE_PIX_ORDER   BIT(11)
+#define CRTC_DBL_SCAN_EN         BIT(0)
+#define CRTC_INTERLACE_EN        BIT(1)
+#define CRTC_HSYNC_DIS           BIT(2)
+#define CRTC_VSYNC_DIS           BIT(3)
+#define CRTC_CSYNC_EN            BIT(4) /* composite sync on HSYNC — breaks separate H/V monitors */
+#define CRTC_PIC_BY_2_EN         BIT(5)
+#define CRTC_DISPLAY_DIS         BIT(6)
+#define CRTC_DISPLAY_DIS_MASK    BIT(6)
+#define CRTC_PIX_WIDTH(x)        ((x) << 8)
+#define CRTC_PIX_WIDTH_MASK      (0x7 << 8)
+#define CRTC_BYTE_PIX_ORDER      BIT(11)
 #define CRTC_BYTE_PIX_ORDER_MASK BIT(11)
 
 /* Shared (GX + CT): display FIFO LWM — DRAM configs only (ATI.TXT / RRG). */
-#define CRTC_FIFO_LWM(x)        ((x) << 16)
-#define CRTC_FIFO_LWM_MASK      (0xF << 16)
+#define CRTC_FIFO_LWM(x)   ((x) << 16)
+#define CRTC_FIFO_LWM_MASK (0xF << 16)
 
 /* CT CRTC_GEN_CNTL bits 20–22 (RRG-S00700-05 §3-18). Not present on GX.
  * Do not confuse with later VT/GT names (128KAP / DISPREQ_ONLY / LOCK_REGS). */
@@ -225,7 +225,8 @@ typedef struct PLLValue
 
 #ifdef __cplusplus
 namespace PllReg {
-enum Id : UBYTE {
+enum Id : UBYTE
+{
     PLL_MPLL_CNTL     = 0,
     PLL_MACRO_CNTL    = 1,
     PLL_VPLL_CNTL     = 1,  // GT

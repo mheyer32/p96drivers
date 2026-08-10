@@ -123,11 +123,11 @@
 #define HW_CURSOR_OFF_X 0x14C  // Hardware cursor X offset register (6 bits)
 #define HW_CURSOR_OFF_Y 0x14D  // Hardware cursor Y offset register (6 bits), doc table 4.7
 
-#define DEVICE_ID      0x182  // Device ID register at memory offset 182-183h
-#define GPIO_CTRL      0x1F0
+#define DEVICE_ID            0x182  // Device ID register at memory offset 182-183h
+#define GPIO_CTRL            0x1F0
 #define VERTICAL_CURRENT_POS 0x1FA
-#define EXT_DAC_STATUS 0x1FC  // Extended/DAC status register at memory offset 1FC-1FFh
-#define ABORT          0x1FF  //
+#define EXT_DAC_STATUS       0x1FC  // Extended/DAC status register at memory offset 1FC-1FFh
+#define ABORT                0x1FF  //
 
 #define FAST_RAS_DISABLE_MASK BIT(1)
 #define FAST_RAS_DISABLE      BIT(1)
@@ -281,7 +281,6 @@
 #define DAC_RD_AD 0x3C7  // Palette RAM state/read address
 #define DAC_WR_AD 0x3C8  // Palette RAM write address
 #define DAC_DATA  0x3C9  // Palette RAM data
-
 
 #define BLIT_MAX_SIZE 4095
 #endif  // CHIP_AT3D_H

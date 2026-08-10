@@ -22,8 +22,8 @@ extern "C" {
 #define EE_CS_BIT       14
 #define EE_SELECT_BIT   15
 
-#define EXT_GE_EE_MASK  (BIT(EE_DATA_OUT_BIT) | BIT(EE_CLK_BIT) | BIT(EE_CS_BIT) | BIT(EE_SELECT_BIT))
-#define EE_DATA_IN_BIT  14 /* EXT_GE_STATUS */
+#define EXT_GE_EE_MASK (BIT(EE_DATA_OUT_BIT) | BIT(EE_CLK_BIT) | BIT(EE_CS_BIT) | BIT(EE_SELECT_BIT))
+#define EE_DATA_IN_BIT 14 /* EXT_GE_STATUS */
 
 /* M93C56 x16 (128 words): READ = 1 + 10 + A6..A0 = 10 bits MSB first; prefix bits 9..7 = 110. */
 #define EEPROM_CMD_READ_PREFIX_M93C56 0x300u
@@ -92,12 +92,15 @@ static UWORD eeReadWordM93c56x16(BoardInfo_t *bi, UWORD baseNoEe, UBYTE addr7)
 
 void dumpMach32Eeprom(BoardInfo_t *bi)
 {
-    enum { NUM_WORDS = 128u };
+    enum
+    {
+        NUM_WORDS = 128u
+    };
 
     DRIVER_LOCALS(bi);
 
-    UWORD geSaved = io.readW(IoReg::id_R_EXT_GE_CONFIG);
-    UWORD baseNoEe  = (UWORD)(geSaved & (UWORD)~(EXT_GE_EE_MASK | BIT(3)));
+    UWORD geSaved  = io.readW(IoReg::id_R_EXT_GE_CONFIG);
+    UWORD baseNoEe = (UWORD)(geSaved & (UWORD) ~(EXT_GE_EE_MASK | BIT(3)));
 
     io.writeMaskW(IoReg::id_DISP_CNTL, ENA_DISPLAY_MASK, CRT_RESET);
 

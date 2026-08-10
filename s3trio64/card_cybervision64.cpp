@@ -27,8 +27,8 @@ extern const char LibIdString[] = "Cybervision64 Picasso96 card driver version 1
 #ifndef LIB_REVISION
 #define LIB_REVISION 0
 #endif
-extern const UWORD LibVersion   = LIB_VERSION;
-extern const UWORD LibRevision  = LIB_REVISION;
+extern const UWORD LibVersion  = LIB_VERSION;
+extern const UWORD LibRevision = LIB_REVISION;
 #endif
 
 #ifdef DBG
@@ -88,9 +88,9 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *Tooltypes))
 
         cd->configDev = configDev;
 
-        bi->BoardType = BT_CyberVision;
+        bi->BoardType           = BT_CyberVision;
         static char boardName[] = "CV64";
-        bi->BoardName = boardName;
+        bi->BoardName           = boardName;
 
         getChipData(bi)->chipFamily = TRIO64;
 

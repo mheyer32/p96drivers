@@ -20,18 +20,13 @@
 #define MACH64_IO_ENDIAN RegEndian::SwapIO
 #endif
 
-using Mach64Mmio =
-    AtiRegAperture<MmioReg::Id, MACH64_MMIO_ENDIAN, 0, RegLog::Verbose>;
-using Mach64MmioQ =
-    AtiRegAperture<MmioReg::Id, MACH64_MMIO_ENDIAN, 0, RegLog::Quiet>;
+using Mach64Mmio  = AtiRegAperture<MmioReg::Id, MACH64_MMIO_ENDIAN, 0, RegLog::Verbose>;
+using Mach64MmioQ = AtiRegAperture<MmioReg::Id, MACH64_MMIO_ENDIAN, 0, RegLog::Quiet>;
 /* Forced NoSwap quiet — FIFO_STAT word poll. */
-using Mach64MmioNoSwapQ =
-    AtiRegAperture<MmioReg::Id, RegEndian::NoSwap, 0, RegLog::Quiet>;
+using Mach64MmioNoSwapQ = AtiRegAperture<MmioReg::Id, RegEndian::NoSwap, 0, RegLog::Quiet>;
 
-using Mach64BlkIo =
-    AtiRegAperture<BlkIoReg::Id, MACH64_IO_ENDIAN, 0, RegLog::Verbose>;
-using Mach64BlkIoQ =
-    AtiRegAperture<BlkIoReg::Id, MACH64_IO_ENDIAN, 0, RegLog::Quiet>;
+using Mach64BlkIo  = AtiRegAperture<BlkIoReg::Id, MACH64_IO_ENDIAN, 0, RegLog::Verbose>;
+using Mach64BlkIoQ = AtiRegAperture<BlkIoReg::Id, MACH64_IO_ENDIAN, 0, RegLog::Quiet>;
 
 /*
  * GX sparse I/O: byte offset = (SparseIoReg::Id << 10) from
@@ -40,48 +35,48 @@ using Mach64BlkIoQ =
 template <RegEndian E, RegLog L>
 struct AtiSparseIoAperture
 {
-	volatile UBYTE *base;
+    volatile UBYTE *base;
 
-	explicit AtiSparseIoAperture(volatile UBYTE *b) : base(b) {}
+    explicit AtiSparseIoAperture(volatile UBYTE *b) : base(b) {}
 
-	static INLINE LONG byteOff(SparseIoReg::Id id) { return (LONG)id << 10; }
+    static INLINE LONG byteOff(SparseIoReg::Id id) { return (LONG)id << 10; }
 
-	INLINE ULONG readL(SparseIoReg::Id id) const
-	{
-		return RegAperture<E, 0, L>(base).template readOff<ULONG>(byteOff(id)
+    INLINE ULONG readL(SparseIoReg::Id id) const
+    {
+        return RegAperture<E, 0, L>(base).template readOff<ULONG>(byteOff(id)
 #ifdef DBG
-		                                                              ,
-		                                                              regName(id)
+                                                                      ,
+                                                                  regName(id)
 #endif
-		);
-	}
+        );
+    }
 
-	INLINE void writeMaskL(SparseIoReg::Id id, ULONG mask, ULONG val) const
-	{
-		RegAperture<E, 0, L>(base).template writeMaskOff<ULONG>(byteOff(id), mask, val
+    INLINE void writeMaskL(SparseIoReg::Id id, ULONG mask, ULONG val) const
+    {
+        RegAperture<E, 0, L>(base).template writeMaskOff<ULONG>(byteOff(id), mask, val
 #ifdef DBG
-		                                                        ,
-		                                                        regName(id)
+                                                                ,
+                                                                regName(id)
 #endif
-		);
-	}
+        );
+    }
 };
 
 using Mach64SparseIo = AtiSparseIoAperture<MACH64_IO_ENDIAN, RegLog::Verbose>;
 
 static INLINE Mach64Mmio mach64Mmio(volatile UBYTE *base)
 {
-	return Mach64Mmio(base);
+    return Mach64Mmio(base);
 }
 
 static INLINE Mach64MmioQ mach64MmioQ(volatile UBYTE *base)
 {
-	return Mach64MmioQ(base);
+    return Mach64MmioQ(base);
 }
 
 static INLINE Mach64MmioNoSwapQ mach64MmioNoSwapQ(volatile UBYTE *base)
 {
-	return Mach64MmioNoSwapQ(base);
+    return Mach64MmioNoSwapQ(base);
 }
 
 #endif /* MACH64_REG_APERTURES_HPP */

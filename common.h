@@ -21,11 +21,11 @@ extern "C" {
  * 6.5 / 13.2 fix that; ULONG remains safe for unfixed toolchains.
  */
 typedef ULONG RGBFTYPE_REG;
-#define AS_RGBF(x) static_cast<RGBFTYPE>(x)
+#define AS_RGBF(x)          static_cast<RGBFTYPE>(x)
 #define P96_HOOK(field, fn) ((field) = reinterpret_cast<decltype(field)>(fn))
 #else
 typedef RGBFTYPE RGBFTYPE_REG;
-#define AS_RGBF(x) (x)
+#define AS_RGBF(x)          (x)
 #define P96_HOOK(field, fn) ((field) = (fn))
 #endif
 
@@ -53,9 +53,9 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
         myPrintF(__VA_ARGS__);   \
     }
 /* GNU ,##__VA_ARGS__ eats the comma when the varargs list is empty (C and C++). */
-#define DFUNC(level, fmt, ...)                                                   \
-    if (debugLevel >= (level)) {                                                 \
-        myPrintF("%s:%ld: " fmt, __func__, (long)__LINE__, ##__VA_ARGS__);       \
+#define DFUNC(level, fmt, ...)                                             \
+    if (debugLevel >= (level)) {                                           \
+        myPrintF("%s:%ld: " fmt, __func__, (long)__LINE__, ##__VA_ARGS__); \
     }
 #endif
 
@@ -69,10 +69,10 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
 
 /* Standard VGA ports: see vga_regs.hpp (VgaReg / VgaIo). */
 
-#define LOCAL_SYSBASE()        struct ExecBase *SysBase = bi->ExecBase
-#define LOCAL_UTILITYBASE()    struct Library *UtilityBase = bi->UtilBase
+#define LOCAL_SYSBASE()     struct ExecBase *SysBase = bi->ExecBase
+#define LOCAL_UTILITYBASE() struct Library *UtilityBase = bi->UtilBase
 #if OPENPCI
-#define LOCAL_OPENPCIBASE()    struct Library *OpenPciBase = getCardData(bi)->OpenPciBase
+#define LOCAL_OPENPCIBASE() struct Library *OpenPciBase = getCardData(bi)->OpenPciBase
 #endif
 
 /* BoardInfo.CardFlags — private; RTG does not touch these.
@@ -94,14 +94,18 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
  * Non-zero handler return → Z clear; zero → Z set.
  * Scratch for IS_CODE: d0-d1/a0-a1/a5-a6 — trampoline preserves the rest.
  */
-#define DEFINE_INTSERVER(entry, handler)                                     \
-    void entry(void);                                                        \
-    asm(".section .text." #entry ",\"ax\"\n"                                 \
-        "	.align	2\n"                                                 \
-        "	.globl	_" #entry "\n"                                      \
-        "_" #entry ":\n"                                                     \
-        "	jsr	_" #handler "\n"                                        \
-        "	tst.l	d0\n"                                                   \
+#define DEFINE_INTSERVER(entry, handler) \
+    void entry(void);                    \
+    asm(".section .text." #entry         \
+        ",\"ax\"\n"                      \
+        "	.align	2\n"                    \
+        "	.globl	_" #entry            \
+        "\n"                             \
+        "_" #entry                       \
+        ":\n"                            \
+        "	jsr	_" #handler              \
+        "\n"                             \
+        "	tst.l	d0\n"                    \
         "	rts\n")
 
 static inline ULONG swapl(ULONG value)
@@ -326,7 +330,6 @@ static INLINE int copyToUpper(short hilo)
     //    return hilo << 16 | hilo;
 }
 
-
 // Move lowest byte of a into lowest byte of b
 static INLINE unsigned int moveb(unsigned char a, unsigned int b)
 {
@@ -413,10 +416,10 @@ static inline UWORD revertBitsW(UWORD word)
 static inline ULONG spreadBits(UWORD word)
 {
     ULONG x = word;
-    x = (x | (x << 8)) & 0x00FF00FFUL;
-    x = (x | (x << 4)) & 0x0F0F0F0FUL;
-    x = (x | (x << 2)) & 0x33333333UL;
-    x = (x | (x << 1)) & 0x55555555UL;
+    x       = (x | (x << 8)) & 0x00FF00FFUL;
+    x       = (x | (x << 4)) & 0x0F0F0F0FUL;
+    x       = (x | (x << 2)) & 0x33333333UL;
+    x       = (x | (x << 1)) & 0x55555555UL;
     return x;
 }
 

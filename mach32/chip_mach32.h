@@ -106,44 +106,44 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define DISP_STATUS_RGB_TEST  BIT(0)
 #define DISP_STATUS_VERT_SYNC BIT(1) /* live; polarity mode-dependent */
 #define DISP_STATUS_LINE_SYNC BIT(2) /* toggles each H retrace */
-#define DP_CONFIG           0xCEEE  /* W — same index as VERT_LINE_CNTR (R) */
-#define ERR_TERM            0x92E8  /* W */
-#define EXT_CURSOR_COLOR_0  0x3AEE  /* W — same index as FIFO_TEST_TAG (R) */
-#define EXT_CURSOR_COLOR_1  0x3EEE  /* W */
-#define EXT_FIFO_STATUS     0x9AEE  /* R — same index as LINEDRAW_INDEX (W) */
-#define EXT_GE_CONFIG       0x7AEE  /* W */
-#define EXT_GE_STATUS       0x62EE  /* R — same index as HORZ_OVERSCAN (W) */
-#define EXT_SHORT_STROKE    0xC6EE  /* W — same index as R_V_DISP (R) */
-#define FIFO_TEST_DATA      0x1AEE  /* R */
-#define FIFO_TEST_TAG       0x3AEE  /* R */
-#define FRGD_COLOR          0xA6E8  /* W */
-#define FRGD_MIX            0xBAE8  /* W */
-#define GE_OFFSET_HI        0x72EE  /* W — same index as BOUNDS_LEFT (R) */
-#define GE_OFFSET_LO        0x6EEE  /* W */
-#define GE_PITCH            0x76EE  /* W — same index as BOUNDS_TOP (R) */
-#define GE_STAT             0x9AE8  /* R — same index as CMD (W) */
-#define GENENA              0x46E8  /* W — add-on only (§Appendix A) */
-#define H_DISP              0x06E8  /* W */
-#define H_SYNC_STRT         0x0AE8  /* W */
-#define H_SYNC_WID          0x0EE8  /* W */
-#define H_TOTAL             0x02E8  /* W — same index as DISP_STATUS (R) */
-#define HORZ_CURSOR_OFFSET  0x1EEE  /* W */
-#define HORZ_CURSOR_POSN    0x12EE  /* W — same index as CONFIG_STATUS_1 (R) */
-#define HORZ_OVERSCAN       0x62EE  /* W — same index as EXT_GE_STATUS (R) */
-#define LINEDRAW            0xFEEE  /* W */
-#define LINEDRAW_INDEX      0x9AEE  /* W — same index as EXT_FIFO_STATUS (R) */
-#define LINEDRAW_OPT        0xA2EE  /* R/W */
-#define LOCAL_CNTL          0x32EE  /* R/W */
-#define MAJ_AXIS_PCNT       0x96E8  /* W */
-#define MAX_WAITSTATES      0x6AEE  /* R/W — Mach32; PCI MISC_CONT / APERTURE_CNTL on some steppings */
-#define MEM_BNDRY           0x42EE  /* W */
-#define MEM_CFG             0x5EEE  /* R/W — §9-75 */
-#define MISC_CNTL           0x7EEE  /* W — same index as BOUNDS_BOTTOM (R) */
-#define MISC_OPTIONS        0x36EE  /* R/W — Mach32; mach8 FIFO_OPT (W) at same index */
-#define PATT_DATA           0x8EEE  /* W — same index as R_EXT_GE_CONFIG (R) */
-#define PATT_DATA_INDEX     0x82EE  /* R/W */
-#define PATT_INDEX          0xD6EE  /* W */
-#define PATT_LENGTH         0xD2EE  /* W — same index as R_V_SYNC_WID (R) */
+#define DP_CONFIG             0xCEEE /* W — same index as VERT_LINE_CNTR (R) */
+#define ERR_TERM              0x92E8 /* W */
+#define EXT_CURSOR_COLOR_0    0x3AEE /* W — same index as FIFO_TEST_TAG (R) */
+#define EXT_CURSOR_COLOR_1    0x3EEE /* W */
+#define EXT_FIFO_STATUS       0x9AEE /* R — same index as LINEDRAW_INDEX (W) */
+#define EXT_GE_CONFIG         0x7AEE /* W */
+#define EXT_GE_STATUS         0x62EE /* R — same index as HORZ_OVERSCAN (W) */
+#define EXT_SHORT_STROKE      0xC6EE /* W — same index as R_V_DISP (R) */
+#define FIFO_TEST_DATA        0x1AEE /* R */
+#define FIFO_TEST_TAG         0x3AEE /* R */
+#define FRGD_COLOR            0xA6E8 /* W */
+#define FRGD_MIX              0xBAE8 /* W */
+#define GE_OFFSET_HI          0x72EE /* W — same index as BOUNDS_LEFT (R) */
+#define GE_OFFSET_LO          0x6EEE /* W */
+#define GE_PITCH              0x76EE /* W — same index as BOUNDS_TOP (R) */
+#define GE_STAT               0x9AE8 /* R — same index as CMD (W) */
+#define GENENA                0x46E8 /* W — add-on only (§Appendix A) */
+#define H_DISP                0x06E8 /* W */
+#define H_SYNC_STRT           0x0AE8 /* W */
+#define H_SYNC_WID            0x0EE8 /* W */
+#define H_TOTAL               0x02E8 /* W — same index as DISP_STATUS (R) */
+#define HORZ_CURSOR_OFFSET    0x1EEE /* W */
+#define HORZ_CURSOR_POSN      0x12EE /* W — same index as CONFIG_STATUS_1 (R) */
+#define HORZ_OVERSCAN         0x62EE /* W — same index as EXT_GE_STATUS (R) */
+#define LINEDRAW              0xFEEE /* W */
+#define LINEDRAW_INDEX        0x9AEE /* W — same index as EXT_FIFO_STATUS (R) */
+#define LINEDRAW_OPT          0xA2EE /* R/W */
+#define LOCAL_CNTL            0x32EE /* R/W */
+#define MAJ_AXIS_PCNT         0x96E8 /* W */
+#define MAX_WAITSTATES        0x6AEE /* R/W — Mach32; PCI MISC_CONT / APERTURE_CNTL on some steppings */
+#define MEM_BNDRY             0x42EE /* W */
+#define MEM_CFG               0x5EEE /* R/W — §9-75 */
+#define MISC_CNTL             0x7EEE /* W — same index as BOUNDS_BOTTOM (R) */
+#define MISC_OPTIONS          0x36EE /* R/W — Mach32; mach8 FIFO_OPT (W) at same index */
+#define PATT_DATA             0x8EEE /* W — same index as R_EXT_GE_CONFIG (R) */
+#define PATT_DATA_INDEX       0x82EE /* R/W */
+#define PATT_INDEX            0xD6EE /* W */
+#define PATT_LENGTH           0xD2EE /* W — same index as R_V_SYNC_WID (R) */
 /* Linear mono/color pattern: PATT_LENGTH[4:0] = (pixel_length - 1); bits 7,15 clear — §9-60 */
 #define PATT_LENGTH_MONO16 15u    /* 16-pixel line stipple */
 #define PCI_CNTL           0x22EE /* R/W — “DAC_CONT (PCI)” in appendix */
@@ -178,9 +178,9 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define SUBSYS_CNTL        0x42E8 /* W — same index as SUBSYS_STATUS (R) */
 #define SUBSYS_STATUS      0x42E8 /* R — same index as SUBSYS_CNTL (W) */
 /* SUBSYS_STATUS / SUBSYS_CNTL — REG688000-15 §8-17–8-20 */
-#define SUBSYS_VBLANK_INT BIT(0)
-#define SUBSYS_VBLANK_ACK BIT(0)
-#define SUBSYS_VBLANK_ENA BIT(8)
+#define SUBSYS_VBLANK_INT  BIT(0)
+#define SUBSYS_VBLANK_ACK  BIT(0)
+#define SUBSYS_VBLANK_ENA  BIT(8)
 #define V_DISP             0x16E8 /* W */
 #define V_SYNC_STRT        0x1AE8 /* W */
 #define V_SYNC_WID         0x1EE8 /* W */

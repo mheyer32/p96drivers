@@ -52,4 +52,4 @@ BOOL mach64I2cReadSda(struct BoardInfo *bi);
 }
 #endif
 
-#endif // MACH64_I2C_H
+#endif  // MACH64_I2C_H
