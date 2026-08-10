@@ -179,6 +179,7 @@ all : S3Trio64V2.chip \
       TestS3Trio64V2 \
       TestS3Vision864 \
       TestS3TrioCard \
+      SetS3Clk \
       AT3D.card \
       TestAT3D \
       TestAT3DCard \
@@ -259,6 +260,12 @@ S3TRIOCARD_TESTEXE_SRC = common.c \
 
 TestS3TrioCard : CFLAGS+=-DREGISTER_OFFSET=0x8000 -DMMIOREGISTER_OFFSET=0x8000 -DOPENPCI=1
 $(eval $(call make_exe,TestS3TrioCard,$(BUILDDIR)tests3triocard/, ${S3TRIOCARD_TESTEXE_SRC}))
+
+SETS3CLK_SRC = common.c \
+               s3trio64/set_s3_mclk.cpp
+
+SetS3Clk : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -DBIGENDIAN_IO=0 -DBIGENDIAN_MMIO=0 -DOPENPCI=1
+$(eval $(call make_exe,SetS3Clk,$(BUILDDIR)sets3clk/, ${SETS3CLK_SRC}))
 
 
 CYBERVISION64CARD_SRC = common.c \

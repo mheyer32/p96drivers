@@ -31,6 +31,7 @@ ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3Trio64Plus
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3Trio64V2
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3Vision864
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestS3TrioCard
+${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/SetS3Clk
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestAT3D
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestAT3DCard
 ${SQUIRT} --dest SYS:c ${SQUIRT_HOST} $PWD/_bin/TestCybervision64
