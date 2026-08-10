@@ -1562,17 +1562,17 @@ void ASM At3dDriver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), _
     // FIXME: can we use a ROP of "SRC_AND_DST" to emulate the mask?
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "FillRect fallback\n");
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->FillRectDefault(this, ri, x, y, width, height, pen, mask, AS_RGBF(fmt));
+        return;
     }
 
     ChipData_t *cd = chip();
 
     if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->FillRectDefault(this, ri, x, y, width, height, pen, mask, AS_RGBF(fmt));
+        return;
     } else {
         this->setFormat((RGBFTYPE)fmt);
     }
@@ -1583,14 +1583,14 @@ void ASM At3dDriver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), _
     ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
     if (!addressModel) {
         // Pitch can't be expressed in addressing mode bits, fallback to CPU fill
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->FillRectDefault(this, ri, x, y, width, height, pen, mask, AS_RGBF(fmt));
+        return;
     }
     if (!this->setDstLocation(ri, x, y, bppLog2, isLinear)) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->FillRectDefault(this, ri, x, y, width, height, pen, mask, AS_RGBF(fmt));
+        return;
     }
 
     At3dMmio mmio = this->mmio();
@@ -1641,17 +1641,17 @@ void ASM At3dDriver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x),
 
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "InvertRect fallback (mask)\n");
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->InvertRectDefault(this, ri, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     }
 
     ChipData_t *cd = chip();
 
     if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->InvertRectDefault(this, ri, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     } else {
         this->setFormat((RGBFTYPE)fmt);
     }
@@ -1662,14 +1662,14 @@ void ASM At3dDriver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x),
     ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
     if (!addressModel) {
         // Pitch can't be expressed in addressing mode bits, fallback to CPU fill
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->InvertRectDefault(this, ri, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     }
     if (!this->setDstLocation(ri, x, y, bppLog2, isLinear)) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->InvertRectDefault(this, ri, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     }
 
     At3dMmio mmio = this->mmio();
@@ -1718,9 +1718,10 @@ void ASM At3dDriver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __R
 
     // On older chips the format is tied to the current screen format
     if (cd->chipFamily < AT24 && (UBYTE)format != cd->GEFormat) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitRectNoMaskCompleteDefault(this, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode,
+                                            AS_RGBF(format));
+        return;
     } else {
         this->setFormat((RGBFTYPE)format);
     }
@@ -1750,9 +1751,10 @@ void ASM At3dDriver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __R
 
     if (!srcAddrModel && !dstAddrModel) {
         D(WARN, "BlitRectNoMaskComplete fallback src and dst can't  both require linear addressing\n");
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitRectNoMaskCompleteDefault(this, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode,
+                                            AS_RGBF(format));
+        return;
     }
 
     BOOL srcCanLinear = (widthBytes == sri->BytesPerRow);
@@ -1761,9 +1763,10 @@ void ASM At3dDriver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __R
     // Either one of src and dst could be rectangle, the other one linear
     if ((!srcAddrModel && !srcCanLinear) || (!dstAddrModel && !dstCanLinear)) {
         D(WARN, "BlitRectNoMaskComplete Fallback. src or dst needs linear but blitsize prevents it\n");
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitRectNoMaskCompleteDefault(this, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode,
+                                            AS_RGBF(format));
+        return;
     }
 
     BOOL dstLinear  = FALSE;
@@ -1777,9 +1780,10 @@ void ASM At3dDriver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __R
             addrModel = dstAddrModel;
         } else {
             D(WARN, "BlitRectNoMaskComplete fallback src and dst are subrects of different pitch\n");
-            {
-                return;
-            }
+            this->waitBlitter();
+            this->BlitRectNoMaskCompleteDefault(this, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode,
+                                                AS_RGBF(format));
+            return;
         }
     }
     D(INFO, "isSrcLinear %ld, isDstLinear %ld\n", (ULONG)srcLinear, (ULONG)dstLinear);
@@ -1830,17 +1834,17 @@ void ASM At3dDriver::blitRect(__REGA1(struct RenderInfo *sri), __REGD0(WORD srcX
 
     if (mask != 0xFF) {
         D(WARN, "BlitRect fallback (mask != 0xFF)\n");
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitRectDefault(this, sri, srcX, srcY, dstX, dstY, width, height, mask, AS_RGBF(fmt));
+        return;
     }
 
     ChipData_t *cd = chip();
 
     if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitRectDefault(this, sri, srcX, srcY, dstX, dstY, width, height, mask, AS_RGBF(fmt));
+        return;
     } else {
         this->setFormat((RGBFTYPE)fmt);
     }
@@ -1861,9 +1865,9 @@ void ASM At3dDriver::blitRect(__REGA1(struct RenderInfo *sri), __REGD0(WORD srcX
 
     if (!addrModel) {
         D(WARN, "BlitRectNoMaskComplete Fallback. src needs linear but blitsize prevents it\n");
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitRectDefault(this, sri, srcX, srcY, dstX, dstY, width, height, mask, AS_RGBF(fmt));
+        return;
     }
 
     ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_BLT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(bppLog2 + 1);
@@ -1941,9 +1945,9 @@ void ASM At3dDriver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct
 
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "BlitTemplate fallback (CLUT and mask)\n");
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     }
 
     At3dMmio mmio  = this->mmio();
@@ -1956,9 +1960,9 @@ void ASM At3dDriver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct
     BOOL isLinear      = (widthBytes == ri->BytesPerRow);
     ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
     if (!addressModel) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     }
 
     if (cd->GEOp != BLITTEMPLATE) {
@@ -2137,17 +2141,17 @@ void ASM At3dDriver::blitTemplate6422(__REGA1(struct RenderInfo *ri), __REGA2(st
 
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "BlitTemplate6422 fallback (CLUT and mask)\n");
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     }
 
     ChipData_t *cd = chip();
 
     if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     } else {
         this->setFormat((RGBFTYPE)fmt);
     }
@@ -2157,9 +2161,9 @@ void ASM At3dDriver::blitTemplate6422(__REGA1(struct RenderInfo *ri), __REGA2(st
     BOOL isLinear      = (widthBytes == ri->BytesPerRow);
     ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
     if (!addressModel) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     }
 
     UWORD byteWidth     = (width + 7) / 8;
@@ -2167,9 +2171,9 @@ void ASM At3dDriver::blitTemplate6422(__REGA1(struct RenderInfo *ri), __REGA2(st
     UWORD maxRows       = 1024 / rowBytesDword;
     if (height > maxRows) {
         D(WARN, "BlitTemplate6422 fallback (height %ld > maxRows %ld)\n", (ULONG)height, (ULONG)maxRows);
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     }
 
     if (cd->GEOp != BLITTEMPLATE) {
@@ -2212,9 +2216,9 @@ void ASM At3dDriver::blitTemplate6422(__REGA1(struct RenderInfo *ri), __REGA2(st
     if (!isLinear) {
         UWORD originX, originY;
         if (!this->getStartCoordinates(ri, bppLog2, &originX, &originY)) {
-            {
-                return;
-            }
+            this->waitBlitter();
+            this->BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
+            return;
         }
         UWORD clipR    = originX + x + width - 1;
         UWORD maxWidth = originX + ri->BytesPerRow >> bppLog2;
@@ -2379,9 +2383,9 @@ void ASM At3dDriver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struc
     D(INFO, "isLinear %ld, emulate320 %ld, addressModel 0x%08lx\n", (ULONG)isLinear, (ULONG)emulate320, addressModel);
 
     if (!addressModel) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitPlanar2ChunkyDefault(this, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
+        return;
     }
 
     UWORD clipR;
@@ -2462,18 +2466,17 @@ void ASM At3dDriver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct 
 
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "BlitPattern fallback (CLUT mask)\n");
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitPatternDefault(this, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
         return;
     }
 
     ChipData_t *cd = chip();
 
     if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitPatternDefault(this, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     } else {
         this->setFormat((RGBFTYPE)fmt);
     }
@@ -2483,9 +2486,9 @@ void ASM At3dDriver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct 
     BOOL isLinear      = FALSE;  // ((width << bppLog2) == ri->BytesPerRow);
     ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
     if (!addressModel) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitPatternDefault(this, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     }
 
     if (cd->GEOp != BLITPATTERN) {
@@ -2518,16 +2521,16 @@ void ASM At3dDriver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct 
 
     if (!is8x8) {
         // FIXME: implement fallback using repeating HOST blit mono pattern
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitPatternDefault(this, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     }
 
     UWORD originX, originY;
     if (!this->getStartCoordinates(ri, bppLog2, &originX, &originY)) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->BlitPatternDefault(this, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
+        return;
     }
 
     /* Screen-space aligned 8x8: offset pattern by (x - XOffset) & 7 and (y - YOffset) & 7 via pre-rotation. */
@@ -2646,25 +2649,25 @@ void ASM At3dDriver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Lin
 
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "DrawLine fallback (CLUT mask)\n");
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->DrawLineDefault(this, ri, line, mask, AS_RGBF(fmt));
+        return;
     }
 
     /* Patterned lines: fallback until PATTERN setup for 16-bit line pattern is implemented */
     if (line->LinePtrn != 0xFFFF) {
         D(WARN, "DrawLine fallback (patterned)\n");
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->DrawLineDefault(this, ri, line, mask, AS_RGBF(fmt));
+        return;
     }
 
     ChipData_t *cd = chip();
 
     if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->DrawLineDefault(this, ri, line, mask, AS_RGBF(fmt));
+        return;
     }
 
     if (cd->GEFormat != fmt) {
@@ -2673,9 +2676,9 @@ void ASM At3dDriver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Lin
     UBYTE bppLog2      = cd->GEbppLog2;
     ULONG addressModel = getAdressModelBits(ri, bppLog2);
     if (!addressModel) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->DrawLineDefault(this, ri, line, mask, AS_RGBF(fmt));
+        return;
     }
 
     /* Horizontal and vertical: use FillRect. sDelta==0 means axis-aligned. */
@@ -2703,9 +2706,9 @@ void ASM At3dDriver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Lin
     // this->setDstPitch(ri->BytesPerRow);
 
     if (!this->setDstLocation(ri, (UWORD)line->X, (UWORD)line->Y, bppLog2, FALSE)) {
-        {
-            return;
-        }
+        this->waitBlitter();
+        this->DrawLineDefault(this, ri, line, mask, AS_RGBF(fmt));
+        return;
     }
 
     /* AT3D spec Table 11.4.1.2a: dmin=min(dx,dy), dmax=max(dx,dy).
