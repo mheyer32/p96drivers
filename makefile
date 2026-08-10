@@ -111,7 +111,7 @@ ${1}%.o: %.s | makefile $$$$(@D)/.
 endef
 
 define make_driver
-${1}_SRC = ${3} # $$(call collect_sources,$$(SOURCES))
+${1}_SRC = ${3} freestanding_mem.c # $$(call collect_sources,$$(SOURCES))
 ${1}_OBJS = $$(call create_objlist,$$(${1}_SRC),${2})
 ${1}_DEPS = $$(call create_deplist,$$(${1}_SRC),${2})
 ${1}_TARGET = $$(BINDIR)/${1}
@@ -135,7 +135,7 @@ ${1} : $$(${1}_OBJS)
 endef
 
 define make_exe
-${1}_SRC = ${3}
+${1}_SRC = ${3} freestanding_mem.c
 ${1}_OBJS = $$(call create_objlist,$$(${1}_SRC),${2})
 ${1}_DEPS = $$(call create_deplist,$$(${1}_SRC),${2})
 ${1}_TARGET = $$(BINDIR)/${1}
