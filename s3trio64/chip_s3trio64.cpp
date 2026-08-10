@@ -20,6 +20,10 @@
 
 #include <SDI_stdarg.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifdef DBG
 #ifdef CONFIG_CYBERVISION64
 extern int debugLevel;
@@ -152,15 +156,15 @@ int debugLevel = VERBOSE;
 #if !defined(TESTEXE) && !defined(CONFIG_CYBERVISION64)
 
 #if defined(CONFIG_S3TRIO64PLUS)
-const char LibName[] = "S3Trio64Plus.chip";
+extern const char LibName[] = "S3Trio64Plus.chip";
 #elif defined(CONFIG_VISION864)
-const char LibName[] = "S3Vision864.chip";
+extern const char LibName[] = "S3Vision864.chip";
 #elif defined(CONFIG_S3TRIO3264)
-const char LibName[] = "S3Trio3264.chip";
+extern const char LibName[] = "S3Trio3264.chip";
 #elif defined(CONFIG_S3TRIO64V2)
-const char LibName[] = "S3Trio64V2.chip";
+extern const char LibName[] = "S3Trio64V2.chip";
 #endif
-const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 chip driver version 1.0";
+extern const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 chip driver version 1.0";
 
 #ifndef LIB_VERSION
 #define LIB_VERSION 1
@@ -168,44 +172,20 @@ const char LibIdString[] = "S3Vision864/Trio32/64/64Plus Picasso96 chip driver v
 #ifndef LIB_REVISION
 #define LIB_REVISION 0
 #endif
-const UWORD LibVersion  = LIB_VERSION;
-const UWORD LibRevision = LIB_REVISION;
+extern const UWORD LibVersion  = LIB_VERSION;
+extern const UWORD LibRevision = LIB_REVISION;
 #endif
 
 // Wait For just the blitter to finish. No wait for FIFO queue empty.
 static void WaitForBlitter(__REGA0(struct BoardInfo *bi))
 {
-    D(CHATTY, "Waiting for blitter...");
-    // FIXME: ideally you'd want this interrupt driven. I.e. sleep until the HW
-    // interrupt indicates its done. Otherwise, whats the point of having the
-    // blitter run asynchronous to the CPU?
-#if BUILD_VISION864
-    REGBASE();
-    while (R_IO_W(GP_STAT) & BIT(9)) {
-    };
-#else
-    MMIOBASE();
-    while (R_MMIO_W(GP_STAT) & BIT(9)) {
-    };
-#endif
-    D(CHATTY, "done\n");
+    asS3(bi)->waitForBlitter();
 }
 
 // Wait for blitter to finish AND FIFO queue empty.
 static void WaitForIdle(__REGA0(struct BoardInfo *bi))
 {
-    D(CHATTY, "Waiting for idle...");
-    // Here we're waiting for the GE to finish AND all FIFO slots to clear
-#if BUILD_VISION864
-    REGBASE();
-    while ((R_IO_W(GP_STAT) & (BIT(9) | BIT(10))) != BIT(10)) {
-    };
-#else
-    MMIOBASE();
-    while ((R_MMIO_W(GP_STAT) & (BIT(9) | BIT(10))) != BIT(10)) {
-    };
-#endif
-    D(CHATTY, "done\n");
+    asS3(bi)->waitForIdle();
 }
 
 static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
@@ -216,7 +196,7 @@ static void ASM WaitBlitter(__REGA0(struct BoardInfo *bi))
 // Initialize PLL table for pixel clocks
 void initPixelClockPLLTable(BoardInfo_t *bi)
 {
-    DFUNC(VERBOSE, "", bi);
+    DFUNC(VERBOSE, "\n");
 
     LOCAL_SYSBASE();
 
@@ -229,7 +209,7 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
     UWORD minFreqMhz = 12;  // 12MHz min
     UWORD numEntries = (maxFreqMhz - minFreqMhz + 1) * 2;
 
-    PLLValue_t *pllValues = AllocVec(sizeof(PLLValue_t) * numEntries, MEMF_PUBLIC);
+    PLLValue_t *pllValues = (PLLValue_t *)AllocVec(sizeof(PLLValue_t) * numEntries, MEMF_PUBLIC);
     if (!pllValues) {
         DFUNC(ERROR, "Failed to allocate PLL table\n");
         return;
@@ -862,7 +842,7 @@ static APTR ASM CalculateMemory(__REGA0(struct BoardInfo *bi), __REGA1(APTR mem)
         case RGBFB_R5G6B5:
         case RGBFB_R5G5B5:
             // Redirect to Big Endian Linear Address Window.
-            return mem + 0x2000000;
+            return (APTR)((UBYTE *)mem + 0x2000000);
             break;
         default:
             return mem;
@@ -1538,44 +1518,6 @@ static BOOL ASM SetSprite(__REGA0(struct BoardInfo *bi), __REGD0(BOOL activate),
     return TRUE;
 }
 
-static INLINE void REGARGS waitFifo(struct BoardInfo *bi, BYTE numSlots)
-{
-// S3Trio64+ and above allow PCI Disconnect when FIFO is full
-#if defined(CONFIG_VISION864) || defined(CONFIG_S3TRIO3264) || defined(CONFIG_CYBERVISION64)
-    if (!numSlots) {
-        return;
-    }
-
-    DFUNC(CHATTY, "Waiting for %ld slots...", (ULONG)numSlots);
-    //  assert(numSlots <= 13);
-
-    // The FIFO bits are split into two groups, 7-0 and 15-11
-    // Bit 7=0 (means 13 slots are available, bit 15 represents at least 5 slots
-    // available)
-
-    BYTE testBit = 7 - (numSlots - 1);
-    testBit &= 0xF;  // handle wrap-around
-
-    D(CHATTY, " testbit: %ld... ", (ULONG)testBit);
-
-#if BUILD_VISION864
-    // On Vision864 the MMIO registers are write-only, thus reading the status through IO
-    REGBASE();
-    while (R_IO_W(GP_STAT) & (1 << testBit)) {
-    };
-#else
-    MMIOBASE();
-    while (1) {
-        UWORD gpStat = R_MMIO_W(GP_STAT);
-        D(CHATTY, " gpstat: %lx,", (ULONG)gpStat);
-        if (!(gpStat & (1 << testBit)))
-            break;
-    };
-#endif
-
-    D(CHATTY, "done\n");
-#endif
-}
 
 #define MByte(x) ((x) * (1024 * 1024))
 static INLINE void REGARGS getGESegmentAndOffset(ULONG memOffset, WORD bytesPerRow, UBYTE bpp, UWORD *segment,
@@ -1847,7 +1789,7 @@ static void ASM FillRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp, &seg, &xoffset, &yoffset);
+    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset, (UWORD *)&yoffset);
 
     x += xoffset;
     y += yoffset;
@@ -1920,7 +1862,7 @@ static void ASM InvertRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderI
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp, &seg, &xoffset, &yoffset);
+    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset, (UWORD *)&yoffset);
 
     x += xoffset;
     y += yoffset;
@@ -1974,7 +1916,7 @@ static void ASM BlitRect(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
     UWORD seg;
     WORD xoffset;
     WORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp, &seg, &xoffset, &yoffset);
+    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset, (UWORD *)&yoffset);
 
     srcX += xoffset;
     srcY += yoffset;
@@ -2095,13 +2037,13 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         WORD xoffset;
         WORD yoffset;
         UWORD segDst;
-        getGESegmentAndOffset(getMemoryOffset(bi, dri->Memory), sri->BytesPerRow, bpp, &segDst, &xoffset, &yoffset);
+        getGESegmentAndOffset(getMemoryOffset(bi, dri->Memory), sri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset, (UWORD *)&yoffset);
 
         dstX += xoffset;
         dstY += yoffset;
 
         UWORD segSrc;
-        getGESegmentAndOffset(getMemoryOffset(bi, sri->Memory), sri->BytesPerRow, bpp, &segSrc, &xoffset, &yoffset);
+        getGESegmentAndOffset(getMemoryOffset(bi, sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset, (UWORD *)&yoffset);
 
         srcX += xoffset;
         srcY += yoffset;
@@ -2142,7 +2084,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         WORD xoffset;
         WORD yoffset;
         UWORD segDst;
-        getGESegmentAndOffset(getMemoryOffset(bi, dri->Memory), dri->BytesPerRow, bpp, &segDst, &xoffset, &yoffset);
+        getGESegmentAndOffset(getMemoryOffset(bi, dri->Memory), dri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset, (UWORD *)&yoffset);
 
         dstX += xoffset;
         dstY += yoffset;
@@ -2157,7 +2099,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
             WORD x;
             WORD y;
             UWORD segSrc;
-            getGESegmentAndOffset(memOffset, dri->BytesPerRow, bpp, &segSrc, &x, &y);
+            getGESegmentAndOffset(memOffset, dri->BytesPerRow, bpp, &segSrc, (UWORD *)&x, (UWORD *)&y);
 
             waitFifo(bi, 8);
             W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
@@ -2173,7 +2115,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
         WORD xoffset;
         WORD yoffset;
         UWORD segSrc;
-        getGESegmentAndOffset(getMemoryOffset(bi, sri->Memory), sri->BytesPerRow, bpp, &segSrc, &xoffset, &yoffset);
+        getGESegmentAndOffset(getMemoryOffset(bi, sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset, (UWORD *)&yoffset);
 
         srcX += xoffset;
         srcY += yoffset;
@@ -2186,7 +2128,7 @@ static void ASM BlitRectNoMaskComplete(__REGA0(struct BoardInfo *bi), __REGA1(st
             WORD x;
             WORD y;
             UWORD segDst;
-            getGESegmentAndOffset(memOffset, sri->BytesPerRow, bpp, &segDst, &x, &y);
+            getGESegmentAndOffset(memOffset, sri->BytesPerRow, bpp, &segDst, (UWORD *)&x, (UWORD *)&y);
 
             waitFifo(bi, 8);
             W_BEE8(MULT_MISC2, (segSrc << 4) | segDst);
@@ -2213,7 +2155,7 @@ static INLINE void writePIX_TRANS(const struct BoardInfo *bi, ULONG value)
 }
 
 static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
-                             __REGA2(struct Template *template), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
+                             __REGA2(struct Template *tmpl), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
                              __REGD3(WORD height), __REGD4(UBYTE mask), __REGD7(RGBFTYPE fmt))
 {
     DFUNC(VERBOSE,
@@ -2225,14 +2167,14 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     UBYTE bpp = getBPP(fmt);
     if (!bpp || !setGEFormat(bi, ri->BytesPerRow, bpp)) {
         DFUNC(INFO, "fallback to BlitTemplateDefault\n");
-        bi->BlitTemplateDefault(bi, ri, template, x, y, width, height, mask, fmt);
+        bi->BlitTemplateDefault(bi, ri, tmpl, x, y, width, height, mask, fmt);
         return;
     }
 
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp, &seg, &xoffset, &yoffset);
+    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset, (UWORD *)&yoffset);
 
     x += xoffset;
     y += yoffset;
@@ -2258,7 +2200,7 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
         W_BEE8(PIX_CNTL, MASK_BIT_SRC_CPU);
     }
 
-    setDrawMode(bi, template->FgPen, template->BgPen, template->DrawMode, fmt);
+    setDrawMode(bi, tmpl->FgPen, tmpl->BgPen, tmpl->DrawMode, fmt);
     setGEWriteMask(bi, mask, fmt, 6);
 
     // This could/should get chached as well
@@ -2272,14 +2214,14 @@ static void ASM BlitTemplate(__REGA0(struct BoardInfo *bi), __REGA1(struct Rende
     W_MMIO_W(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                       CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
-    // FIXME: there's no promise that template->Memory and template->BytesPerRow
+    // FIXME: there's no promise that tmpl->Memory and tmpl->BytesPerRow
     // are 32bit aligned. This might either be slower than it could be on 030+ or
     // just crashing on 68k.
-    const UBYTE *bitmap = (const UBYTE *)template->Memory;
-    bitmap += (template->XOffset / 32) * 4;
+    const UBYTE *bitmap = (const UBYTE *)tmpl->Memory;
+    bitmap += (tmpl->XOffset / 32) * 4;
     UWORD dwordsPerLine = (width + 31) / 32;
-    UBYTE rol           = template->XOffset % 32;
-    WORD bitmapPitch    = template->BytesPerRow;
+    UBYTE rol           = tmpl->XOffset % 32;
+    WORD bitmapPitch    = tmpl->BytesPerRow;
     if (!rol) {
         for (UWORD y = 0; y < height; ++y) {
             for (UWORD x = 0; x < dwordsPerLine; ++x) {
@@ -2322,7 +2264,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp, &seg, &xoffset, &yoffset);
+    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset, (UWORD *)&yoffset);
 
     x += xoffset;
     y += yoffset;
@@ -2658,7 +2600,7 @@ static void ASM BlitPlanar2Chunky(__REGA0(struct BoardInfo *bi), __REGA1(struct 
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), bytesPerRow, 1, &seg, &xoffset, &yoffset);
+    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), bytesPerRow, 1, &seg, (UWORD *)&xoffset, (UWORD *)&yoffset);
 
     dstX += xoffset;
     dstY += yoffset;
@@ -2739,7 +2681,7 @@ void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri),
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp, &seg, &x, &y);
+    getGESegmentAndOffset(getMemoryOffset(bi, ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&x, (UWORD *)&y);
 
     x += line->X;
     y += line->Y;
@@ -2866,7 +2808,7 @@ static BOOL probeFramebufferVision(struct BoardInfo *bi)
     REGBASE();
     getMemoryType(bi);
 
-    ChipFamily_t chipFamily = getChipData(bi)->chipFamily;
+    ChipFamily_t chipFamily = (ChipFamily_t)getChipData(bi)->chipFamily;
 
     bi->MemorySize = (chipFamily == VISION968) ? 0x800000 : 0x400000;
     while (bi->MemorySize) {
@@ -2911,7 +2853,7 @@ static BOOL probeFramebufferTrio64(struct BoardInfo *bi)
     REGBASE();
     const UBYTE memType = getMemoryType(bi);
 
-    ChipFamily_t chipFamily = getChipData(bi)->chipFamily;
+    ChipFamily_t chipFamily = (ChipFamily_t)getChipData(bi)->chipFamily;
 
     if (chipFamily == TRIO64 || chipFamily == TRIO64PLUS) {
         W_CR_MASK(0x68, BIT(7), BIT(7));
@@ -3103,7 +3045,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
 #endif
 
-    ChipFamily_t chipFamily = cd->chipFamily;
+    ChipFamily_t chipFamily = (ChipFamily_t)cd->chipFamily;
 
     // Informed by the largest X/Y coordinates the blitter can talk to
     bi->MaxBMWidth  = 2048;
@@ -3709,7 +3651,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         patternOffset          = (patternOffset / 3200) * 3200;  // align to 800pixel@32bit boundary
         bi->MemorySize         = patternOffset;
         cd->patternVideoBuffer = (ULONG *)(bi->MemoryBase + bi->MemorySize);
-        cd->patternCacheBuffer = AllocVec(patternSize, MEMF_PUBLIC);
+        cd->patternCacheBuffer = (UWORD *)AllocVec(patternSize, MEMF_PUBLIC);
     }
 
     // Read EDID after I2C initialization (for TRIO64PLUS and higher)
@@ -3925,105 +3867,42 @@ BOOL TestCard(BoardInfo_t *bi, BOOL vblankTest)
         SetDisplay(bi, FALSE);
     }
 
-    static struct ModeInfo modes[] = {
-        // Baseline known-good from existing test
-        {
-            .Width        = 640,
-            .Height       = 480,
-            .Depth        = 8,
-            .Flags        = GMF_HPOLARITY | GMF_VPOLARITY,
-            .HorTotal     = 800,
-            .HorBlankSize = 0,
-            .HorSyncStart = 16,
-            .HorSyncSize  = 96,
-            .VerTotal     = 525,
-            .VerBlankSize = 0,
-            .VerSyncStart = 10,
-            .VerSyncSize  = 2,
-            .PixelClock   = 25175000,
-        },
-
-        // 320x200: doublescan -> ~400 scanlines (VGA-ish)
-        {
-            .Width        = 320,
-            .Height       = 200,
-            .Depth        = 8,
-            .Flags        = GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY,
-            .HorTotal     = 400,
-            .HorBlankSize = 0,
-            .HorSyncStart = 8,
-            .HorSyncSize  = 48,
-            .VerTotal     = 225,
-            .VerBlankSize = 0,
-            .VerSyncStart = 6,
-            .VerSyncSize  = 1,
-            .PixelClock   = 12587500,
-        },
-        {
-            .Width        = 320,
-            .Height       = 200,
-            .Depth        = 8,
-            .Flags        = GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY,
-            .HorTotal     = 400,
-            .HorBlankSize = 0,
-            .HorSyncStart = 8,
-            .HorSyncSize  = 48,
-            .VerTotal     = 224,
-            .VerBlankSize = 0,
-            .VerSyncStart = 6,
-            .VerSyncSize  = 1,
-            .PixelClock   = 12587500,
-        },
-
-        // 320x240: doublescan -> ~480 scanlines (VGA-ish)
-        {
-            .Width        = 320,
-            .Height       = 240,
-            .Depth        = 8,
-            .Flags        = GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY,
-            .HorTotal     = 400,
-            .HorBlankSize = 0,
-            .HorSyncStart = 8,
-            .HorSyncSize  = 48,
-            .VerTotal     = 263,
-            .VerBlankSize = 0,
-            .VerSyncStart = 5,
-            .VerSyncSize  = 1,
-            .PixelClock   = 12587500,
-        },
-        {
-            .Width        = 320,
-            .Height       = 240,
-            .Depth        = 8,
-            .Flags        = GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY,
-            .HorTotal     = 400,
-            .HorBlankSize = 0,
-            .HorSyncStart = 8,
-            .HorSyncSize  = 48,
-            .VerTotal     = 262,
-            .VerBlankSize = 0,
-            .VerSyncStart = 5,
-            .VerSyncSize  = 1,
-            .PixelClock   = 12587500,
-        },
-
-        // 1280x1024 @ 60 Hz, 8-bit (VESA-style timings, ~108 MHz pixel clock)
-        {
-            .Width        = 1280,
-            .Height       = 1024,
-            .Depth        = 8,
-            .Flags        = 0,
-            .HorTotal     = 1688,
-            .HorBlankSize = 0,
-            .HorSyncStart = 48,
-            .HorSyncSize  = 128,
-            .VerTotal     = 1066,
-            .VerBlankSize = 0,
-            .VerSyncStart = 3,
-            .VerSyncSize  = 3,
-            .PixelClock   = 108000000,
-        },
-    };
+    static struct ModeInfo modes[6];
+    static BOOL modesInit;
+    if (!modesInit) {
+        struct {
+            UWORD w, h, depth, flags, htot, hblank, hss, hsz, vtot, vblank, vss, vsz;
+            ULONG pix;
+        } init[] = {
+            {640, 480, 8, (UWORD)(GMF_HPOLARITY | GMF_VPOLARITY), 800, 0, 16, 96, 525, 0, 10, 2, 25175000UL},
+            {320, 200, 8, (UWORD)(GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY), 400, 0, 8, 48, 225, 0, 6, 1,
+             12587500UL},
+            {320, 200, 8, (UWORD)(GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY), 400, 0, 8, 48, 224, 0, 6, 1,
+             12587500UL},
+            {320, 240, 8, (UWORD)(GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY), 400, 0, 8, 48, 263, 0, 5, 1,
+             12587500UL},
+            {320, 240, 8, (UWORD)(GMF_DOUBLESCAN | GMF_HPOLARITY | GMF_VPOLARITY), 400, 0, 8, 48, 262, 0, 5, 1,
+             12587500UL},
+            {1280, 1024, 8, 0, 1688, 0, 48, 128, 1066, 0, 3, 3, 108000000UL},
+        };
+        for (UWORD i = 0; i < 6; i++) {
+            memset(&modes[i], 0, sizeof(modes[i]));
+            modes[i].Width        = init[i].w;
+            modes[i].Height       = init[i].h;
+            modes[i].Depth        = init[i].depth;
+            modes[i].Flags        = init[i].flags;
+            modes[i].HorTotal     = init[i].htot;
+            modes[i].HorBlankSize = init[i].hblank;
+            modes[i].HorSyncStart = init[i].hss;
+            modes[i].HorSyncSize  = init[i].hsz;
+            modes[i].VerTotal     = init[i].vtot;
+            modes[i].VerBlankSize = init[i].vblank;
+            modes[i].VerSyncStart = init[i].vss;
+            modes[i].VerSyncSize  = init[i].vsz;
+            modes[i].PixelClock   = init[i].pix;
+        }
+        modesInit = TRUE;
+    }
 
     static const char *modeNames[] = {
         "640x480@60 baseline",
@@ -4191,8 +4070,8 @@ BOOL TestCard(BoardInfo_t *bi, BOOL vblankTest)
 #define DEVICE_PROMETHEUS 1
 
 struct Library *OpenPciBase = NULL;
-struct Library *DOSBase;
-struct Library *UtilityBase;
+extern struct Library *DOSBase;
+extern struct Library *UtilityBase;
 struct IORequest ioRequest;
 struct Device *TimerBase;
 
@@ -4215,6 +4094,8 @@ int main(void)
     int rval              = EXIT_FAILURE;
     BOOL vblankTest       = FALSE;
     struct RDArgs *rdargs = NULL;
+    struct pci_dev *board = NULL;
+    struct BoardInfo *bi  = NULL;
     /* BoardInfo is ~2KB — keep off the default 4KB stack. */
     static struct BoardInfo boardInfo;
 
@@ -4237,13 +4118,11 @@ int main(void)
     }
 #endif
 
-    struct pci_dev *board = NULL;
-
     D(0, "Looking for S3 Trio64 card\n");
 
     while ((board = FindBoard(board, PRM_Vendor, VENDOR_ID_S3, TAG_END)) != NULL) {
         memset(&boardInfo, 0, sizeof(boardInfo));
-        struct BoardInfo *bi = &boardInfo;
+        bi = &boardInfo;
 
         CardData_t *card  = getCardData(bi);
         bi->ExecBase      = SysBase;
@@ -4257,7 +4136,7 @@ int main(void)
             continue;
         }
 
-        D(ALWAYS, "S3: %s found\n", getChipFamilyName(getChipData(bi)->chipFamily));
+        D(ALWAYS, "S3: %s found\n", getChipFamilyName((ChipFamily_t)getChipData(bi)->chipFamily));
 
         D(ALWAYS, "Trio64 init chip\n");
         if (!InitChip(bi)) {
@@ -4287,3 +4166,7 @@ exit:
 }
 #endif  // !defined(CONFIG_CYBERVISION64)
 #endif  // TESTEXE
+
+#ifdef __cplusplus
+}
+#endif
