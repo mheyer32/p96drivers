@@ -208,8 +208,8 @@ void generateBoardName(char *boardName, const char *cardName, ULONG bus, ULONG s
     // Format: "CardName_B_S" where B is bus and S is slot
     // We need to construct: cardName + "_" + bus + "_" + slot
     // For simplicity, we'll use a template approach similar to S3Trio64
-    const char template[] = "_B_S";
-    int i                 = 0;
+    const char templateName[] = "_B_S";
+    int i                     = 0;
 
     // Copy card name
     while (cardName[i] && i < 12) {  // Leave room for "_B_S" (4 chars) + null terminator
@@ -219,13 +219,13 @@ void generateBoardName(char *boardName, const char *cardName, ULONG bus, ULONG s
 
     // Append template with bus and slot
     int j = 0;
-    while (template[j] && (i + j) < 15) {
-        if (template[j] == 'B') {
+    while (templateName[j] && (i + j) < 15) {
+        if (templateName[j] == 'B') {
             boardName[i + j] = '0' + bus;
-        } else if (template[j] == 'S') {
+        } else if (templateName[j] == 'S') {
             boardName[i + j] = '0' + slot;
         } else {
-            boardName[i + j] = template[j];
+            boardName[i + j] = templateName[j];
         }
         j++;
     }
