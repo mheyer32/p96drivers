@@ -21,7 +21,8 @@
     X(DRAW_CMD, 0x040)               \
     X(RASTEROP, 0x046)               \
     X(BYTE_MASK, 0x047)              \
-    X(PATTERN, 0x048)                \
+    X(PATTERN0, 0x048)               \
+    X(PATTERN1, 0x04C)               \
     X(SRC_LOCATION_X_LOW, 0x050)     \
     X(SRC_LOCATION_Y_HIGH, 0x052)    \
     X(DST_LOCATION_X_LOW, 0x054)     \
@@ -37,6 +38,7 @@
     X(DDA_AXIAL_STEP, 0x070)         \
     X(DDA_DIAGONAL_STEP, 0x072)      \
     X(DDA_ERROR_TERM, 0x074)         \
+    X(SERIAL_CTRL, 0x080)            \
     X(SIGANALYSER_CTRL, 0x0B4)       \
     X(APERTURE_CTRL, 0x0C2)          \
     X(DISP_MEM_CFG, 0x0C4)           \
@@ -60,6 +62,20 @@
     X(VCLK_CTRL, 0x0EC)              \
     X(VCLK_DEN, 0x0ED)               \
     X(VCLK_NUM, 0x0EE)               \
+    X(VCLK_DEFAULT0_CTRL, 0x0F0)     \
+    X(VCLK_DEFAULT0_DEN, 0x0F1)      \
+    X(VCLK_DEFAULT0_NUM, 0x0F2)      \
+    X(VCLK_DEFAULT1_CTRL, 0x0F4)     \
+    X(VCLK_DEFAULT1_DEN, 0x0F5)      \
+    X(VCLK_DEFAULT1_NUM, 0x0F6)      \
+    X(VMI_PORT0_CTRL, 0x100)         \
+    X(VMI_PORT0_TIMING, 0x101)       \
+    X(VMI_PORT0_INDEX_OFFSET, 0x102) \
+    X(VMI_PORT1_CTRL, 0x104)         \
+    X(VMI_PORT1_TIMING, 0x105)       \
+    X(VMI_PORT1_INDEX_OFFSET, 0x106) \
+    X(THP_CTRL, 0x110)               \
+    X(VMI_PORT_CTRL, 0x120)          \
     X(HW_CURSOR_CTRL, 0x140)         \
     X(HW_CURSOR_COL1, 0x141)         \
     X(HW_CURSOR_COL2, 0x142)         \
@@ -75,8 +91,8 @@
     X(EXT_DAC_STATUS, 0x1FC)         \
     X(ABORT, 0x1FF)
 
-namespace MmioReg {
-enum Id : LONG
+namespace AT3DMmioReg {
+enum Id : WORD
 {
 #define AT3D_MMIO_REG_ENUM(name, val) name = val,
     AT3D_MMIO_REG_LIST(AT3D_MMIO_REG_ENUM)
@@ -99,6 +115,6 @@ static INLINE const char *regName(Id id)
     }
 }
 #endif
-}  // namespace MmioReg
+}  // namespace AT3DMmioReg
 
 #endif

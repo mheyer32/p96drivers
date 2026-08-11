@@ -26,7 +26,7 @@ class At3dDriver : public P96Driver
 
     INLINE ULONG waitFifo(UBYTE numSlots)
     {
-        using namespace MmioReg;
+        using namespace AT3DMmioReg;
         At3dMmioQ mmio = mmioQ();
         ULONG status;
         do {
@@ -99,7 +99,7 @@ class At3dDriver : public P96Driver
     ULONG getLocationRegisterValue(const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2,
                                    BOOL useLinearAddressing);
     BOOL setLocationRegister(const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2, BOOL useLinearAddressing,
-                             WORD reg);
+                              AT3DMmioReg::Id reg);
     BOOL setDstLocation(const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2, BOOL useLinearAddressing);
     BOOL setSrcLocation(const struct RenderInfo *ri, UWORD x, UWORD y, UBYTE bppLog2, BOOL useLinearAddressing);
     void setDstPitch(UWORD bytesPerRow);
@@ -132,7 +132,7 @@ static INLINE ULONG waitFifo(const BoardInfo_t *bi, UBYTE numSlots)
     return asAt3d(const_cast<BoardInfo_t *>(bi))->waitFifo(numSlots);
 }
 
-#define AT3D_MMIO_ID(x) static_cast<MmioReg::Id>(x)
+#define AT3D_MMIO_ID(x) static_cast<AT3DMmioReg::Id>(x)
 
 #define DRIVER_LOCALS(self_)         \
     At3dDriver *drv = asAt3d(self_); \

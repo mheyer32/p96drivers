@@ -1,20 +1,12 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <SDI_compiler.h>
 #include <exec/types.h>
 #include <mmu/context.h>
 #include <proto/exec.h>
 
 #include <boardinfo.h>
-// FIXME: copy header into common location
-// #include "endian.h"
-
-#ifdef __cplusplus
 /*
  * Older bebbo g++ ignored __asm("dn") on enum-typed parameters
  * ("attributes applied to 'RGBFTYPE' after definition"). Local amiga-gcc
@@ -23,11 +15,6 @@ extern "C" {
 typedef ULONG RGBFTYPE_REG;
 #define AS_RGBF(x)          static_cast<RGBFTYPE>(x)
 #define P96_HOOK(field, fn) ((field) = reinterpret_cast<decltype(field)>(fn))
-#else
-typedef RGBFTYPE RGBFTYPE_REG;
-#define AS_RGBF(x)          (x)
-#define P96_HOOK(field, fn) ((field) = (fn))
-#endif
 
 #define ALWAYS  0       // Always print when DEBUG is enabled
 #define ERROR   ALWAYS  // Function failed, not recoverable
@@ -57,11 +44,6 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
     if (debugLevel >= (level)) {                                           \
         myPrintF("%s:%ld: " fmt, __func__, (long)__LINE__, ##__VA_ARGS__); \
     }
-#endif
-
-// The offsets allow for using signed 16bit indexed addressing be used
-#if !defined(REGISTER_OFFSET) || !defined(MMIOREGISTER_OFFSET)
-#pragma GCC error "REGISTER_OFFSET or MMIOREGISTER_OFFSET not defined"
 #endif
 
 #define STRINGIFX(x) #x
@@ -95,20 +77,23 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
  * Scratch for IS_CODE: d0-d1/a0-a1/a5-a6 — trampoline preserves the rest.
  */
 #define DEFINE_INTSERVER(entry, handler) \
-    void entry(void);                    \
+    extern "C" void entry(void);         \
     asm(".section .text." #entry         \
         ",\"ax\"\n"                      \
-        "	.align	2\n"                    \
+        "	.align	2\n"                 \
         "	.globl	_" #entry            \
         "\n"                             \
         "_" #entry                       \
         ":\n"                            \
         "	jsr	_" #handler              \
         "\n"                             \
-        "	tst.l	d0\n"                    \
+        "	tst.l	d0\n"                \
         "	rts\n")
 
-static inline ULONG swapl(ULONG value)
+// FIXME: IDK if this is a good idea. Often times the compiler decides to promote something to int
+// and then this becomes ambiguous and may emit code that we don't want.
+// So we should probably just stick with the swapw/swapl functions instead?
+static inline ULONG swap(ULONG value)
 {
     // endian swap value
     value = ((value & 0xFFFF0000) >> 16) | ((value & 0x0000FFFF) << 16);
@@ -116,28 +101,38 @@ static inline ULONG swapl(ULONG value)
     return value;
 }
 
-static inline UWORD swapw(UWORD value)
+static inline UWORD swap(UWORD value)
 {
     // endian swap value
     value = (value & 0xFF00) >> 8 | (value & 0x00FF) << 8;
     return value;
 }
 
-#if BIGENDIAN_MMIO
-#define SWAPW(x) x
-#define SWAPL(x) x
-#else
-#define SWAPW(x) swapw(x)
-#define SWAPL(x) swapl(x)
-#endif
+static inline UWORD swapw(UWORD value)
+{
+    return swap(value);
+}
 
-#if BIGENDIAN_IO
-#define SWAPW_IO(x) x
-#define SWAPL_IO(x) x
-#else
-#define SWAPW_IO(x) swapw(x)
-#define SWAPL_IO(x) swapl(x)
-#endif
+static inline ULONG swapl(ULONG value)
+{
+    return swap(value);
+}
+
+// #if BIGENDIAN_MMIO
+// #define SWAPW(x) x
+// #define SWAPL(x) x
+// #else
+// #define SWAPW(x) swapw(x)
+// #define SWAPL(x) swapl(x)
+// #endif
+
+// #if BIGENDIAN_IO
+// #define SWAPW_IO(x) x
+// #define SWAPL_IO(x) x
+// #else
+// #define SWAPW_IO(x) swapw(x)
+// #define SWAPL_IO(x) swapl(x)
+// #endif
 
 #define BIT(x)          (1 << (x))
 #define TESTBIT(x, bit) (((x) & BIT(bit)) != 0)
@@ -435,7 +430,7 @@ static inline ULONG expandBits2x(UWORD word)
 
 static inline ULONG combineAtiCursor16(UWORD andBits, UWORD xorBits)
 {
-    return swapl((spreadBits(andBits) << 1) | spreadBits(xorBits));
+    return swap((spreadBits(andBits) << 1) | spreadBits(xorBits));
 }
 
 static inline ULONG packAtiCursor16(UWORD plane0, UWORD plane1)
@@ -519,9 +514,5 @@ static inline void packAtiHwCursorImage(struct BoardInfo *bi)
 #define MIX_NOT_CURRENT_AND_NEW     0b1101
 #define MIX_CURRENT_AND_NOT_NEW     0b1110
 #define MIX_NOT_CURRENT_AND_NOT_NEW 0b1111
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif  // COMMON_H

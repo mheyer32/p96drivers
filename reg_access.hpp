@@ -13,8 +13,7 @@
 enum class RegEndian
 {
     NoSwap,
-    SwapIO,
-    SwapMMIO
+    Swap
 };
 enum class RegLog
 {
@@ -34,51 +33,19 @@ struct EndianOps<T, RegEndian::NoSwap>
 };
 
 template <>
-struct EndianOps<UBYTE, RegEndian::SwapIO>
+struct EndianOps<UBYTE, RegEndian::Swap>
 {
     static INLINE UBYTE in(UBYTE v) { return v; }
     static INLINE UBYTE out(UBYTE v) { return v; }
     static INLINE UBYTE dbg(UBYTE v) { return v; }
 };
 
-template <>
-struct EndianOps<UWORD, RegEndian::SwapIO>
+template <typename T>
+struct EndianOps<T, RegEndian::Swap>
 {
-    static INLINE UWORD in(UWORD v) { return SWAPW_IO(v); }
-    static INLINE UWORD out(UWORD v) { return SWAPW_IO(v); }
-    static INLINE UWORD dbg(UWORD v) { return v; }
-};
-
-template <>
-struct EndianOps<ULONG, RegEndian::SwapIO>
-{
-    static INLINE ULONG in(ULONG v) { return SWAPL_IO(v); }
-    static INLINE ULONG out(ULONG v) { return SWAPL_IO(v); }
-    static INLINE ULONG dbg(ULONG v) { return v; }
-};
-
-template <>
-struct EndianOps<UBYTE, RegEndian::SwapMMIO>
-{
-    static INLINE UBYTE in(UBYTE v) { return v; }
-    static INLINE UBYTE out(UBYTE v) { return v; }
-    static INLINE UBYTE dbg(UBYTE v) { return v; }
-};
-
-template <>
-struct EndianOps<UWORD, RegEndian::SwapMMIO>
-{
-    static INLINE UWORD in(UWORD v) { return SWAPW(v); }
-    static INLINE UWORD out(UWORD v) { return SWAPW(v); }
-    static INLINE UWORD dbg(UWORD v) { return v; }
-};
-
-template <>
-struct EndianOps<ULONG, RegEndian::SwapMMIO>
-{
-    static INLINE ULONG in(ULONG v) { return SWAPL(v); }
-    static INLINE ULONG out(ULONG v) { return SWAPL(v); }
-    static INLINE ULONG dbg(ULONG v) { return v; }
+    static INLINE T in(T v) { return swap(v); }
+    static INLINE T out(T v) { return swap(v); }
+    static INLINE T dbg(T v) { return v; }
 };
 
 template <typename T>
@@ -705,13 +672,13 @@ struct AbsRegAperture
 };
 
 /*
- * Standard VGA port aperture: flat DAC/MISC/INSTAT access plus CR/SR/GR/AR
+ * Standard VGA port aperture: flat DAC/MISC/INPUT_STATUS1 access plus CR/SR/GR/AR
  * index/data helpers. Shared by S3, AT3D, and any VGA-compatible chip.
  */
-template <RegEndian E, LONG BaseOff, RegLog L>
-struct VgaAperture : AbsRegAperture<VgaReg::Id, E, BaseOff, L>
+template <LONG BaseOff, RegLog L>
+struct VgaAperture : protected AbsRegAperture<VgaReg::Id, RegEndian::Swap, BaseOff, L>
 {
-    using Base = AbsRegAperture<VgaReg::Id, E, BaseOff, L>;
+    using Base = AbsRegAperture<VgaReg::Id, RegEndian::Swap, BaseOff, L>;
     using Base::base;
     using Base::readB;
     using Base::writeB;

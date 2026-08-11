@@ -206,7 +206,6 @@ S3TRIO_SRC = common.c \
              s3trio64/chip_s3trio64.cpp \
              s3trio64/s3ramdac.cpp \
              s3trio64/s3i2c.cpp \
-             s3trio64/s3_reg_smoke.cpp \
              edid_common.c \
              chip_library.c 
 
@@ -237,7 +236,6 @@ S3TRIO_TESTEXE_SRC = common.c \
                      s3trio64/s3trio64_common.cpp \
                      s3trio64/s3ramdac.cpp \
                      s3trio64/chip_s3trio64.cpp \
-                     s3trio64/s3_reg_smoke.cpp \
                      s3trio64/s3i2c.cpp \
                      edid_common.c
 
@@ -273,7 +271,6 @@ CYBERVISION64CARD_SRC = common.c \
                  s3trio64/card_cybervision64.cpp \
                  s3trio64/s3trio64_common.cpp \
                  s3trio64/chip_s3trio64.cpp \
-                 s3trio64/s3_reg_smoke.cpp \
                  s3trio64/s3ramdac.cpp \
                  s3trio64/s3i2c.cpp \
                  edid_common.c \
@@ -287,7 +284,6 @@ CYBERVISION64CARD_TESTEXE_SRC = common.c \
                  s3trio64/card_cybervision64.cpp \
                  s3trio64/s3trio64_common.cpp \
                  s3trio64/chip_s3trio64.cpp \
-                 s3trio64/s3_reg_smoke.cpp \
                  s3trio64/s3ramdac.cpp \
                  s3trio64/s3i2c.cpp \
                  edid_common.c
@@ -305,12 +301,10 @@ ATIMACH64_COMMON_SRC = common.c \
                 chip_library.c
 
 ATIMACH64_GX_SRC = ${ATIMACH64_COMMON_SRC} \
-                mach64/mach64_reg_smoke.cpp \
                 mach64/mach64GX.cpp \
                 mach64/mach64CT.cpp
 
 ATIMACH64_VT_SRC = ${ATIMACH64_COMMON_SRC} \
-                mach64/mach64_reg_smoke.cpp \
                 mach64/mach64GT.cpp \
                 mach64/mach64VT.cpp
 
@@ -337,12 +331,10 @@ ATIMACH64_TESTEXE_COMMON_SRC = common.c \
                         edid_common.c
 
 ATIMACH64_GX_TESTEXE_SRC = ${ATIMACH64_TESTEXE_COMMON_SRC} \
-                        mach64/mach64_reg_smoke.cpp \
                         mach64/mach64GX.cpp \
                         mach64/mach64CT.cpp
 
 ATIMACH64_VT_TESTEXE_SRC = ${ATIMACH64_TESTEXE_COMMON_SRC} \
-                        mach64/mach64_reg_smoke.cpp \
                         mach64/mach64GT.cpp \
                         mach64/mach64VT.cpp
 
@@ -367,7 +359,6 @@ ATIMACH32_SRC = common.c \
                 mach32/mach32_ramdac.cpp \
                 mach32/mach32_eeprom.cpp \
                 mach32/chip_mach32.cpp \
-                mach32/mach32_reg_smoke.cpp \
                 chip_library.c
 
 ATIMach32.chip : CFLAGS+= -DCONFIG_ATIMACH32 -include mach32/mach32config.h
@@ -378,7 +369,6 @@ ATIMACH32CARD_SRC = common.c \
                       mach32/mach32_ramdac.cpp \
                       mach32/mach32_eeprom.cpp \
                       mach32/chip_mach32.cpp \
-                      mach32/mach32_reg_smoke.cpp \
                       mach32/card_mach32.cpp \
                       card_library.c
 
@@ -388,8 +378,7 @@ $(eval $(call make_driver,ATIMach32.card,$(BUILDDIR)mach32card/, ${ATIMACH32CARD
 ATIMACH32_TESTEXE_SRC = common.c \
                         mach32/mach32_ramdac.cpp \
                         mach32/mach32_eeprom.cpp \
-                        mach32/chip_mach32.cpp \
-                        mach32/mach32_reg_smoke.cpp
+                        mach32/chip_mach32.cpp
 
 TestMach32 : CFLAGS+= -DCONFIG_ATIMACH32 -include mach32/mach32config.h
 $(eval $(call make_exe,TestMach32,$(BUILDDIR)testmach32/, ${ATIMACH32_TESTEXE_SRC}))
@@ -399,7 +388,6 @@ TESTATIMACH32CARD_SRC = common.c \
                         mach32/mach32_ramdac.cpp \
                         mach32/mach32_eeprom.cpp \
                         mach32/chip_mach32.cpp \
-                        mach32/mach32_reg_smoke.cpp \
                         mach32/card_mach32.cpp
 
 TestMach32Card : CFLAGS+= -DCONFIG_ATIMACH32 -DMACH32_EMBEDDED_CHIP=1 -include mach32/mach32config.h
@@ -409,27 +397,24 @@ AT3D_SRC = common.c \
            at3d/at3d_common.cpp \
            at3d/at3d_i2c.cpp \
            at3d/chip_at3d.cpp \
-           at3d/at3d_reg_smoke.cpp \
            edid_common.c \
            chip_library.c
 
-AT3D.chip : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include at3d/at3dconfig.h
+AT3D.chip : CFLAGS+=-DREGISTER_OFFSET=0 -include at3d/at3dconfig.h
 $(eval $(call make_driver,AT3D.chip,$(BUILDDIR)at3d/, ${AT3D_SRC}))
 
 AT3D_TESTEXE_SRC = common.c \
                    at3d/at3d_common.cpp \
                    at3d/at3d_i2c.cpp \
                    at3d/chip_at3d.cpp \
-           at3d/at3d_reg_smoke.cpp \
                    edid_common.c
 
-TestAT3D : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -include at3d/at3dconfig.h
+TestAT3D : CFLAGS+=-DREGISTER_OFFSET=0 -include at3d/at3dconfig.h
 $(eval $(call make_exe,TestAT3D,$(BUILDDIR)testat3d/, ${AT3D_TESTEXE_SRC}))
 
 AT3DCARD_SRC = common.c \
                card_common.c \
                at3d/chip_at3d.cpp \
-           at3d/at3d_reg_smoke.cpp \
                edid_common.c \
                at3d/card_at3d.cpp \
                at3d/at3d_common.cpp \
@@ -442,7 +427,6 @@ $(eval $(call make_driver,AT3D.card,$(BUILDDIR)at3dcard/, ${AT3DCARD_SRC}))
 AT3DCARD_TESTEXE_SRC = common.c \
                        card_common.c \
                        at3d/chip_at3d.cpp \
-           at3d/at3d_reg_smoke.cpp \
                        edid_common.c \
                        at3d/at3d_common.cpp \
                        at3d/at3d_i2c.cpp \

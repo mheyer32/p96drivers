@@ -1,4 +1,5 @@
 #include "at3d_i2c.h"
+#include "at3d_regs.hpp"
 #include "chip_at3d.h"
 #include "common.h"
 #include "edid_common.h"
@@ -10,6 +11,7 @@ extern "C" {
 // I2C timing delays (standard I2C: 100kHz)
 #define I2C_DELAY_US 5  // 5 microseconds for standard I2C timing
 
+using namespace AT3DMmioReg;
 /**
  * Initialize I2C bus by enabling I2C/DDC mode
  * @param bi BoardInfo structure
@@ -21,7 +23,7 @@ BOOL at3dI2cInit(struct BoardInfo *bi)
 
     // Release both SDA and SCL lines (set to input/tri-state)
     // 0x = input/tri-state (both control bits clear)
-    mmio.writeMaskB(AT3D_MMIO_ID(DPMS_SYNC_CTRL), I2C_SCL_CTRL_MASK | I2C_SDA_CTRL_MASK, 0);
+    mmio.writeMaskB(DPMS_SYNC_CTRL, I2C_SCL_CTRL_MASK | I2C_SDA_CTRL_MASK, 0);
 
     // Wait a bit for lines to stabilize
     delayMicroSeconds(10);
@@ -44,7 +46,7 @@ void at3dI2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
     if (high) {
         // Release SCL (set to input/tri-state)
         // 0x = input/tri-state (both bits clear)
-        mmio.writeMaskB(AT3D_MMIO_ID(DPMS_SYNC_CTRL), I2C_SCL_CTRL_MASK, 0);
+        mmio.writeMaskB(DPMS_SYNC_CTRL, I2C_SCL_CTRL_MASK, 0);
 
         // Small delay to allow hardware to actually release the line
         delayMicroSeconds(I2C_DELAY_US);
@@ -55,7 +57,7 @@ void at3dI2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
         int settle_attempts = 5;
         BOOL scl_high       = FALSE;
         while (settle_attempts-- > 0) {
-            ULONG statusReg = mmio.readL(AT3D_MMIO_ID(EXT_DAC_STATUS));
+            ULONG statusReg = mmio.readL(EXT_DAC_STATUS);
             if (statusReg & I2C_SCL_IN) {
                 scl_high = TRUE;
                 break;
@@ -71,7 +73,7 @@ void at3dI2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
         if (checkClockStretching) {
             // Check for clock stretching: slave pulls SCL low after master releases it
             delayMicroSeconds(I2C_DELAY_US);
-            ULONG statusReg = mmio.readL(AT3D_MMIO_ID(EXT_DAC_STATUS));
+            ULONG statusReg = mmio.readL(EXT_DAC_STATUS);
 
             if (!(statusReg & I2C_SCL_IN)) {
                 // SCL went high but then went low - slave is clock stretching
@@ -79,7 +81,7 @@ void at3dI2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
                 int timeout = 100;  // Maximum iterations (~1ms with 10us delay)
                 while (timeout-- > 0) {
                     delayMicroSeconds(I2C_DELAY_US);
-                    statusReg = mmio.readL(AT3D_MMIO_ID(EXT_DAC_STATUS));
+                    statusReg = mmio.readL(EXT_DAC_STATUS);
                     if (statusReg & I2C_SCL_IN) {
                         // SCL is high again, slave has released it
                         D(VERBOSE, "Clock stretching detected and released after %d iterations\n", 100 - timeout);
@@ -93,12 +95,12 @@ void at3dI2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
         }
     } else {
         // Drive SCL low: 10 = drive low (bit 1 set, bit 0 clear)
-        mmio.writeMaskB(AT3D_MMIO_ID(DPMS_SYNC_CTRL), I2C_SCL_CTRL_MASK, I2C_SCL_CTRL_LOW);
+        mmio.writeMaskB(DPMS_SYNC_CTRL, I2C_SCL_CTRL_MASK, I2C_SCL_CTRL_LOW);
         delayMicroSeconds(I2C_DELAY_US);
 
 #ifdef DBG
         // Verify that SCL is actually low (we're driving it, so it should be)
-        ULONG statusReg = mmio.readL(AT3D_MMIO_ID(EXT_DAC_STATUS));
+        ULONG statusReg = mmio.readL(EXT_DAC_STATUS);
         if (statusReg & I2C_SCL_IN) {
             D(ERROR, "I2C SCL failed to go low when driven\n");
         }
@@ -119,17 +121,17 @@ void at3dI2cSetSda(struct BoardInfo *bi, BOOL high)
     if (high) {
         // Release SDA (set to input/tri-state)
         // 0x = input/tri-state (both bits clear)
-        mmio.writeMaskB(AT3D_MMIO_ID(DPMS_SYNC_CTRL), I2C_SDA_CTRL_MASK, 0);
+        mmio.writeMaskB(DPMS_SYNC_CTRL, I2C_SDA_CTRL_MASK, 0);
         delayMicroSeconds(I2C_DELAY_US);
     } else {
         // Drive SDA low: 10 = drive low (bit 1 set, bit 0 clear)
-        mmio.writeMaskB(AT3D_MMIO_ID(DPMS_SYNC_CTRL), I2C_SDA_CTRL_MASK, I2C_SDA_CTRL_LOW);
+        mmio.writeMaskB(DPMS_SYNC_CTRL, I2C_SDA_CTRL_MASK, I2C_SDA_CTRL_LOW);
         delayMicroSeconds(I2C_DELAY_US);
 
 #ifdef DBG
         // Verify that SDA is actually low (we're driving it, so it should be)
         // Read from 1FC[16] which is the SDA input
-        ULONG statusReg = mmio.readL(AT3D_MMIO_ID(EXT_DAC_STATUS));
+        ULONG statusReg = mmio.readL(EXT_DAC_STATUS);
         if (statusReg & I2C_SDA_IN) {
             D(ERROR, "I2C SDA failed to go low when driven\n");
         }
@@ -146,7 +148,7 @@ BOOL at3dI2cReadScl(struct BoardInfo *bi)
 {
     At3dMmio mmio = asAt3d(bi)->mmio();
     // Read SCL input from 1FC[17] per AT3D documentation
-    ULONG statusReg = mmio.readL(AT3D_MMIO_ID(EXT_DAC_STATUS));
+    ULONG statusReg = mmio.readL(EXT_DAC_STATUS);
     return (statusReg & I2C_SCL_IN) != 0;
 }
 
@@ -159,7 +161,7 @@ BOOL at3dI2cReadSda(struct BoardInfo *bi)
 {
     At3dMmio mmio = asAt3d(bi)->mmio();
     // Read SDA input from 1FC[16] per AT3D documentation (equivalent to 0D0[4])
-    ULONG statusReg = mmio.readL(AT3D_MMIO_ID(EXT_DAC_STATUS));
+    ULONG statusReg = mmio.readL(EXT_DAC_STATUS);
     return (statusReg & I2C_SDA_IN) != 0;
 }
 

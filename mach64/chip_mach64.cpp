@@ -18,10 +18,6 @@
 using namespace MmioReg;
 using namespace PllReg;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define PCI_VENDOR 0x1002
 
 /******************************************************************************/
@@ -2251,7 +2247,7 @@ static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
     return asMach64(bi)->setInterrupt(state);
 }
 
-ULONG ASM interruptServer(__REGA1(struct BoardInfo *bi))
+extern "C" ULONG ASM interruptServer(__REGA1(struct BoardInfo *bi))
 {
     return asMach64(bi)->interruptServer();
 }
@@ -2346,7 +2342,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
     asMach64(bi)->blitPattern(ri, pattern, x, y, width, height, mask, fmt);
 }
 
-BOOL InitChip(__REGA0(struct BoardInfo *bi))
+extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     LOCAL_SYSBASE();
 
@@ -2730,13 +2726,7 @@ ULONG __stack = 65536;
 #define DEVICE_FIRESTORM  200
 #define DEVICE_PROMETHEUS 1
 
-#ifdef __cplusplus
-} /* OpenPciBase was declared with C++ linkage via proto/openpci.h */
 struct Library *OpenPciBase = NULL;
-extern "C" {
-#else
-struct Library *OpenPciBase = NULL;
-#endif
 
 /*
  * Byte stores into linear FB (same idea as TestMach32). Known layout for med:
@@ -3241,7 +3231,3 @@ exit:
     return rval;
 }
 #endif  // TESTEXE
-
-#ifdef __cplusplus
-}
-#endif

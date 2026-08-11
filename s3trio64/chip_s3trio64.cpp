@@ -20,10 +20,6 @@
 
 #include <SDI_stdarg.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #ifdef DBG
 #ifdef CONFIG_CYBERVISION64
 extern int debugLevel;
@@ -1186,7 +1182,7 @@ BOOL ASM S3Driver::setInterrupt(__REGD0(BOOL state))
 }
 
 /* Non-static method; free VBlankInterruptHandler trampoline + DEFINE_INTSERVER below. */
-ULONG __attribute__((noinline)) S3Driver::interruptServer()
+ULONG S3Driver::interruptServer()
 {
     BoardInfo *bi = this;
     VgaIoQ vga    = this->vgaQ();
@@ -3039,11 +3035,14 @@ static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 {
     return asS3(bi)->setInterrupt(state);
 }
-ULONG ASM interruptServer(__REGA1(struct BoardInfo *bi))
+
+extern "C" ULONG ASM interruptServer(__REGA1(struct BoardInfo *bi))
 {
     return asS3(bi)->interruptServer();
 }
 DEFINE_INTSERVER(interruptServerTrampoline, interruptServer);
+
+
 static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level))
 {
     asS3(bi)->setDPMSLevel(level);
@@ -3119,7 +3118,8 @@ static void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInf
 {
     asS3(bi)->drawLine(ri, line, mask, fmt);
 }
-BOOL InitChip(__REGA0(struct BoardInfo *bi))
+
+extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(ALWAYS, "\n");
 
@@ -3165,6 +3165,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     P96_HOOK(bi->WaitVerticalSync, WaitVerticalSync);
     P96_HOOK(bi->GetVSyncState, GetVSyncState);
     P96_HOOK(bi->SetInterrupt, SetInterrupt);
+
     bi->HardInterrupt.is_Node.ln_Type = NT_INTERRUPT;
     bi->HardInterrupt.is_Node.ln_Pri  = 0;
     bi->HardInterrupt.is_Node.ln_Name = (char *)"S3VBlank";
@@ -4338,7 +4339,3 @@ exit:
 }
 #endif  // !defined(CONFIG_CYBERVISION64)
 #endif  // TESTEXE
-
-#ifdef __cplusplus
-}
-#endif
