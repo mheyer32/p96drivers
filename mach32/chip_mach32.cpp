@@ -1,20 +1,13 @@
 #include "chip_mach32.h"
 #include "common.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define __NOLIBBASE__
 
 #include <exec/types.h>
 #include <graphics/rastport.h>
 #include <libraries/pcitags.h>
-
-#if OPENPCI
 #include <libraries/openpci.h>
 #include <proto/openpci.h>
-#endif
 
 /* Keep this file buildable on old native compilers (no <stdint.h>).
  * clangd parses on the host where pointers may be wider than ULONG. */
@@ -1819,11 +1812,13 @@ static BOOL ASM SetInterrupt(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
 {
     return asMach32(bi)->setInterrupt(state);
 }
-ULONG ASM interruptServer(__REGA1(struct BoardInfo *bi))
+
+extern "C" ULONG ASM interruptServer(__REGA1(struct BoardInfo *bi))
 {
     return asMach32(bi)->interruptServer();
 }
 DEFINE_INTSERVER(interruptServerTrampoline, interruptServer);
+
 static void ASM SetDPMSLevel(__REGA0(struct BoardInfo *bi), __REGD0(ULONG level))
 {
     asMach32(bi)->setDPMSLevel(level);
@@ -3193,7 +3188,3 @@ done:
 }
 #endif
 #endif /* TESTEXE */
-
-#ifdef __cplusplus
-}
-#endif

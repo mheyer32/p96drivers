@@ -79,17 +79,17 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
     if (chip->chipFamily <= AT24) {
         bi->RegisterBase = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
         APTR mmioSpace   = bi->MemoryBase + 4 * 1024 * 1024 - 2048;
-        bi->MemoryIOBase = (UBYTE *)mmioSpace + MMIOREGISTER_OFFSET;
+        bi->MemoryIOBase = (UBYTE *)mmioSpace;
         setCacheMode(bi, mmioSpace, 2048, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
     } else {
-        bi->MemoryIOBase = bi->MemoryBase + 0xFFEC00 + MMIOREGISTER_OFFSET;
+        bi->MemoryIOBase = bi->MemoryBase + 0xFFEC00;
         bi->RegisterBase = bi->MemoryBase + 0xFFF000 + REGISTER_OFFSET;
         setCacheMode(bi, bi->MemoryBase + 0xFFEC00, 2048, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
     }
 
     D(INFO, "AT3D: Framebuffer (BAR0) = 0x%lx\n", (ULONG)bi->MemoryBase);
     D(INFO, "AT3D: RegisterBase 0x%lx\n", bi->RegisterBase - REGISTER_OFFSET);
-    D(INFO, "AT3D: Extended Registers 0x%lx\n", bi->MemoryIOBase - MMIOREGISTER_OFFSET);
+    D(INFO, "AT3D: Extended Registers 0x%lx\n", bi->MemoryIOBase);
 
     // enable special cache mode settings
     // bi->Flags |= BIF_CACHEMODECHANGE;

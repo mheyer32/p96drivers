@@ -1,10 +1,6 @@
 #include "card_common.h"
 #include "chip_mach32.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define __NOLIBBASE__
 
 #include <clib/debug_protos.h>
@@ -14,7 +10,7 @@ extern "C" {
 #include <proto/utility.h>
 #include <utility/tagitem.h>
 
-BOOL InitChip(__REGA0(struct BoardInfo *bi));
+extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>
@@ -59,7 +55,7 @@ BOOL releaseCard(__REGA0(struct BoardInfo *bi))
     return TRUE;
 }
 
-BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
+extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
     LOCAL_SYSBASE();
     CardData_t *cd = getCardData(bi);
@@ -178,7 +174,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     return TRUE;
 }
 
-BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
+extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
     CardData_t *cd = getCardData(bi);
     if (!cd->board || !cd->OpenPciBase) {
@@ -284,6 +280,3 @@ exit:
 }
 #endif
 
-#ifdef __cplusplus
-}
-#endif

@@ -11,13 +11,13 @@
 #if BIGENDIAN_MMIO
 #define MACH64_MMIO_ENDIAN RegEndian::NoSwap
 #else
-#define MACH64_MMIO_ENDIAN RegEndian::SwapMMIO
+#define MACH64_MMIO_ENDIAN RegEndian::Swap
 #endif
 
 #if BIGENDIAN_IO
 #define MACH64_IO_ENDIAN RegEndian::NoSwap
 #else
-#define MACH64_IO_ENDIAN RegEndian::SwapIO
+#define MACH64_IO_ENDIAN RegEndian::Swap
 #endif
 
 using Mach64Mmio  = AtiRegAperture<MmioReg::Id, MACH64_MMIO_ENDIAN, 0, RegLog::Verbose>;

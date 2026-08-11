@@ -39,7 +39,7 @@ class Mach32Driver : public P96Driver
     {
         Mach32IoNoSwap ns = ioNoSwap();
         UWORD raw         = ns.readWRaw(IoReg::R_EXT_GE_CONFIG);
-        raw               = (raw & ~SWAPW_IO(mask)) | SWAPW_IO(value & mask);
+        raw               = (raw & ~swapw(mask)) | swapw(value & mask);
         ns.writeW(IoReg::EXT_GE_CONFIG, raw);
     }
 
@@ -63,13 +63,13 @@ class Mach32Driver : public P96Driver
         }
 
         Mach32IoNoSwapQ io = ioNoSwapQ();
-        UWORD maskSwapped  = SWAPW_IO(mask);
+        UWORD maskSwapped  = swapw(mask);
         UWORD raw;
         do {
             raw = io.readWRaw(EXT_FIFO_STATUS);
         } while (raw & maskSwapped);
 
-        cd->fifoSlotsCached = fifoStatConsume(SWAPW_IO(raw), slots);
+        cd->fifoSlotsCached = fifoStatConsume(swapw(raw), slots);
     }
 
     /* --- P96 BoardInfo hooks (ASM/__REGxx; this ≡ a0) --- */

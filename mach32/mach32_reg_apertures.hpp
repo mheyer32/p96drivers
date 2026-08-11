@@ -7,7 +7,7 @@
 #if BIGENDIAN_IO
 #define MACH32_IO_ENDIAN RegEndian::NoSwap
 #else
-#define MACH32_IO_ENDIAN RegEndian::SwapIO
+#define MACH32_IO_ENDIAN RegEndian::Swap
 #endif
 
 #ifndef REGISTER_OFFSET
