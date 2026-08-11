@@ -2,10 +2,6 @@
 #include "chip_s3trio64.h"
 #include "s3trio64_common.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <clib/debug_protos.h>
 #include <exec/interrupts.h>
 #include <exec/nodes.h>
@@ -57,9 +53,9 @@ BOOL ASM SetSwitch(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
     return state;
 }
 
-extern BOOL InitChip(__REGA0(struct BoardInfo *bi));
+extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
-BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *Tooltypes))
+extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *Tooltypes))
 {
     LOCAL_SYSBASE();
     CardData_t *cd = getCardData(bi);
@@ -106,7 +102,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *Tooltypes))
     return FALSE;
 }
 
-BOOL releaseCard(__REGA0(struct BoardInfo *bi))
+void releaseCard(__REGA0(struct BoardInfo *bi))
 {
     CardData_t *cd = getCardData(bi);
     LOCAL_SYSBASE();
@@ -129,10 +125,9 @@ BOOL releaseCard(__REGA0(struct BoardInfo *bi))
         }
     }
 #endif
-    return TRUE;
 }
 
-BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
+extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
     CardData_t *cd = getCardData(bi);
     if (!cd->configDev) {
@@ -290,6 +285,3 @@ exit:
 }
 #endif  // TESTEXE
 
-#ifdef __cplusplus
-}
-#endif

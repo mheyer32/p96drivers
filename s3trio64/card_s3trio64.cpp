@@ -1,10 +1,6 @@
 #include "card_common.h"
 #include "s3trio64_common.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define __NOLIBBASE__
 #include <clib/debug_protos.h>
 #include <exec/nodes.h>
@@ -60,7 +56,7 @@ BOOL releaseCard(__REGA0(struct BoardInfo *bi))
     return TRUE;
 }
 
-BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
+extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
     LOCAL_SYSBASE();
     CardData_t *cd = getCardData(bi);
@@ -202,7 +198,7 @@ exit:
     return TRUE;
 }
 
-BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
+extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
     CardData_t *cd = getCardData(bi);
     if (!cd->board || !cd->OpenPciBase) {
@@ -300,7 +296,3 @@ exit:
     return rval;
 }
 #endif  // TESTEXE
-
-#ifdef __cplusplus
-}
-#endif

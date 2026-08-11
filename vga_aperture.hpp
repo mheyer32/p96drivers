@@ -12,14 +12,8 @@
 #error REGISTER_OFFSET required for VgaIo
 #endif
 
-#if BIGENDIAN_IO
-#define VGA_IO_ENDIAN RegEndian::NoSwap
-#else
-#define VGA_IO_ENDIAN RegEndian::SwapIO
-#endif
-
-using VgaIo  = VgaAperture<VGA_IO_ENDIAN, REGISTER_OFFSET, RegLog::Verbose>;
-using VgaIoQ = VgaAperture<VGA_IO_ENDIAN, REGISTER_OFFSET, RegLog::Quiet>;
+using VgaIo  = VgaAperture<REGISTER_OFFSET, RegLog::Verbose>;
+using VgaIoQ = VgaAperture<REGISTER_OFFSET, RegLog::Quiet>;
 
 #define VGA_ID(x) static_cast<VgaReg::Id>(x)
 

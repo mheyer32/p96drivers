@@ -16,10 +16,6 @@
 #include <libraries/pcitags.h>
 #include <proto/openpci.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #ifndef TESTEXE
 extern const char LibName[]     = "ATIMach64.card";
 extern const char LibIdString[] = "ATIMach64 Picasso96 card driver version 1.0";
@@ -61,7 +57,7 @@ BOOL releaseCard(__REGA0(struct BoardInfo *bi))
     return TRUE;
 }
 
-BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
+extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
     LOCAL_SYSBASE();
     CardData_t *cd = getCardData(bi);
@@ -201,7 +197,7 @@ BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
     return TRUE;
 }
 
-BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
+extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
     CardData_t *cd = getCardData(bi);
     if (!cd->board || !cd->OpenPciBase) {
@@ -349,7 +345,3 @@ exit:
     return rval;
 }
 #endif  // TESTEXE
-
-#ifdef __cplusplus
-}
-#endif

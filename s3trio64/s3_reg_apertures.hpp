@@ -7,13 +7,13 @@
 #if BIGENDIAN_IO
 #define S3_IO_ENDIAN RegEndian::NoSwap
 #else
-#define S3_IO_ENDIAN RegEndian::SwapIO
+#define S3_IO_ENDIAN RegEndian::Swap
 #endif
 
 #if BIGENDIAN_MMIO
 #define S3_MMIO_ENDIAN RegEndian::NoSwap
 #else
-#define S3_MMIO_ENDIAN RegEndian::SwapMMIO
+#define S3_MMIO_ENDIAN RegEndian::Swap
 #endif
 
 #ifndef REGISTER_OFFSET
