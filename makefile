@@ -39,8 +39,7 @@ ifeq ($(strip $(LIB_REVISION)),)
 LIB_REVISION := 0
 endif
 
-BUILDFLAGS = -noixemul -mregparm=4 -msmall-code -m68020-60 -mtune=68030 -fno-builtin-strlen -ffreestanding
-BUILDFLAGS += -ffunction-sections -fdata-sections
+BUILDFLAGS = -noixemul -mregparm=4 -msmall-code -m68020-60 -mtune=68030
 # Prevent the OpenPCI driver from defining its own broken swapl/swapw macros
 BUILDFLAGS += -DOPENPCI_SWAP 
 
@@ -50,14 +49,18 @@ ifeq ($(DEBUG),1)
     # -g with older amiga-gcc (6.5 / image :latest) yields hunks m68k-amigaos-strip cannot read
     BUILDFLAGS += -O3 -g -ggdb
 else
-    BUILDFLAGS += -Ofast -fomit-frame-pointer
+    BUILDFLAGS += -Ofast -fomit-frame-pointer -g -ggdb
 endif
 
 CFLAGS +=  $(BUILDFLAGS) -Wundef -I. -IPicasso96Develop/Include -IPicasso96Develop/PrivateInclude -Iopenpci
 CFLAGS += -DLIB_VERSION=$(LIB_VERSION) -DLIB_REVISION=$(LIB_REVISION)
 # Appended in .cpp recipe so target-specific CFLAGS apply
 CXXFLAGS_EXTRA = -std=c++14 -fno-exceptions -fno-rtti -fno-use-cxa-atexit
-LDFLAGS += $(BUILDFLAGS) -Wl,--gc-sections
+LDFLAGS += $(BUILDFLAGS)
+
+# prune unused sections from the final binary
+LDFLAGS += -Wl,--gc-sections
+BUILDFLAGS += -ffunction-sections -fdata-sections
 
 ###############################################################################
 
@@ -117,6 +120,7 @@ ${1}_DEPS = $$(call create_deplist,$$(${1}_SRC),${2})
 ${1}_TARGET = $$(BINDIR)/${1}
 
 ${1} : LDFLAGS += -ramiga-lib -nostartfiles
+${1} : CFLAGS += -fno-builtin-strlen -ffreestanding
 
 ifeq ($(DEBUG),0)
 ${1} : LDFLAGS += -nodefaultlibs
