@@ -28,7 +28,7 @@
     X(GRC_VALUE, 0x3CF)     \
     X(CRTC_INDEX, 0x3D4)    \
     X(CRTC_VALUE, 0x3D5)    \
-    X(INPUT_STATUS1, 0x3DA)
+    X(INPUT_STATUS1_R, 0x3DA)
 
 namespace VgaReg {
 enum Id : LONG
@@ -37,8 +37,11 @@ enum Id : LONG
     VGA_REG_LIST(VGA_REG_ENUM)
 #undef VGA_REG_ENUM
     /* Attribute controller write data shares 0x3C0 with ATTR_AD. */
-    ATTR_DATA_W = ATTR_AD,
+    ATTR_DATA_W     = ATTR_AD,
+    FEATURE_CTL_W   = INPUT_STATUS1_R,
+    INPUT_STATUS0_R = MISC_OUT_W
 };
+
 #define VGA_REG_ID(name, val) static const Id id_##name = name;
 VGA_REG_LIST(VGA_REG_ID)
 #undef VGA_REG_ID
