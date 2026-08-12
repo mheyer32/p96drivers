@@ -176,11 +176,11 @@ extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
             continue;
         }
 
-        D(INFO, "Turning off IO for board 0x%08lx\n", board);
-        // turn off IO response for all other unclaimed boards
-        UWORD command = pci_read_config_word(PCI_COMMAND, board);
-        command &= ~(PCI_COMMAND_IO | PCI_COMMAND_MEMORY);
-        pci_write_config_word(PCI_COMMAND, command, board);
+        // D(INFO, "Turning off IO for board 0x%08lx\n", board);
+        // // turn off IO response for all other unclaimed boards
+        // UWORD command = pci_read_config_word(PCI_COMMAND, board);
+        // command &= ~(PCI_COMMAND_IO | PCI_COMMAND_MEMORY);
+        // pci_write_config_word(PCI_COMMAND, command, board);
     }
 
 exit:
