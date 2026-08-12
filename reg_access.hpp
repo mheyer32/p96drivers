@@ -672,7 +672,7 @@ struct AbsRegAperture
 };
 
 /*
- * Standard VGA port aperture: flat DAC/MISC/INPUT_STATUS1 access plus CR/SR/GR/AR
+ * Standard VGA port aperture: flat DAC/MISC/INPUT_STATUS1_R access plus CR/SR/GR/AR
  * index/data helpers. Shared by S3, AT3D, and any VGA-compatible chip.
  */
 template <LONG BaseOff, RegLog L>
