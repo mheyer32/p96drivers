@@ -2,6 +2,7 @@
 #include <clib/debug_protos.h>
 #include <hardware/cia.h>
 #include <proto/mmu.h>
+#include <dos/dos.h>
 
 #ifdef DBG
 

@@ -1,6 +1,7 @@
 #ifndef S3_REG_APERTURES_HPP
 #define S3_REG_APERTURES_HPP
 
+#include "s3config.h"
 #include "s3_regs.hpp"
 #include "vga_aperture.hpp"
 

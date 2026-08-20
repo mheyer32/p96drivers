@@ -230,10 +230,12 @@ static ULONG computePLLValues(ULONG targetFreqKhz, AT3DPLLValue_t *pllValues)
     // Formula: f = (c + 500 - 34*fvco/1000)/1000, where c = 1000*(380*7)/(380-175)
     int c = 1000 * (380 * 7) / (380 - 175);  // ≈ 12976
     int f = (c + 500 - 34 * fvco / 1000) / 1000;
-    if (f > 7)
+    if (f > 7) {
         f = 7;  // Clamp to 3-bit field (0-7)
-    if (f < 0)
+    }
+    if (f < 0) {
         f = 0;
+    }
 
     pllValues->f = f;
 
@@ -644,8 +646,9 @@ APTR ASM At3dDriver::calculateMemory(__REGA1(APTR mem), __REGD0(struct RenderInf
 
 ULONG ASM At3dDriver::getCompatibleFormats(__REGD7(RGBFTYPE_REG format))
 {
-    if (format == RGBFB_NONE)
+    if (format == RGBFB_NONE) {
         return (ULONG)0;
+    }
 
     // Base compatible formats that AT3D always supports (native/packed formats)
     // These formats can be used without special aperture configuration
@@ -748,17 +751,20 @@ void ASM At3dDriver::setMemoryMode(__REGD7(RGBFTYPE_REG format))
 
 static INLINE REGARGS UWORD toScanLines(UWORD y, UWORD modeFlags)
 {
-    if (modeFlags & GMF_DOUBLESCAN)
+    if (modeFlags & GMF_DOUBLESCAN) {
         y *= 2;
-    if (modeFlags & GMF_INTERLACE)
+    }
+    if (modeFlags & GMF_INTERLACE) {
         y /= 2;
+    }
     return y;
 }
 
 static INLINE REGARGS UWORD adjustBorder(UWORD x, BOOL border, UWORD defaultX)
 {
-    if (!border || x == 0)
+    if (!border || x == 0) {
         x = defaultX;
+    }
     return x;
 }
 
@@ -1211,10 +1217,11 @@ BOOL ASM At3dDriver::setInterrupt(__REGD0(BOOL state))
     UBYTE idx = vga.readB(CRTC_INDEX);
     vga.writeB(CRTC_INDEX, 0x11);
     UBYTE cr11 = vga.readB(CRTC_VALUE);
-    if (state)
+    if (state) {
         cr11 = (cr11 & ~BIT(5)) | BIT(4);
-    else
+    } else {
         cr11 = (cr11 | BIT(5)) & ~BIT(4);
+    }
     vga.writeB(CRTC_VALUE, cr11);
     vga.writeB(CRTC_INDEX, idx);
 
@@ -1227,8 +1234,9 @@ ULONG ASM At3dDriver::interruptServer()
 {
     VgaIoQ vga = vgaQ();
 
-    if (!(vga.readB(MISC_OUT_W) & BIT(7)))
+    if (!(vga.readB(MISC_OUT_W) & BIT(7))) {
         return 0;
+    }
 
     UBYTE idx = vga.readB(CRTC_INDEX);
     vga.writeB(CRTC_INDEX, 0x11);
@@ -1322,10 +1330,11 @@ void ASM At3dDriver::setSpriteColor(__REGD0(UBYTE index), __REGD1(UBYTE red), __
           (ULONG)fmt);
 
     At3dMmio mmio = this->mmio();
-    if (index > 2)
+    if (index > 2) {
         return;
+    }
     // Luckily this bit of index rotation was enough to match the P96 sprite color indices to the AT3D ones
-    auto reg = AT3D_MMIO_ID(HW_CURSOR_COL1 + (index + 1) % 3);
+    auto reg = static_cast<AT3DMmioReg::Id>(HW_CURSOR_COL1 + (index + 1) % 3);
 
     switch (fmt) {
     case RGBFB_NONE:
@@ -1403,8 +1412,9 @@ ULONG At3dDriver::getLocationRegisterValue(const struct RenderInfo *ri, UWORD x,
         // Memory offset is essentially pixel 0,0
         UWORD originX, originY;
         BOOL reachable = getStartCoordinates(ri, bppLog2, &originX, &originY);
-        if (!reachable)
+        if (!reachable) {
             return ~0;
+        }
         location = makeDWORD(swapw(x + originX), swapw(y + originY));
 #ifdef DBG
         ULONG offset = getMemoryOffset(ri->Memory);
@@ -1420,8 +1430,9 @@ BOOL At3dDriver::setLocationRegister(const struct RenderInfo *ri, UWORD x, UWORD
                                      BOOL useLinearAddressing, AT3DMmioReg::Id reg)
 {
     ULONG location = getLocationRegisterValue(ri, x, y, bppLog2, useLinearAddressing);
-    if (location == ~0)
+    if (location == ~0) {
         return FALSE;
+    }
 
     At3dMmio mmio = this->mmio();
     mmio.writeLRaw(reg, location);
@@ -2115,8 +2126,9 @@ void ASM At3dDriver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct
         };
 
         if (count < 99) {
-            if (!count)
+            if (!count) {
                 mmio.writeB(ABORT, 0x00);  // Byte counting gone wrong, abort host write blit
+            }
             D(WARN, "Host BLT completion wait loop iterated %d times\n", 100 - count);
         }
     }
@@ -3649,10 +3661,11 @@ int main()
             {
                 static ULONG templateFrame[32];
                 for (int row = 0; row < 32; row++) {
-                    if (row == 0 || row == 31)
+                    if (row == 0 || row == 31) {
                         templateFrame[row] = 0xFFFFFFFFUL;
-                    else
+                    } else {
                         templateFrame[row] = 0x80000001UL;
+                    }
                 }
                 struct Template tmpl;
                 tmpl.Memory      = templateFrame;

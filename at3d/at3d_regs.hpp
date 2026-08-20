@@ -9,8 +9,7 @@
 
 /*
  * AT3D MMIO byte offsets. Values match chip_at3d.h #defines.
- * After that header, prefer MmioReg::id_* or AT3D_MMIO_ID(SYMBOL).
- * Standard VGA ports: vga_regs.hpp / VgaIo.
+ * Standard VGA ports: vga_regs.hpp / VgaIo. In .cpp: using namespace AT3DMmioReg;
  *
  * For some registers, use AT3D_ prefix to not collide witth OpenPCI's #defines
  */
@@ -114,9 +113,6 @@ enum Id : WORD
     AT3D_MMIO_REG_LIST(AT3D_MMIO_REG_ENUM)
 #undef AT3D_MMIO_REG_ENUM
 };
-#define AT3D_MMIO_REG_ID(name, val) static const Id id_##name = name;
-AT3D_MMIO_REG_LIST(AT3D_MMIO_REG_ID)
-#undef AT3D_MMIO_REG_ID
 #ifdef DBG
 static INLINE const char *regName(Id id)
 {

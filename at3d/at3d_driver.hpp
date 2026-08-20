@@ -26,11 +26,10 @@ class At3dDriver : public P96Driver
 
     INLINE ULONG waitFifo(UBYTE numSlots)
     {
-        using namespace AT3DMmioReg;
         At3dMmioQ mmio = mmioQ();
         ULONG status;
         do {
-            status = mmio.readL(EXT_DAC_STATUS);
+            status = mmio.readL(AT3DMmioReg::EXT_DAC_STATUS);
         } while ((status & 0x0F) < numSlots);
         return status;
     }
@@ -132,7 +131,6 @@ static INLINE ULONG waitFifo(const BoardInfo_t *bi, UBYTE numSlots)
     return asAt3d(const_cast<BoardInfo_t *>(bi))->waitFifo(numSlots);
 }
 
-#define AT3D_MMIO_ID(x) static_cast<AT3DMmioReg::Id>(x)
 
 #define DRIVER_LOCALS(self_)         \
     At3dDriver *drv = asAt3d(self_); \
