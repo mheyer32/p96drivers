@@ -28,32 +28,7 @@ int debugLevel = VERBOSE;
 #endif
 #endif
 
-#if !MMIO_ONLY
-#define SUBSYS_STAT  0x42E8  // Read
-#define SUBSYS_CNTL  0x42E8  // Write
-#define ADVFUNC_CNTL 0x4AE8
-#else
-// Offset from 'IO Register Base' (0x1008000) in MMIO addresses
-#define SUBSYS_STAT  0x0504  // Read
-#define SUBSYS_CNTL  0x0504  // Write
-#define ADVFUNC_CNTL 0x050C
-#endif
-
-#define CUR_Y          0x82E8
-#define CUR_Y2         0x82EA
-#define CUR_X          0x86E8
-#define CUR_X2         0x86EA
-#define DESTY_AXSTP    0x8AE8
-#define Y2_AXSTP2      0x8AEA
-#define DESTX_DIASTP   0x8EE8
-#define X2             0x8EEA
-#define ERR_TERM       0x92E8
-#define ERR_TERM2      0x92EA
-#define MAJ_AXIS_PCNT  0x96E8
-#define MAJ_AXIS_PCNT2 0x96EA
-#define GP_STAT        0x9AE8  // Read-only
-
-#define CMD 0x9AE8  // Write-only
+/* GE register addresses: IoReg / MmioReg in s3_regs.hpp */
 
 #define CMD_ALWAYS          0x0001
 #define CMD_ACROSS_PLANE    0x0002
@@ -80,30 +55,17 @@ int debugLevel = VERBOSE;
 #define CMD_TYPE_BLIT      (0b110 << CMD_COMMAND_TYPE_SHIFT)
 #define CMD_TYPE_PAT_BLIT  (0b111 << CMD_COMMAND_TYPE_SHIFT)
 
-#define CMD2                     0x9AEA  // Write-only
 #define CMD2_TRAPEZOID_DIR_MASK  0x00e0
 #define CMD2_TRAPEZOID_DIR_SHIFT 5
 
-#define SHORT_STROKE 0x9EE8
-// These 5 are 32bit registers, which can be accessed either by two
-// 16bit writes or 32bit writes when using IO programming (does not apply to
-// MMIO)
-#define BKGD_COLOR 0xA2E8
-#define FRGD_COLOR 0xA6E8
-#define WRT_MASK   0xAAE8
-#define RD_MASK    0xAEE8
-#define COLOR_CMP  0xB2E8
-
-#define BKGD_MIX 0xB6E8
-#define FRGD_MIX 0xBAE8
+/* 32-bit GE regs (BKGD/FRGD_COLOR, WRT/RD_MASK, COLOR_CMP): word or long access. */
 
 #define CLR_SRC_BKGD_COLOR (0b00 << 5)
 #define CLR_SRC_FRGD_COLOR (0b01 << 5)
 #define CLR_SRC_CPU        (0b10 << 5)
 #define CLR_SRC_MEMORY     (0b11 << 5)
 
-#define RD_REG_DT 0xBEE8
-// The following are accessible via RD_REG_DT, the number indicates the index
+/* BEE8 (MULTI_FUNC_CNTL) indexed registers — indices, not absolute ports. */
 #define MIN_AXIS_PCNT 0x0
 #define SCISSORS_T    0x1
 #define SCISSORS_L    0x2
@@ -119,29 +81,13 @@ int debugLevel = VERBOSE;
 #define MULT_MISC  0xE
 #define READ_SEL   0xF
 
-#define PIX_TRANS     0xE2E8
-#define PIX_TRANS_EXT 0xE2EA
-// #define PAT_Y         0xEAE8
-// #define PAT_X         0xEAEA
-
-#if HAS_PACKED_MMIO
-// Packed MMIO 32bit registers
-#define ALT_CURXY  0x8100
-#define ALT_CURXY2 0x8104
-#define ALT_STEP   0x8108
-#define ALT_STEP2  0x810C
-#define ALT_ERR    0x8110
-#define ALT_CMD    0x8118
-#define ALT_MIX    0x8134
-#define ALT_PCNT   0x8148
-#define ALT_PAT    0x8168
-#endif
-
 #ifdef CONFIG_CYBERVISION64
 #define HAS_ROXXLER 1
 #else
 #define HAS_ROXXLER 0
 #endif
+
+using namespace MmioReg;
 
 /******************************************************************************/
 /*                                                                            */
@@ -362,17 +308,20 @@ void ASM S3Driver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format))
 
 static INLINE REGARGS UWORD toScanLines(UWORD y, UWORD modeFlags)
 {
-    if (modeFlags & GMF_DOUBLESCAN)
+    if (modeFlags & GMF_DOUBLESCAN) {
         y *= 2;
-    if (modeFlags & GMF_INTERLACE)
+    }
+    if (modeFlags & GMF_INTERLACE) {
         y /= 2;
+    }
     return y;
 }
 
 static INLINE REGARGS UWORD adjustBorder(UWORD x, BOOL borderEnabled, UWORD minBorder)
 {
-    if (!borderEnabled || x == 0)
+    if (!borderEnabled || x == 0) {
         x = minBorder;
+    }
     return x;
 }
 
@@ -398,7 +347,7 @@ void ASM S3Driver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
     bi->ModeInfo = mi;
     bi->Border   = border;
 
-    this->waitBlitter();
+    waitBlitter();
 
     // Disable Clock Doubling
 #if !BUILD_VISION864
@@ -776,7 +725,7 @@ void ASM S3Driver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), __RE
         break;
     }
 
-    this->waitBlitter();
+    waitBlitter();
 
     pitch /= 8;
     panOffset = (panOffset + memOffset) / 4;
@@ -857,8 +806,9 @@ ULONG ASM S3Driver::getCompatibleFormats(__REGD7(RGBFTYPE_REG format))
 {
     DFUNC(VERBOSE, "Format %ld\n", (ULONG)format);
 
-    if (format == RGBFB_NONE)
+    if (format == RGBFB_NONE) {
         return (ULONG)0;
+    }
 
 #if HAS_ROXXLER
     ULONG compatible = BIT(format);
@@ -1059,15 +1009,15 @@ void S3Driver::setMemoryModeInternal(RGBFTYPE format)
     switch (format) {
     case RGBFB_A8R8G8B8:
         // swap all the bytes within a double word
-        this->cv64().writeMask(CV64_SWAP32_BIT | CV64_SWAP16_BIT, CV64_SWAP32_BIT);
+        cv64().writeMask(CV64_SWAP32_BIT | CV64_SWAP16_BIT, CV64_SWAP32_BIT);
         break;
     case RGBFB_R5G6B5:
     case RGBFB_R5G5B5:
         // Just swap the bytes within a word
-        this->cv64().writeMask(CV64_SWAP32_BIT | CV64_SWAP16_BIT, CV64_SWAP16_BIT);
+        cv64().writeMask(CV64_SWAP32_BIT | CV64_SWAP16_BIT, CV64_SWAP16_BIT);
         break;
     default:
-        this->cv64().writeMask(CV64_SWAP32_BIT | CV64_SWAP16_BIT, 0);
+        cv64().writeMask(CV64_SWAP32_BIT | CV64_SWAP16_BIT, 0);
         break;
     }
 
@@ -1076,14 +1026,13 @@ void S3Driver::setMemoryModeInternal(RGBFTYPE format)
 #if !BUILD_VISION864
     VgaIo vga = this->vga();
 
-    if (chip()->chipFamily >= TRIO64PLUS)  // Trio64+?
-    {
+    if (chip()->chipFamily >= TRIO64PLUS) {
         if (chip()->MemFormat == format) {
             return;
         }
         chip()->MemFormat = format;
 
-        this->waitBlitter();
+        waitBlitter();
 
         // Setup the linear window CPU access such that the below formats will be
         // converted to the actual framebuffer format on write/read
@@ -1110,7 +1059,7 @@ void S3Driver::setMemoryModeInternal(RGBFTYPE format)
 void ASM S3Driver::setMemoryMode(__REGD7(RGBFTYPE_REG format))
 {
 #if !BUILD_VISION864
-    this->setMemoryModeInternal(AS_RGBF(format));
+    setMemoryModeInternal(AS_RGBF(format));
 #endif
 }
 
@@ -1170,10 +1119,11 @@ BOOL ASM S3Driver::setInterrupt(__REGD0(BOOL state))
     UBYTE idx = vga.readB(VgaReg::CRTC_INDEX);
     vga.writeB(VgaReg::CRTC_INDEX, 0x11);
     UBYTE cr11 = vga.readB(VgaReg::CRTC_VALUE);
-    if (state)
+    if (state) {
         cr11 = (cr11 & ~BIT(5)) | BIT(4);
-    else
+    } else {
         cr11 = (cr11 | BIT(5)) & ~BIT(4);
+    }
     vga.writeB(VgaReg::CRTC_VALUE, cr11);
     vga.writeB(VgaReg::CRTC_INDEX, idx);
 
@@ -1185,10 +1135,11 @@ BOOL ASM S3Driver::setInterrupt(__REGD0(BOOL state))
 ULONG S3Driver::interruptServer()
 {
     BoardInfo *bi = this;
-    VgaIoQ vga    = this->vgaQ();
+    VgaIoQ vga    = vgaQ();
 
-    if (!(vga.readB(VgaReg::MISC_OUT_W) & BIT(7)))
+    if (!(vga.readB(VgaReg::MISC_OUT_W) & BIT(7))) {
         return 0;
+    }
 
     UBYTE idx = vga.readB(VgaReg::CRTC_INDEX);
     vga.writeB(VgaReg::CRTC_INDEX, 0x11);
@@ -1260,18 +1211,20 @@ void ASM S3Driver::setSpritePosition(__REGD0(WORD xpos), __REGD1(WORD ypos), __R
 
     WORD offsetX = 0;
     if (spriteX < 0) {
-        if (spriteX > -64)
+        if (spriteX > -64) {
             offsetX = -spriteX;
-        else
+        } else {
             offsetX = 64;
+        }
         spriteX = 0;
     }
     WORD offsetY = 0;
     if (spriteY < 0) {
-        if (spriteY > -64)
+        if (spriteY > -64) {
             offsetY = -spriteY;
-        else
+        } else {
             offsetY = 64;
+        }
         spriteY = 0;
     }
 
@@ -1331,8 +1284,9 @@ void ASM S3Driver::setSpriteImage(__REGD7(RGBFTYPE_REG fmt))
 #else
     UWORD *cursor = (UWORD *)bi->MouseImageBuffer;
     UWORD height  = bi->MouseHeight;
-    if (height > 64)
+    if (height > 64) {
         height = 64;
+    }
 
     if (bi->Flags & BIF_HIRESSPRITE) {
         const ULONG *image = (const ULONG *)bi->MouseImage + 2;
@@ -1353,8 +1307,9 @@ void ASM S3Driver::setSpriteImage(__REGD7(RGBFTYPE_REG fmt))
         }
     } else if (bi->Flags & BIF_BIGSPRITE) {
         UWORD srcH = height >> 1;
-        if (srcH > 32)
+        if (srcH > 32) {
             srcH = 32;
+        }
         const UWORD *image = bi->MouseImage + 2;
         for (UWORD y = 0; y < srcH; ++y) {
             UWORD plane0  = *image++;
@@ -1404,7 +1359,7 @@ void ASM S3Driver::setSpriteImage(__REGD7(RGBFTYPE_REG fmt))
     CacheClearU();
 
 #if HAS_ROXXLER
-    this->cv64().write(cv64Reg);
+    cv64.write(cv64Reg);
 #endif
 }
 
@@ -1416,8 +1371,9 @@ void ASM S3Driver::setSpriteColor(__REGD0(UBYTE index), __REGD1(UBYTE red), __RE
     VgaIo vga = this->vga();
     LOCAL_SYSBASE();
 
-    if (index != 0 && index != 2)
+    if (index != 0 && index != 2) {
         return;
+    }
 
     UBYTE reg = 0;
 
@@ -1494,9 +1450,9 @@ BOOL ASM S3Driver::setSprite(__REGD0(BOOL activate), __REGD7(RGBFTYPE_REG RGBFor
     vga.writeCRMask(0x45, 0x01, activate ? 0x01 : 0x00);
 
     if (activate) {
-        this->setSpriteColor(0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, bi->RGBFormat);
-        this->setSpriteColor(1, bi->CLUT[18].Red, bi->CLUT[18].Green, bi->CLUT[18].Blue, bi->RGBFormat);
-        this->setSpriteColor(2, bi->CLUT[19].Red, bi->CLUT[19].Green, bi->CLUT[19].Blue, bi->RGBFormat);
+        setSpriteColor(0, bi->CLUT[17].Red, bi->CLUT[17].Green, bi->CLUT[17].Blue, bi->RGBFormat);
+        setSpriteColor(1, bi->CLUT[18].Red, bi->CLUT[18].Green, bi->CLUT[18].Blue, bi->RGBFormat);
+        setSpriteColor(2, bi->CLUT[19].Red, bi->CLUT[19].Green, bi->CLUT[19].Blue, bi->RGBFormat);
     }
 
     return TRUE;
@@ -1522,7 +1478,7 @@ static INLINE void REGARGS getGESegmentAndOffset(ULONG memOffset, WORD bytesPerR
 
 ULONG S3Driver::getMemoryOffset(APTR memory)
 {
-    return (ULONG)memory - (ULONG)this->MemoryBase;
+    return (ULONG)memory - (ULONG)MemoryBase;
 }
 
 BOOL S3Driver::setGEFormat(UWORD bytesPerRow, UBYTE bpp)
@@ -1562,7 +1518,7 @@ BOOL S3Driver::setGEFormat(UWORD bytesPerRow, UBYTE bpp)
     cd->GEbytesPerRow   = bytesPerRow;
     cd->GEbpp           = bpp;
 
-    getGESegmentAndOffset(this->getMemoryOffset(cd->patternVideoBuffer), bytesPerRow, bpp, &cd->pattSegment, &cd->pattX,
+    getGESegmentAndOffset(getMemoryOffset(cd->patternVideoBuffer), bytesPerRow, bpp, &cd->pattSegment, &cd->pattX,
                           &cd->pattY);
     // Pattern Fill. Same as a BitBit except that an 8x8 patterned rectangle is
     // transferred repeatedly to the destination rectangle. The starting X coordinate of
@@ -1573,21 +1529,21 @@ BOOL S3Driver::setGEFormat(UWORD bytesPerRow, UBYTE bpp)
     D(CHATTY, "pattSeg %ld, pattX %ld, pattY %ld, bytesPerRow %ld\n", (ULONG)cd->pattSegment, (ULONG)cd->pattX,
       (ULONG)cd->pattY, (ULONG)cd->GEbytesPerRow);
 
-    this->waitBlitter();
+    waitBlitter();
 
     vga.writeCRMask(0x50, 0xF1, CR50_76_0 | ((bpp - 1) << 4));
     vga.writeCRMask(0x31, (1 << 1), CR31_1);
 
     S3Mmio mmio = this->mmio();
     if (bpp >= 3) {
-        this->writeBee8(MULT_MISC, BIT(9));
-        mmio.writeL(S3_MMIO_ID(WRT_MASK), ~0);
+        writeBee8(MULT_MISC, BIT(9));
+        mmio.writeL(WRT_MASK, ~0);
         // Invalidate the mask and fg/bg color caches because we need to write them again.
         // Only in 32bpp mode, these registers are 32bit
         cd->GEmask  = 0xFF;
         cd->GEbgPen = cd->GEfgPen = 0x80000001;
     } else {
-        this->writeBee8(MULT_MISC, 0);
+        writeBee8(MULT_MISC, 0);
         cd->GEmask  = 0x0;
         cd->GEbgPen = cd->GEfgPen = 0x80000001;
     }
@@ -1640,35 +1596,35 @@ void S3Driver::setMix(UWORD frgdMix, UWORD bkgdMix)
 {
     S3Mmio mmio = this->mmio();
 #if HAS_PACKED_MMIO
-    mmio.writeL(S3_MMIO_ID(ALT_MIX), makeDWORD(frgdMix, bkgdMix));
+    mmio.writeL(ALT_MIX, makeDWORD(frgdMix, bkgdMix));
 #else
-    mmio.writeW(S3_MMIO_ID(FRGD_MIX), frgdMix);
-    mmio.writeW(S3_MMIO_ID(BKGD_MIX), bkgdMix);
+    mmio.writeW(FRGD_MIX, frgdMix);
+    mmio.writeW(BKGD_MIX, bkgdMix);
 #endif
 }
 
 void S3Driver::setForegroundColor32(ULONG fgPen)
 {
     S3Mmio mmio = this->mmio();
-    mmio.writeL(S3_MMIO_ID(FRGD_COLOR), fgPen);
+    mmio.writeL(FRGD_COLOR, fgPen);
 }
 
 void S3Driver::setBackgroundColor32(ULONG bgPen)
 {
     S3Mmio mmio = this->mmio();
-    mmio.writeL(S3_MMIO_ID(BKGD_COLOR), bgPen);
+    mmio.writeL(BKGD_COLOR, bgPen);
 }
 
 void S3Driver::setForegroundColor(UWORD fgPen)
 {
     S3Mmio mmio = this->mmio();
-    mmio.writeW(S3_MMIO_ID(FRGD_COLOR), fgPen);
+    mmio.writeW(FRGD_COLOR, fgPen);
 }
 
 void S3Driver::setBackgroundColor(UWORD bgPen)
 {
     S3Mmio mmio = this->mmio();
-    mmio.writeW(S3_MMIO_ID(BKGD_COLOR), bgPen);
+    mmio.writeW(BKGD_COLOR, bgPen);
 }
 
 void S3Driver::setDrawMode(ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE format)
@@ -1689,16 +1645,16 @@ void S3Driver::setDrawMode(ULONG FgPen, ULONG BgPen, UBYTE DrawMode, RGBFTYPE fo
         switch (format) {
         case RGBFB_B8G8R8A8:
         case RGBFB_A8R8G8B8:
-            this->waitFifo(6);
-            this->setForegroundColor32(fgColor);
-            this->setBackgroundColor32(bgColor);
+            waitFifo(6);
+            setForegroundColor32(fgColor);
+            setBackgroundColor32(bgColor);
             break;
         default:
-            this->waitFifo(4);
-            this->setForegroundColor(fgColor);
-            this->setBackgroundColor(bgColor);
+            waitFifo(4);
+            setForegroundColor(fgColor);
+            setBackgroundColor(bgColor);
         }
-        this->setMix(frgdMix, bkgdMix);
+        setMix(frgdMix, bkgdMix);
     }
 }
 
@@ -1710,11 +1666,11 @@ void S3Driver::setGEWriteMask(UBYTE mask, RGBFTYPE fmt, BYTE waitFifoSlots)
     if (fmt == RGBFB_CLUT && cd->GEmask != mask) {
         cd->GEmask = mask;
 
-        this->waitFifo(waitFifoSlots + 1);
+        waitFifo(waitFifoSlots + 1);
         S3Mmio mmio = this->mmio();
-        mmio.writeB(S3_MMIO_ID(WRT_MASK), mask);
+        mmio.writeB(WRT_MASK, mask);
     } else {
-        this->waitFifo(waitFifoSlots);
+        waitFifo(waitFifoSlots);
     }
 }
 
@@ -1722,13 +1678,13 @@ void S3Driver::setBlitSrcPosAndSize(UWORD x, UWORD y, UWORD w, UWORD h)
 {
     S3Mmio mmio = this->mmio();
 #if HAS_PACKED_MMIO
-    mmio.writeL(S3_MMIO_ID(ALT_CURXY), makeDWORD(x, y));
-    mmio.writeL(S3_MMIO_ID(ALT_PCNT), makeDWORD(w - 1, h - 1));
+    mmio.writeL(ALT_CURXY, makeDWORD(x, y));
+    mmio.writeL(ALT_PCNT, makeDWORD(w - 1, h - 1));
 #else
-    mmio.writeW(S3_MMIO_ID(CUR_X), x);
-    mmio.writeW(S3_MMIO_ID(CUR_Y), y);
-    mmio.writeW(S3_MMIO_ID(MAJ_AXIS_PCNT), w - 1);
-    this->writeBee8(MIN_AXIS_PCNT, h - 1);
+    mmio.writeW(CUR_X, x);
+    mmio.writeW(CUR_Y, y);
+    mmio.writeW(MAJ_AXIS_PCNT, w - 1);
+    writeBee8(MIN_AXIS_PCNT, h - 1);
 #endif
 }
 
@@ -1736,10 +1692,10 @@ void S3Driver::setBlitDestPos(UWORD dstX, UWORD dstY)
 {
     S3Mmio mmio = this->mmio();
 #if HAS_PACKED_MMIO
-    mmio.writeL(S3_MMIO_ID(ALT_STEP), makeDWORD(dstX, dstY));
+    mmio.writeL(ALT_STEP, makeDWORD(dstX, dstY));
 #else
-    mmio.writeW(S3_MMIO_ID(DESTX_DIASTP), dstX);
-    mmio.writeW(S3_MMIO_ID(DESTY_AXSTP), dstY);
+    mmio.writeW(DESTX_DIASTP, dstX);
+    mmio.writeW(DESTY_AXSTP, dstY);
 #endif
 }
 
@@ -1762,7 +1718,7 @@ void ASM S3Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __R
           (ULONG)ri->Memory);
 
     UBYTE bpp = getBPP(fmt);
-    if (!bpp || !this->setGEFormat(ri->BytesPerRow, bpp)) {
+    if (!bpp || !setGEFormat(ri->BytesPerRow, bpp)) {
         DFUNC(INFO, "Fallback to FillRectDefault\n");
         bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, AS_RGBF(fmt));
         return;
@@ -1771,7 +1727,7 @@ void ASM S3Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __R
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+    getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
                           (UWORD *)&yoffset);
 
     x += xoffset;
@@ -1789,12 +1745,12 @@ void ASM S3Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __R
     if (cd->GEOp != FILLRECT) {
         cd->GEOp = FILLRECT;
 
-        this->waitFifo(2);
-        this->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        mmio.writeW(S3_MMIO_ID(FRGD_MIX), CLR_SRC_FRGD_COLOR | MIX_NEW);
+        waitFifo(2);
+        writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        mmio.writeW(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
     }
 
-    this->setGEWriteMask(mask, AS_RGBF(fmt), 0);
+    setGEWriteMask(mask, AS_RGBF(fmt), 0);
 
     if (cd->GEfgPen != pen || cd->GEFormat != fmt) {
         cd->GEfgPen  = pen;
@@ -1803,24 +1759,24 @@ void ASM S3Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __R
         pen = penToColor(pen, AS_RGBF(fmt));
 
         if (bpp < 3) {
-            this->waitFifo(7);
-            this->setForegroundColor(pen);
+            waitFifo(7);
+            setForegroundColor(pen);
         } else {
-            this->waitFifo(8);
-            this->setForegroundColor32(pen);
+            waitFifo(8);
+            setForegroundColor32(pen);
         }
     } else {
-        this->waitFifo(6);
+        waitFifo(6);
     }
 
     // This could/should get chached as well
-    this->writeBee8(MULT_MISC2, seg << 4);
+    writeBee8(MULT_MISC2, seg << 4);
 
-    this->setBlitSrcPosAndSize(x, y, width, height);
+    setBlitSrcPosAndSize(x, y, width, height);
 
     UWORD cmd = CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT;
 
-    mmio.writeW(S3_MMIO_ID(CMD), cmd);
+    mmio.writeW(CMD, cmd);
 }
 
 void ASM S3Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
@@ -1836,7 +1792,7 @@ void ASM S3Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), _
     S3Mmio mmio = this->mmio();
 
     UBYTE bpp = getBPP(fmt);
-    if (!bpp || !this->setGEFormat(ri->BytesPerRow, bpp)) {
+    if (!bpp || !setGEFormat(ri->BytesPerRow, bpp)) {
         DFUNC(INFO, "Fallback to InvertRectDefault\n");
         bi->InvertRectDefault(bi, ri, x, y, width, height, mask, AS_RGBF(fmt));
         return;
@@ -1845,7 +1801,7 @@ void ASM S3Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), _
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+    getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
                           (UWORD *)&yoffset);
 
     x += xoffset;
@@ -1861,20 +1817,20 @@ void ASM S3Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), _
     if (cd->GEOp != INVERTRECT) {
         cd->GEOp = INVERTRECT;
 
-        this->waitFifo(2);
+        waitFifo(2);
 
-        this->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        mmio.writeW(S3_MMIO_ID(FRGD_MIX), CLR_SRC_MEMORY | MIX_NOT_CURRENT);
+        writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        mmio.writeW(FRGD_MIX, CLR_SRC_MEMORY | MIX_NOT_CURRENT);
     }
 
-    this->setGEWriteMask(mask, AS_RGBF(fmt), 6);
+    setGEWriteMask(mask, AS_RGBF(fmt), 6);
 
     // This could/should get chached as well
-    this->writeBee8(MULT_MISC2, seg << 4);
+    writeBee8(MULT_MISC2, seg << 4);
 
-    this->setBlitSrcPosAndSize(x, y, width, height);
+    setBlitSrcPosAndSize(x, y, width, height);
 
-    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
+    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
 }
 
 void ASM S3Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), __REGD1(WORD srcY), __REGD2(WORD dstX),
@@ -1892,7 +1848,7 @@ void ASM S3Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), 
     S3Mmio mmio = this->mmio();
 
     UBYTE bpp = getBPP(fmt);
-    if (!bpp || !this->setGEFormat(ri->BytesPerRow, bpp)) {
+    if (!bpp || !setGEFormat(ri->BytesPerRow, bpp)) {
         DFUNC(INFO, "Fallback to BlitRectDefault\n");
         bi->BlitRectDefault(bi, ri, srcX, srcY, dstX, dstY, width, height, mask, AS_RGBF(fmt));
         return;
@@ -1901,7 +1857,7 @@ void ASM S3Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), 
     UWORD seg;
     WORD xoffset;
     WORD yoffset;
-    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+    getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
                           (UWORD *)&yoffset);
 
     srcX += xoffset;
@@ -1937,20 +1893,20 @@ void ASM S3Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), 
     if (cd->GEOp != BLITRECT) {
         cd->GEOp = BLITRECT;
 
-        this->waitFifo(2);
+        waitFifo(2);
 
-        this->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        mmio.writeW(S3_MMIO_ID(FRGD_MIX), CLR_SRC_MEMORY | MIX_NEW);
+        writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        mmio.writeW(FRGD_MIX, CLR_SRC_MEMORY | MIX_NEW);
     }
 
-    this->setGEWriteMask(mask, AS_RGBF(fmt), 8);
+    setGEWriteMask(mask, AS_RGBF(fmt), 8);
 
-    this->writeBee8(MULT_MISC2, seg << 4 | seg);
+    writeBee8(MULT_MISC2, seg << 4 | seg);
 
-    this->setBlitSrcPosAndSize(srcX, srcY, width, height);
-    this->setBlitDestPos(dstX, dstY);
+    setBlitSrcPosAndSize(srcX, srcY, width, height);
+    setBlitDestPos(dstX, dstY);
 
-    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
+    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
 }
 
 const static UWORD minTermToMix[16] = {
@@ -1998,7 +1954,7 @@ void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REG
 
     UWORD bytesPerRow = dri->BytesPerRow > sri->BytesPerRow ? dri->BytesPerRow : sri->BytesPerRow;
     UBYTE bpp         = getBPP(format);
-    if (!bpp || !this->setGEFormat(bytesPerRow, bpp)) {
+    if (!bpp || !setGEFormat(bytesPerRow, bpp)) {
         DFUNC(INFO, "fallback to BlitRectNoMaskCompleteDefault\n");
         bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, minTerm,
                                           AS_RGBF(format));
@@ -2010,29 +1966,29 @@ void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REG
         cd->GEOp       = BLITRECTNOMASKCOMPLETE;
         cd->GEdrawMode = 0xFF;  // invalidate minterm cache
 
-        this->setGEWriteMask(~0, AS_RGBF(format), 1);
-        this->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        setGEWriteMask(~0, AS_RGBF(format), 1);
+        writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
     }
 
     if (cd->GEdrawMode != minTerm) {
         cd->GEdrawMode = minTerm;
 
-        this->waitFifo(1);
-        mmio.writeW(S3_MMIO_ID(FRGD_MIX), CLR_SRC_MEMORY | mintermToMixMode(minTerm));
+        waitFifo(1);
+        mmio.writeW(FRGD_MIX, CLR_SRC_MEMORY | mintermToMixMode(minTerm));
     }
 
     if (sri->BytesPerRow == dri->BytesPerRow) {
         WORD xoffset;
         WORD yoffset;
         UWORD segDst;
-        getGESegmentAndOffset(this->getMemoryOffset(dri->Memory), sri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset,
+        getGESegmentAndOffset(getMemoryOffset(dri->Memory), sri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset,
                               (UWORD *)&yoffset);
 
         dstX += xoffset;
         dstY += yoffset;
 
         UWORD segSrc;
-        getGESegmentAndOffset(this->getMemoryOffset(sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset,
+        getGESegmentAndOffset(getMemoryOffset(sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset,
                               (UWORD *)&yoffset);
 
         srcX += xoffset;
@@ -2062,19 +2018,19 @@ void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REG
             }
         }
 
-        this->waitFifo(8);
+        waitFifo(8);
 
-        this->writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
+        writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
 
-        this->setBlitSrcPosAndSize(srcX, srcY, width, height);
-        this->setBlitDestPos(dstX, dstY);
+        setBlitSrcPosAndSize(srcX, srcY, width, height);
+        setBlitDestPos(dstX, dstY);
 
-        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
+        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
     } else if (sri->BytesPerRow < dri->BytesPerRow) {
         WORD xoffset;
         WORD yoffset;
         UWORD segDst;
-        getGESegmentAndOffset(this->getMemoryOffset(dri->Memory), dri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset,
+        getGESegmentAndOffset(getMemoryOffset(dri->Memory), dri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset,
                               (UWORD *)&yoffset);
 
         dstX += xoffset;
@@ -2082,9 +2038,9 @@ void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REG
 
         UBYTE *srcMem = (UBYTE *)sri->Memory;
         srcMem += srcY * sri->BytesPerRow + srcX * bpp;
-        ULONG memOffset = this->getMemoryOffset(srcMem);
+        ULONG memOffset = getMemoryOffset(srcMem);
 
-        this->waitFifo(2);
+        waitFifo(2);
 
         for (WORD h = 0; h < height; ++h) {
             WORD x;
@@ -2092,13 +2048,13 @@ void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REG
             UWORD segSrc;
             getGESegmentAndOffset(memOffset, dri->BytesPerRow, bpp, &segSrc, (UWORD *)&x, (UWORD *)&y);
 
-            this->waitFifo(8);
-            this->writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
+            waitFifo(8);
+            writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
 
-            this->setBlitSrcPosAndSize(x, y, width, 1);
-            this->setBlitDestPos(dstX, dstY + h);
+            setBlitSrcPosAndSize(x, y, width, 1);
+            setBlitDestPos(dstX, dstY + h);
 
-            mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
+            mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
 
             memOffset += sri->BytesPerRow;
         }
@@ -2106,7 +2062,7 @@ void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REG
         WORD xoffset;
         WORD yoffset;
         UWORD segSrc;
-        getGESegmentAndOffset(this->getMemoryOffset(sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset,
+        getGESegmentAndOffset(getMemoryOffset(sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset,
                               (UWORD *)&yoffset);
 
         srcX += xoffset;
@@ -2114,7 +2070,7 @@ void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REG
 
         UBYTE *dstMem = (UBYTE *)dri->Memory;
         dstMem += dstY * dri->BytesPerRow + dstX * bpp;
-        ULONG memOffset = this->getMemoryOffset(dstMem);
+        ULONG memOffset = getMemoryOffset(dstMem);
 
         for (WORD h = 0; h < height; ++h) {
             WORD x;
@@ -2122,13 +2078,13 @@ void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REG
             UWORD segDst;
             getGESegmentAndOffset(memOffset, sri->BytesPerRow, bpp, &segDst, (UWORD *)&x, (UWORD *)&y);
 
-            this->waitFifo(8);
-            this->writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
+            waitFifo(8);
+            writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
 
-            this->setBlitSrcPosAndSize(srcX, srcY + h, width, 1);
-            this->setBlitDestPos(x, y);
+            setBlitSrcPosAndSize(srcX, srcY + h, width, 1);
+            setBlitDestPos(x, y);
 
-            mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
+            mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
 
             memOffset += dri->BytesPerRow;
         }
@@ -2140,9 +2096,9 @@ void S3Driver::writePIX_TRANS(ULONG value)
     S3Mmio mmio = this->mmio();
 #if HAS_ROXXLER
     // in a twist of luck, we need to write the swapped value here
-    mmio.writeL(S3_MMIO_ID(PIX_TRANS), swapl(value));
+    mmio.writeL(PIX_TRANS, swapl(value));
 #else
-    mmio.writeL(S3_MMIO_ID(PIX_TRANS), value);
+    mmio.writeL(PIX_TRANS, value);
 #endif
 }
 
@@ -2158,7 +2114,7 @@ void ASM S3Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct T
           (ULONG)ri->Memory);
 
     UBYTE bpp = getBPP(fmt);
-    if (!bpp || !this->setGEFormat(ri->BytesPerRow, bpp)) {
+    if (!bpp || !setGEFormat(ri->BytesPerRow, bpp)) {
         DFUNC(INFO, "fallback to BlitTemplateDefault\n");
         bi->BlitTemplateDefault(bi, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
         return;
@@ -2167,7 +2123,7 @@ void ASM S3Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct T
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+    getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
                           (UWORD *)&yoffset);
 
     x += xoffset;
@@ -2189,23 +2145,23 @@ void ASM S3Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct T
         // Invalidate the pen and drawmode caches
         cd->GEdrawMode = 0xFF;
 
-        this->waitFifo(1);
+        waitFifo(1);
 
-        this->writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
+        writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
     }
 
-    this->setDrawMode(tmpl->FgPen, tmpl->BgPen, tmpl->DrawMode, AS_RGBF(fmt));
-    this->setGEWriteMask(mask, AS_RGBF(fmt), 6);
+    setDrawMode(tmpl->FgPen, tmpl->BgPen, tmpl->DrawMode, AS_RGBF(fmt));
+    setGEWriteMask(mask, AS_RGBF(fmt), 6);
 
     // This could/should get chached as well
-    this->writeBee8(MULT_MISC2, seg << 4);
+    writeBee8(MULT_MISC2, seg << 4);
 
-    this->setBlitSrcPosAndSize(x, y, width, height);
+    setBlitSrcPosAndSize(x, y, width, height);
 
     // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
     WaitForBlitter(bi);
 
-    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
                                      CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
     // FIXME: there's no promise that tmpl->Memory and tmpl->BytesPerRow
@@ -2219,7 +2175,7 @@ void ASM S3Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct T
     if (!rol) {
         for (UWORD y = 0; y < height; ++y) {
             for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                this->writePIX_TRANS(((const ULONG *)bitmap)[x]);
+                writePIX_TRANS(((const ULONG *)bitmap)[x]);
             }
             bitmap += bitmapPitch;
         }
@@ -2229,7 +2185,7 @@ void ASM S3Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct T
                 ULONG left  = ((const ULONG *)bitmap)[x] << rol;
                 ULONG right = ((const ULONG *)bitmap)[x + 1] >> (32 - rol);
 
-                this->writePIX_TRANS(left | right);
+                writePIX_TRANS(left | right);
             }
             bitmap += bitmapPitch;
         }
@@ -2250,7 +2206,7 @@ void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pa
     S3Mmio mmio = this->mmio();
 
     UBYTE bpp = getBPP(fmt);
-    if (!bpp || !this->setGEFormat(ri->BytesPerRow, bpp)) {
+    if (!bpp || !setGEFormat(ri->BytesPerRow, bpp)) {
         DFUNC(INFO, "fallback to BlitPatternDefault\n");
         bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
         return;
@@ -2259,7 +2215,7 @@ void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pa
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+    getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
                           (UWORD *)&yoffset);
 
     x += xoffset;
@@ -2280,7 +2236,7 @@ void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pa
         cd->GEdrawMode = 0xFF;
         cd->patternCacheKey &= ~0x80000000;
 
-        this->writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
+        writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
     }
 
     // First, figure out if the new pattern would actually fit into an 8x8 mono pattern.
@@ -2405,86 +2361,86 @@ void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pa
             cd->GEbgPen    = 0;
             cd->GEdrawMode = 0xFF;
 
-            this->setGEWriteMask(~0, AS_RGBF(fmt), 16);
+            setGEWriteMask(~0, AS_RGBF(fmt), 16);
             if (bpp > 2) {
-                this->setForegroundColor32(~0);
-                this->setBackgroundColor32(0);
+                setForegroundColor32(~0);
+                setBackgroundColor32(0);
             } else {
-                this->setForegroundColor(~0);
-                this->setBackgroundColor(0);
+                setForegroundColor(~0);
+                setBackgroundColor(0);
             }
 
-            this->writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
-            this->writeBee8(MULT_MISC2, cd->pattSegment << 4);
+            writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
+            writeBee8(MULT_MISC2, cd->pattSegment << 4);
 
-            this->setMix(CLR_SRC_FRGD_COLOR | MIX_NEW, CLR_SRC_BKGD_COLOR | MIX_NEW);
-            this->setBlitSrcPosAndSize(cd->pattX, cd->pattY, 8, 8);
+            setMix(CLR_SRC_FRGD_COLOR | MIX_NEW, CLR_SRC_BKGD_COLOR | MIX_NEW);
+            setBlitSrcPosAndSize(cd->pattX, cd->pattY, 8, 8);
 
             WaitForBlitter(bi);
             // FIXME: I should get away from checking aginst the family and instead have "feature bits"
             if (cd->chipFamily == VISION864 || cd->chipFamily == VISION968) {
                 // The vision 864 doesn't have CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED, so we have to transfer the pattern
                 // in 8bit chunks
-                mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT |
+                mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT |
                                                  CMD_ACROSS_PLANE | CMD_WAIT_CPU | CMD_BUS_SIZE_8BIT);
                 // FIXME: at this point I wonder if it would be faster to place the 8x8 pattern via CPU writes instead
                 // of blitting it
                 pat0 = swapl(pat0);
                 pat1 = swapl(pat1);
                 for (int i = 0; i < 4; ++i) {
-                    mmio.writeB(S3_MMIO_ID(PIX_TRANS), pat0);
+                    mmio.writeB(PIX_TRANS, pat0);
                     pat0 >>= 8;
                 }
                 for (int i = 0; i < 4; ++i) {
-                    mmio.writeB(S3_MMIO_ID(PIX_TRANS), pat1);
+                    mmio.writeB(PIX_TRANS, pat1);
                     pat1 >>= 8;
                 }
             }
 #if !BUILD_VISION864
             else {
-                mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT |
+                mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT |
                                                  CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                                                  CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED);
-                this->writePIX_TRANS(pat0);
-                this->writePIX_TRANS(pat1);
+                writePIX_TRANS(pat0);
+                writePIX_TRANS(pat1);
             }
 #endif
 
-            this->waitFifo(1);
-            this->writeBee8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
+            waitFifo(1);
+            writeBee8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
         } else {
             if (!was8x8) {
-                this->waitFifo(1);
-                this->writeBee8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
+                waitFifo(1);
+                writeBee8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
             }
         }
 
         // Now that the pattern is in place, we can do the actual pattern blit
-        this->setGEWriteMask(mask, AS_RGBF(fmt), 6);
-        this->setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, AS_RGBF(fmt));
+        setGEWriteMask(mask, AS_RGBF(fmt), 6);
+        setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, AS_RGBF(fmt));
 
-        this->waitFifo(8);
-        this->writeBee8(MULT_MISC2, (cd->pattSegment << 4) | seg);
-        this->setBlitDestPos(x, y);
-        this->setBlitSrcPosAndSize(cd->pattX, cd->pattY, width, height);
+        waitFifo(8);
+        writeBee8(MULT_MISC2, (cd->pattSegment << 4) | seg);
+        setBlitDestPos(x, y);
+        setBlitSrcPosAndSize(cd->pattX, cd->pattY, width, height);
 
-        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_PAT_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
+        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_PAT_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
     } else {
         cd->patternCacheKey &= ~0x80000000;
 
-        this->setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, AS_RGBF(fmt));
+        setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, AS_RGBF(fmt));
 
-        this->setGEWriteMask(mask, AS_RGBF(fmt), 7);
+        setGEWriteMask(mask, AS_RGBF(fmt), 7);
 
         if (was8x8) {
-            this->writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
+            writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
         }
         // This could/should get chached as well
-        this->writeBee8(MULT_MISC2, seg << 4);
+        writeBee8(MULT_MISC2, seg << 4);
 
-        this->setBlitSrcPosAndSize(x, y, width, height);
+        setBlitSrcPosAndSize(x, y, width, height);
 
-        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
                                          CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
         WORD dwordsPerLine      = (width + 31) / 32;
@@ -2497,7 +2453,7 @@ void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pa
                 UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
                 ULONG bitsL = copyToUpper(bits);
                 for (WORD x = 0; x < dwordsPerLine; ++x) {
-                    this->writePIX_TRANS(bitsL);
+                    writePIX_TRANS(bitsL);
                 }
             }
         } else {
@@ -2506,7 +2462,7 @@ void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pa
                 bits        = (bits << rol) | (bits >> (16 - rol));
                 ULONG bitsL = copyToUpper(bits);
                 for (WORD x = 0; x < dwordsPerLine; ++x) {
-                    this->writePIX_TRANS(bitsL);
+                    writePIX_TRANS(bitsL);
                 }
             }
         }
@@ -2519,39 +2475,39 @@ void S3Driver::performBlitPlanar2ChunkyBlits(SHORT dstX, SHORT dstY, SHORT width
     BoardInfo *bi = this;
     S3Mmio mmio   = this->mmio();
 
-    this->setBlitSrcPosAndSize(dstX, dstY, width, height);
+    setBlitSrcPosAndSize(dstX, dstY, width, height);
 
     // FIXME: we can optimize this by building a mask of 0 and 1 planes and then do a single fill
     // first to establish that pattern. IDK how much this feature is used, though. I guess its meant
     // to support planar images with less than 8 bitplanes.
     if ((ULONG)bitmap == 0x00000000) {
-        this->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        mmio.writeW(S3_MMIO_ID(FRGD_MIX), (CLR_SRC_BKGD_COLOR | mixMode));
-        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
+        writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        mmio.writeW(FRGD_MIX, (CLR_SRC_BKGD_COLOR | mixMode));
+        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
 
     } else if ((ULONG)bitmap == 0xFFFFFFFF) {
-        this->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        mmio.writeW(S3_MMIO_ID(FRGD_MIX), (CLR_SRC_FRGD_COLOR | mixMode));
-        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
+        writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        mmio.writeW(FRGD_MIX, (CLR_SRC_FRGD_COLOR | mixMode));
+        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
 
     } else {
         // FIXME: Should I have a path for 16bit aligned width?
         // The only argument for not doing it is unaligned 32bit reads from CPU
         // memory. PCI transfers are 32bit anyways, so wasting bus cycles by
         // transferring in chunks of 16bit seems wasteful
-        this->writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
-        this->setMix((CLR_SRC_FRGD_COLOR | mixMode), (CLR_SRC_BKGD_COLOR | mixMode));
+        writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
+        setMix((CLR_SRC_FRGD_COLOR | mixMode), (CLR_SRC_BKGD_COLOR | mixMode));
 
         // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
         WaitForBlitter(bi);
 
-        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
                                          CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
 
         if (!rol) {
             for (UWORD y = 0; y < height; ++y) {
                 for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                    this->writePIX_TRANS(((ULONG *)bitmap)[x]);
+                    writePIX_TRANS(((ULONG *)bitmap)[x]);
                 }
                 bitmap += bmPitch;
             }
@@ -2560,7 +2516,7 @@ void S3Driver::performBlitPlanar2ChunkyBlits(SHORT dstX, SHORT dstY, SHORT width
                 for (UWORD x = 0; x < dwordsPerLine; ++x) {
                     ULONG left  = ((ULONG *)bitmap)[x] << rol;
                     ULONG right = ((ULONG *)bitmap)[x + 1] >> (32 - rol);
-                    this->writePIX_TRANS((left | right));
+                    writePIX_TRANS((left | right));
                 }
                 bitmap += bmPitch;
             }
@@ -2589,7 +2545,7 @@ void ASM S3Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct 
 
     BOOL swFallback = (projectedRegisterWriteBytes > numPlanarBytes);
 
-    if (swFallback || !this->setGEFormat(bytesPerRow, 1)) {
+    if (swFallback || !setGEFormat(bytesPerRow, 1)) {
         DFUNC(1, "fallback to BlitPlanar2ChunkyDefault\n");
         bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
         return;
@@ -2598,7 +2554,7 @@ void ASM S3Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct 
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), bytesPerRow, 1, &seg, (UWORD *)&xoffset,
+    getGESegmentAndOffset(getMemoryOffset(ri->Memory), bytesPerRow, 1, &seg, (UWORD *)&xoffset,
                           (UWORD *)&yoffset);
 
     dstX += xoffset;
@@ -2615,8 +2571,8 @@ void ASM S3Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct 
         cd->GEfgPen = 0xFF;
         cd->GEbgPen = 0x00;
 
-        this->setForegroundColor(0xFF);
-        this->setBackgroundColor(0x00);
+        setForegroundColor(0xFF);
+        setBackgroundColor(0x00);
     }
 
     UWORD mixMode  = mintermToMixMode(minTerm);
@@ -2626,7 +2582,7 @@ void ASM S3Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct 
     S3Mmio mmio = this->mmio();
 
     // This could/should get chached as well
-    this->writeBee8(MULT_MISC2, seg << 4);
+    writeBee8(MULT_MISC2, seg << 4);
 
     WORD bmPitch        = bm->BytesPerRow;
     ULONG bmStartOffset = (srcY * bmPitch) + (srcX / 32) * 4;
@@ -2640,7 +2596,7 @@ void ASM S3Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct 
             continue;
         }
 
-        this->setGEWriteMask(writeMask, RGBFB_CLUT, 8);
+        setGEWriteMask(writeMask, RGBFB_CLUT, 8);
 
         UBYTE *bitmap = (UBYTE *)bm->Planes[p];
         if (bitmap != 0x0 && (ULONG)bitmap != 0xffffffff) {
@@ -2648,16 +2604,16 @@ void ASM S3Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct 
         }
 
         if (!emulate320) {
-            this->performBlitPlanar2ChunkyBlits(dstX, dstY, width, height, mixMode, bitmap, dwordsPerLine, bmPitch,
+            performBlitPlanar2ChunkyBlits(dstX, dstY, width, height, mixMode, bitmap, dwordsPerLine, bmPitch,
                                                 rol);
         } else {
             SHORT halfHeight1 = (height + 1) / 2;
             SHORT halfHeight2 = height / 2;
 
-            this->performBlitPlanar2ChunkyBlits(dstX, dstY, width, halfHeight1, mixMode, bitmap, dwordsPerLine,
+            performBlitPlanar2ChunkyBlits(dstX, dstY, width, halfHeight1, mixMode, bitmap, dwordsPerLine,
                                                 bmPitch * 2, rol);
             if (halfHeight2) {
-                this->performBlitPlanar2ChunkyBlits(dstX + 320, dstY, width, halfHeight2, mixMode, bitmap + bmPitch,
+                performBlitPlanar2ChunkyBlits(dstX + 320, dstY, width, halfHeight2, mixMode, bitmap + bmPitch,
                                                     dwordsPerLine, bmPitch * 2, rol);
             }
         }
@@ -2671,7 +2627,7 @@ void ASM S3Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line 
     DFUNC(VERBOSE, "\n");
 
     UBYTE bpp = getBPP(fmt);
-    if (!bpp || !this->setGEFormat(ri->BytesPerRow, bpp) || !line->Length) {
+    if (!bpp || !setGEFormat(ri->BytesPerRow, bpp) || !line->Length) {
         DFUNC(1, "Fallback to DrawLineDefault\n");
         bi->DrawLineDefault(bi, ri, line, mask, AS_RGBF(fmt));
         return;
@@ -2682,7 +2638,7 @@ void ASM S3Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line 
     UWORD seg;
     UWORD xoffset;
     UWORD yoffset;
-    getGESegmentAndOffset(this->getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&x, (UWORD *)&y);
+    getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&x, (UWORD *)&y);
 
     x += line->X;
     y += line->Y;
@@ -2697,15 +2653,15 @@ void ASM S3Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line 
         cd->GEdrawMode = 0xFF;
     }
 
-    this->waitFifo(1);
+    waitFifo(1);
 
     S3Mmio mmio = this->mmio();
 
     // This could/should get chached as well
-    this->writeBee8(MULT_MISC2, seg << 4);
+    writeBee8(MULT_MISC2, seg << 4);
 
-    this->setDrawMode(line->FgPen, line->BgPen, line->DrawMode, AS_RGBF(fmt));
-    this->setGEWriteMask(mask, AS_RGBF(fmt), 0);
+    setDrawMode(line->FgPen, line->BgPen, line->DrawMode, AS_RGBF(fmt));
+    setGEWriteMask(mask, AS_RGBF(fmt), 0);
 
     UWORD direction = 0;
 
@@ -2718,35 +2674,37 @@ void ASM S3Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line 
     } else {
         errTerm -= 1;
     }
-    if (line->dY > 0)
+    if (line->dY > 0) {
         direction |= POSITIVE_Y;
+    }
 
-    if (!line->Horizontal)
+    if (!line->Horizontal) {
         direction |= Y_MAJOR;
+    }
 
-    this->waitFifo(8);
+    waitFifo(8);
 
 #if HAS_PACKED_MMIO
-    mmio.writeL(S3_MMIO_ID(ALT_CURXY), makeDWORD(x, y));
-    mmio.writeL(S3_MMIO_ID(ALT_STEP), makeDWORD(2 * (absMIN - absMAX), (2 * absMIN)));
+    mmio.writeL(ALT_CURXY, makeDWORD(x, y));
+    mmio.writeL(ALT_STEP, makeDWORD(2 * (absMIN - absMAX), (2 * absMIN)));
 #else
-    mmio.writeW(S3_MMIO_ID(CUR_X), x);
-    mmio.writeW(S3_MMIO_ID(CUR_Y), y);
-    mmio.writeW(S3_MMIO_ID(DESTX_DIASTP), 2 * (absMIN - absMAX));
-    mmio.writeW(S3_MMIO_ID(DESTY_AXSTP), (2 * absMIN));
+    mmio.writeW(CUR_X, x);
+    mmio.writeW(CUR_Y, y);
+    mmio.writeW(DESTX_DIASTP, 2 * (absMIN - absMAX));
+    mmio.writeW(DESTY_AXSTP, (2 * absMIN));
 #endif
 
-    mmio.writeW(S3_MMIO_ID(MAJ_AXIS_PCNT), line->Length - 1);
-    mmio.writeW(S3_MMIO_ID(ERR_TERM), errTerm);
+    mmio.writeW(MAJ_AXIS_PCNT, line->Length - 1);
+    mmio.writeW(ERR_TERM, errTerm);
 
     BOOL isSolid = (line->LinePtrn == 0xFFFF);
     if (isSolid) {
-        this->writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | direction);
+        writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | direction);
     } else {
-        this->writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
+        writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
 
-        mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
                                          CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED | direction);
 
         // Line->PatternShift selects which bit of the pattern is to be used for the
@@ -2758,7 +2716,7 @@ void ASM S3Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line 
         ULONG patternL = copyToUpper(pattern);
         WORD numDWords = (line->Length + 31) / 32;
         for (WORD i = 0; i < numDWords; ++i) {
-            this->writePIX_TRANS(patternL);
+            writePIX_TRANS(patternL);
         }
     }
 }
@@ -3502,9 +3460,9 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #else
     // Trio64+ and Trio64M writing to ADVFUNC_CNTL via MMIO hangs the machine
     // USHORT sysCntl = R_IO_W(SUBSYS_STAT);
-    USHORT advCntl = io.readW(S3_IO_ID(ADVFUNC_CNTL));
+    USHORT advCntl = io.readW(IoReg::ADVFUNC_CNTL);
     advCntl |= BIT(0);  // | BIT(4) | BIT(7);
-    io.writeW(S3_IO_ID(ADVFUNC_CNTL), advCntl);
+    io.writeW(IoReg::ADVFUNC_CNTL, advCntl);
     // sysCntl = R_IO_W(SUBSYS_STAT);
 #endif
 
@@ -3804,18 +3762,18 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
     asS3(bi)->writeBee8(MULT_MISC, (1 << 9));
 
     // Flush FIFO
-    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
 
     waitFifo(bi, 16);
-    mmio.writeL(S3_MMIO_ID(WRT_MASK), ~0);
-    mmio.writeL(S3_MMIO_ID(RD_MASK), ~0);
-    mmio.writeL(S3_MMIO_ID(COLOR_CMP), 0);
+    mmio.writeL(WRT_MASK, ~0);
+    mmio.writeL(RD_MASK, ~0);
+    mmio.writeL(COLOR_CMP, 0);
 
-    mmio.writeW(S3_MMIO_ID(FRGD_MIX), CLR_SRC_FRGD_COLOR | MIX_NEW);
-    mmio.writeW(S3_MMIO_ID(BKGD_MIX), CLR_SRC_BKGD_COLOR | MIX_NEW);
+    mmio.writeW(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
+    mmio.writeW(BKGD_MIX, CLR_SRC_BKGD_COLOR | MIX_NEW);
 
     // Flush FIFO
-    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
 
     {
         LOCAL_SYSBASE();
@@ -4011,8 +3969,9 @@ static void testVBlankInterrupt(BoardInfo_t *bi)
     }
 
     D(ALWAYS, "VBlank IRQ test: %lu softints in 2s (~%lu Hz)\n", count, count / 2);
-    if (count < 50)
+    if (count < 50) {
         D(ERROR, "VBlank IRQ test: too few interrupts (expected ~120 @60Hz)\n");
+    }
 }
 
 BOOL TestCard(BoardInfo_t *bi, BOOL vblankTest)
@@ -4160,20 +4119,20 @@ BOOL TestCard(BoardInfo_t *bi, BOOL vblankTest)
 
     asS3(bi)->writeBee8(MULT_MISC, (1 << 9));
     // Flush FIFO
-    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
 
     WaitBlitter(bi);
     flushWrites();
     WaitForIdle(bi);
 
     asS3(bi)->readBee8(MULT_MISC);
-    io.readL(S3_IO_ID(WRT_MASK));
+    io.readL(IoReg::WRT_MASK);
 
     asS3(bi)->setGEFormat(640 * 4, 4);
     asS3(bi)->writeBee8(MULT_MISC, (1 << 9));
 
     // Flush FIFO
-    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
     flushWrites();
     WaitForIdle(bi);
     asS3(bi)->readBee8(MULT_MISC);
@@ -4185,7 +4144,7 @@ BOOL TestCard(BoardInfo_t *bi, BOOL vblankTest)
 
     // Flush FIFO
     D(INFO, "1");
-    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
     flushWrites();
     WaitForIdle(bi);
 
@@ -4197,7 +4156,7 @@ BOOL TestCard(BoardInfo_t *bi, BOOL vblankTest)
     // W_IO_L(WRT_MASK, 0xbaadf00d);
     // Flush FIFO
     D(INFO, "3");
-    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
     flushWrites();
     WaitForIdle(bi);
 
@@ -4206,17 +4165,17 @@ BOOL TestCard(BoardInfo_t *bi, BOOL vblankTest)
     // R_MMIO_W(WRT_MASK);
     // R_IO_L(WRT_MASK);
 
-    mmio.writeL(S3_MMIO_ID(WRT_MASK), 0xcafebabe);
+    mmio.writeL(WRT_MASK, 0xcafebabe);
     // Flush FIFO
     D(INFO, "3");
-    mmio.writeW(S3_MMIO_ID(CMD), CMD_ALWAYS | CMD_TYPE_NOP);
+    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
     flushWrites();
     WaitForIdle(bi);
 
     D(INFO, "4");
     asS3(bi)->readBee8(MULT_MISC);
     // R_MMIO_W(WRT_MASK);
-    mmio.readL(S3_MMIO_ID(WRT_MASK));
+    mmio.readL(WRT_MASK);
 
     return TRUE;
 #endif /* disabled legacy TestCard code */

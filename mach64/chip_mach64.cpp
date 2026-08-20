@@ -319,32 +319,37 @@ UWORD resolveMemoryClockKhz10(BoardInfo_t *bi)
     ULONG khz10;
 
     /* P96 MemoryClock is Hz; ROM table entries are 10 kHz units. */
-    if (bi->MemoryClock)
+    if (bi->MemoryClock) {
         khz10 = bi->MemoryClock / 10000UL;
-    else if (family >= MACH64GT)
+    } else if (family >= MACH64GT) {
         khz10 = 10000UL; /* previous initClocks default (100 MHz) */
-    else if (cs->memClock)
+    } else if (cs->memClock) {
         khz10 = cs->memClock;
-    else if (cs->maxDRAMClock)
+    } else if (cs->maxDRAMClock) {
         khz10 = cs->maxDRAMClock;
-    else
+    } else {
         khz10 = 5050UL; /* ~50.5 MHz CT ROM DRAM entry */
+    }
 
-    if (cs->minMClock && khz10 < cs->minMClock)
+    if (cs->minMClock && khz10 < cs->minMClock) {
         khz10 = cs->minMClock;
+    }
 
     {
         UWORD max = cs->maxDRAMClock;
         if (family >= MACH64GT) {
-            if (cs->maxVRAMClock > max)
+            if (cs->maxVRAMClock > max) {
                 max = cs->maxVRAMClock;
-            if (max < 10000)
+            }
+            if (max < 10000) {
                 max = 10000;
+            }
         } else if (!max) {
             max = 6800;
         }
-        if (khz10 > max)
+        if (khz10 > max) {
             khz10 = max;
+        }
     }
 
     return (UWORD)khz10;
@@ -357,14 +362,16 @@ void SetMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
     DFUNC(INFO, "MCLK request %ld0 kHz (family %s)\n", (ULONG)freqKhz10, getChipFamilyName(family));
 
 #if !MACH64_PCI_RETRY
-    if (family == MACH64CT)
+    if (family == MACH64CT) {
         SetMemoryClock_CT(bi, freqKhz10);
+    }
         /* GX: factory ICS2595 MCLK — do not reprogram. */
 #else
-    if (family == MACH64VT)
+    if (family == MACH64VT) {
         SetMemoryClock_VT(bi, freqKhz10);
-    else if (family >= MACH64GT)
+    } else if (family >= MACH64GT) {
         SetMemoryClock_GT(bi, freqKhz10);
+    }
 #endif
 
     bi->MemoryClock = (ULONG)freqKhz10 * 10000UL;
@@ -461,10 +468,12 @@ void ASM Mach64Driver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format
     /* SetGC's CRTC_DBL_SCAN_EN can fail to stick on CT; always re-apply. */
     if (ModeInfo) {
         crtcGen &= ~(CRTC_DBL_SCAN_EN | CRTC_INTERLACE_EN | CRTC_PIC_BY_2_EN);
-        if (ModeInfo->Flags & GMF_DOUBLESCAN)
+        if (ModeInfo->Flags & GMF_DOUBLESCAN) {
             crtcGen |= CRTC_DBL_SCAN_EN;
-        if (ModeInfo->Flags & GMF_INTERLACE)
+        }
+        if (ModeInfo->Flags & GMF_INTERLACE) {
             crtcGen |= CRTC_INTERLACE_EN;
+        }
     }
     mmio.writeL(CRTC_GEN_CNTL, crtcGen);
     if (RegisterBase) {
@@ -501,17 +510,20 @@ static INLINE REGARGS UWORD ToScanLines(UWORD y, UWORD modeFlags)
     /* GMF_DOUBLESCAN: ModeInfo V is logical (FB lines); CRTC wants physical
      * scanlines (×2) plus CRTC_DBL_SCAN_EN.
      * Interlace: programmed totals are half. */
-    if (modeFlags & GMF_DOUBLESCAN)
+    if (modeFlags & GMF_DOUBLESCAN) {
         y *= 2;
-    if (modeFlags & GMF_INTERLACE)
+    }
+    if (modeFlags & GMF_INTERLACE) {
         y /= 2;
+    }
     return y;
 }
 
 static INLINE REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
 {
-    if (!border || x == 0)
+    if (!border || x == 0) {
         x = defaultX;
+    }
     return x;
 }
 
@@ -595,10 +607,12 @@ void ASM Mach64Driver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
 
     ULONG crtcGenCntl = mmio.readL(CRTC_GEN_CNTL);
     crtcGenCntl &= ~(CRTC_DBL_SCAN_EN | CRTC_INTERLACE_EN | CRTC_PIC_BY_2_EN);
-    if (isInterlaced)
+    if (isInterlaced) {
         crtcGenCntl |= CRTC_INTERLACE_EN;
-    if (modeFlags & GMF_DOUBLESCAN)
+    }
+    if (modeFlags & GMF_DOUBLESCAN) {
         crtcGenCntl |= CRTC_DBL_SCAN_EN;
+    }
 
     UWORD hTotalChars = TO_CHARS(mi->HorTotal) - 1;
     D(VERBOSE, "Horizontal Total %ld\n", (ULONG)hTotalChars);
@@ -669,11 +683,13 @@ void ASM Mach64Driver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
     }
 
 #if MACH64_PCI_RETRY
-    if (cd->chipFamily == MACH64VT)
+    if (cd->chipFamily == MACH64VT) {
         AdjustCrtcFifo_VT(this);
+    }
 #else
-    if (cd->chipFamily == MACH64CT)
+    if (cd->chipFamily == MACH64CT) {
         AdjustCrtcFifo_CT(this);
+    }
 #endif
 
     if (cd->chipFamily < MACH64GT) {
@@ -763,16 +779,18 @@ APTR ASM Mach64Driver::calculateMemory(__REGA1(APTR memory), __REGD0(struct Rend
 
 ULONG ASM Mach64Driver::getCompatibleFormats(__REGD7(RGBFTYPE_REG format))
 {
-    if (format == RGBFB_NONE)
+    if (format == RGBFB_NONE) {
         return (ULONG)0;
+    }
 
     // These formats can always reside in the Little Endian Window.
     // We never need to change any aperture setting for them
     ULONG compatible = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC;
-    if (chip()->chipFamily == MACH64GX)
+    if (chip()->chipFamily == MACH64GX) {
         compatible |= RGBFF_R8G8B8A8;
-    else
+    } else {
         compatible |= RGBFF_B8G8R8A8;
+    }
 
     if (chip()->chipFamily >= MACH64CT) {
         switch (format) {
@@ -812,8 +830,9 @@ void ASM Mach64Driver::setDPMSLevel(__REGD0(ULONG level))
         CRTC_HSYNC_DIS | CRTC_VSYNC_DIS, /* OFF */
     };
 
-    if (level > 3)
+    if (level > 3) {
         level = 3;
+    }
 
     DRIVER_LOCALS(this);
     mmio.writeMaskL(CRTC_GEN_CNTL, CRTC_HSYNC_DIS | CRTC_VSYNC_DIS, dpmsBits[level]);
@@ -970,8 +989,9 @@ ULONG ASM Mach64Driver::getVBeamPos()
 /* write only enable bits (+ W1C acks), never status bits back. */
 void Mach64Driver::syncCrtcInterruptEnables()
 {
-    if (!(Flags & BIF_VBLANKINTERRUPT))
+    if (!(Flags & BIF_VBLANKINTERRUPT)) {
         return;
+    }
 
     DRIVER_LOCALS(this);
     ULONG en = cd->p96VBlankInt ? CRTC_VBLANK_INT_EN : 0;
@@ -1002,8 +1022,9 @@ ULONG Mach64Driver::interruptServer()
 
     ULONG status = mmio.readL(CRTC_INT_CNTL);
 
-    if (!(status & CRTC_VBLANK_INT))
+    if (!(status & CRTC_VBLANK_INT)) {
         return 0;
+    }
 
     mmio.writeL(CRTC_INT_CNTL, (status & CRTC_INT_EN_MASK) | CRTC_VBLANK_INT_AK);
 
@@ -1045,18 +1066,20 @@ void ASM Mach64Driver::setSpritePosition(__REGD0(WORD xpos), __REGD1(WORD ypos),
 
     WORD offsetX = 0;
     if (spriteX < 0) {
-        if (spriteX > -64)
+        if (spriteX > -64) {
             offsetX = -spriteX;
-        else
+        } else {
             offsetX = 64;
+        }
         spriteX = 0;
     }
     WORD offsetY = 0;
     if (spriteY < 0) {
-        if (spriteY > -64)
+        if (spriteY > -64) {
             offsetY = -spriteY;
-        else
+        } else {
             offsetY = 64;
+        }
         spriteY = 0;
     }
 
@@ -2504,8 +2527,9 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
         pci_write_config_byte(0x40, config, board);
 
         /* Seed sparse I/O before ROM parse (ROM itself carries the same base). */
-        if (ioBase)
+        if (ioBase) {
             cd->ioSparseBase = ioBase;
+        }
     }
 
     // Test scratch register response
@@ -2513,8 +2537,9 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
     D(INFO, "Register base address: 0x%08lx\n", (ULONG)asMach64(bi)->ioBase());
     if (cd->chipFamily != MACH64GX) {
         /* CT letter f / VT+: AP_SIZE=2 → 2×8M (LE+BE). GX uses sparse I/O below. */
-        if ((mmio.readL(CONFIG_CNTL) & CFG_MEM_AP_SIZE_MASK) != CFG_MEM_AP_SIZE_8M)
+        if ((mmio.readL(CONFIG_CNTL) & CFG_MEM_AP_SIZE_MASK) != CFG_MEM_AP_SIZE_8M) {
             mmio.writeMaskL(CONFIG_CNTL, CFG_MEM_AP_SIZE_MASK, CFG_MEM_AP_SIZE_8M);
+        }
         D(INFO, "CONFIG_CNTL=0x%08lx (AP_SIZE=%ld)\n", mmio.readL(CONFIG_CNTL),
           mmio.readL(CONFIG_CNTL) & CFG_MEM_AP_SIZE_MASK);
 
@@ -2532,8 +2557,9 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
     } else {
         Mach64SparseIo sio = asMach64(bi)->sparseIo();
         /* Warm reinit: aperture already 8MB — avoid redundant CONFIG_CNTL RMW. */
-        if ((sio.readL(SparseIoReg::CONFIG_CNTL) & CFG_MEM_AP_SIZE_MASK) != CFG_MEM_AP_SIZE_8M)
+        if ((sio.readL(SparseIoReg::CONFIG_CNTL) & CFG_MEM_AP_SIZE_MASK) != CFG_MEM_AP_SIZE_8M) {
             sio.writeMaskL(SparseIoReg::CONFIG_CNTL, CFG_MEM_AP_SIZE_MASK, CFG_MEM_AP_SIZE_8M);
+        }
 
         ULONG saveScratchReg1 = mmio.readL(SCRATCH_REG1);
         mmio.writeL(SCRATCH_REG1, 0xAAAAAAAA);
@@ -2551,10 +2577,11 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     /* Warm reinit: CFG_VGA_DIS must be clear for Expansion ROM to be accessible*/
     {
-        if (cd->chipFamily == MACH64GX)
+        if (cd->chipFamily == MACH64GX) {
             asMach64(bi)->sparseIo().writeMaskL(SparseIoReg::CONFIG_CNTL, CFG_VGA_DIS_MASK, 0);
-        else
+        } else {
             mmio.writeMaskL(CONFIG_CNTL, CFG_VGA_DIS_MASK, 0);
+        }
         mmio.writeMaskL(BUS_CNTL, BUS_ROM_DIS_MASK, 0);
     }
 
@@ -2605,8 +2632,9 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
     }
 
     /* MCLK: CT/VT/GT program in InitMach64*; GX reports ROM default only. */
-    if (cd->chipFamily == MACH64GX && !bi->MemoryClock)
+    if (cd->chipFamily == MACH64GX && !bi->MemoryClock) {
         bi->MemoryClock = (ULONG)resolveMemoryClockKhz10(bi) * 10000UL;
+    }
     D(INFO, "MemoryClock %ld Hz\n", bi->MemoryClock);
 
     // FIXME: no need to crop FB size on later chips with auxilliary MMIO aperture
@@ -2618,8 +2646,9 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // decode. GX external DAC is programmed in SetDAC_GX.
     if (cd->chipFamily != MACH64GX) {
         ULONG dacBits = DAC_8BIT_EN;
-        if (!(bi->CardFlags & CFF_BLACKLEVEL_BLACK))
+        if (!(bi->CardFlags & CFF_BLACKLEVEL_BLACK)) {
             dacBits |= DAC_BLANKING;
+        }
         mmio.writeMaskL(DAC_CNTL, DAC_BLANKING_MASK | DAC_VGA_ADR_EN | DAC_8BIT_EN_MASK, dacBits);
         mmio.writeB(DAC_REGS, DAC_MASK, 0xFF);
         D(INFO, "DAC_CNTL=0x%08lx BUS_CNTL=0x%08lx\n", mmio.readL(DAC_CNTL), mmio.readL(BUS_CNTL));
@@ -2720,8 +2749,6 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #include <string.h>
 
 #define VENDOR_E3B 0xE3B
-/* BoardInfo alone is ~2.5KB on stack; default CLI stack is 4KB. */
-ULONG __stack = 65536;
 #define VENDOR_MATAY      0xAD47
 #define DEVICE_FIRESTORM  200
 #define DEVICE_PROMETHEUS 1
@@ -2739,12 +2766,14 @@ static void testFillPattern8bppBytes(BoardInfo_t *bi, UWORD width, UWORD height)
     LOCAL_SYSBASE();
     volatile UBYTE *mem = (volatile UBYTE *)bi->MemoryBase;
     UWORD bpr           = width;
-    if (bi->CalculateBytesPerRow)
+    if (bi->CalculateBytesPerRow) {
         bpr = bi->CalculateBytesPerRow(bi, width, height, bi->ModeInfo, RGBFB_CLUT);
+    }
 
     UWORD gradientRows = 16;
-    if (gradientRows > height)
+    if (gradientRows > height) {
         gradientRows = height;
+    }
     for (UWORD y = 0; y < gradientRows; y++) {
         for (UWORD x = 0; x < width; x++)
             mem[(ULONG)y * (ULONG)bpr + (ULONG)x] = (UBYTE)(x & 0xFF);
@@ -2761,8 +2790,9 @@ static void testFillPattern8bppBytes(BoardInfo_t *bi, UWORD width, UWORD height)
 /* True 8-bit match, or 6-bit DAC trunc/expand (drop low 2 bits). Else broken. */
 static BOOL lutGunOk(UBYTE got, UBYTE wr, BOOL *sixBit)
 {
-    if (got == wr)
+    if (got == wr) {
         return TRUE;
+    }
     if (got == (UBYTE)(wr & 0xFC) || got == (UBYTE)(wr >> 2)) {
         *sixBit = TRUE;
         return TRUE;
@@ -2803,8 +2833,9 @@ static void verifyPaletteReadback(BoardInfo_t *bi)
         got[i][2] = mmio.readB(DAC_REGS, DAC_W_DATA);
         bad[i]    = !lutGunOk(got[i][0], wr[i][0], &sixBit) || !lutGunOk(got[i][1], wr[i][1], &sixBit) ||
                  !lutGunOk(got[i][2], wr[i][2], &sixBit);
-        if (bad[i])
+        if (bad[i]) {
             ++broken;
+        }
     }
     Enable();
 
@@ -2921,8 +2952,9 @@ static void testVBlankInterrupt(BoardInfo_t *bi, struct pci_dev *board)
     bi->Flags &= ~BIF_VBLANKINTERRUPT;
 
     D(ALWAYS, "VBlank IRQ test: %lu softints in 2s (~%lu Hz)\n", count, count / 2);
-    if (count < 50)
+    if (count < 50) {
         D(ERROR, "VBlank IRQ test: too few interrupts (expected ~120 @60Hz)\n");
+    }
 }
 
 /* ALL/S — cycle every built-in mode; VBLANK/S — PCI VBlank IRQ count; EEPROM/S — dump Microwire EEPROM. */
@@ -3041,12 +3073,14 @@ int main()
                 ULONG mmioOff = mach64MmioOffsetInBar0(Memory0Size);
                 /* FB below MMIO hole (+ optional BE half) — never NONSERIALIZED on regs. */
                 D(ALWAYS, "setCacheMode FB...\n");
-                if (mmioOff)
+                if (mmioOff) {
                     setCacheMode(bi, Memory0, mmioOff, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED,
                                  CACHEFLAGS);
-                if (Memory0Size > 0x800000UL)
+                }
+                if (Memory0Size > 0x800000UL) {
                     setCacheMode(bi, (BYTE *)Memory0 + 0x800000UL, Memory0Size - 0x800000UL,
                                  MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED, CACHEFLAGS);
+                }
 
                 if (Memory2) {
                     D(ALWAYS, "Using auxiliary register aperture at 0x%08lx\n", Memory2);
@@ -3209,8 +3243,9 @@ int main()
                 WaitBlitter(bi);
             }
 
-            if (vblankTest)
+            if (vblankTest) {
                 testVBlankInterrupt(bi, board);
+            }
 
             rval = EXIT_SUCCESS;
             goto exit;

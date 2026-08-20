@@ -7,6 +7,7 @@
 
 #include <mmu/alerts.h>
 #include <proto/mmu.h>
+#include <dos/dos.h>
 
 #ifdef DBG
 
