@@ -47,9 +47,9 @@ ifeq ($(DEBUG),1)
     CFLAGS += -DDBG
     LIBS += -ldebug -lm
     # -g with older amiga-gcc (6.5 / image :latest) yields hunks m68k-amigaos-strip cannot read
-    BUILDFLAGS += -O3 -g -ggdb
+    BUILDFLAGS += -O2 -g -ggdb
 else
-    BUILDFLAGS += -Ofast -fomit-frame-pointer -g -ggdb
+    BUILDFLAGS += -O2 -fomit-frame-pointer -g -ggdb
 endif
 
 CFLAGS +=  $(BUILDFLAGS) -Wundef -I. -IPicasso96Develop/Include -IPicasso96Develop/PrivateInclude -Iopenpci
