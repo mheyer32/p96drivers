@@ -1,5 +1,7 @@
 #include "mach32_ramdac.h"
 
+using namespace IoReg;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -193,7 +195,7 @@ static void generic_setClock(BoardInfo_t *bi)
           mi->PixelClock, (ULONG)vfifo);
 
     DRIVER_LOCALS(bi);
-    io.writeMaskW(IoReg::id_CLOCK_SEL, CLK_SEL_MASK | CLK_DIV_MASK | VFIFO_DEPTH_MASK | PASS_THROUGH_DISABLE_MASK,
+    io.writeMaskW(CLOCK_SEL, CLK_SEL_MASK | CLK_DIV_MASK | VFIFO_DEPTH_MASK | PASS_THROUGH_DISABLE_MASK,
                   bits | PASS_THROUGH_DISABLE);
 }
 
@@ -216,44 +218,44 @@ static void bt481_enterExtended(BoardInfo_t *bi)
     DRIVER_LOCALS(bi);
     DAC_ENABLE_RS2()
     delayMicroSeconds(2);
-    io.writeB(IoReg::id_DAC_MASK, 0x01); /* Command A: A0=1 → extended register access enabled */
+    io.writeB(DAC_MASK, 0x01); /* Command A: A0=1 → extended register access enabled */
     delayMicroSeconds(2);
     DAC_DISABLE_RS2();
     delayMicroSeconds(2);
 
     // Alternative access mode for cards that have RS2 grounded
-    // io.writeB(IoReg::id_DAC_MASK, 0xFF);
+    // io.writeB(DAC_MASK, 0xFF);
     // Read Pixel Read Mask Register 4 times consecutively, so that the next write will be directed to Command Register
-    // A. io.readB(IoReg::id_DAC_MASK); io.readB(IoReg::id_DAC_MASK); io.readB(IoReg::id_DAC_MASK);
-    // io.readB(IoReg::id_DAC_MASK); io.writeB(IoReg::id_DAC_MASK, 0x01); /* Command A: A0=1 → extended set enabled */
+    // A. io.readB(DAC_MASK); io.readB(DAC_MASK); io.readB(DAC_MASK);
+    // io.readB(DAC_MASK); io.writeB(DAC_MASK, 0x01); /* Command A: A0=1 → extended set enabled */
 }
 
 static void bt481_exitExtended(BoardInfo_t *bi)
 {
     DRIVER_LOCALS(bi);
     DAC_ENABLE_RS2()
-    io.writeB(IoReg::id_DAC_MASK, 0x00); /* Command A: clear A0, exit extended register access*/
+    io.writeB(DAC_MASK, 0x00); /* Command A: clear A0, exit extended register access*/
     delayMicroSeconds(2);
     DAC_DISABLE_RS2()
     delayMicroSeconds(2);
 
     // Alternative access mode for cards that have RS2 grounded
-    // io.writeB(IoReg::id_DAC_W_INDEX, 0x00);
-    // io.writeB(IoReg::id_DAC_MASK, 0xFF);
-    // io.readB(IoReg::id_DAC_MASK);
-    // io.readB(IoReg::id_DAC_MASK);
-    // io.readB(IoReg::id_DAC_MASK);
-    // io.readB(IoReg::id_DAC_MASK);
-    // io.writeB(IoReg::id_DAC_MASK, 0x00); /* Command A: clear A0 */
+    // io.writeB(DAC_W_INDEX, 0x00);
+    // io.writeB(DAC_MASK, 0xFF);
+    // io.readB(DAC_MASK);
+    // io.readB(DAC_MASK);
+    // io.readB(DAC_MASK);
+    // io.readB(DAC_MASK);
+    // io.writeB(DAC_MASK, 0x00); /* Command A: clear A0 */
 }
 
 static void bt481_writeCommandRegisterB(BoardInfo_t *bi, UBYTE value)
 {
     DRIVER_LOCALS(bi);
     /* Indirect access: addr reg = 2, then data via "read mask" port (datasheet Table 5). */
-    io.writeB(IoReg::id_DAC_W_INDEX, 0x02);
+    io.writeB(DAC_W_INDEX, 0x02);
     delayMicroSeconds(2);
-    io.writeB(IoReg::id_DAC_MASK, value);
+    io.writeB(DAC_MASK, value);
 }
 
 /*
@@ -264,9 +266,9 @@ BOOL initBt481(BoardInfo_t *bi)
 {
     DRIVER_LOCALS(bi);
     bt481_enterExtended(bi);
-    io.writeB(IoReg::id_DAC_W_INDEX, 0x02);  // read Command register B
+    io.writeB(DAC_W_INDEX, 0x02);  // read Command register B
     delayMicroSeconds(2);
-    UBYTE sig = io.readB(IoReg::id_DAC_MASK);
+    UBYTE sig = io.readB(DAC_MASK);
 
     /* Power-up signature 0x1E, or warm-boot leftover of bits we program. */
     if (sig != BT481_CMD_B_SIGNATURE && (sig & ~(BT481_CMD_B_7_5_IRE | BT481_CMD_B_8BIT_DAC)) != 0) {
@@ -295,16 +297,16 @@ BOOL initBt481(BoardInfo_t *bi)
 static void bt481_write_palette_addr_write(BoardInfo_t *bi, UBYTE addr)
 {
     DRIVER_LOCALS(bi);
-    io.writeB(IoReg::id_DAC_W_INDEX, addr);
+    io.writeB(DAC_W_INDEX, addr);
     delayMicroSeconds(2);
 }
 
 static void bt481_write_rgb(BoardInfo_t *bi, UBYTE r, UBYTE g, UBYTE b)
 {
     DRIVER_LOCALS(bi);
-    io.writeB(IoReg::id_DAC_DATA, r);
-    io.writeB(IoReg::id_DAC_DATA, g);
-    io.writeB(IoReg::id_DAC_DATA, b);
+    io.writeB(DAC_DATA, r);
+    io.writeB(DAC_DATA, g);
+    io.writeB(DAC_DATA, b);
 }
 
 static void bt481_setDac(BoardInfo_t *bi, RGBFTYPE format)
@@ -338,12 +340,12 @@ static void bt481_setDac(BoardInfo_t *bi, RGBFTYPE format)
 
     // If using 32bit dual-edge mode passes a 8-bit VGA "overlay" in the last byte.
     // Mask that out.
-    format == RGBFB_CLUT ? io.writeB(IoReg::id_DAC_MASK, 0xFF) : io.writeB(IoReg::id_DAC_MASK, 0x00);
+    format == RGBFB_CLUT ? io.writeB(DAC_MASK, 0xFF) : io.writeB(DAC_MASK, 0x00);
 
     DAC_ENABLE_RS2();
-    io.writeB(IoReg::id_DAC_W_INDEX, 0x01); /* Command Register A */
+    io.writeB(DAC_W_INDEX, 0x01); /* Command Register A */
     delayMicroSeconds(2);
-    io.writeB(IoReg::id_DAC_MASK, dacMode);
+    io.writeB(DAC_MASK, dacMode);
     DAC_DISABLE_RS2();
 }
 

@@ -71,11 +71,11 @@ class S3Driver : public P96Driver
         BYTE testBit = (BYTE)((7 - (numSlots - 1)) & 0xF);
 #if BUILD_VISION864
         S3IoQ port = ioQ();
-        while (port.readW(static_cast<IoReg::Id>(0x9AE8)) & (1 << testBit)) {
+        while (port.readW(IoReg::GP_STAT) & (1 << testBit)) {
         }
 #else
         S3MmioQ port = mmioQ();
-        while (port.readW(static_cast<MmioReg::Id>(0x9AE8)) & (1 << testBit)) {
+        while (port.readW(MmioReg::GP_STAT) & (1 << testBit)) {
         }
 #endif
 #else
@@ -87,11 +87,11 @@ class S3Driver : public P96Driver
     {
 #if BUILD_VISION864
         S3IoQ port = ioQ();
-        while (port.readW(static_cast<IoReg::Id>(0x9AE8)) & BIT(9)) {
+        while (port.readW(IoReg::GP_STAT) & BIT(9)) {
         }
 #else
         S3MmioQ port = mmioQ();
-        while (port.readW(static_cast<MmioReg::Id>(0x9AE8)) & BIT(9)) {
+        while (port.readW(MmioReg::GP_STAT) & BIT(9)) {
         }
 #endif
     }
@@ -100,11 +100,11 @@ class S3Driver : public P96Driver
     {
 #if BUILD_VISION864
         S3IoQ port = ioQ();
-        while ((port.readW(static_cast<IoReg::Id>(0x9AE8)) & (BIT(9) | BIT(10))) != BIT(10)) {
+        while ((port.readW(IoReg::GP_STAT) & (BIT(9) | BIT(10))) != BIT(10)) {
         }
 #else
         S3MmioQ port = mmioQ();
-        while ((port.readW(static_cast<MmioReg::Id>(0x9AE8)) & (BIT(9) | BIT(10))) != BIT(10)) {
+        while ((port.readW(MmioReg::GP_STAT) & (BIT(9) | BIT(10))) != BIT(10)) {
         }
 #endif
     }
@@ -197,9 +197,6 @@ static INLINE void waitFifo(BoardInfo *bi, BYTE numSlots)
 {
     asS3(bi)->waitFifo(numSlots);
 }
-
-#define S3_IO_ID(x)   static_cast<IoReg::Id>(x)
-#define S3_MMIO_ID(x) static_cast<MmioReg::Id>(x)
 
 #define DRIVER_LOCALS(self_)     \
     S3Driver *drv = asS3(self_); \

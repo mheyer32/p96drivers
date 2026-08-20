@@ -55,7 +55,7 @@ void s3I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
         if (!scl_high) {
             D(ERROR, "I2C SCL failed to go high after release (serialReg=0x%08lx) - check pull-up resistors\n",
               serialReg);
-            mmio.readL(S3_MMIO_ID(0xFF08));
+            mmio.readL(I2C_PAD);
         }
 #endif
 
@@ -75,7 +75,7 @@ void s3I2cSetScl(struct BoardInfo *bi, BOOL high, BOOL checkClockStretching)
                 }
                 if (timeout <= 0) {
                     D(ERROR, "I2C clock stretching timeout - SCL stuck low (serialReg=0x%08lx)\n", serialReg);
-                    mmio.readL(S3_MMIO_ID(0xFF08));
+                    mmio.readL(I2C_PAD);
                 }
             }
         }

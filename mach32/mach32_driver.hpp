@@ -47,8 +47,6 @@ class Mach32Driver : public P96Driver
 
     INLINE void waitFifo(UBYTE slots)
     {
-        using namespace IoReg;
-
         flushWrites();
 
         if (!slots)
@@ -66,7 +64,7 @@ class Mach32Driver : public P96Driver
         UWORD maskSwapped  = swapw(mask);
         UWORD raw;
         do {
-            raw = io.readWRaw(EXT_FIFO_STATUS);
+            raw = io.readWRaw(IoReg::EXT_FIFO_STATUS);
         } while (raw & maskSwapped);
 
         cd->fifoSlotsCached = fifoStatConsume(swapw(raw), slots);

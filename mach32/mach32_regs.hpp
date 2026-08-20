@@ -131,20 +131,6 @@ enum Id : LONG
     FIFO_TEST_TAG   = EXT_CURSOR_COLOR_0,
 };
 
-#define MACH32_IO_REG_ID(name, val) static const Id id_##name = static_cast<Id>(val);
-MACH32_IO_REG_LIST(MACH32_IO_REG_ID)
-#undef MACH32_IO_REG_ID
-static const Id id_DISP_STATUS     = DISP_STATUS;
-static const Id id_HORZ_OVERSCAN   = HORZ_OVERSCAN;
-static const Id id_SUBSYS_STATUS   = SUBSYS_STATUS;
-static const Id id_CONFIG_STATUS_1 = CONFIG_STATUS_1;
-static const Id id_CONFIG_STATUS_2 = CONFIG_STATUS_2;
-static const Id id_MAX_WAITSTATES  = MAX_WAITSTATES;
-static const Id id_CMD             = CMD;
-static const Id id_R_EXT_GE_CONFIG = R_EXT_GE_CONFIG;
-static const Id id_R_V_DISP        = R_V_DISP;
-static const Id id_VERT_LINE_CNTR  = VERT_LINE_CNTR;
-static const Id id_R_V_TOTAL       = R_V_TOTAL;
 
 #ifdef DBG
 static INLINE const char *regName(Id id)
