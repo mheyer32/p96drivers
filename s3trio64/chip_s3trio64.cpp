@@ -1720,63 +1720,69 @@ void ASM S3Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __R
     UBYTE bpp = getBPP(fmt);
     if (!bpp || !setGEFormat(ri->BytesPerRow, bpp)) {
         DFUNC(INFO, "Fallback to FillRectDefault\n");
-        bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, AS_RGBF(fmt));
+        goto fallback;
+    }
+    {
+
+        UWORD seg;
+        UWORD xoffset;
+        UWORD yoffset;
+        getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+                              (UWORD *)&yoffset);
+
+        x += xoffset;
+        y += yoffset;
+
+    #ifdef DBG
+        if ((x > (1 << 11)) || (y > (1 << 11))) {
+            D(ERROR, "X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
+        }
+    #endif
+
+        ChipData_t *cd = chip();
+        S3Mmio mmio    = this->mmio();
+
+        if (cd->GEOp != FILLRECT) {
+            cd->GEOp = FILLRECT;
+
+            waitFifo(2);
+            writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+            mmio.writeW(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
+        }
+
+        setGEWriteMask(mask, AS_RGBF(fmt), 0);
+
+        if (cd->GEfgPen != pen || cd->GEFormat != fmt) {
+            cd->GEfgPen  = pen;
+            cd->GEFormat = fmt;
+
+            pen = penToColor(pen, AS_RGBF(fmt));
+
+            if (bpp < 3) {
+                waitFifo(7);
+                setForegroundColor(pen);
+            } else {
+                waitFifo(8);
+                setForegroundColor32(pen);
+            }
+        } else {
+            waitFifo(6);
+        }
+
+        // This could/should get chached as well
+        writeBee8(MULT_MISC2, seg << 4);
+
+        setBlitSrcPosAndSize(x, y, width, height);
+
+        UWORD cmd = CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT;
+
+        mmio.writeW(CMD, cmd);
         return;
     }
 
-    UWORD seg;
-    UWORD xoffset;
-    UWORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
-                          (UWORD *)&yoffset);
-
-    x += xoffset;
-    y += yoffset;
-
-#ifdef DBG
-    if ((x > (1 << 11)) || (y > (1 << 11))) {
-        D(ERROR, "X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
-    }
-#endif
-
-    ChipData_t *cd = chip();
-    S3Mmio mmio    = this->mmio();
-
-    if (cd->GEOp != FILLRECT) {
-        cd->GEOp = FILLRECT;
-
-        waitFifo(2);
-        writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        mmio.writeW(FRGD_MIX, CLR_SRC_FRGD_COLOR | MIX_NEW);
-    }
-
-    setGEWriteMask(mask, AS_RGBF(fmt), 0);
-
-    if (cd->GEfgPen != pen || cd->GEFormat != fmt) {
-        cd->GEfgPen  = pen;
-        cd->GEFormat = fmt;
-
-        pen = penToColor(pen, AS_RGBF(fmt));
-
-        if (bpp < 3) {
-            waitFifo(7);
-            setForegroundColor(pen);
-        } else {
-            waitFifo(8);
-            setForegroundColor32(pen);
-        }
-    } else {
-        waitFifo(6);
-    }
-
-    // This could/should get chached as well
-    writeBee8(MULT_MISC2, seg << 4);
-
-    setBlitSrcPosAndSize(x, y, width, height);
-
-    UWORD cmd = CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT;
-
-    mmio.writeW(CMD, cmd);
+    fallback:
+        waitBlitter();
+        bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, AS_RGBF(fmt));
 }
 
 void ASM S3Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
@@ -1794,43 +1800,49 @@ void ASM S3Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), _
     UBYTE bpp = getBPP(fmt);
     if (!bpp || !setGEFormat(ri->BytesPerRow, bpp)) {
         DFUNC(INFO, "Fallback to InvertRectDefault\n");
-        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, AS_RGBF(fmt));
+        goto fallback;
+    }
+    {
+
+        UWORD seg;
+        UWORD xoffset;
+        UWORD yoffset;
+        getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+                              (UWORD *)&yoffset);
+
+        x += xoffset;
+        y += yoffset;
+
+    #ifdef DBG
+        if ((x > (1 << 11)) || (y > (1 << 11))) {
+            DFUNC(ERROR, "X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
+        }
+    #endif
+
+        ChipData_t *cd = chip();
+        if (cd->GEOp != INVERTRECT) {
+            cd->GEOp = INVERTRECT;
+
+            waitFifo(2);
+
+            writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+            mmio.writeW(FRGD_MIX, CLR_SRC_MEMORY | MIX_NOT_CURRENT);
+        }
+
+        setGEWriteMask(mask, AS_RGBF(fmt), 6);
+
+        // This could/should get chached as well
+        writeBee8(MULT_MISC2, seg << 4);
+
+        setBlitSrcPosAndSize(x, y, width, height);
+
+        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
         return;
     }
 
-    UWORD seg;
-    UWORD xoffset;
-    UWORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
-                          (UWORD *)&yoffset);
-
-    x += xoffset;
-    y += yoffset;
-
-#ifdef DBG
-    if ((x > (1 << 11)) || (y > (1 << 11))) {
-        DFUNC(ERROR, "X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
-    }
-#endif
-
-    ChipData_t *cd = chip();
-    if (cd->GEOp != INVERTRECT) {
-        cd->GEOp = INVERTRECT;
-
-        waitFifo(2);
-
-        writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        mmio.writeW(FRGD_MIX, CLR_SRC_MEMORY | MIX_NOT_CURRENT);
-    }
-
-    setGEWriteMask(mask, AS_RGBF(fmt), 6);
-
-    // This could/should get chached as well
-    writeBee8(MULT_MISC2, seg << 4);
-
-    setBlitSrcPosAndSize(x, y, width, height);
-
-    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT);
+    fallback:
+        waitBlitter();
+        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, AS_RGBF(fmt));
 }
 
 void ASM S3Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), __REGD1(WORD srcY), __REGD2(WORD dstX),
@@ -1850,63 +1862,69 @@ void ASM S3Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), 
     UBYTE bpp = getBPP(fmt);
     if (!bpp || !setGEFormat(ri->BytesPerRow, bpp)) {
         DFUNC(INFO, "Fallback to BlitRectDefault\n");
-        bi->BlitRectDefault(bi, ri, srcX, srcY, dstX, dstY, width, height, mask, AS_RGBF(fmt));
+        goto fallback;
+    }
+    {
+
+        UWORD seg;
+        WORD xoffset;
+        WORD yoffset;
+        getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+                              (UWORD *)&yoffset);
+
+        srcX += xoffset;
+        srcY += yoffset;
+        dstX += xoffset;
+        dstY += yoffset;
+
+        WORD dx = dstX - srcX;
+        WORD dy = dstY - srcY;
+
+        UWORD dir = POSITIVE_X | POSITIVE_Y;
+
+        // FIXME: do we really need to check for overlap?
+        // Is it not equally fast to adjust the blit direction each time?
+        //  BOOL overlapX = !(width <= dx || width <= -dx);
+        //  BOOL overlapY = !(height <= dy || height <= -dy);
+        //  if (overlapX && overlapY)
+        {
+            // rectangles overlap, figure out which direction to blit
+            if (dstX > srcX) {
+                dir &= ~POSITIVE_X;
+                srcX = srcX + width - 1;
+                dstX = dstX + width - 1;
+            }
+            if (dstY > srcY) {
+                dir &= ~POSITIVE_Y;
+                srcY = srcY + height - 1;
+                dstY = dstY + height - 1;
+            }
+        }
+
+        ChipData_t *cd = chip();
+        if (cd->GEOp != BLITRECT) {
+            cd->GEOp = BLITRECT;
+
+            waitFifo(2);
+
+            writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+            mmio.writeW(FRGD_MIX, CLR_SRC_MEMORY | MIX_NEW);
+        }
+
+        setGEWriteMask(mask, AS_RGBF(fmt), 8);
+
+        writeBee8(MULT_MISC2, seg << 4 | seg);
+
+        setBlitSrcPosAndSize(srcX, srcY, width, height);
+        setBlitDestPos(dstX, dstY);
+
+        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
         return;
     }
 
-    UWORD seg;
-    WORD xoffset;
-    WORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
-                          (UWORD *)&yoffset);
-
-    srcX += xoffset;
-    srcY += yoffset;
-    dstX += xoffset;
-    dstY += yoffset;
-
-    WORD dx = dstX - srcX;
-    WORD dy = dstY - srcY;
-
-    UWORD dir = POSITIVE_X | POSITIVE_Y;
-
-    // FIXME: do we really need to check for overlap?
-    // Is it not equally fast to adjust the blit direction each time?
-    //  BOOL overlapX = !(width <= dx || width <= -dx);
-    //  BOOL overlapY = !(height <= dy || height <= -dy);
-    //  if (overlapX && overlapY)
-    {
-        // rectangles overlap, figure out which direction to blit
-        if (dstX > srcX) {
-            dir &= ~POSITIVE_X;
-            srcX = srcX + width - 1;
-            dstX = dstX + width - 1;
-        }
-        if (dstY > srcY) {
-            dir &= ~POSITIVE_Y;
-            srcY = srcY + height - 1;
-            dstY = dstY + height - 1;
-        }
-    }
-
-    ChipData_t *cd = chip();
-    if (cd->GEOp != BLITRECT) {
-        cd->GEOp = BLITRECT;
-
-        waitFifo(2);
-
-        writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        mmio.writeW(FRGD_MIX, CLR_SRC_MEMORY | MIX_NEW);
-    }
-
-    setGEWriteMask(mask, AS_RGBF(fmt), 8);
-
-    writeBee8(MULT_MISC2, seg << 4 | seg);
-
-    setBlitSrcPosAndSize(srcX, srcY, width, height);
-    setBlitDestPos(dstX, dstY);
-
-    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
+    fallback:
+        waitBlitter();
+        bi->BlitRectDefault(bi, ri, srcX, srcY, dstX, dstY, width, height, mask, AS_RGBF(fmt));
 }
 
 const static UWORD minTermToMix[16] = {
@@ -1956,139 +1974,145 @@ void ASM S3Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REG
     UBYTE bpp         = getBPP(format);
     if (!bpp || !setGEFormat(bytesPerRow, bpp)) {
         DFUNC(INFO, "fallback to BlitRectNoMaskCompleteDefault\n");
-        bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, minTerm,
-                                          AS_RGBF(format));
+        goto fallback;
+    }
+    {
+
+        ChipData_t *cd = chip();
+        if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
+            cd->GEOp       = BLITRECTNOMASKCOMPLETE;
+            cd->GEdrawMode = 0xFF;  // invalidate minterm cache
+
+            setGEWriteMask(~0, AS_RGBF(format), 1);
+            writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+        }
+
+        if (cd->GEdrawMode != minTerm) {
+            cd->GEdrawMode = minTerm;
+
+            waitFifo(1);
+            mmio.writeW(FRGD_MIX, CLR_SRC_MEMORY | mintermToMixMode(minTerm));
+        }
+
+        if (sri->BytesPerRow == dri->BytesPerRow) {
+            WORD xoffset;
+            WORD yoffset;
+            UWORD segDst;
+            getGESegmentAndOffset(getMemoryOffset(dri->Memory), sri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset,
+                                  (UWORD *)&yoffset);
+
+            dstX += xoffset;
+            dstY += yoffset;
+
+            UWORD segSrc;
+            getGESegmentAndOffset(getMemoryOffset(sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset,
+                                  (UWORD *)&yoffset);
+
+            srcX += xoffset;
+            srcY += yoffset;
+
+            WORD dx = dstX - srcX;
+            WORD dy = dstY - srcY;
+
+            UWORD dir = POSITIVE_X | POSITIVE_Y;
+
+            // FIXME: do we really need to check for overlap?
+            // Is it not equally fast to adjust the blit direction each time?
+            //  BOOL overlapX = !(width <= dx || width <= -dx);
+            //  BOOL overlapY = !(height <= dy || height <= -dy);
+            //  if (segSrc == segDst && overlapX && overlapY)
+            {
+                // rectangles overlap, figure out which direction to blit
+                if (dstX > srcX) {
+                    dir &= ~POSITIVE_X;
+                    srcX = srcX + width - 1;
+                    dstX = dstX + width - 1;
+                }
+                if (dstY > srcY) {
+                    dir &= ~POSITIVE_Y;
+                    srcY = srcY + height - 1;
+                    dstY = dstY + height - 1;
+                }
+            }
+
+            waitFifo(8);
+
+            writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
+
+            setBlitSrcPosAndSize(srcX, srcY, width, height);
+            setBlitDestPos(dstX, dstY);
+
+            mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
+        } else if (sri->BytesPerRow < dri->BytesPerRow) {
+            WORD xoffset;
+            WORD yoffset;
+            UWORD segDst;
+            getGESegmentAndOffset(getMemoryOffset(dri->Memory), dri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset,
+                                  (UWORD *)&yoffset);
+
+            dstX += xoffset;
+            dstY += yoffset;
+
+            UBYTE *srcMem = (UBYTE *)sri->Memory;
+            srcMem += srcY * sri->BytesPerRow + srcX * bpp;
+            ULONG memOffset = getMemoryOffset(srcMem);
+
+            waitFifo(2);
+
+            for (WORD h = 0; h < height; ++h) {
+                WORD x;
+                WORD y;
+                UWORD segSrc;
+                getGESegmentAndOffset(memOffset, dri->BytesPerRow, bpp, &segSrc, (UWORD *)&x, (UWORD *)&y);
+
+                waitFifo(8);
+                writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
+
+                setBlitSrcPosAndSize(x, y, width, 1);
+                setBlitDestPos(dstX, dstY + h);
+
+                mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
+
+                memOffset += sri->BytesPerRow;
+            }
+        } else {
+            WORD xoffset;
+            WORD yoffset;
+            UWORD segSrc;
+            getGESegmentAndOffset(getMemoryOffset(sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset,
+                                  (UWORD *)&yoffset);
+
+            srcX += xoffset;
+            srcY += yoffset;
+
+            UBYTE *dstMem = (UBYTE *)dri->Memory;
+            dstMem += dstY * dri->BytesPerRow + dstX * bpp;
+            ULONG memOffset = getMemoryOffset(dstMem);
+
+            for (WORD h = 0; h < height; ++h) {
+                WORD x;
+                WORD y;
+                UWORD segDst;
+                getGESegmentAndOffset(memOffset, sri->BytesPerRow, bpp, &segDst, (UWORD *)&x, (UWORD *)&y);
+
+                waitFifo(8);
+                writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
+
+                setBlitSrcPosAndSize(srcX, srcY + h, width, 1);
+                setBlitDestPos(x, y);
+
+                mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
+
+                memOffset += dri->BytesPerRow;
+            }
+        }
         return;
     }
 
-    ChipData_t *cd = chip();
-    if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
-        cd->GEOp       = BLITRECTNOMASKCOMPLETE;
-        cd->GEdrawMode = 0xFF;  // invalidate minterm cache
-
-        setGEWriteMask(~0, AS_RGBF(format), 1);
-        writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
-    }
-
-    if (cd->GEdrawMode != minTerm) {
-        cd->GEdrawMode = minTerm;
-
-        waitFifo(1);
-        mmio.writeW(FRGD_MIX, CLR_SRC_MEMORY | mintermToMixMode(minTerm));
-    }
-
-    if (sri->BytesPerRow == dri->BytesPerRow) {
-        WORD xoffset;
-        WORD yoffset;
-        UWORD segDst;
-        getGESegmentAndOffset(getMemoryOffset(dri->Memory), sri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset,
-                              (UWORD *)&yoffset);
-
-        dstX += xoffset;
-        dstY += yoffset;
-
-        UWORD segSrc;
-        getGESegmentAndOffset(getMemoryOffset(sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset,
-                              (UWORD *)&yoffset);
-
-        srcX += xoffset;
-        srcY += yoffset;
-
-        WORD dx = dstX - srcX;
-        WORD dy = dstY - srcY;
-
-        UWORD dir = POSITIVE_X | POSITIVE_Y;
-
-        // FIXME: do we really need to check for overlap?
-        // Is it not equally fast to adjust the blit direction each time?
-        //  BOOL overlapX = !(width <= dx || width <= -dx);
-        //  BOOL overlapY = !(height <= dy || height <= -dy);
-        //  if (segSrc == segDst && overlapX && overlapY)
-        {
-            // rectangles overlap, figure out which direction to blit
-            if (dstX > srcX) {
-                dir &= ~POSITIVE_X;
-                srcX = srcX + width - 1;
-                dstX = dstX + width - 1;
-            }
-            if (dstY > srcY) {
-                dir &= ~POSITIVE_Y;
-                srcY = srcY + height - 1;
-                dstY = dstY + height - 1;
-            }
-        }
-
-        waitFifo(8);
-
-        writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
-
-        setBlitSrcPosAndSize(srcX, srcY, width, height);
-        setBlitDestPos(dstX, dstY);
-
-        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | dir);
-    } else if (sri->BytesPerRow < dri->BytesPerRow) {
-        WORD xoffset;
-        WORD yoffset;
-        UWORD segDst;
-        getGESegmentAndOffset(getMemoryOffset(dri->Memory), dri->BytesPerRow, bpp, &segDst, (UWORD *)&xoffset,
-                              (UWORD *)&yoffset);
-
-        dstX += xoffset;
-        dstY += yoffset;
-
-        UBYTE *srcMem = (UBYTE *)sri->Memory;
-        srcMem += srcY * sri->BytesPerRow + srcX * bpp;
-        ULONG memOffset = getMemoryOffset(srcMem);
-
-        waitFifo(2);
-
-        for (WORD h = 0; h < height; ++h) {
-            WORD x;
-            WORD y;
-            UWORD segSrc;
-            getGESegmentAndOffset(memOffset, dri->BytesPerRow, bpp, &segSrc, (UWORD *)&x, (UWORD *)&y);
-
-            waitFifo(8);
-            writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
-
-            setBlitSrcPosAndSize(x, y, width, 1);
-            setBlitDestPos(dstX, dstY + h);
-
-            mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
-
-            memOffset += sri->BytesPerRow;
-        }
-    } else {
-        WORD xoffset;
-        WORD yoffset;
-        UWORD segSrc;
-        getGESegmentAndOffset(getMemoryOffset(sri->Memory), sri->BytesPerRow, bpp, &segSrc, (UWORD *)&xoffset,
-                              (UWORD *)&yoffset);
-
-        srcX += xoffset;
-        srcY += yoffset;
-
-        UBYTE *dstMem = (UBYTE *)dri->Memory;
-        dstMem += dstY * dri->BytesPerRow + dstX * bpp;
-        ULONG memOffset = getMemoryOffset(dstMem);
-
-        for (WORD h = 0; h < height; ++h) {
-            WORD x;
-            WORD y;
-            UWORD segDst;
-            getGESegmentAndOffset(memOffset, sri->BytesPerRow, bpp, &segDst, (UWORD *)&x, (UWORD *)&y);
-
-            waitFifo(8);
-            writeBee8(MULT_MISC2, (segSrc << 4) | segDst);
-
-            setBlitSrcPosAndSize(srcX, srcY + h, width, 1);
-            setBlitDestPos(x, y);
-
-            mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
-
-            memOffset += dri->BytesPerRow;
-        }
-    }
+    fallback:
+        waitBlitter();
+        bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, minTerm,
+                                          AS_RGBF(format));
 }
 
 void S3Driver::writePIX_TRANS(ULONG value)
@@ -2116,80 +2140,86 @@ void ASM S3Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct T
     UBYTE bpp = getBPP(fmt);
     if (!bpp || !setGEFormat(ri->BytesPerRow, bpp)) {
         DFUNC(INFO, "fallback to BlitTemplateDefault\n");
-        bi->BlitTemplateDefault(bi, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
+        goto fallback;
+    }
+    {
+
+        UWORD seg;
+        UWORD xoffset;
+        UWORD yoffset;
+        getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+                              (UWORD *)&yoffset);
+
+        x += xoffset;
+        y += yoffset;
+
+    #ifdef DBG
+        if ((x > (1 << 11)) || (y > (1 << 11))) {
+            DFUNC(ERROR, "X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
+        }
+    #endif
+
+        S3Mmio mmio = this->mmio();
+
+        ChipData_t *cd = chip();
+
+        if (cd->GEOp != BLITTEMPLATE) {
+            cd->GEOp = BLITTEMPLATE;
+
+            // Invalidate the pen and drawmode caches
+            cd->GEdrawMode = 0xFF;
+
+            waitFifo(1);
+
+            writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
+        }
+
+        setDrawMode(tmpl->FgPen, tmpl->BgPen, tmpl->DrawMode, AS_RGBF(fmt));
+        setGEWriteMask(mask, AS_RGBF(fmt), 6);
+
+        // This could/should get chached as well
+        writeBee8(MULT_MISC2, seg << 4);
+
+        setBlitSrcPosAndSize(x, y, width, height);
+
+        // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
+        WaitForBlitter(bi);
+
+        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+                                         CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
+
+        // FIXME: there's no promise that tmpl->Memory and tmpl->BytesPerRow
+        // are 32bit aligned. This might either be slower than it could be on 030+ or
+        // just crashing on 68k.
+        const UBYTE *bitmap = (const UBYTE *)tmpl->Memory;
+        bitmap += (tmpl->XOffset / 32) * 4;
+        UWORD dwordsPerLine = (width + 31) / 32;
+        UBYTE rol           = tmpl->XOffset % 32;
+        WORD bitmapPitch    = tmpl->BytesPerRow;
+        if (!rol) {
+            for (UWORD y = 0; y < height; ++y) {
+                for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                    writePIX_TRANS(((const ULONG *)bitmap)[x]);
+                }
+                bitmap += bitmapPitch;
+            }
+        } else {
+            for (UWORD y = 0; y < height; ++y) {
+                for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                    ULONG left  = ((const ULONG *)bitmap)[x] << rol;
+                    ULONG right = ((const ULONG *)bitmap)[x + 1] >> (32 - rol);
+
+                    writePIX_TRANS(left | right);
+                }
+                bitmap += bitmapPitch;
+            }
+        }
         return;
     }
 
-    UWORD seg;
-    UWORD xoffset;
-    UWORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
-                          (UWORD *)&yoffset);
-
-    x += xoffset;
-    y += yoffset;
-
-#ifdef DBG
-    if ((x > (1 << 11)) || (y > (1 << 11))) {
-        DFUNC(ERROR, "X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
-    }
-#endif
-
-    S3Mmio mmio = this->mmio();
-
-    ChipData_t *cd = chip();
-
-    if (cd->GEOp != BLITTEMPLATE) {
-        cd->GEOp = BLITTEMPLATE;
-
-        // Invalidate the pen and drawmode caches
-        cd->GEdrawMode = 0xFF;
-
-        waitFifo(1);
-
-        writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
-    }
-
-    setDrawMode(tmpl->FgPen, tmpl->BgPen, tmpl->DrawMode, AS_RGBF(fmt));
-    setGEWriteMask(mask, AS_RGBF(fmt), 6);
-
-    // This could/should get chached as well
-    writeBee8(MULT_MISC2, seg << 4);
-
-    setBlitSrcPosAndSize(x, y, width, height);
-
-    // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
-    WaitForBlitter(bi);
-
-    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
-                                     CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
-
-    // FIXME: there's no promise that tmpl->Memory and tmpl->BytesPerRow
-    // are 32bit aligned. This might either be slower than it could be on 030+ or
-    // just crashing on 68k.
-    const UBYTE *bitmap = (const UBYTE *)tmpl->Memory;
-    bitmap += (tmpl->XOffset / 32) * 4;
-    UWORD dwordsPerLine = (width + 31) / 32;
-    UBYTE rol           = tmpl->XOffset % 32;
-    WORD bitmapPitch    = tmpl->BytesPerRow;
-    if (!rol) {
-        for (UWORD y = 0; y < height; ++y) {
-            for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                writePIX_TRANS(((const ULONG *)bitmap)[x]);
-            }
-            bitmap += bitmapPitch;
-        }
-    } else {
-        for (UWORD y = 0; y < height; ++y) {
-            for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                ULONG left  = ((const ULONG *)bitmap)[x] << rol;
-                ULONG right = ((const ULONG *)bitmap)[x + 1] >> (32 - rol);
-
-                writePIX_TRANS(left | right);
-            }
-            bitmap += bitmapPitch;
-        }
-    }
+    fallback:
+        waitBlitter();
+        bi->BlitTemplateDefault(bi, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
 }
 
 void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pattern *pattern), __REGD0(WORD x),
@@ -2208,265 +2238,271 @@ void ASM S3Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pa
     UBYTE bpp = getBPP(fmt);
     if (!bpp || !setGEFormat(ri->BytesPerRow, bpp)) {
         DFUNC(INFO, "fallback to BlitPatternDefault\n");
-        bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
+        goto fallback;
+    }
+    {
+
+        UWORD seg;
+        UWORD xoffset;
+        UWORD yoffset;
+        getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
+                              (UWORD *)&yoffset);
+
+        x += xoffset;
+        y += yoffset;
+
+    #ifdef DBG
+        if ((x > (1 << 11)) || (y > (1 << 11))) {
+            DFUNC(ERROR, "X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
+        }
+    #endif
+
+        ChipData_t *cd = chip();
+
+        if (cd->GEOp != BLITPATTERN) {
+            cd->GEOp = BLITPATTERN;
+
+            // Invalidate the pen and drawmode caches
+            cd->GEdrawMode = 0xFF;
+            cd->patternCacheKey &= ~0x80000000;
+
+            writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
+        }
+
+        // First, figure out if the new pattern would actually fit into an 8x8 mono pattern.
+        // Then we can use the hardware pattern registers, which are much faster.
+        // If not, upload the pattern to video memory and use that as mono blit source.
+        // We cache the last pattern to avoid re-uploading it if it didn't change.
+        UWORD patternHeight        = 1 << pattern->Size;
+        const UWORD *sysMemPattern = (const UWORD *)pattern->Memory;
+        UWORD *cachedPattern       = cd->patternCacheBuffer;
+
+        // Try to avoid wait-for-idle by first checking if the pattern changed.
+        // I'm not expecting huge patterns, so this will hopefully be fast
+        BOOL patternChanged = FALSE;
+        BOOL is8x8          = (patternHeight <= 8);
+        for (UWORD i = 0; i < patternHeight; ++i) {
+            UWORD row = sysMemPattern[i];
+            // Compare new pattern with last one uploaded
+            if (row != cachedPattern[i]) {
+                cachedPattern[i] = row;
+                patternChanged   = TRUE;
+            }
+            // Check if upper half and lower half of the 16bit pattern row are identical,
+            // so the pattern width is essentially 8bit
+            if ((UBYTE)(row >> 8) != (UBYTE)row) {
+                is8x8 = FALSE;
+            }
+        }
+
+        BOOL was8x8 = (cd->patternCacheKey & 0x80000000) != 0;
+
+        if (is8x8) {
+            // The Trio64 8x8 mono patttern cannot be offset directly.
+            // Instead, its "destination aligned". So in order to offset the pattern, we
+            // need to manually rotate it here.
+            UBYTE pattOffX = (UBYTE)((x - pattern->XOffset) & 7);
+            UBYTE pattOffY = (UBYTE)((y - pattern->YOffset) & 7);
+
+            ULONG pattCacheKey = (pattOffX << 16) | (pattOffY << 8) | pattern->Size | 0x80000000;
+            if (pattCacheKey != cd->patternCacheKey) {
+                cd->patternCacheKey = pattCacheKey;
+                patternChanged      = TRUE;
+            }
+
+            if (patternChanged) {
+                // replicate the 8xN pattern to 8x8
+                ULONG pat0;
+                ULONG pat1;
+
+                // Build the 8x8 pattern in the two registers
+                // Source patterns that are smaller than 8 in height will be extended to height 8
+                switch (pattern->Size) {
+                case 0:
+                    // our pattern data is already 16bit, with the upper half and lower half determined to be identical
+                    pat0 = cachedPattern[0] | (cachedPattern[0] << 16);
+                    pat1 = pat0;
+                    break;
+                case 1:
+                    pat0 = (cachedPattern[0] & 0xFF00) | ((cachedPattern[1] & 0xFF));
+                    pat0 |= (pat0 << 16);
+                    pat1 = pat0;
+                    break;
+                case 2:
+                    pat0 = ((cachedPattern[0] & 0xFF00) << 16) | ((cachedPattern[1] & 0xFF00) << 8) |
+                           (cachedPattern[2] & 0xFF00) | (cachedPattern[3] & 0xFF);
+                    pat1 = pat0;
+                    break;
+                case 3:
+                    pat0 = ((cachedPattern[0] & 0xFF00) << 16) | ((cachedPattern[1] & 0xFF00) << 8) |
+                           (cachedPattern[2] & 0xFF00) | (cachedPattern[3] & 0xFF);
+                    pat1 = ((cachedPattern[4] & 0xFF00) << 16) | ((cachedPattern[5] & 0xFF00) << 8) |
+                           (cachedPattern[6] & 0xFF00) | (cachedPattern[7] & 0xFF);
+                    break;
+                default:
+                    // fallthrough
+                    break;
+                }
+
+                // Since the Mach64 pattern is "destination aligned", emulate offsetting the pattern by uploading
+                // a rotated pattern
+                if (pattOffX) {
+                    // Rotate 'right' in X direction, we need to rotate within each byte
+                    ULONG maskLower = (1 << pattOffX) - 1;
+                    maskLower |= (maskLower << 8) | (maskLower << 16) | (maskLower << 24);
+                    ULONG maskUpper = ~maskLower;
+                    pat0            = ((pat0 & maskUpper) >> pattOffX) | ((pat0 & maskLower) << (8 - pattOffX));
+                    pat1            = ((pat1 & maskUpper) >> pattOffX) | ((pat1 & maskLower) << (8 - pattOffX));
+                }
+
+                if (pattOffY) {
+                    // Rotate 'down' in Y direction
+                    ULONG temp;
+                    if (pattOffY & 1) {
+                        temp = pat0;
+                        pat0 = (pat0 >> 8) | (pat1 << 24);
+                        pat1 = (pat1 >> 8) | (temp << 24);
+                    }
+                    if (pattOffY & 2) {
+                        temp = pat0;
+                        pat0 = (pat0 >> 16) | (pat1 << 16);
+                        pat1 = (pat1 >> 16) | (temp << 16);
+                    }
+                    if (pattOffY & 4) {
+                        temp = pat0;
+                        pat0 = pat1;
+                        pat1 = temp;
+                    }
+                }
+
+                // First upload the pattern to the offscreen area.
+                // I was hoping I could just place the 8x8 mono pattern into an offscreen area and
+                // get the pattern blit monochrome-expand the bits to actual pixels.
+                // But no. Instead, we need to blow up the 8x8 bit pattern into 8x8 actual black and white pixels.
+                // Ontop, they need to be spread out by the actual pitch currently selected for the graphics engine.
+                // As I understand the PATBLT text: the pattern pixel is read. Then all the '1' bits in the RD_MASK
+                // are compared to the same bits in the fetched pixel. If they match, the the foreground mix path
+                // is taken, otherwise the background path.
+                // Therefore, instead of typical monochrome expansion, we need to produce the pattern first as "full blown"
+                // pixels. We upload the monochrome pattern first via a fill blit under monochrome expansion. Then we point
+                // the actual pattern blit at the produced "black and white pixels" image and let it be expanded to colored
+                // pixels via above mentioned mechanism.
+                cd->GEfgPen    = 0xFFFFFFFF;
+                cd->GEbgPen    = 0;
+                cd->GEdrawMode = 0xFF;
+
+                setGEWriteMask(~0, AS_RGBF(fmt), 16);
+                if (bpp > 2) {
+                    setForegroundColor32(~0);
+                    setBackgroundColor32(0);
+                } else {
+                    setForegroundColor(~0);
+                    setBackgroundColor(0);
+                }
+
+                writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
+                writeBee8(MULT_MISC2, cd->pattSegment << 4);
+
+                setMix(CLR_SRC_FRGD_COLOR | MIX_NEW, CLR_SRC_BKGD_COLOR | MIX_NEW);
+                setBlitSrcPosAndSize(cd->pattX, cd->pattY, 8, 8);
+
+                WaitForBlitter(bi);
+                // FIXME: I should get away from checking aginst the family and instead have "feature bits"
+                if (cd->chipFamily == VISION864 || cd->chipFamily == VISION968) {
+                    // The vision 864 doesn't have CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED, so we have to transfer the pattern
+                    // in 8bit chunks
+                    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT |
+                                                     CMD_ACROSS_PLANE | CMD_WAIT_CPU | CMD_BUS_SIZE_8BIT);
+                    // FIXME: at this point I wonder if it would be faster to place the 8x8 pattern via CPU writes instead
+                    // of blitting it
+                    pat0 = swapl(pat0);
+                    pat1 = swapl(pat1);
+                    for (int i = 0; i < 4; ++i) {
+                        mmio.writeB(PIX_TRANS, pat0);
+                        pat0 >>= 8;
+                    }
+                    for (int i = 0; i < 4; ++i) {
+                        mmio.writeB(PIX_TRANS, pat1);
+                        pat1 >>= 8;
+                    }
+                }
+    #if !BUILD_VISION864
+                else {
+                    mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT |
+                                                     CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+                                                     CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED);
+                    writePIX_TRANS(pat0);
+                    writePIX_TRANS(pat1);
+                }
+    #endif
+
+                waitFifo(1);
+                writeBee8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
+            } else {
+                if (!was8x8) {
+                    waitFifo(1);
+                    writeBee8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
+                }
+            }
+
+            // Now that the pattern is in place, we can do the actual pattern blit
+            setGEWriteMask(mask, AS_RGBF(fmt), 6);
+            setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, AS_RGBF(fmt));
+
+            waitFifo(8);
+            writeBee8(MULT_MISC2, (cd->pattSegment << 4) | seg);
+            setBlitDestPos(x, y);
+            setBlitSrcPosAndSize(cd->pattX, cd->pattY, width, height);
+
+            mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_PAT_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
+        } else {
+            cd->patternCacheKey &= ~0x80000000;
+
+            setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, AS_RGBF(fmt));
+
+            setGEWriteMask(mask, AS_RGBF(fmt), 7);
+
+            if (was8x8) {
+                writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
+            }
+            // This could/should get chached as well
+            writeBee8(MULT_MISC2, seg << 4);
+
+            setBlitSrcPosAndSize(x, y, width, height);
+
+            mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
+                                             CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
+
+            WORD dwordsPerLine      = (width + 31) / 32;
+            UWORD *bitmap           = (UWORD *)pattern->Memory;
+            UBYTE rol               = pattern->XOffset % 16;
+            UWORD patternHeightMask = (1 << pattern->Size) - 1;
+
+            if (!rol) {
+                for (WORD y = 0; y < height; ++y) {
+                    UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
+                    ULONG bitsL = copyToUpper(bits);
+                    for (WORD x = 0; x < dwordsPerLine; ++x) {
+                        writePIX_TRANS(bitsL);
+                    }
+                }
+            } else {
+                for (WORD y = 0; y < height; ++y) {
+                    UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
+                    bits        = (bits << rol) | (bits >> (16 - rol));
+                    ULONG bitsL = copyToUpper(bits);
+                    for (WORD x = 0; x < dwordsPerLine; ++x) {
+                        writePIX_TRANS(bitsL);
+                    }
+                }
+            }
+        }
         return;
     }
 
-    UWORD seg;
-    UWORD xoffset;
-    UWORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&xoffset,
-                          (UWORD *)&yoffset);
-
-    x += xoffset;
-    y += yoffset;
-
-#ifdef DBG
-    if ((x > (1 << 11)) || (y > (1 << 11))) {
-        DFUNC(ERROR, "X %ld or Y %ld out of range\n", (ULONG)x, (ULONG)y);
-    }
-#endif
-
-    ChipData_t *cd = chip();
-
-    if (cd->GEOp != BLITPATTERN) {
-        cd->GEOp = BLITPATTERN;
-
-        // Invalidate the pen and drawmode caches
-        cd->GEdrawMode = 0xFF;
-        cd->patternCacheKey &= ~0x80000000;
-
-        writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
-    }
-
-    // First, figure out if the new pattern would actually fit into an 8x8 mono pattern.
-    // Then we can use the hardware pattern registers, which are much faster.
-    // If not, upload the pattern to video memory and use that as mono blit source.
-    // We cache the last pattern to avoid re-uploading it if it didn't change.
-    UWORD patternHeight        = 1 << pattern->Size;
-    const UWORD *sysMemPattern = (const UWORD *)pattern->Memory;
-    UWORD *cachedPattern       = cd->patternCacheBuffer;
-
-    // Try to avoid wait-for-idle by first checking if the pattern changed.
-    // I'm not expecting huge patterns, so this will hopefully be fast
-    BOOL patternChanged = FALSE;
-    BOOL is8x8          = (patternHeight <= 8);
-    for (UWORD i = 0; i < patternHeight; ++i) {
-        UWORD row = sysMemPattern[i];
-        // Compare new pattern with last one uploaded
-        if (row != cachedPattern[i]) {
-            cachedPattern[i] = row;
-            patternChanged   = TRUE;
-        }
-        // Check if upper half and lower half of the 16bit pattern row are identical,
-        // so the pattern width is essentially 8bit
-        if ((UBYTE)(row >> 8) != (UBYTE)row) {
-            is8x8 = FALSE;
-        }
-    }
-
-    BOOL was8x8 = (cd->patternCacheKey & 0x80000000) != 0;
-
-    if (is8x8) {
-        // The Trio64 8x8 mono patttern cannot be offset directly.
-        // Instead, its "destination aligned". So in order to offset the pattern, we
-        // need to manually rotate it here.
-        UBYTE pattOffX = (UBYTE)((x - pattern->XOffset) & 7);
-        UBYTE pattOffY = (UBYTE)((y - pattern->YOffset) & 7);
-
-        ULONG pattCacheKey = (pattOffX << 16) | (pattOffY << 8) | pattern->Size | 0x80000000;
-        if (pattCacheKey != cd->patternCacheKey) {
-            cd->patternCacheKey = pattCacheKey;
-            patternChanged      = TRUE;
-        }
-
-        if (patternChanged) {
-            // replicate the 8xN pattern to 8x8
-            ULONG pat0;
-            ULONG pat1;
-
-            // Build the 8x8 pattern in the two registers
-            // Source patterns that are smaller than 8 in height will be extended to height 8
-            switch (pattern->Size) {
-            case 0:
-                // our pattern data is already 16bit, with the upper half and lower half determined to be identical
-                pat0 = cachedPattern[0] | (cachedPattern[0] << 16);
-                pat1 = pat0;
-                break;
-            case 1:
-                pat0 = (cachedPattern[0] & 0xFF00) | ((cachedPattern[1] & 0xFF));
-                pat0 |= (pat0 << 16);
-                pat1 = pat0;
-                break;
-            case 2:
-                pat0 = ((cachedPattern[0] & 0xFF00) << 16) | ((cachedPattern[1] & 0xFF00) << 8) |
-                       (cachedPattern[2] & 0xFF00) | (cachedPattern[3] & 0xFF);
-                pat1 = pat0;
-                break;
-            case 3:
-                pat0 = ((cachedPattern[0] & 0xFF00) << 16) | ((cachedPattern[1] & 0xFF00) << 8) |
-                       (cachedPattern[2] & 0xFF00) | (cachedPattern[3] & 0xFF);
-                pat1 = ((cachedPattern[4] & 0xFF00) << 16) | ((cachedPattern[5] & 0xFF00) << 8) |
-                       (cachedPattern[6] & 0xFF00) | (cachedPattern[7] & 0xFF);
-                break;
-            default:
-                // fallthrough
-                break;
-            }
-
-            // Since the Mach64 pattern is "destination aligned", emulate offsetting the pattern by uploading
-            // a rotated pattern
-            if (pattOffX) {
-                // Rotate 'right' in X direction, we need to rotate within each byte
-                ULONG maskLower = (1 << pattOffX) - 1;
-                maskLower |= (maskLower << 8) | (maskLower << 16) | (maskLower << 24);
-                ULONG maskUpper = ~maskLower;
-                pat0            = ((pat0 & maskUpper) >> pattOffX) | ((pat0 & maskLower) << (8 - pattOffX));
-                pat1            = ((pat1 & maskUpper) >> pattOffX) | ((pat1 & maskLower) << (8 - pattOffX));
-            }
-
-            if (pattOffY) {
-                // Rotate 'down' in Y direction
-                ULONG temp;
-                if (pattOffY & 1) {
-                    temp = pat0;
-                    pat0 = (pat0 >> 8) | (pat1 << 24);
-                    pat1 = (pat1 >> 8) | (temp << 24);
-                }
-                if (pattOffY & 2) {
-                    temp = pat0;
-                    pat0 = (pat0 >> 16) | (pat1 << 16);
-                    pat1 = (pat1 >> 16) | (temp << 16);
-                }
-                if (pattOffY & 4) {
-                    temp = pat0;
-                    pat0 = pat1;
-                    pat1 = temp;
-                }
-            }
-
-            // First upload the pattern to the offscreen area.
-            // I was hoping I could just place the 8x8 mono pattern into an offscreen area and
-            // get the pattern blit monochrome-expand the bits to actual pixels.
-            // But no. Instead, we need to blow up the 8x8 bit pattern into 8x8 actual black and white pixels.
-            // Ontop, they need to be spread out by the actual pitch currently selected for the graphics engine.
-            // As I understand the PATBLT text: the pattern pixel is read. Then all the '1' bits in the RD_MASK
-            // are compared to the same bits in the fetched pixel. If they match, the the foreground mix path
-            // is taken, otherwise the background path.
-            // Therefore, instead of typical monochrome expansion, we need to produce the pattern first as "full blown"
-            // pixels. We upload the monochrome pattern first via a fill blit under monochrome expansion. Then we point
-            // the actual pattern blit at the produced "black and white pixels" image and let it be expanded to colored
-            // pixels via above mentioned mechanism.
-            cd->GEfgPen    = 0xFFFFFFFF;
-            cd->GEbgPen    = 0;
-            cd->GEdrawMode = 0xFF;
-
-            setGEWriteMask(~0, AS_RGBF(fmt), 16);
-            if (bpp > 2) {
-                setForegroundColor32(~0);
-                setBackgroundColor32(0);
-            } else {
-                setForegroundColor(~0);
-                setBackgroundColor(0);
-            }
-
-            writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
-            writeBee8(MULT_MISC2, cd->pattSegment << 4);
-
-            setMix(CLR_SRC_FRGD_COLOR | MIX_NEW, CLR_SRC_BKGD_COLOR | MIX_NEW);
-            setBlitSrcPosAndSize(cd->pattX, cd->pattY, 8, 8);
-
-            WaitForBlitter(bi);
-            // FIXME: I should get away from checking aginst the family and instead have "feature bits"
-            if (cd->chipFamily == VISION864 || cd->chipFamily == VISION968) {
-                // The vision 864 doesn't have CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED, so we have to transfer the pattern
-                // in 8bit chunks
-                mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT |
-                                                 CMD_ACROSS_PLANE | CMD_WAIT_CPU | CMD_BUS_SIZE_8BIT);
-                // FIXME: at this point I wonder if it would be faster to place the 8x8 pattern via CPU writes instead
-                // of blitting it
-                pat0 = swapl(pat0);
-                pat1 = swapl(pat1);
-                for (int i = 0; i < 4; ++i) {
-                    mmio.writeB(PIX_TRANS, pat0);
-                    pat0 >>= 8;
-                }
-                for (int i = 0; i < 4; ++i) {
-                    mmio.writeB(PIX_TRANS, pat1);
-                    pat1 >>= 8;
-                }
-            }
-#if !BUILD_VISION864
-            else {
-                mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT |
-                                                 CMD_ACROSS_PLANE | CMD_WAIT_CPU |
-                                                 CMD_BUS_SIZE_32BIT_MASK_8BIT_ALIGNED);
-                writePIX_TRANS(pat0);
-                writePIX_TRANS(pat1);
-            }
-#endif
-
-            waitFifo(1);
-            writeBee8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
-        } else {
-            if (!was8x8) {
-                waitFifo(1);
-                writeBee8(PIX_CNTL, MASK_BIT_SRC_BITMAP);
-            }
-        }
-
-        // Now that the pattern is in place, we can do the actual pattern blit
-        setGEWriteMask(mask, AS_RGBF(fmt), 6);
-        setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, AS_RGBF(fmt));
-
-        waitFifo(8);
-        writeBee8(MULT_MISC2, (cd->pattSegment << 4) | seg);
-        setBlitDestPos(x, y);
-        setBlitSrcPosAndSize(cd->pattX, cd->pattY, width, height);
-
-        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_PAT_BLIT | CMD_DRAW_PIXELS | TOP_LEFT);
-    } else {
-        cd->patternCacheKey &= ~0x80000000;
-
-        setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, AS_RGBF(fmt));
-
-        setGEWriteMask(mask, AS_RGBF(fmt), 7);
-
-        if (was8x8) {
-            writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
-        }
-        // This could/should get chached as well
-        writeBee8(MULT_MISC2, seg << 4);
-
-        setBlitSrcPosAndSize(x, y, width, height);
-
-        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_RECT_FILL | CMD_DRAW_PIXELS | TOP_LEFT | CMD_ACROSS_PLANE |
-                                         CMD_WAIT_CPU | CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED);
-
-        WORD dwordsPerLine      = (width + 31) / 32;
-        UWORD *bitmap           = (UWORD *)pattern->Memory;
-        UBYTE rol               = pattern->XOffset % 16;
-        UWORD patternHeightMask = (1 << pattern->Size) - 1;
-
-        if (!rol) {
-            for (WORD y = 0; y < height; ++y) {
-                UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
-                ULONG bitsL = copyToUpper(bits);
-                for (WORD x = 0; x < dwordsPerLine; ++x) {
-                    writePIX_TRANS(bitsL);
-                }
-            }
-        } else {
-            for (WORD y = 0; y < height; ++y) {
-                UWORD bits  = bitmap[(y + pattern->YOffset) & patternHeightMask];
-                bits        = (bits << rol) | (bits >> (16 - rol));
-                ULONG bitsL = copyToUpper(bits);
-                for (WORD x = 0; x < dwordsPerLine; ++x) {
-                    writePIX_TRANS(bitsL);
-                }
-            }
-        }
-    }
+    fallback:
+        waitBlitter();
+        bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
 }
 
 void S3Driver::performBlitPlanar2ChunkyBlits(SHORT dstX, SHORT dstY, SHORT width, SHORT height, UWORD mixMode,
@@ -2547,77 +2583,83 @@ void ASM S3Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct 
 
     if (swFallback || !setGEFormat(bytesPerRow, 1)) {
         DFUNC(1, "fallback to BlitPlanar2ChunkyDefault\n");
-        bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
+        goto fallback;
+    }
+    {
+
+        UWORD seg;
+        UWORD xoffset;
+        UWORD yoffset;
+        getGESegmentAndOffset(getMemoryOffset(ri->Memory), bytesPerRow, 1, &seg, (UWORD *)&xoffset,
+                              (UWORD *)&yoffset);
+
+        dstX += xoffset;
+        dstY += yoffset;
+
+        ChipData_t *cd = chip();
+
+        if (cd->GEOp != BLITPLANAR2CHUNKY) {
+            cd->GEOp = BLITPLANAR2CHUNKY;
+
+            // Invalidate the pen and drawmode caches
+            cd->GEdrawMode = 0xFF;
+
+            cd->GEfgPen = 0xFF;
+            cd->GEbgPen = 0x00;
+
+            setForegroundColor(0xFF);
+            setBackgroundColor(0x00);
+        }
+
+        UWORD mixMode  = mintermToMixMode(minTerm);
+        cd->GEdrawMode = minTerm;
+        cd->GEFormat   = RGBFB_CLUT;
+
+        S3Mmio mmio = this->mmio();
+
+        // This could/should get chached as well
+        writeBee8(MULT_MISC2, seg << 4);
+
+        WORD bmPitch        = bm->BytesPerRow;
+        ULONG bmStartOffset = (srcY * bmPitch) + (srcX / 32) * 4;
+        UWORD dwordsPerLine = (width + 31) / 32;
+        UBYTE rol           = srcX % 32;
+
+        for (short p = 0; p < 8; ++p) {
+            UBYTE writeMask = 1 << p;
+
+            if (!(mask & writeMask)) {
+                continue;
+            }
+
+            setGEWriteMask(writeMask, RGBFB_CLUT, 8);
+
+            UBYTE *bitmap = (UBYTE *)bm->Planes[p];
+            if (bitmap != 0x0 && (ULONG)bitmap != 0xffffffff) {
+                bitmap += bmStartOffset;
+            }
+
+            if (!emulate320) {
+                performBlitPlanar2ChunkyBlits(dstX, dstY, width, height, mixMode, bitmap, dwordsPerLine, bmPitch,
+                                                    rol);
+            } else {
+                SHORT halfHeight1 = (height + 1) / 2;
+                SHORT halfHeight2 = height / 2;
+
+                performBlitPlanar2ChunkyBlits(dstX, dstY, width, halfHeight1, mixMode, bitmap, dwordsPerLine,
+                                                    bmPitch * 2, rol);
+                if (halfHeight2) {
+                    performBlitPlanar2ChunkyBlits(dstX + 320, dstY, width, halfHeight2, mixMode, bitmap + bmPitch,
+                                                        dwordsPerLine, bmPitch * 2, rol);
+                }
+            }
+        }
         return;
     }
 
-    UWORD seg;
-    UWORD xoffset;
-    UWORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(ri->Memory), bytesPerRow, 1, &seg, (UWORD *)&xoffset,
-                          (UWORD *)&yoffset);
-
-    dstX += xoffset;
-    dstY += yoffset;
-
-    ChipData_t *cd = chip();
-
-    if (cd->GEOp != BLITPLANAR2CHUNKY) {
-        cd->GEOp = BLITPLANAR2CHUNKY;
-
-        // Invalidate the pen and drawmode caches
-        cd->GEdrawMode = 0xFF;
-
-        cd->GEfgPen = 0xFF;
-        cd->GEbgPen = 0x00;
-
-        setForegroundColor(0xFF);
-        setBackgroundColor(0x00);
-    }
-
-    UWORD mixMode  = mintermToMixMode(minTerm);
-    cd->GEdrawMode = minTerm;
-    cd->GEFormat   = RGBFB_CLUT;
-
-    S3Mmio mmio = this->mmio();
-
-    // This could/should get chached as well
-    writeBee8(MULT_MISC2, seg << 4);
-
-    WORD bmPitch        = bm->BytesPerRow;
-    ULONG bmStartOffset = (srcY * bmPitch) + (srcX / 32) * 4;
-    UWORD dwordsPerLine = (width + 31) / 32;
-    UBYTE rol           = srcX % 32;
-
-    for (short p = 0; p < 8; ++p) {
-        UBYTE writeMask = 1 << p;
-
-        if (!(mask & writeMask)) {
-            continue;
-        }
-
-        setGEWriteMask(writeMask, RGBFB_CLUT, 8);
-
-        UBYTE *bitmap = (UBYTE *)bm->Planes[p];
-        if (bitmap != 0x0 && (ULONG)bitmap != 0xffffffff) {
-            bitmap += bmStartOffset;
-        }
-
-        if (!emulate320) {
-            performBlitPlanar2ChunkyBlits(dstX, dstY, width, height, mixMode, bitmap, dwordsPerLine, bmPitch,
-                                                rol);
-        } else {
-            SHORT halfHeight1 = (height + 1) / 2;
-            SHORT halfHeight2 = height / 2;
-
-            performBlitPlanar2ChunkyBlits(dstX, dstY, width, halfHeight1, mixMode, bitmap, dwordsPerLine,
-                                                bmPitch * 2, rol);
-            if (halfHeight2) {
-                performBlitPlanar2ChunkyBlits(dstX + 320, dstY, width, halfHeight2, mixMode, bitmap + bmPitch,
-                                                    dwordsPerLine, bmPitch * 2, rol);
-            }
-        }
-    }
+    fallback:
+        waitBlitter();
+        bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
 }
 
 void ASM S3Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line *line), __REGD0(UBYTE mask),
@@ -2629,96 +2671,102 @@ void ASM S3Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line 
     UBYTE bpp = getBPP(fmt);
     if (!bpp || !setGEFormat(ri->BytesPerRow, bpp) || !line->Length) {
         DFUNC(1, "Fallback to DrawLineDefault\n");
-        bi->DrawLineDefault(bi, ri, line, mask, AS_RGBF(fmt));
+        goto fallback;
+    }
+    {
+
+        UWORD x, y;
+
+        UWORD seg;
+        UWORD xoffset;
+        UWORD yoffset;
+        getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&x, (UWORD *)&y);
+
+        x += line->X;
+        y += line->Y;
+
+        ChipData_t *cd = chip();
+
+        if (cd->GEOp != LINE) {
+            // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
+            WaitForBlitter(bi);
+
+            cd->GEOp       = LINE;
+            cd->GEdrawMode = 0xFF;
+        }
+
+        waitFifo(1);
+
+        S3Mmio mmio = this->mmio();
+
+        // This could/should get chached as well
+        writeBee8(MULT_MISC2, seg << 4);
+
+        setDrawMode(line->FgPen, line->BgPen, line->DrawMode, AS_RGBF(fmt));
+        setGEWriteMask(mask, AS_RGBF(fmt), 0);
+
+        UWORD direction = 0;
+
+        WORD absMAX = myabs(line->lDelta);
+        WORD absMIN = myabs(line->sDelta);
+
+        WORD errTerm = 2 * absMIN - absMAX;
+        if (line->dX > 0) {
+            direction |= POSITIVE_X;
+        } else {
+            errTerm -= 1;
+        }
+        if (line->dY > 0) {
+            direction |= POSITIVE_Y;
+        }
+
+        if (!line->Horizontal) {
+            direction |= Y_MAJOR;
+        }
+
+        waitFifo(8);
+
+    #if HAS_PACKED_MMIO
+        mmio.writeL(ALT_CURXY, makeDWORD(x, y));
+        mmio.writeL(ALT_STEP, makeDWORD(2 * (absMIN - absMAX), (2 * absMIN)));
+    #else
+        mmio.writeW(CUR_X, x);
+        mmio.writeW(CUR_Y, y);
+        mmio.writeW(DESTX_DIASTP, 2 * (absMIN - absMAX));
+        mmio.writeW(DESTY_AXSTP, (2 * absMIN));
+    #endif
+
+        mmio.writeW(MAJ_AXIS_PCNT, line->Length - 1);
+        mmio.writeW(ERR_TERM, errTerm);
+
+        BOOL isSolid = (line->LinePtrn == 0xFFFF);
+        if (isSolid) {
+            writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
+            mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | direction);
+        } else {
+            writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
+
+            mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
+                                             CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED | direction);
+
+            // Line->PatternShift selects which bit of the pattern is to be used for the
+            // origin of the line and thus shifts the pattern to the indicated number of
+            // bits to the left. It is the pattern shift value at the start of the line
+            // segment to be drawn.
+            UWORD rol      = line->PatternShift;
+            UWORD pattern  = (line->LinePtrn << rol) | (line->LinePtrn >> (16u - rol));
+            ULONG patternL = copyToUpper(pattern);
+            WORD numDWords = (line->Length + 31) / 32;
+            for (WORD i = 0; i < numDWords; ++i) {
+                writePIX_TRANS(patternL);
+            }
+        }
         return;
     }
 
-    UWORD x, y;
-
-    UWORD seg;
-    UWORD xoffset;
-    UWORD yoffset;
-    getGESegmentAndOffset(getMemoryOffset(ri->Memory), ri->BytesPerRow, bpp, &seg, (UWORD *)&x, (UWORD *)&y);
-
-    x += line->X;
-    y += line->Y;
-
-    ChipData_t *cd = chip();
-
-    if (cd->GEOp != LINE) {
-        // Make sure, no blitter operation is still running before we start feeding PIX_TRANS
-        WaitForBlitter(bi);
-
-        cd->GEOp       = LINE;
-        cd->GEdrawMode = 0xFF;
-    }
-
-    waitFifo(1);
-
-    S3Mmio mmio = this->mmio();
-
-    // This could/should get chached as well
-    writeBee8(MULT_MISC2, seg << 4);
-
-    setDrawMode(line->FgPen, line->BgPen, line->DrawMode, AS_RGBF(fmt));
-    setGEWriteMask(mask, AS_RGBF(fmt), 0);
-
-    UWORD direction = 0;
-
-    WORD absMAX = myabs(line->lDelta);
-    WORD absMIN = myabs(line->sDelta);
-
-    WORD errTerm = 2 * absMIN - absMAX;
-    if (line->dX > 0) {
-        direction |= POSITIVE_X;
-    } else {
-        errTerm -= 1;
-    }
-    if (line->dY > 0) {
-        direction |= POSITIVE_Y;
-    }
-
-    if (!line->Horizontal) {
-        direction |= Y_MAJOR;
-    }
-
-    waitFifo(8);
-
-#if HAS_PACKED_MMIO
-    mmio.writeL(ALT_CURXY, makeDWORD(x, y));
-    mmio.writeL(ALT_STEP, makeDWORD(2 * (absMIN - absMAX), (2 * absMIN)));
-#else
-    mmio.writeW(CUR_X, x);
-    mmio.writeW(CUR_Y, y);
-    mmio.writeW(DESTX_DIASTP, 2 * (absMIN - absMAX));
-    mmio.writeW(DESTY_AXSTP, (2 * absMIN));
-#endif
-
-    mmio.writeW(MAJ_AXIS_PCNT, line->Length - 1);
-    mmio.writeW(ERR_TERM, errTerm);
-
-    BOOL isSolid = (line->LinePtrn == 0xFFFF);
-    if (isSolid) {
-        writeBee8(PIX_CNTL, MASK_BIT_SRC_ONE);
-        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | direction);
-    } else {
-        writeBee8(PIX_CNTL, MASK_BIT_SRC_CPU);
-
-        mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_LINE | CMD_DRAW_PIXELS | CMD_ACROSS_PLANE | CMD_WAIT_CPU |
-                                         CMD_BUS_SIZE_32BIT_MASK_32BIT_ALIGNED | direction);
-
-        // Line->PatternShift selects which bit of the pattern is to be used for the
-        // origin of the line and thus shifts the pattern to the indicated number of
-        // bits to the left. It is the pattern shift value at the start of the line
-        // segment to be drawn.
-        UWORD rol      = line->PatternShift;
-        UWORD pattern  = (line->LinePtrn << rol) | (line->LinePtrn >> (16u - rol));
-        ULONG patternL = copyToUpper(pattern);
-        WORD numDWords = (line->Length + 31) / 32;
-        for (WORD i = 0; i < numDWords; ++i) {
-            writePIX_TRANS(patternL);
-        }
-    }
+    fallback:
+        waitBlitter();
+        bi->DrawLineDefault(bi, ri, line, mask, AS_RGBF(fmt));
 }
 
 /** Read CR36 memory type, log it, and return (CR36>>2)&3 for use by callers (e.g. Trio64 SR0x0A). */
