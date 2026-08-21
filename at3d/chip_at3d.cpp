@@ -1553,6 +1553,15 @@ static INLINE UBYTE mintermToRop3(UBYTE minterm)
     return (UBYTE)(minterm | (minterm << 4));
 }
 
+/* BlitPlanar2Chunky MinTerm is an Amiga blitter value (0xC0 = copy) or already the 4-bit
+ * BlitRectNoMaskComplete form (0x0C). Normalize to the low-nibble opcode. */
+static INLINE UBYTE planarMintermToBc(UBYTE minTerm)
+{
+    if (minTerm & 0xF0)
+        minTerm >>= 4;
+    return (UBYTE)(minTerm & 0x0F);
+}
+
 void At3dDriver::setDrawCmd(ULONG drawCmd)
 {
     ChipData_t *cd = chip();
@@ -1653,62 +1662,59 @@ void ASM At3dDriver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x),
 
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "InvertRect fallback (mask)\n");
-        waitBlitter();
-        InvertRectDefault(this, ri, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
+        goto fallback;
     }
 
-    ChipData_t *cd = chip();
+    {
+        ChipData_t *cd = chip();
 
-    if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
-        waitBlitter();
-        InvertRectDefault(this, ri, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
-    } else {
+        if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
+            goto fallback;
+        }
         setFormat((RGBFTYPE)fmt);
-    }
 
-    UBYTE bppLog2 = cd->GEbppLog2;
-    BOOL isLinear = ((width << bppLog2) == ri->BytesPerRow);
+        UBYTE bppLog2 = cd->GEbppLog2;
+        BOOL isLinear = ((width << bppLog2) == ri->BytesPerRow);
 
-    ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
-    if (!addressModel) {
-        // Pitch can't be expressed in addressing mode bits, fallback to CPU fill
-        waitBlitter();
-        InvertRectDefault(this, ri, x, y, width, height, mask, AS_RGBF(fmt));
+        ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
+        if (!addressModel) {
+            // Pitch can't be expressed in addressing mode bits, fallback to CPU fill
+            goto fallback;
+        }
+        if (!setDstLocation(ri, x, y, bppLog2, isLinear)) {
+            goto fallback;
+        }
+
+        At3dMmio mmio = this->mmio();
+
+        if (cd->GEOp != INVERTRECT) {
+            cd->GEOp      = INVERTRECT;
+            cd->GElinear  = 0x55;  // Force update of addressing mode and format
+            cd->GEdrawCmd = 0;
+            cd->GEopCode  = 0x81;
+
+            mmio.writeB(RASTEROP, ROP_NOT_DST);
+        }
+
+        if (isLinear != cd->GElinear || cd->GEbytesPerRow != ri->BytesPerRow || cd->GEFormat != fmt) {
+            cd->GEbytesPerRow = ri->BytesPerRow;
+            cd->GEFormat      = fmt;
+            cd->GElinear      = isLinear;
+
+            UBYTE pixelDepth = bppLog2 + 1;
+            ULONG cmd = DRAW_CMD_OP(DRAW_CMD_RECT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(pixelDepth) |
+                        addressModel;
+
+            setDrawCmd(cmd);
+        }
+
+        setDrawSize(width, height);
         return;
     }
-    if (!setDstLocation(ri, x, y, bppLog2, isLinear)) {
-        waitBlitter();
-        InvertRectDefault(this, ri, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
-    }
 
-    At3dMmio mmio = this->mmio();
-
-    if (cd->GEOp != INVERTRECT) {
-        cd->GEOp      = INVERTRECT;
-        cd->GElinear  = 0x55;  // Force update of addressing mode and format
-        cd->GEdrawCmd = 0;
-        cd->GEopCode  = 0x81;
-
-        mmio.writeB(RASTEROP, ROP_NOT_DST);
-    }
-
-    if (isLinear != cd->GElinear || cd->GEbytesPerRow != ri->BytesPerRow || cd->GEFormat != fmt) {
-        cd->GEbytesPerRow = ri->BytesPerRow;
-        cd->GEFormat      = fmt;
-        cd->GElinear      = isLinear;
-
-        UBYTE pixelDepth = bppLog2 + 1;
-        ULONG cmd = DRAW_CMD_OP(DRAW_CMD_RECT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(pixelDepth) |
-                    addressModel;
-
-        setDrawCmd(cmd);
-    }
-
-    setDrawSize(width, height);
-    return;
+fallback:
+    waitBlitter();
+    InvertRectDefault(this, ri, x, y, width, height, mask, AS_RGBF(fmt));
 }
 
 void ASM At3dDriver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), __REGA2(struct RenderInfo *dri),
@@ -1838,69 +1844,68 @@ void ASM At3dDriver::blitRect(__REGA1(struct RenderInfo *sri), __REGD0(WORD srcX
           (ULONG)srcX, (ULONG)srcY, (ULONG)dstX, (ULONG)dstY, (ULONG)width, (ULONG)height, (ULONG)mask, (ULONG)fmt,
           (ULONG)sri->BytesPerRow, (ULONG)sri->Memory);
 
-    At3dMmio mmio = this->mmio();
-
     if (mask != 0xFF) {
         D(WARN, "BlitRect fallback (mask != 0xFF)\n");
-        waitBlitter();
-        BlitRectDefault(this, sri, srcX, srcY, dstX, dstY, width, height, mask, AS_RGBF(fmt));
-        return;
+        goto fallback;
     }
 
-    ChipData_t *cd = chip();
+    {
+        At3dMmio mmio  = this->mmio();
+        ChipData_t *cd = chip();
 
-    if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
-        waitBlitter();
-        BlitRectDefault(this, sri, srcX, srcY, dstX, dstY, width, height, mask, AS_RGBF(fmt));
-        return;
-    } else {
+        if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
+            goto fallback;
+        }
         setFormat((RGBFTYPE)fmt);
-    }
 
-    if (cd->GEOp != BLITRECT) {
-        cd->GEOp      = BLITRECT;
-        cd->GEdrawCmd = 0;
-        cd->GEopCode  = 0x81;
+        if (cd->GEOp != BLITRECT) {
+            cd->GEOp      = BLITRECT;
+            cd->GEdrawCmd = 0;
+            cd->GEopCode  = 0x81;
 
-        mmio.writeB(RASTEROP, ROP_SOURCE);
-    }
+            mmio.writeB(RASTEROP, ROP_SOURCE);
+        }
 
-    UBYTE bppLog2    = cd->GEbppLog2;
-    UWORD widthBytes = width << bppLog2;
+        UBYTE bppLog2    = cd->GEbppLog2;
+        UWORD widthBytes = width << bppLog2;
 
-    ULONG addrModel = getAdressModelBits(sri, bppLog2);
-    BOOL isLinear   = (widthBytes == sri->BytesPerRow);
+        ULONG addrModel = getAdressModelBits(sri, bppLog2);
+        BOOL isLinear   = (widthBytes == sri->BytesPerRow);
 
-    if (!addrModel) {
-        D(WARN, "BlitRectNoMaskComplete Fallback. src needs linear but blitsize prevents it\n");
-        waitBlitter();
-        BlitRectDefault(this, sri, srcX, srcY, dstX, dstY, width, height, mask, AS_RGBF(fmt));
+        if (!addrModel) {
+            D(WARN, "BlitRect Fallback. src needs linear but blitsize prevents it\n");
+            goto fallback;
+        }
+
+        ULONG drawCmd =
+            DRAW_CMD_OP(DRAW_CMD_BLT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(bppLog2 + 1);
+        drawCmd |= addrModel;
+
+        if (!addrModel) {
+            drawCmd |= DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS;
+        }
+        if (dstX > srcX) {
+            drawCmd |= DRAW_DIR_X_NEGATIVE;
+            srcX = srcX + width - 1;
+            dstX = dstX + width - 1;
+        }
+        if (dstY > srcY) {
+            drawCmd |= DRAW_DIR_Y_NEGATIVE;
+            srcY = srcY + height - 1;
+            dstY = dstY + height - 1;
+        }
+        setDrawCmd(drawCmd);
+        // FIXME: this can be optimized into a single function
+        setSrcLocation(sri, srcX, srcY, bppLog2, isLinear);
+        setDstLocation(sri, dstX, dstY, bppLog2, isLinear);
+
+        setDrawSize(width, height);
         return;
     }
 
-    ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_BLT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_PIXEL_DEPTH(bppLog2 + 1);
-    drawCmd |= addrModel;
-
-    if (!addrModel) {
-        drawCmd |= DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS;
-    }
-    if (dstX > srcX) {
-        drawCmd |= DRAW_DIR_X_NEGATIVE;
-        srcX = srcX + width - 1;
-        dstX = dstX + width - 1;
-    }
-    if (dstY > srcY) {
-        drawCmd |= DRAW_DIR_Y_NEGATIVE;
-        srcY = srcY + height - 1;
-        dstY = dstY + height - 1;
-    }
-    setDrawCmd(drawCmd);
-    // FIXME: this can be optimized into a single function
-    setSrcLocation(sri, srcX, srcY, bppLog2, isLinear);
-    setDstLocation(sri, dstX, dstY, bppLog2, isLinear);
-
-    setDrawSize(width, height);
-    return;
+fallback:
+    waitBlitter();
+    BlitRectDefault(this, sri, srcX, srcY, dstX, dstY, width, height, mask, AS_RGBF(fmt));
 }
 
 // Host BLT port in flat memory (last 32K). Poll EXT_DAC_HOST_BLT_IN_PROGRESS until high before writing.
@@ -1953,25 +1958,22 @@ void ASM At3dDriver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct
 
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "BlitTemplate fallback (CLUT and mask)\n");
-        waitBlitter();
-        BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
+        goto fallback;
     }
 
-    At3dMmio mmio  = this->mmio();
-    ChipData_t *cd = chip();
+    {
+        At3dMmio mmio  = this->mmio();
+        ChipData_t *cd = chip();
 
-    setFormat((RGBFTYPE)fmt);
-    UBYTE bppLog2    = cd->GEbppLog2;
-    UWORD widthBytes = width << bppLog2;
+        setFormat((RGBFTYPE)fmt);
+        UBYTE bppLog2    = cd->GEbppLog2;
+        UWORD widthBytes = width << bppLog2;
 
-    BOOL isLinear      = (widthBytes == ri->BytesPerRow);
-    ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
-    if (!addressModel) {
-        waitBlitter();
-        BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
-    }
+        BOOL isLinear      = (widthBytes == ri->BytesPerRow);
+        ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
+        if (!addressModel) {
+            goto fallback;
+        }
 
     if (cd->GEOp != BLITTEMPLATE) {
         cd->GEOp      = BLITTEMPLATE;
@@ -2138,6 +2140,11 @@ void ASM At3dDriver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(struct
         mmio.writeW(CLIP_RIGHT, 0xFFF);
     }
     return;
+    }
+
+fallback:
+    waitBlitter();
+    BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
 }
 
 /* 6422: CPU upload template to reserved 1KB staging, then screen-to-screen mono BLT (no HOST-Write). */
@@ -2150,129 +2157,124 @@ void ASM At3dDriver::blitTemplate6422(__REGA1(struct RenderInfo *ri), __REGA2(st
 
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "BlitTemplate6422 fallback (CLUT and mask)\n");
-        waitBlitter();
-        BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
+        goto fallback;
     }
 
-    ChipData_t *cd = chip();
+    {
+        ChipData_t *cd = chip();
 
-    if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
-        waitBlitter();
-        BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
-    } else {
+        if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
+            goto fallback;
+        }
         setFormat((RGBFTYPE)fmt);
-    }
 
-    UBYTE bppLog2      = cd->GEbppLog2;
-    UWORD widthBytes   = width << bppLog2;
-    BOOL isLinear      = (widthBytes == ri->BytesPerRow);
-    ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
-    if (!addressModel) {
-        waitBlitter();
-        BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
+        UBYTE bppLog2      = cd->GEbppLog2;
+        UWORD widthBytes   = width << bppLog2;
+        BOOL isLinear      = (widthBytes == ri->BytesPerRow);
+        ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
+        if (!addressModel) {
+            goto fallback;
+        }
+
+        UWORD byteWidth     = (width + 7) / 8;
+        UWORD rowBytesDword = (byteWidth + 3) & ~3;
+        UWORD maxRows       = 1024 / rowBytesDword;
+        if (height > maxRows) {
+            D(WARN, "BlitTemplate6422 fallback (height %ld > maxRows %ld)\n", (ULONG)height, (ULONG)maxRows);
+            goto fallback;
+        }
+
+        if (cd->GEOp != BLITTEMPLATE) {
+            cd->GEOp = BLITTEMPLATE;
+        }
+
+        UWORD blitWidth = (width + 31) & ~31;
+
+        {
+            waitBlitter();  // Wait for previous blits to finish accessing the staging area
+
+            volatile ULONG *staging = (volatile ULONG *)(MemoryBase + cd->templateStagingOffset);
+            const UBYTE *bitmap     = (const UBYTE *)tmpl->Memory;
+            UWORD bitmapPitch       = (UWORD)tmpl->BytesPerRow;
+            UWORD dwordsPerLine     = blitWidth / 32;
+            ULONG invert            = (tmpl->DrawMode & INVERSVID) ? ~0 : 0;
+            UBYTE rol               = (UBYTE)tmpl->XOffset;
+
+            if (!rol) {
+                for (UWORD row = 0; row < height; ++row) {
+                    for (UWORD col = 0; col < dwordsPerLine; ++col) {
+                        *staging++ = invert ^ ((const ULONG *)bitmap)[col];
+                    }
+                    bitmap += bitmapPitch;
+                }
+            } else {
+                for (UWORD row = 0; row < height; ++row) {
+                    for (UWORD col = 0; col < dwordsPerLine; ++col) {
+                        ULONG left  = ((const ULONG *)bitmap)[col] << rol;
+                        ULONG right = ((const ULONG *)bitmap)[col + 1] >> (32 - rol);
+                        *staging++  = invert ^ (left | right);
+                    }
+                    bitmap += bitmapPitch;
+                }
+            }
+        }
+
+        At3dMmio mmio = this->mmio();
+
+        if (!isLinear) {
+            UWORD originX, originY;
+            if (!getStartCoordinates(ri, bppLog2, &originX, &originY)) {
+                goto fallback;
+            }
+            UWORD clipR    = originX + x + width - 1;
+            UWORD maxWidth = originX + ri->BytesPerRow >> bppLog2;
+            if (clipR >= maxWidth) {
+                clipR = maxWidth - 1;
+            }
+
+            mmio.writeW(CLIP_RIGHT, clipR);
+        }
+
+        ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_BLT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_SRC_MONOCHROME |
+                        DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS | addressModel;
+
+        ULONG bgPen = tmpl->BgPen;
+        if (!(tmpl->DrawMode & JAM2)) {
+            drawCmd |= DRAW_SRC_TRANSPARENT;
+            // make forground color always survive the transparency test
+            bgPen = ~tmpl->FgPen;
+        }
+
+        setDrawCmd(drawCmd);
+        setDrawMode(tmpl->DrawMode, tmpl->FgPen, bgPen, (RGBFTYPE)fmt);
+
+        {
+            ULONG location = cd->templateStagingOffset >> bppLog2;
+            location       = makeDWORD(swapw(location & 0xFFF), swapw(location >> 12));
+            mmio.writeLRaw(SRC_LOCATION_X_LOW, location);
+        }
+
+        setDstLocation(ri, (UWORD)x, (UWORD)y, bppLog2, isLinear);
+        setDrawSize(blitWidth, height);
+
+        if (!isLinear) {
+            mmio.writeW(CLIP_RIGHT, 0xFFF);
+        }
         return;
     }
 
-    UWORD byteWidth     = (width + 7) / 8;
-    UWORD rowBytesDword = (byteWidth + 3) & ~3;
-    UWORD maxRows       = 1024 / rowBytesDword;
-    if (height > maxRows) {
-        D(WARN, "BlitTemplate6422 fallback (height %ld > maxRows %ld)\n", (ULONG)height, (ULONG)maxRows);
-        waitBlitter();
-        BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
-    }
-
-    if (cd->GEOp != BLITTEMPLATE) {
-        cd->GEOp = BLITTEMPLATE;
-    }
-
-    UWORD blitWidth = (width + 31) & ~31;
-
-    {
-        waitBlitter();  // Wait for previous blits to finish accessing the staging area
-
-        volatile ULONG *staging = (volatile ULONG *)(MemoryBase + cd->templateStagingOffset);
-        const UBYTE *bitmap     = (const UBYTE *)tmpl->Memory;
-        UWORD bitmapPitch       = (UWORD)tmpl->BytesPerRow;
-        UWORD dwordsPerLine     = blitWidth / 32;
-        ULONG invert            = (tmpl->DrawMode & INVERSVID) ? ~0 : 0;
-        UBYTE rol               = (UBYTE)tmpl->XOffset;
-
-        if (!rol) {
-            for (UWORD row = 0; row < height; ++row) {
-                for (UWORD col = 0; col < dwordsPerLine; ++col) {
-                    *staging++ = invert ^ ((const ULONG *)bitmap)[col];
-                }
-                bitmap += bitmapPitch;
-            }
-        } else {
-            for (UWORD row = 0; row < height; ++row) {
-                for (UWORD col = 0; col < dwordsPerLine; ++col) {
-                    ULONG left  = ((const ULONG *)bitmap)[col] << rol;
-                    ULONG right = ((const ULONG *)bitmap)[col + 1] >> (32 - rol);
-                    *staging++  = invert ^ (left | right);
-                }
-                bitmap += bitmapPitch;
-            }
-        }
-    }
-
-    At3dMmio mmio = this->mmio();
-
-    if (!isLinear) {
-        UWORD originX, originY;
-        if (!getStartCoordinates(ri, bppLog2, &originX, &originY)) {
-            waitBlitter();
-            BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
-            return;
-        }
-        UWORD clipR    = originX + x + width - 1;
-        UWORD maxWidth = originX + ri->BytesPerRow >> bppLog2;
-        if (clipR >= maxWidth) {
-            clipR = maxWidth - 1;
-        }
-
-        mmio.writeW(CLIP_RIGHT, clipR);
-    }
-
-    ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_BLT) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) | DRAW_SRC_MONOCHROME |
-                    DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS | addressModel;
-
-    ULONG bgPen = tmpl->BgPen;
-    if (!(tmpl->DrawMode & JAM2)) {
-        drawCmd |= DRAW_SRC_TRANSPARENT;
-        // make forground color always survive the transparency test
-        bgPen = ~tmpl->FgPen;
-    }
-
-    setDrawCmd(drawCmd);
-    setDrawMode(tmpl->DrawMode, tmpl->FgPen, bgPen, (RGBFTYPE)fmt);
-
-    {
-        ULONG location = cd->templateStagingOffset >> bppLog2;
-        location       = makeDWORD(swapw(location & 0xFFF), swapw(location >> 12));
-        mmio.writeLRaw(SRC_LOCATION_X_LOW, location);
-    }
-
-    setDstLocation(ri, (UWORD)x, (UWORD)y, bppLog2, isLinear);
-    setDrawSize(blitWidth, height);
-
-    if (!isLinear) {
-        mmio.writeW(CLIP_RIGHT, 0xFFF);
-    }
-    return;
+fallback:
+    waitBlitter();
+    BlitTemplateDefault(this, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
 }
 
-/* One plane of BlitPlanar2Chunky: mono Host BLT with FgPen=(1<<p), BgPen=0, ROP Src OR Dst. */
+/* One plane of BlitPlanar2Chunky: mono Host BLT with FgPen=(1<<p), BgPen=0.
+ * NULL plane = all zeros (skip: no host traffic; caller uses SRCCOPY on first
+ * real plane so skipped leading NULLs stay correct); 0xFFFFFFFF = all ones. */
 void At3dDriver::performPlanarPlaneBlit(UWORD width, UWORD height, UBYTE *bitmap, UWORD dwordsPerLine, WORD bmPitch,
                                         UBYTE rol, UBYTE planeIndex)
 {
     if (!bitmap) {
-        D(INFO, "skip plane\n");
-        // no need to fill in 0s
         return;
     }
 
@@ -2281,7 +2283,6 @@ void At3dDriver::performPlanarPlaneBlit(UWORD width, UWORD height, UBYTE *bitmap
     At3dMmio mmio = this->mmio();
 
     setForegroundPen(1 << planeIndex, RGBFB_CLUT);
-    // setBackgroundPen(1 << planeIndex, RGBFB_CLUT);
     setDrawSize(width, height);
 
     volatile ULONG *hostBlt = getHostBltPort();
@@ -2289,38 +2290,31 @@ void At3dDriver::performPlanarPlaneBlit(UWORD width, UWORD height, UBYTE *bitmap
     }
 
     if ((ULONG)bitmap == 0xFFFFFFFFUL) {
-        // FIXME: use FillRect to cover these planes
-        ULONG fill = ~0;
         for (UWORD y = 0; y < height; ++y) {
             for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                *hostBlt = fill;
+                *hostBlt = ~0UL;
             }
         }
+    } else if (!rol) {
+        for (UWORD y = 0; y < height; ++y) {
+            for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                *hostBlt = ((const ULONG *)bitmap)[x];
+            }
+            bitmap += bmPitch;
+        }
     } else {
-        if (!rol) {
-            for (UWORD y = 0; y < height; ++y) {
-                for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                    *hostBlt = ((const ULONG *)bitmap)[x];
-                }
-                bitmap += bmPitch;
+        for (UWORD y = 0; y < height; ++y) {
+            for (UWORD x = 0; x < dwordsPerLine; ++x) {
+                ULONG left  = ((const ULONG *)bitmap)[x] << rol;
+                ULONG right = ((const ULONG *)bitmap)[x + 1] >> (32 - rol);
+                *hostBlt    = left | right;
             }
-        } else {
-            for (UWORD y = 0; y < height; ++y) {
-                for (UWORD x = 0; x < dwordsPerLine; ++x) {
-                    ULONG left  = ((const ULONG *)bitmap)[x] << rol;
-                    ULONG right = ((const ULONG *)bitmap)[x + 1] >> (32 - rol);
-                    *hostBlt    = left | right;
-                }
-                bitmap += bmPitch;
-            }
+            bitmap += bmPitch;
         }
     }
 
-    //    mmio.writeL(DRAW_CMD, DRAW_CMD_OP(DRAW_CMD_NOP) | DRAW_ENGINE_START);
-
     {
-        ChipData_t *cd = chip();
-        int count      = 100;
+        int count = 100;
         while (mmio.testL(EXT_DAC_STATUS, EXT_DAC_HOST_BLT_IN_PROGRESS) && --count) {
             *hostBlt = 0xFF00AACC;
         }
@@ -2331,7 +2325,11 @@ void At3dDriver::performPlanarPlaneBlit(UWORD width, UWORD height, UBYTE *bitmap
     }
 }
 
-/* Planar to chunky: clear destination to 0, then for each plane OR (1<<p) expansion. No per-bit write mask on AT3D. */
+/* Planar to chunky. AT3D BYTE_MASK (M047) only gates byte lanes in each aligned
+ * 32-bit store — not bitplanes within an 8bpp pixel — so plane/write masks and
+ * non-copy minterms cannot be done in the GE. Accelerate only SRC copy with
+ * mask 0xFF: first real plane SRCCOPY (clears + applies), further planes OR
+ * with Fg=(1<<p). Else CPU default. */
 void ASM At3dDriver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struct RenderInfo *ri), __REGD0(SHORT srcX),
                                        __REGD1(SHORT srcY), __REGD2(SHORT dstX), __REGD3(SHORT dstY),
                                        __REGD4(SHORT width), __REGD5(SHORT height), __REGD6(UBYTE minTerm),
@@ -2340,130 +2338,127 @@ void ASM At3dDriver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(struc
     DFUNC(INFO, "src %ld,%ld dst %ld,%ld w %ld h %ld mask 0x%02lx minTerm 0x%02lx\n", (LONG)srcX, (LONG)srcY,
           (LONG)dstX, (LONG)dstY, (LONG)width, (LONG)height, (ULONG)mask, (ULONG)minTerm);
 
-    // if (mask != 0xFF) {
-    //     DFUNC(WARN, "BlitPlanar2Chunky fallback (mask != 0xFF)\n");
-    //     // Though we could easily incorporate the mask into into the host blit for the conversion, the initial
-    //     // clearing of the destination via FillRect can't support the mask, so just fallback to CPU blit for
-    //     simplicity.
-    //     // FIXME: have a FillRect function that supports ROP and can use and SRC_AND_DST function to clear
-    //     // with mask
-    //     goto fallback;
-    // }
-    // if (minTerm != 0x0C) {
-    //     DFUNC(WARN, "fallback (minTerm != 0x0C)\n");
-    //     goto fallback;
-    // }
-
     ASSERT(ri->RGBFormat == RGBFB_CLUT);
 
-    fillRect(ri, dstX, dstY, width, height, 0, mask, RGBFB_CLUT);
-
-    DFUNC(INFO, "post Fillrect\n");
-
-    At3dMmio mmio  = this->mmio();
-    ChipData_t *cd = chip();
-
-    if (cd->GEOp != BLITPLANAR2CHUNKY) {
-        cd->GEOp      = BLITPLANAR2CHUNKY;
-        cd->GEdrawCmd = 0;
-        cd->GEopCode  = 0x81;
-        // ROP3 only available during pattern blits?
-        // mmio.writeB(RASTEROP, ROP_PATTERN_AND_SOURCE_OR_DST);
-        mmio.writeB(RASTEROP, ROP_SRC_OR_DST | (mintermToRop3(minTerm) & 0xF0));
-        mmio.writeL(SRC_LOCATION_X_LOW, 0);
-        setBackgroundPen(0, RGBFB_CLUT);
+    UBYTE bc = planarMintermToBc(minTerm);
+    if (mask != 0xFF || bc != 0x0C) {
+        D(WARN, "BlitPlanar2Chunky fallback (mask 0x%02lx minTerm 0x%02lx)\n", (ULONG)mask, (ULONG)minTerm);
+        goto fallback;
     }
 
-    struct RenderInfo dstRi = *ri;
+    {
+        At3dMmio mmio  = this->mmio();
+        ChipData_t *cd = chip();
 
-    // We can do linear, if there's effectively no pitch and we only need to transfer full dwords
-    const BOOL isLinear = FALSE;  // s(width == dstRi.BytesPerRow) && !(width & 31);
-    // If this is a linear blit, we can handle all width, otherwise either the blitter can support the pitch
-    // directly or as a last resort, we can emulate 320 width.
-    const BOOL emulate320 = !isLinear && (dstRi.BytesPerRow == 320);
+        if (cd->GEOp != BLITPLANAR2CHUNKY) {
+            cd->GEOp      = BLITPLANAR2CHUNKY;
+            cd->GEdrawCmd = 0;
+            cd->GEopCode  = 0xFF;
+            mmio.writeL(SRC_LOCATION_X_LOW, 0);
+            setBackgroundPen(0, RGBFB_CLUT);
+        }
 
-    if (emulate320) {
-        DFUNC(WARN, "emulating 320\n");
-        dstRi.BytesPerRow = 640;
-    }
+        struct RenderInfo dstRi = *ri;
 
-    ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(&dstRi, 0);
+        const BOOL isLinear   = FALSE;
+        const BOOL emulate320 = !isLinear && (dstRi.BytesPerRow == 320);
 
-    D(INFO, "isLinear %ld, emulate320 %ld, addressModel 0x%08lx\n", (ULONG)isLinear, (ULONG)emulate320, addressModel);
+        if (emulate320) {
+            DFUNC(WARN, "emulating 320\n");
+            dstRi.BytesPerRow = 640;
+        }
 
-    if (!addressModel) {
-        waitBlitter();
-        BlitPlanar2ChunkyDefault(this, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
+        ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(&dstRi, 0);
+
+        D(INFO, "isLinear %ld, emulate320 %ld, addressModel 0x%08lx\n", (ULONG)isLinear, (ULONG)emulate320,
+          addressModel);
+
+        if (!addressModel) {
+            goto fallback;
+        }
+
+        UWORD clipR = 0;
+        if (!isLinear) {
+            UWORD originX, originY;
+            getStartCoordinates(&dstRi, 0, &originX, &originY);
+
+            UWORD maxWidth = originX + dstRi.BytesPerRow;
+            clipR          = originX + dstX + width - 1;
+            if (clipR >= maxWidth) {
+                clipR = maxWidth - 1;
+            }
+            mmio.writeW(CLIP_RIGHT, clipR);
+        }
+
+        width = (width + 31) & ~31;
+
+        ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_HOST_BLT_WRITE) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) |
+                        DRAW_SRC_MONOCHROME | DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS | DRAW_PIXEL_DEPTH(1) |
+                        addressModel;
+        setDrawCmd(drawCmd);
+
+        WORD bmPitch        = bm->BytesPerRow;
+        ULONG bmStartOffset = (ULONG)(srcY * bmPitch) + (srcX / 32) * 4;
+
+        UWORD dwordsPerLine = width / 32;
+        UBYTE rol           = (UBYTE)(srcX % 32);
+
+        D(INFO, "bmPitch %ld, bmStartOffset %ld, rol %ld, dwordsPerLine %ld\n", (ULONG)bmPitch, (ULONG)bmStartOffset,
+          (ULONG)rol, (ULONG)dwordsPerLine);
+
+        setDstLocation(&dstRi, dstX, dstY, 0, isLinear);
+
+        BOOL firstReal = TRUE;
+        for (short p = 0; p < 8; ++p) {
+            if (!(mask & (1 << p))) {
+                continue;
+            }
+            UBYTE *planeBitmap  = (UBYTE *)bm->Planes[p];
+            UBYTE *planeBitmap2 = planeBitmap;
+            if (!planeBitmap) {
+                continue;
+            }
+            if ((ULONG)planeBitmap != 0xFFFFFFFFUL) {
+                planeBitmap  = (UBYTE *)((ULONG)planeBitmap + bmStartOffset);
+                planeBitmap2 = planeBitmap + bmPitch;
+            }
+
+            if (firstReal) {
+                mmio.writeB(RASTEROP, ROP_SOURCE);
+                cd->GEopCode = ROP_SOURCE;
+                firstReal    = FALSE;
+            } else if (cd->GEopCode != ROP_SRC_OR_DST) {
+                mmio.writeB(RASTEROP, ROP_SRC_OR_DST);
+                cd->GEopCode = ROP_SRC_OR_DST;
+            }
+
+            if (!emulate320) {
+                performPlanarPlaneBlit(width, height, planeBitmap, dwordsPerLine, bmPitch, rol, p);
+            } else {
+                UWORD halfHeight1 = (height + 1) / 2;
+                UWORD halfHeight2 = height / 2;
+
+                setDstLocation(&dstRi, dstX, dstY, 0, isLinear);
+                mmio.writeW(CLIP_RIGHT, clipR);
+                performPlanarPlaneBlit(width, halfHeight1, planeBitmap, dwordsPerLine, bmPitch * 2, rol, p);
+
+                if (halfHeight2) {
+                    setDstLocation(&dstRi, dstX + 320, dstY, 0, isLinear);
+                    mmio.writeW(CLIP_RIGHT, clipR + 320);
+                    performPlanarPlaneBlit(width, halfHeight2, planeBitmap2, dwordsPerLine, bmPitch * 2, rol, p);
+                }
+            }
+        }
+
+        if (!isLinear) {
+            mmio.writeW(CLIP_RIGHT, 0xFFF);
+        }
         return;
     }
 
-    UWORD clipR;
-    if (!isLinear) {
-        UWORD originX, originY;
-        getStartCoordinates(&dstRi, 0, &originX, &originY);
-
-        UWORD maxWidth = originX + dstRi.BytesPerRow;
-        clipR          = originX + dstX + width - 1;
-        if (clipR >= maxWidth) {
-            clipR = maxWidth - 1;
-        }
-        mmio.writeW(CLIP_RIGHT, clipR);
-    }
-
-    // Round up to 32pixels, so we don't have too much hassle with the HOST Blit being byte-aligned.
-    // Compensate with the clipping setup
-    width = (width + 31) & ~31;
-
-    ULONG drawCmd = DRAW_CMD_OP(DRAW_CMD_HOST_BLT_WRITE) | DRAW_QUICK_START(QUICKSTART_DIM_WIDTH) |
-                    DRAW_SRC_MONOCHROME | DRAW_SRC_ADDR_LINEAR | DRAW_SRC_CONTIGUOUS | DRAW_PIXEL_DEPTH(1) |
-                    addressModel;
-    setDrawCmd(drawCmd);
-
-    WORD bmPitch        = bm->BytesPerRow;
-    ULONG bmStartOffset = (ULONG)(srcY * bmPitch) + (srcX / 32) * 4;  // should this be rather / 8?
-
-    UWORD dwordsPerLine = width / 32;
-    UBYTE rol           = (UBYTE)(srcX % 32);
-
-    D(INFO, "bmPitch %ld, bmStartOffset %ld, rol %ld, dwordsPerLine %ld\n", (ULONG)bmPitch, (ULONG)bmStartOffset,
-      (ULONG)rol, (ULONG)dwordsPerLine);
-
-    setDstLocation(&dstRi, dstX, dstY, 0, isLinear);
-
-    for (short p = 0; p < 8; ++p) {
-        if (!(mask & (1 << p))) {
-            continue;
-        }
-        UBYTE *planeBitmap  = (UBYTE *)bm->Planes[p];
-        UBYTE *planeBitmap2 = (UBYTE *)bm->Planes[p];
-        if (planeBitmap != (UBYTE *)0 && (ULONG)planeBitmap != 0xFFFFFFFFUL) {
-            planeBitmap  = (UBYTE *)((ULONG)planeBitmap + bmStartOffset);
-            planeBitmap2 = (UBYTE *)((ULONG)planeBitmap + bmStartOffset + bmPitch);
-        }
-
-        if (!emulate320) {
-            performPlanarPlaneBlit(width, height, planeBitmap, dwordsPerLine, bmPitch, rol, p);
-        } else {
-            UWORD halfHeight1 = (height + 1) / 2;
-            UWORD halfHeight2 = height / 2;
-
-            setDstLocation(&dstRi, dstX, dstY, 0, isLinear);
-            mmio.writeW(CLIP_RIGHT, clipR);
-            performPlanarPlaneBlit(width, halfHeight1, planeBitmap, dwordsPerLine, bmPitch * 2, rol, p);
-
-            if (halfHeight2) {
-                setDstLocation(&dstRi, dstX + 320, dstY, 0, isLinear);
-                mmio.writeW(CLIP_RIGHT, clipR + 320);
-                performPlanarPlaneBlit(width, halfHeight2, planeBitmap2, dwordsPerLine, bmPitch * 2, rol, p);
-            }
-        }
-    }
-
-    if (!isLinear) {
-        mmio.writeW(CLIP_RIGHT, 0xFFF);
-    }
-
-    return;
+fallback:
+    waitBlitter();
+    BlitPlanar2ChunkyDefault(this, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
 }
 
 void ASM At3dDriver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct Pattern *pattern), __REGD0(WORD x),
@@ -2475,72 +2470,62 @@ void ASM At3dDriver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct 
 
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "BlitPattern fallback (CLUT mask)\n");
-        waitBlitter();
-        BlitPatternDefault(this, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
+        goto fallback;
     }
 
-    ChipData_t *cd = chip();
+    {
+        ChipData_t *cd = chip();
 
-    if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
-        waitBlitter();
-        BlitPatternDefault(this, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
-    } else {
+        if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
+            goto fallback;
+        }
         setFormat((RGBFTYPE)fmt);
-    }
 
-    UBYTE bppLog2 = cd->GEbppLog2;
+        UBYTE bppLog2 = cd->GEbppLog2;
 
-    BOOL isLinear      = FALSE;  // ((width << bppLog2) == ri->BytesPerRow);
-    ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
-    if (!addressModel) {
-        waitBlitter();
-        BlitPatternDefault(this, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
-    }
+        BOOL isLinear      = FALSE;  // ((width << bppLog2) == ri->BytesPerRow);
+        ULONG addressModel = isLinear ? (DRAW_DST_ADDR_LINEAR | DRAW_DST_CONTIGUOUS) : getAdressModelBits(ri, bppLog2);
+        if (!addressModel) {
+            goto fallback;
+        }
 
-    if (cd->GEOp != BLITPATTERN) {
-        cd->GEOp      = BLITPATTERN;
-        cd->GEdrawCmd = 0;
-        cd->patternCacheKey &= ~0x80000000;
-    }
+        if (cd->GEOp != BLITPATTERN) {
+            cd->GEOp      = BLITPATTERN;
+            cd->GEdrawCmd = 0;
+            cd->patternCacheKey &= ~0x80000000;
+        }
 
-    UWORD invert = (pattern->DrawMode & INVERSVID) ? ~0 : 0;
+        UWORD invert = (pattern->DrawMode & INVERSVID) ? ~0 : 0;
 
-    UWORD patternHeight        = 1 << pattern->Size;
-    const UWORD *sysMemPattern = (const UWORD *)pattern->Memory;
-    UWORD *cachedPattern       = cd->patternCacheBuffer;
+        UWORD patternHeight        = 1 << pattern->Size;
+        const UWORD *sysMemPattern = (const UWORD *)pattern->Memory;
+        UWORD *cachedPattern       = cd->patternCacheBuffer;
 
-    BOOL patternChanged = FALSE;
-    BOOL is8x8          = (patternHeight <= 8);
+        BOOL patternChanged = FALSE;
+        BOOL is8x8          = (patternHeight <= 8);
 
-    if (is8x8) {
-        for (UWORD i = 0; i < patternHeight; ++i) {
-            UWORD row = sysMemPattern[i] ^ invert;
-            if (row != cachedPattern[i]) {
-                cachedPattern[i] = row;
-                patternChanged   = TRUE;
-            }
-            if ((UBYTE)(row >> 8) != (UBYTE)row) {
-                is8x8 = FALSE;
+        if (is8x8) {
+            for (UWORD i = 0; i < patternHeight; ++i) {
+                UWORD row = sysMemPattern[i] ^ invert;
+                if (row != cachedPattern[i]) {
+                    cachedPattern[i] = row;
+                    patternChanged   = TRUE;
+                }
+                if ((UBYTE)(row >> 8) != (UBYTE)row) {
+                    is8x8 = FALSE;
+                }
             }
         }
-    }
 
-    if (!is8x8) {
-        // FIXME: implement fallback using repeating HOST blit mono pattern
-        waitBlitter();
-        BlitPatternDefault(this, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
-    }
+        if (!is8x8) {
+            // FIXME: implement fallback using repeating HOST blit mono pattern
+            goto fallback;
+        }
 
-    UWORD originX, originY;
-    if (!getStartCoordinates(ri, bppLog2, &originX, &originY)) {
-        waitBlitter();
-        BlitPatternDefault(this, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
-    }
+        UWORD originX, originY;
+        if (!getStartCoordinates(ri, bppLog2, &originX, &originY)) {
+            goto fallback;
+        }
 
     /* Screen-space aligned 8x8: offset pattern by (x - XOffset) & 7 and (y - YOffset) & 7 via pre-rotation. */
     UBYTE pattOffX = (UBYTE)((originX + x - pattern->XOffset) & 7);
@@ -2640,6 +2625,11 @@ void ASM At3dDriver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struct 
     setDstLocation(ri, (UWORD)x, (UWORD)y, bppLog2, isLinear);
     setDrawSize((UWORD)width, (UWORD)height);
     return;
+    }
+
+fallback:
+    waitBlitter();
+    BlitPatternDefault(this, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
 }
 
 /* DrawLine: horizontal/vertical via FillRect or strip; diagonal via AT3D vector DDA.
@@ -2658,67 +2648,65 @@ void ASM At3dDriver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Lin
 
     if (fmt <= RGBFB_CLUT && mask != 0xFF) {
         D(WARN, "DrawLine fallback (CLUT mask)\n");
-        waitBlitter();
-        DrawLineDefault(this, ri, line, mask, AS_RGBF(fmt));
-        return;
+        goto fallback;
     }
 
-    /* Patterned lines: fallback until PATTERN setup for 16-bit line pattern is implemented */
-    if (line->LinePtrn != 0xFFFF) {
-        D(WARN, "DrawLine fallback (patterned)\n");
-        waitBlitter();
-        DrawLineDefault(this, ri, line, mask, AS_RGBF(fmt));
-        return;
-    }
-
-    ChipData_t *cd = chip();
-
-    if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
-        waitBlitter();
-        DrawLineDefault(this, ri, line, mask, AS_RGBF(fmt));
-        return;
-    }
-
-    if (cd->GEFormat != fmt) {
-        cd->GEbppLog2 = getBPPLog2((RGBFTYPE)fmt);
-    }
-    UBYTE bppLog2      = cd->GEbppLog2;
-    ULONG addressModel = getAdressModelBits(ri, bppLog2);
-    if (!addressModel) {
-        waitBlitter();
-        DrawLineDefault(this, ri, line, mask, AS_RGBF(fmt));
-        return;
-    }
-
-    /* Horizontal and vertical: use FillRect. sDelta==0 means axis-aligned. */
-    // RTG Library already makes that decision
-    // if (line->sDelta == 0) {
-    //     if (line->Horizontal) {
-    //         fillRect( ri, line->X, line->Y, (WORD)line->Length, 1, line->FgPen, mask, fmt);
-    //     } else {
-    //         fillRect( ri, line->X, line->Y, 1, (WORD)line->Length, line->FgPen, mask, fmt);
-    //     }
-    //     return;
+    /* COMPLEMENT: ROP_NOT_DST double-inverts at crossings vs graphics.library; use CPU path.
+       It might actually be an issue with graphics.library's expectation of double-inverting at crossings.
+     */
+    // if (line->DrawMode & COMPLEMENT) {
+    //     D(WARN, "DrawLine fallback (COMPLEMENT)\n");
+    //     goto fallback;
     // }
 
-    /* Diagonal: use AT3D vector drawing with DDA */
-    At3dMmio mmio = this->mmio();
-
-    if (cd->GEOp != LINE) {
-        cd->GEOp      = LINE;
-        cd->GEdrawCmd = 0;
+    if (line->LinePtrn != 0xFFFF) {
+        D(WARN, "DrawLine fallback (patterned)\n");
+        goto fallback;
     }
 
-    setDrawMode(line->DrawMode, line->FgPen, line->BgPen, (RGBFTYPE)fmt);
+    {
+        ChipData_t *cd = chip();
 
-    /* DST_PITCH has no bearing in non-linear (XY) addressing model; omit. */
-    // setDstPitch(ri->BytesPerRow);
+        if (cd->chipFamily < AT24 && (UBYTE)fmt != cd->GEFormat) {
+            goto fallback;
+        }
 
-    if (!setDstLocation(ri, (UWORD)line->X, (UWORD)line->Y, bppLog2, FALSE)) {
-        waitBlitter();
-        DrawLineDefault(this, ri, line, mask, AS_RGBF(fmt));
-        return;
-    }
+        if (cd->GEFormat != fmt) {
+            cd->GEbppLog2 = getBPPLog2((RGBFTYPE)fmt);
+        }
+        UBYTE bppLog2      = cd->GEbppLog2;
+        ULONG addressModel = getAdressModelBits(ri, bppLog2);
+        if (!addressModel) {
+            goto fallback;
+        }
+
+        /* Horizontal and vertical: use FillRect. sDelta==0 means axis-aligned. */
+        // RTG Library already makes that decision
+        // if (line->sDelta == 0) {
+        //     if (line->Horizontal) {
+        //         fillRect( ri, line->X, line->Y, (WORD)line->Length, 1, line->FgPen, mask, fmt);
+        //     } else {
+        //         fillRect( ri, line->X, line->Y, 1, (WORD)line->Length, line->FgPen, mask, fmt);
+        //     }
+        //     return;
+        // }
+
+        /* Diagonal: use AT3D vector drawing with DDA */
+        At3dMmio mmio = this->mmio();
+
+        if (cd->GEOp != LINE) {
+            cd->GEOp      = LINE;
+            cd->GEdrawCmd = 0;
+        }
+
+        setDrawMode(line->DrawMode, line->FgPen, line->BgPen, (RGBFTYPE)fmt);
+
+        /* DST_PITCH has no bearing in non-linear (XY) addressing model; omit. */
+        // setDstPitch(ri->BytesPerRow);
+
+        if (!setDstLocation(ri, (UWORD)line->X, (UWORD)line->Y, bppLog2, FALSE)) {
+            goto fallback;
+        }
 
     /* AT3D spec Table 11.4.1.2a: dmin=min(dx,dy), dmax=max(dx,dy).
      * P96: lDelta= major extent, sDelta= minor -> |lDelta|=dmax, |sDelta|=dmin. */
@@ -2751,6 +2739,11 @@ void ASM At3dDriver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Lin
     /* SRC_SIZE_X: Spec Dimension X = dmax + 1; P96 Length = dmax = max(|dx|,|dy|). */
     mmio.writeW(SRC_SIZE_X, line->Length + 1);
     return;
+    }
+
+fallback:
+    waitBlitter();
+    DrawLineDefault(this, ri, line, mask, AS_RGBF(fmt));
 }
 
 /* P96 BoardInfo entry stubs */
