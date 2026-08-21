@@ -860,35 +860,41 @@ void ASM Mach32Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x),
     UBYTE bpp = getBPP(fmt);
     if (bpp > 2) {
         DFUNC(INFO, "Fallback to FillRectDefault\n");
-        bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, AS_RGBF(fmt));
+        goto fallback;
+    }
+    {
+
+        ChipData_t *cd = getChipData(bi);
+
+        if (cd->GEOp != FILLRECT) {
+            cd->GEOp       = FILLRECT;
+            cd->GEdrawMode = 0xFF;
+
+            asMach32(bi)->waitFifo(3);
+            DRIVER_LOCALS(bi);
+
+            io.writeW(DP_CONFIG, DP_CONFIG_REPLACE);
+            io.writeW(ALU_FG_FN, 0x0027);
+            io.writeW(ALU_BG_FN, 0x0027);
+        }
+
+        if (cd->GEfgPen != pen) {
+            cd->GEfgPen = pen;
+            pen         = penToColor(pen, fmt);
+            asMach32(bi)->waitFifo(1);
+            DRIVER_LOCALS(bi);
+            io.writeW(FRGD_COLOR, pen);
+        }
+
+        setFarBlitBuffer(bi, ri, fmt, 0);
+        setGEWriteMask(bi, mask, fmt, 0);
+        drawRect(bi, x, y, width, height);
         return;
     }
 
-    ChipData_t *cd = getChipData(bi);
-
-    if (cd->GEOp != FILLRECT) {
-        cd->GEOp       = FILLRECT;
-        cd->GEdrawMode = 0xFF;
-
-        asMach32(bi)->waitFifo(3);
-        DRIVER_LOCALS(bi);
-
-        io.writeW(DP_CONFIG, DP_CONFIG_REPLACE);
-        io.writeW(ALU_FG_FN, 0x0027);
-        io.writeW(ALU_BG_FN, 0x0027);
-    }
-
-    if (cd->GEfgPen != pen) {
-        cd->GEfgPen = pen;
-        pen         = penToColor(pen, fmt);
-        asMach32(bi)->waitFifo(1);
-        DRIVER_LOCALS(bi);
-        io.writeW(FRGD_COLOR, pen);
-    }
-
-    setFarBlitBuffer(bi, ri, fmt, 0);
-    setGEWriteMask(bi, mask, fmt, 0);
-    drawRect(bi, x, y, width, height);
+    fallback:
+        waitBlitter();
+        bi->FillRectDefault(bi, ri, x, y, width, height, pen, mask, AS_RGBF(fmt));
 }
 
 void ASM Mach32Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD width),
@@ -904,27 +910,33 @@ void ASM Mach32Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x
     UBYTE bpp = getBPP(fmt);
     if (bpp != 1 && bpp != 2) {
         DFUNC(INFO, "Fallback to InvertRectDefault\n");
-        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, AS_RGBF(fmt));
+        goto fallback;
+    }
+    {
+
+        ChipData_t *cd = getChipData(bi);
+
+        if (cd->GEOp != INVERTRECT) {
+            cd->GEOp       = INVERTRECT;
+            cd->GEdrawMode = 0xFF;
+
+            asMach32(bi)->waitFifo(2);
+            DRIVER_LOCALS(bi);
+
+            io.writeW(DP_CONFIG, DP_CONFIG_REPLACE);
+            /* 8514/A path: foreground color source, NOT destination (REG688000-15 §8-24) */
+            io.writeW(FRGD_MIX, 0x0020);
+        }
+
+        setFarBlitBuffer(bi, ri, fmt, 0);
+        setGEWriteMask(bi, mask, fmt, 0);
+        drawRect(bi, x, y, width, height);
         return;
     }
 
-    ChipData_t *cd = getChipData(bi);
-
-    if (cd->GEOp != INVERTRECT) {
-        cd->GEOp       = INVERTRECT;
-        cd->GEdrawMode = 0xFF;
-
-        asMach32(bi)->waitFifo(2);
-        DRIVER_LOCALS(bi);
-
-        io.writeW(DP_CONFIG, DP_CONFIG_REPLACE);
-        /* 8514/A path: foreground color source, NOT destination (REG688000-15 §8-24) */
-        io.writeW(FRGD_MIX, 0x0020);
-    }
-
-    setFarBlitBuffer(bi, ri, fmt, 0);
-    setGEWriteMask(bi, mask, fmt, 0);
-    drawRect(bi, x, y, width, height);
+    fallback:
+        waitBlitter();
+        bi->InvertRectDefault(bi, ri, x, y, width, height, mask, AS_RGBF(fmt));
 }
 
 void ASM Mach32Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD srcX), __REGD1(WORD srcY),
@@ -941,57 +953,63 @@ void ASM Mach32Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD src
     UBYTE bpp = getBPP(fmt);
     if (bpp != 1 && bpp != 2) {
         DFUNC(INFO, "Fallback to BlitRectDefault\n");
-        bi->BlitRectDefault(bi, ri, srcX, srcY, dstX, dstY, width, height, mask, AS_RGBF(fmt));
+        goto fallback;
+    }
+    {
+
+        ChipData_t *cd = getChipData(bi);
+
+        if (cd->GEOp != BLITRECT) {
+            cd->GEOp       = BLITRECT;
+            cd->GEdrawMode = 0xFF;
+
+            asMach32(bi)->waitFifo(3);
+            DRIVER_LOCALS(bi);
+            io.writeW(DP_CONFIG, DP_CONFIG_BLIT);
+            /* COLOR_SRC must be blit source (11b) to read from VRAM, MIX=replace (REG688000-15 §8-24) */
+            io.writeW(FRGD_MIX, 0x0067);
+            io.writeW(BKGD_MIX, 0x0067);
+        }
+
+        setFarBlitBuffer(bi, ri, fmt, 0);
+        setGEWriteMask(bi, mask, fmt, 10);
+
+        DRIVER_LOCALS(bi);
+
+        if ((dstY > srcY) || (dstY == srcY && dstX > srcX)) {
+            /* Overlap: copy bottom-to-top, right-to-left */
+            io.writeW(SRC_X_DEST_X, srcX + width);
+            io.writeW(SRC_X_START, srcX + width);
+            io.writeW(SRC_Y_DEST_Y, srcY + height - 1);
+            io.writeW(SRC_X_END, srcX);
+            io.writeW(SRC_Y_DIR, 0);
+
+            io.writeW(CUR_X, dstX + width);
+            io.writeW(DEST_X_START, dstX + width);
+            io.writeW(CUR_Y, dstY + height - 1);
+            io.writeW(DEST_X_END, dstX);
+            io.writeW(DEST_Y_END, dstY - 1);
+        } else {
+            /* No overlap risk: copy top-to-bottom, left-to-right */
+            io.writeW(SRC_X_DEST_X, srcX);
+            io.writeW(SRC_X_START, srcX);
+            io.writeW(SRC_Y_DEST_Y, srcY);
+            io.writeW(SRC_X_END, srcX + width);
+            io.writeW(SRC_Y_DIR, 1);
+
+            io.writeW(CUR_X, dstX);
+            io.writeW(DEST_X_START, dstX);
+            io.writeW(CUR_Y, dstY);
+            io.writeW(DEST_X_END, dstX + width);
+            io.writeW(DEST_Y_END, dstY + height);
+        }
+        flushWrites();
         return;
     }
 
-    ChipData_t *cd = getChipData(bi);
-
-    if (cd->GEOp != BLITRECT) {
-        cd->GEOp       = BLITRECT;
-        cd->GEdrawMode = 0xFF;
-
-        asMach32(bi)->waitFifo(3);
-        DRIVER_LOCALS(bi);
-        io.writeW(DP_CONFIG, DP_CONFIG_BLIT);
-        /* COLOR_SRC must be blit source (11b) to read from VRAM, MIX=replace (REG688000-15 §8-24) */
-        io.writeW(FRGD_MIX, 0x0067);
-        io.writeW(BKGD_MIX, 0x0067);
-    }
-
-    setFarBlitBuffer(bi, ri, fmt, 0);
-    setGEWriteMask(bi, mask, fmt, 10);
-
-    DRIVER_LOCALS(bi);
-
-    if ((dstY > srcY) || (dstY == srcY && dstX > srcX)) {
-        /* Overlap: copy bottom-to-top, right-to-left */
-        io.writeW(SRC_X_DEST_X, srcX + width);
-        io.writeW(SRC_X_START, srcX + width);
-        io.writeW(SRC_Y_DEST_Y, srcY + height - 1);
-        io.writeW(SRC_X_END, srcX);
-        io.writeW(SRC_Y_DIR, 0);
-
-        io.writeW(CUR_X, dstX + width);
-        io.writeW(DEST_X_START, dstX + width);
-        io.writeW(CUR_Y, dstY + height - 1);
-        io.writeW(DEST_X_END, dstX);
-        io.writeW(DEST_Y_END, dstY - 1);
-    } else {
-        /* No overlap risk: copy top-to-bottom, left-to-right */
-        io.writeW(SRC_X_DEST_X, srcX);
-        io.writeW(SRC_X_START, srcX);
-        io.writeW(SRC_Y_DEST_Y, srcY);
-        io.writeW(SRC_X_END, srcX + width);
-        io.writeW(SRC_Y_DIR, 1);
-
-        io.writeW(CUR_X, dstX);
-        io.writeW(DEST_X_START, dstX);
-        io.writeW(CUR_Y, dstY);
-        io.writeW(DEST_X_END, dstX + width);
-        io.writeW(DEST_Y_END, dstY + height);
-    }
-    flushWrites();
+    fallback:
+        waitBlitter();
+        bi->BlitRectDefault(bi, ri, srcX, srcY, dstX, dstY, width, height, mask, AS_RGBF(fmt));
 }
 
 /* FRGD_MIX / BKGD_MIX[7:5] = color source, [3:0] = mix function (REG688000-15 §8-24). */
@@ -1040,70 +1058,76 @@ void ASM Mach32Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), _
     UBYTE bpp = getBPP(fmt);
     if (bpp != 1 && bpp != 2) {
         DFUNC(INFO, "Fallback to BlitRectNoMaskCompleteDefault\n");
-        bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, AS_RGBF(fmt));
+        goto fallback;
+    }
+    {
+
+        ChipData_t *cd = getChipData(bi);
+
+        DRIVER_LOCALS(bi);
+        if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
+            cd->GEOp       = BLITRECTNOMASKCOMPLETE;
+            cd->GEdrawMode = 0xFF; /* invalidate minterm cache */
+            cd->GEmask     = 0xFF;
+
+            asMach32(bi)->waitFifo(3);
+
+            io.writeW(DP_CONFIG, DP_CONFIG_BLIT);
+            io.writeW(ALU_BG_FN, MIX_ZERO);
+            io.writeW(WRT_MASK, 0xFFFF);
+        }
+
+        if (cd->GEdrawMode != opCode) {
+            cd->GEdrawMode = opCode;
+
+            asMach32(bi)->waitFifo(1);
+
+            UWORD mix = minTermToMix[opCode & 0xF];
+            io.writeW(ALU_FG_FN, mix);
+        }
+
+        setFarBlitBuffer(bi, dri, fmt, 0);
+        setFarBlitBuffer(bi, sri, fmt, 1);
+
+        BOOL overlap = (sri->Memory == dri->Memory) && (sri->BytesPerRow == dri->BytesPerRow);
+
+        asMach32(bi)->waitFifo(10);
+
+        if (overlap && ((dstY > srcY) || (dstY == srcY && dstX > srcX))) {
+            /* Overlap: copy bottom-to-top, right-to-left */
+            io.writeW(SRC_X_DEST_X, srcX + width);
+            io.writeW(SRC_X_START, srcX + width);
+            io.writeW(SRC_Y_DEST_Y, srcY + height - 1);
+            io.writeW(SRC_X_END, srcX);
+            io.writeW(SRC_Y_DIR, 0);
+
+            io.writeW(CUR_X, dstX + width);
+            io.writeW(DEST_X_START, dstX + width);
+            io.writeW(CUR_Y, dstY + height - 1);
+            io.writeW(DEST_X_END, dstX);
+            io.writeW(DEST_Y_END, dstY - 1);
+        } else {
+            /* No overlap risk: copy top-to-bottom, left-to-right */
+            io.writeW(SRC_X_DEST_X, srcX);
+            io.writeW(SRC_X_START, srcX);
+            io.writeW(SRC_Y_DEST_Y, srcY);
+            io.writeW(SRC_X_END, srcX + width);
+            io.writeW(SRC_Y_DIR, 1);
+
+            io.writeW(CUR_X, dstX);
+            io.writeW(DEST_X_START, dstX);
+            io.writeW(CUR_Y, dstY);
+            io.writeW(DEST_X_END, dstX + width);
+            io.writeW(DEST_Y_END, dstY + height);
+        }
+
+        flushWrites();
         return;
     }
 
-    ChipData_t *cd = getChipData(bi);
-
-    DRIVER_LOCALS(bi);
-    if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
-        cd->GEOp       = BLITRECTNOMASKCOMPLETE;
-        cd->GEdrawMode = 0xFF; /* invalidate minterm cache */
-        cd->GEmask     = 0xFF;
-
-        asMach32(bi)->waitFifo(3);
-
-        io.writeW(DP_CONFIG, DP_CONFIG_BLIT);
-        io.writeW(ALU_BG_FN, MIX_ZERO);
-        io.writeW(WRT_MASK, 0xFFFF);
-    }
-
-    if (cd->GEdrawMode != opCode) {
-        cd->GEdrawMode = opCode;
-
-        asMach32(bi)->waitFifo(1);
-
-        UWORD mix = minTermToMix[opCode & 0xF];
-        io.writeW(ALU_FG_FN, mix);
-    }
-
-    setFarBlitBuffer(bi, dri, fmt, 0);
-    setFarBlitBuffer(bi, sri, fmt, 1);
-
-    BOOL overlap = (sri->Memory == dri->Memory) && (sri->BytesPerRow == dri->BytesPerRow);
-
-    asMach32(bi)->waitFifo(10);
-
-    if (overlap && ((dstY > srcY) || (dstY == srcY && dstX > srcX))) {
-        /* Overlap: copy bottom-to-top, right-to-left */
-        io.writeW(SRC_X_DEST_X, srcX + width);
-        io.writeW(SRC_X_START, srcX + width);
-        io.writeW(SRC_Y_DEST_Y, srcY + height - 1);
-        io.writeW(SRC_X_END, srcX);
-        io.writeW(SRC_Y_DIR, 0);
-
-        io.writeW(CUR_X, dstX + width);
-        io.writeW(DEST_X_START, dstX + width);
-        io.writeW(CUR_Y, dstY + height - 1);
-        io.writeW(DEST_X_END, dstX);
-        io.writeW(DEST_Y_END, dstY - 1);
-    } else {
-        /* No overlap risk: copy top-to-bottom, left-to-right */
-        io.writeW(SRC_X_DEST_X, srcX);
-        io.writeW(SRC_X_START, srcX);
-        io.writeW(SRC_Y_DEST_Y, srcY);
-        io.writeW(SRC_X_END, srcX + width);
-        io.writeW(SRC_Y_DIR, 1);
-
-        io.writeW(CUR_X, dstX);
-        io.writeW(DEST_X_START, dstX);
-        io.writeW(CUR_Y, dstY);
-        io.writeW(DEST_X_END, dstX + width);
-        io.writeW(DEST_Y_END, dstY + height);
-    }
-
-    flushWrites();
+    fallback:
+        waitBlitter();
+        bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, AS_RGBF(fmt));
 }
 
 static INLINE void REGARGS setDrawMode(BoardInfo_t *bi, ULONG fgPen, ULONG bgPen, UBYTE drawMode, RGBFTYPE_REG fmt)
@@ -1166,83 +1190,89 @@ void ASM Mach32Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(stru
     UBYTE bpp = getBPP(fmt);
     if (bpp != 1 && bpp != 2) {
         DFUNC(INFO, "Fallback to BlitTemplateDefault\n");
-        bi->BlitTemplateDefault(bi, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
+        goto fallback;
+    }
+    {
+
+        DRIVER_LOCALS(bi);
+
+        ChipData_t *cd = getChipData(bi);
+
+        if (cd->GEOp != BLITTEMPLATE) {
+            cd->GEOp       = BLITTEMPLATE;
+            cd->GEdrawMode = 0xFF;
+
+            asMach32(bi)->waitFifo(1);
+            io.writeW(DP_CONFIG, DP_CONFIG_TEMPLATE);
+        }
+
+        setFarBlitBuffer(bi, ri, fmt, 0);
+        setDrawMode(bi, tmpl->FgPen, tmpl->BgPen, tmpl->DrawMode, fmt);
+        setGEWriteMask(bi, mask, fmt, 1);
+
+        /* Clip padding (and avoid CPU bit-rotation into left margin). */
+        // io.writeW(SCISSOR_LEFT, x);
+        io.writeW(SCISSOR_RIGHT, x + width - 1);
+
+        /* 16 pixels per PIX_TRANS word. Round up width+offset to 16. */
+        UWORD rol      = (UWORD)(tmpl->XOffset & 15);
+        WORD blitWidth = (width + rol + 15) & ~15;
+
+        /* Set up rectangle; writing DEST_Y_END kicks the engine. */
+        drawRect(bi, x, y, blitWidth, height);
+
+        WORD wordsPerLn    = blitWidth >> 4;
+        ULONG fifoNeed     = (ULONG)wordsPerLn * (ULONG)height + 3u;
+        UBYTE numFifoSlots = fifoNeed > 16u ? 16 : (UBYTE)fifoNeed;
+        asMach32(bi)->waitFifo(numFifoSlots);
+        WORD usedFifoSlots = 16 - numFifoSlots;
+
+        const UBYTE *bitmap = (const UBYTE *)tmpl->Memory;
+        bitmap += (tmpl->XOffset >> 4) * 2;
+        WORD bitmapPitch = tmpl->BytesPerRow;
+
+        for (WORD row = 0; row < height; ++row) {
+            const UWORD *src = (UWORD *)bitmap;
+            if (!rol) {
+                for (WORD col = 0; col < wordsPerLn; ++col) {
+                    UWORD w = src[col];
+                    // We set DP_CONFIG_LSB_FIRST.
+                    ioNS.writeW(PIX_TRANS, w);
+
+                    usedFifoSlots = (usedFifoSlots + 1) & 15;
+                    if (!usedFifoSlots) {
+                        asMach32(bi)->waitFifo(16);
+                    }
+                }
+            } else {
+                for (WORD col = 0; col < wordsPerLn; ++col) {
+                    UWORD w0 = src[col];
+                    UWORD w1 = src[col + 1];
+                    UWORD w  = (w0 << rol) | (w1 >> (16u - rol));
+                    // We set DP_CONFIG_LSB_FIRST.
+                    ioNS.writeW(PIX_TRANS, w);
+
+                    usedFifoSlots = (usedFifoSlots + 1) & 15;
+                    if (!usedFifoSlots) {
+                        asMach32(bi)->waitFifo(16);
+                    }
+                }
+            }
+            bitmap += bitmapPitch;
+        }
+
+        if (!usedFifoSlots) {
+            asMach32(bi)->waitFifo(1);
+        }
+        // io.writeW(SCISSOR_LEFT, 0);
+        io.writeW(SCISSOR_RIGHT, 0x600);
+        flushWrites();
         return;
     }
 
-    DRIVER_LOCALS(bi);
-
-    ChipData_t *cd = getChipData(bi);
-
-    if (cd->GEOp != BLITTEMPLATE) {
-        cd->GEOp       = BLITTEMPLATE;
-        cd->GEdrawMode = 0xFF;
-
-        asMach32(bi)->waitFifo(1);
-        io.writeW(DP_CONFIG, DP_CONFIG_TEMPLATE);
-    }
-
-    setFarBlitBuffer(bi, ri, fmt, 0);
-    setDrawMode(bi, tmpl->FgPen, tmpl->BgPen, tmpl->DrawMode, fmt);
-    setGEWriteMask(bi, mask, fmt, 1);
-
-    /* Clip padding (and avoid CPU bit-rotation into left margin). */
-    // io.writeW(SCISSOR_LEFT, x);
-    io.writeW(SCISSOR_RIGHT, x + width - 1);
-
-    /* 16 pixels per PIX_TRANS word. Round up width+offset to 16. */
-    UWORD rol      = (UWORD)(tmpl->XOffset & 15);
-    WORD blitWidth = (width + rol + 15) & ~15;
-
-    /* Set up rectangle; writing DEST_Y_END kicks the engine. */
-    drawRect(bi, x, y, blitWidth, height);
-
-    WORD wordsPerLn    = blitWidth >> 4;
-    ULONG fifoNeed     = (ULONG)wordsPerLn * (ULONG)height + 3u;
-    UBYTE numFifoSlots = fifoNeed > 16u ? 16 : (UBYTE)fifoNeed;
-    asMach32(bi)->waitFifo(numFifoSlots);
-    WORD usedFifoSlots = 16 - numFifoSlots;
-
-    const UBYTE *bitmap = (const UBYTE *)tmpl->Memory;
-    bitmap += (tmpl->XOffset >> 4) * 2;
-    WORD bitmapPitch = tmpl->BytesPerRow;
-
-    for (WORD row = 0; row < height; ++row) {
-        const UWORD *src = (UWORD *)bitmap;
-        if (!rol) {
-            for (WORD col = 0; col < wordsPerLn; ++col) {
-                UWORD w = src[col];
-                // We set DP_CONFIG_LSB_FIRST.
-                ioNS.writeW(PIX_TRANS, w);
-
-                usedFifoSlots = (usedFifoSlots + 1) & 15;
-                if (!usedFifoSlots) {
-                    asMach32(bi)->waitFifo(16);
-                }
-            }
-        } else {
-            for (WORD col = 0; col < wordsPerLn; ++col) {
-                UWORD w0 = src[col];
-                UWORD w1 = src[col + 1];
-                UWORD w  = (w0 << rol) | (w1 >> (16u - rol));
-                // We set DP_CONFIG_LSB_FIRST.
-                ioNS.writeW(PIX_TRANS, w);
-
-                usedFifoSlots = (usedFifoSlots + 1) & 15;
-                if (!usedFifoSlots) {
-                    asMach32(bi)->waitFifo(16);
-                }
-            }
-        }
-        bitmap += bitmapPitch;
-    }
-
-    if (!usedFifoSlots) {
-        asMach32(bi)->waitFifo(1);
-    }
-    // io.writeW(SCISSOR_LEFT, 0);
-    io.writeW(SCISSOR_RIGHT, 0x600);
-    flushWrites();
+    fallback:
+        waitBlitter();
+        bi->BlitTemplateDefault(bi, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
 }
 
 static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY, WORD width, WORD height,
@@ -1327,65 +1357,71 @@ void ASM Mach32Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(str
           (ULONG)ri->BytesPerRow, (ULONG)ri->Memory);
 
     if (width < 64 || height < 64) {
-        bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
+        goto fallback;
+    }
+    {
+
+        ChipData_t *cd = getChipData(bi);
+        if (cd->GEOp != BLITPLANAR2CHUNKY) {
+            cd->GEOp       = BLITPLANAR2CHUNKY;
+            cd->GEdrawMode = 0xFF;
+            cd->GEmask     = 0xFF;
+            cd->GEfgPen    = ~0UL;
+            cd->GEbgPen    = 0;
+
+            asMach32(bi)->waitFifo(4);
+            DRIVER_LOCALS(bi);
+            io.writeW(DP_CONFIG, DP_CONFIG_TEMPLATE);
+            io.writeW(WRT_MASK, 0xFFFF);
+            io.writeW(FRGD_COLOR, 0xFF);
+            io.writeW(BKGD_COLOR, 0x00);
+        }
+
+        UBYTE mix = minTermToMix[minTerm & 0xF];
+        if (cd->GEdrawMode != minTerm) {
+            cd->GEdrawMode = minTerm;
+            asMach32(bi)->waitFifo(2);
+            DRIVER_LOCALS(bi);
+            io.writeW(FRGD_MIX, (UWORD)(CLR_SRC_FRGD_COLOR | mix));
+            io.writeW(BKGD_MIX, (UWORD)(CLR_SRC_BKGD_COLOR | mix));
+        }
+
+        setFarBlitBuffer(bi, ri, RGBFB_CLUT, 0);
+
+        asMach32(bi)->waitFifo(1);
+        DRIVER_LOCALS(bi);
+
+        /* Clip padding (and avoid CPU bit-rotation into left margin). */
+        io.writeW(SCISSOR_RIGHT, dstX + width - 1);
+
+        WORD bmPitch        = bm->BytesPerRow;
+        ULONG bmStartOffset = (ULONG)(srcY * bmPitch) + (ULONG)((srcX >> 4) * 2);
+        UWORD rol           = (UWORD)(srcX & 15);
+
+        for (UBYTE p = 0; p < bm->Depth; ++p) {
+            UBYTE writeMask = (UBYTE)(1u << p);
+            if (!(mask & writeMask)) {
+                continue;
+            }
+
+            setGEWriteMask(bi, writeMask, RGBFB_CLUT, 0);
+
+            const UBYTE *bitmap = (const UBYTE *)bm->Planes[p];
+            if ((ULONG)bitmap != 0 && (ULONG)bitmap != 0xFFFFFFFFu) {
+                bitmap += bmStartOffset;
+            }
+            performBlitPlanar2ChunkyBlits(bi, dstX, dstY, width, height, bitmap, bmPitch, rol);
+        }
+
+        asMach32(bi)->waitFifo(1);
+        io.writeW(SCISSOR_RIGHT, 0x600);
+        flushWrites();
         return;
     }
 
-    ChipData_t *cd = getChipData(bi);
-    if (cd->GEOp != BLITPLANAR2CHUNKY) {
-        cd->GEOp       = BLITPLANAR2CHUNKY;
-        cd->GEdrawMode = 0xFF;
-        cd->GEmask     = 0xFF;
-        cd->GEfgPen    = ~0UL;
-        cd->GEbgPen    = 0;
-
-        asMach32(bi)->waitFifo(4);
-        DRIVER_LOCALS(bi);
-        io.writeW(DP_CONFIG, DP_CONFIG_TEMPLATE);
-        io.writeW(WRT_MASK, 0xFFFF);
-        io.writeW(FRGD_COLOR, 0xFF);
-        io.writeW(BKGD_COLOR, 0x00);
-    }
-
-    UBYTE mix = minTermToMix[minTerm & 0xF];
-    if (cd->GEdrawMode != minTerm) {
-        cd->GEdrawMode = minTerm;
-        asMach32(bi)->waitFifo(2);
-        DRIVER_LOCALS(bi);
-        io.writeW(FRGD_MIX, (UWORD)(CLR_SRC_FRGD_COLOR | mix));
-        io.writeW(BKGD_MIX, (UWORD)(CLR_SRC_BKGD_COLOR | mix));
-    }
-
-    setFarBlitBuffer(bi, ri, RGBFB_CLUT, 0);
-
-    asMach32(bi)->waitFifo(1);
-    DRIVER_LOCALS(bi);
-
-    /* Clip padding (and avoid CPU bit-rotation into left margin). */
-    io.writeW(SCISSOR_RIGHT, dstX + width - 1);
-
-    WORD bmPitch        = bm->BytesPerRow;
-    ULONG bmStartOffset = (ULONG)(srcY * bmPitch) + (ULONG)((srcX >> 4) * 2);
-    UWORD rol           = (UWORD)(srcX & 15);
-
-    for (UBYTE p = 0; p < bm->Depth; ++p) {
-        UBYTE writeMask = (UBYTE)(1u << p);
-        if (!(mask & writeMask)) {
-            continue;
-        }
-
-        setGEWriteMask(bi, writeMask, RGBFB_CLUT, 0);
-
-        const UBYTE *bitmap = (const UBYTE *)bm->Planes[p];
-        if ((ULONG)bitmap != 0 && (ULONG)bitmap != 0xFFFFFFFFu) {
-            bitmap += bmStartOffset;
-        }
-        performBlitPlanar2ChunkyBlits(bi, dstX, dstY, width, height, bitmap, bmPitch, rol);
-    }
-
-    asMach32(bi)->waitFifo(1);
-    io.writeW(SCISSOR_RIGHT, 0x600);
-    flushWrites();
+    fallback:
+        waitBlitter();
+        bi->BlitPlanar2ChunkyDefault(bi, bm, ri, srcX, srcY, dstX, dstY, width, height, minTerm, mask);
 }
 
 static INLINE void REGARGS rotate8x8MonoPattern(UBYTE rows[8], UBYTE offX, UBYTE offY)
@@ -1489,87 +1525,93 @@ void ASM Mach32Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
 
     UBYTE bpp = getBPP(fmt);
     if (bpp > 2 || pattern->Size > 8) {
+        goto fallback;
+    }
+    {
+
+        UWORD patternHeight = (UWORD)(1u << pattern->Size);
+        const UWORD *src    = (const UWORD *)pattern->Memory;
+
+        BOOL is8x8 = TRUE;
+        for (UWORD i = 0; i < patternHeight; ++i) {
+            UWORD row = src[i];
+            // Left and right byte (8 pixels) must match, as well as vertically
+            if ((UBYTE)row != (UBYTE)(row >> 8) || row != src[i & 7]) {
+                is8x8 = FALSE;
+                break;
+            }
+        }
+        if (!is8x8) {
+            BlitPatternNon8x8(bi, ri, pattern, x, y, width, height, mask, fmt);
+            return;
+        }
+
+        ChipData_t *cd = getChipData(bi);
+
+        if (cd->GEOp != BLITPATTERN) {
+            cd->GEOp       = BLITPATTERN;
+            cd->GEdrawMode = 0xFF;
+            // Operations other that pattern blits will disturb the pattern registers, so we can't assume the pattern we
+            // last uploaded is stil there.
+            cd->patternCacheKey = 0xFFFFFFFFu;
+
+            asMach32(bi)->waitFifo(2);
+            DRIVER_LOCALS(bi);
+            io.writeW(DP_CONFIG, DP_CONFIG_MONO_PATTERN);
+            // 8x8 Mono Pattern Enable
+            io.writeW(PATT_LENGTH, BIT(7));
+        }
+
+        setFarBlitBuffer(bi, ri, fmt, 0);
+        setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
+        setGEWriteMask(bi, mask, fmt, 0);
+
+        UBYTE pattOffX = (UBYTE)((x - pattern->XOffset) & 7);
+        UBYTE pattOffY = (UBYTE)((y - pattern->YOffset) & 7);
+
+        ULONG cacheKey = 0x80000000UL | ((ULONG)pattern->Size) | ((ULONG)pattOffX << 8) | ((ULONG)pattOffY << 16);
+        BOOL changed   = (cacheKey != cd->patternCacheKey);
+
+        UBYTE rows[8] = {0};
+        for (UBYTE i = 0; i < 8; ++i) {
+            UBYTE srcRow = src[i & (patternHeight - 1)];
+            rows[i]      = srcRow;
+        }
+        rotate8x8MonoPattern(rows, pattOffX, pattOffY);
+
+        for (UBYTE i = 0; i < 8; ++i) {
+            if (cd->patternCache[i] != rows[i]) {
+                cd->patternCache[i] = rows[i];
+                changed             = TRUE;
+            }
+        }
+
+        if (changed) {
+            cd->patternCacheKey = cacheKey;
+
+            asMach32(bi)->waitFifo(5);
+            DRIVER_LOCALS(bi);
+
+            /* Load PATT_DATA_10..17 via PATT_DATA_INDEX, then enable 8x8 mono pattern mode (PATT_LENGTH[7]). */
+            io.writeW(PATT_DATA_INDEX, 0x10);
+            /*
+             * Empirically, some Mach32 variants appear to interpret the two bytes of each PATT_DATA word as two
+             * successive 8-bit pattern rows in 8x8 mode (low byte first).
+             * So pack two 8-bit rows per register word: low=row0, high=row1, etc.
+             */
+            UWORD *pattData = (UWORD *)cd->patternCache;
+            for (UBYTE i = 0; i < 4; ++i) {
+                ioNS.writeW(PATT_DATA, pattData[i]);
+            }
+        }
+
+        drawRect(bi, x, y, width, height);
+        return;
+    }
+
+    fallback:
+        waitBlitter();
         bi->BlitPatternDefault(bi, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
-        return;
-    }
-
-    UWORD patternHeight = (UWORD)(1u << pattern->Size);
-    const UWORD *src    = (const UWORD *)pattern->Memory;
-
-    BOOL is8x8 = TRUE;
-    for (UWORD i = 0; i < patternHeight; ++i) {
-        UWORD row = src[i];
-        // Left and right byte (8 pixels) must match, as well as vertically
-        if ((UBYTE)row != (UBYTE)(row >> 8) || row != src[i & 7]) {
-            is8x8 = FALSE;
-            break;
-        }
-    }
-    if (!is8x8) {
-        BlitPatternNon8x8(bi, ri, pattern, x, y, width, height, mask, fmt);
-        return;
-    }
-
-    ChipData_t *cd = getChipData(bi);
-
-    if (cd->GEOp != BLITPATTERN) {
-        cd->GEOp       = BLITPATTERN;
-        cd->GEdrawMode = 0xFF;
-        // Operations other that pattern blits will disturb the pattern registers, so we can't assume the pattern we
-        // last uploaded is stil there.
-        cd->patternCacheKey = 0xFFFFFFFFu;
-
-        asMach32(bi)->waitFifo(2);
-        DRIVER_LOCALS(bi);
-        io.writeW(DP_CONFIG, DP_CONFIG_MONO_PATTERN);
-        // 8x8 Mono Pattern Enable
-        io.writeW(PATT_LENGTH, BIT(7));
-    }
-
-    setFarBlitBuffer(bi, ri, fmt, 0);
-    setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
-    setGEWriteMask(bi, mask, fmt, 0);
-
-    UBYTE pattOffX = (UBYTE)((x - pattern->XOffset) & 7);
-    UBYTE pattOffY = (UBYTE)((y - pattern->YOffset) & 7);
-
-    ULONG cacheKey = 0x80000000UL | ((ULONG)pattern->Size) | ((ULONG)pattOffX << 8) | ((ULONG)pattOffY << 16);
-    BOOL changed   = (cacheKey != cd->patternCacheKey);
-
-    UBYTE rows[8] = {0};
-    for (UBYTE i = 0; i < 8; ++i) {
-        UBYTE srcRow = src[i & (patternHeight - 1)];
-        rows[i]      = srcRow;
-    }
-    rotate8x8MonoPattern(rows, pattOffX, pattOffY);
-
-    for (UBYTE i = 0; i < 8; ++i) {
-        if (cd->patternCache[i] != rows[i]) {
-            cd->patternCache[i] = rows[i];
-            changed             = TRUE;
-        }
-    }
-
-    if (changed) {
-        cd->patternCacheKey = cacheKey;
-
-        asMach32(bi)->waitFifo(5);
-        DRIVER_LOCALS(bi);
-
-        /* Load PATT_DATA_10..17 via PATT_DATA_INDEX, then enable 8x8 mono pattern mode (PATT_LENGTH[7]). */
-        io.writeW(PATT_DATA_INDEX, 0x10);
-        /*
-         * Empirically, some Mach32 variants appear to interpret the two bytes of each PATT_DATA word as two
-         * successive 8-bit pattern rows in 8x8 mode (low byte first).
-         * So pack two 8-bit rows per register word: low=row0, high=row1, etc.
-         */
-        UWORD *pattData = (UWORD *)cd->patternCache;
-        for (UBYTE i = 0; i < 4; ++i) {
-            ioNS.writeW(PATT_DATA, pattData[i]);
-        }
-    }
-
-    drawRect(bi, x, y, width, height);
 }
 
 void ASM Mach32Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line *line), __REGD0(UBYTE mask),
@@ -1580,82 +1622,88 @@ void ASM Mach32Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
 
     UBYTE bpp = getBPP(fmt);
     if (bpp > 2) {
-        bi->DrawLineDefault(bi, ri, line, mask, AS_RGBF(fmt));
+        goto fallback;
+    }
+    {
+
+        setFarBlitBuffer(bi, ri, fmt, 0);
+
+        ChipData_t *cd = getChipData(bi);
+        if (cd->GEOp != LINE) {
+            cd->GEOp            = LINE;
+            cd->lineMode        = 0xFF;
+            cd->patternCacheKey = 0x0000;
+
+            asMach32(bi)->waitFifo(2);
+            DRIVER_LOCALS(bi);
+            /* Disable special pre-clip modes by default. */
+            io.writeW(PATT_LENGTH, (UWORD)PATT_LENGTH_MONO16);
+            io.writeW(DP_CONFIG, DP_CONFIG_REPLACE);
+        }
+
+        setDrawMode(bi, line->FgPen, line->BgPen, line->DrawMode, fmt);
+        setGEWriteMask(bi, mask, fmt, 0);
+
+        DRIVER_LOCALS(bi);
+
+        BOOL solid = (line->LinePtrn == 0xFFFFu);
+        if (solid) {
+            if (cd->lineMode != 1) {
+                cd->lineMode = 1;
+                asMach32(bi)->waitFifo(9);
+                DRIVER_LOCALS(bi);
+                asMach32(bi)->writeBee8(PIXEL_CNTL, MASK_BIT_SRC_ONE);
+            }
+        } else {
+            UBYTE phase  = (UBYTE)((15u - (line->PatternShift & 15u)) & 15u);
+            BOOL needPat = (cd->linePatternCache != line->LinePtrn);
+            if (cd->lineMode != 0 || needPat) {
+                cd->lineMode         = 0;
+                cd->linePatternCache = line->LinePtrn;
+                asMach32(bi)->waitFifo(11);
+                DRIVER_LOCALS(bi);
+                asMach32(bi)->writeBee8(PIXEL_CNTL, MASK_BIT_SRC_PATTEN);
+                io.writeW(PATT_DATA_INDEX, 0x10);
+                ioNS.writeW(PATT_DATA, line->LinePtrn);
+                io.writeW(PATT_INDEX, (UWORD)phase);
+            } else {
+                asMach32(bi)->waitFifo(8);
+                io.writeW(PATT_INDEX, (UWORD)phase);
+            }
+        }
+
+        io.writeW(CUR_X, line->X);
+        io.writeW(CUR_Y, line->Y);
+
+        WORD absMAX = myabs(line->lDelta);
+        WORD absMIN = myabs(line->sDelta);
+
+        WORD axialStep = 2 * absMIN;
+        io.writeW(SRC_Y_DEST_Y, axialStep); /* DESTY_AXSTP */
+        WORD diagStep = axialStep - 2 * absMAX;
+        io.writeW(SRC_X_DEST_X, diagStep); /* DESTX_DIASTP */
+        WORD errTerm = axialStep - absMAX;
+        io.writeW(ERR_TERM, errTerm /*(UWORD)line->twoSDminusLD*/);
+        UWORD octant = 0;
+        if (line->dX > 0) {
+            octant |= LINEDRAW_OPT_OCTANT_XDIR;
+        }
+        if (line->dY > 0) {
+            octant |= LINEDRAW_OPT_OCTANT_YDIR;
+        }
+        if (!line->Horizontal) {
+            octant |= LINEDRAW_OPT_OCTANT_YMAJ;
+        }
+        io.writeW(LINEDRAW_OPT, octant); /* DIR_TYPE=0 (Bresenham/Octant), LAST_PEL_OFF=0 */
+        UWORD count = line->Length;
+        io.writeW(BRES_COUNT, count); /* kick off the line drawing */
+        flushWrites();
         return;
     }
 
-    setFarBlitBuffer(bi, ri, fmt, 0);
-
-    ChipData_t *cd = getChipData(bi);
-    if (cd->GEOp != LINE) {
-        cd->GEOp            = LINE;
-        cd->lineMode        = 0xFF;
-        cd->patternCacheKey = 0x0000;
-
-        asMach32(bi)->waitFifo(2);
-        DRIVER_LOCALS(bi);
-        /* Disable special pre-clip modes by default. */
-        io.writeW(PATT_LENGTH, (UWORD)PATT_LENGTH_MONO16);
-        io.writeW(DP_CONFIG, DP_CONFIG_REPLACE);
-    }
-
-    setDrawMode(bi, line->FgPen, line->BgPen, line->DrawMode, fmt);
-    setGEWriteMask(bi, mask, fmt, 0);
-
-    DRIVER_LOCALS(bi);
-
-    BOOL solid = (line->LinePtrn == 0xFFFFu);
-    if (solid) {
-        if (cd->lineMode != 1) {
-            cd->lineMode = 1;
-            asMach32(bi)->waitFifo(9);
-            DRIVER_LOCALS(bi);
-            asMach32(bi)->writeBee8(PIXEL_CNTL, MASK_BIT_SRC_ONE);
-        }
-    } else {
-        UBYTE phase  = (UBYTE)((15u - (line->PatternShift & 15u)) & 15u);
-        BOOL needPat = (cd->linePatternCache != line->LinePtrn);
-        if (cd->lineMode != 0 || needPat) {
-            cd->lineMode         = 0;
-            cd->linePatternCache = line->LinePtrn;
-            asMach32(bi)->waitFifo(11);
-            DRIVER_LOCALS(bi);
-            asMach32(bi)->writeBee8(PIXEL_CNTL, MASK_BIT_SRC_PATTEN);
-            io.writeW(PATT_DATA_INDEX, 0x10);
-            ioNS.writeW(PATT_DATA, line->LinePtrn);
-            io.writeW(PATT_INDEX, (UWORD)phase);
-        } else {
-            asMach32(bi)->waitFifo(8);
-            io.writeW(PATT_INDEX, (UWORD)phase);
-        }
-    }
-
-    io.writeW(CUR_X, line->X);
-    io.writeW(CUR_Y, line->Y);
-
-    WORD absMAX = myabs(line->lDelta);
-    WORD absMIN = myabs(line->sDelta);
-
-    WORD axialStep = 2 * absMIN;
-    io.writeW(SRC_Y_DEST_Y, axialStep); /* DESTY_AXSTP */
-    WORD diagStep = axialStep - 2 * absMAX;
-    io.writeW(SRC_X_DEST_X, diagStep); /* DESTX_DIASTP */
-    WORD errTerm = axialStep - absMAX;
-    io.writeW(ERR_TERM, errTerm /*(UWORD)line->twoSDminusLD*/);
-    UWORD octant = 0;
-    if (line->dX > 0) {
-        octant |= LINEDRAW_OPT_OCTANT_XDIR;
-    }
-    if (line->dY > 0) {
-        octant |= LINEDRAW_OPT_OCTANT_YDIR;
-    }
-    if (!line->Horizontal) {
-        octant |= LINEDRAW_OPT_OCTANT_YMAJ;
-    }
-    io.writeW(LINEDRAW_OPT, octant); /* DIR_TYPE=0 (Bresenham/Octant), LAST_PEL_OFF=0 */
-    UWORD count = line->Length;
-    io.writeW(BRES_COUNT, count); /* kick off the line drawing */
-    flushWrites();
+    fallback:
+        waitBlitter();
+        bi->DrawLineDefault(bi, ri, line, mask, AS_RGBF(fmt));
 }
 
 static ULONG probeFramebufferSize(BoardInfo_t *bi)
