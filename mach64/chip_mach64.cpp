@@ -1878,189 +1878,195 @@ void ASM Mach64Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
           (ULONG)ri->Memory);
 
     if (pattern->Size > 8) {
-        BlitPatternDefault(this, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
+        goto fallback;
+    }
+    {
+
+        if (isVideoMemory(pattern->Memory)) {
+            D(ERROR, "Pattern is in video memory\n");
+        }
+
+        Mach64MmioNoSwapQ raw(mmioBase());
+        DRIVER_LOCALS(this);
+
+        if (cd->GEOp != BLITPATTERN) {
+            cd->GEOp            = BLITPATTERN;
+            cd->GEdrawMode      = 0xFF;
+            cd->patternCacheKey = 0xFFFFFFFF;
+
+            waitFifo(2);
+
+            // Offset is in units of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'.
+            mmio.writeL(SRC_OFF_PITCH, SRC_OFFSET(memoryOffset(cd->patternVideoBuffer) / 8) | SRC_PITCH(8));
+            mmio.writeMaskL(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH_MASK, DP_SRC_PIX_WIDTH(COLOR_DEPTH_1));
+        }
+
+        setDstBuffer(ri, fmt);
+        setWriteMask(mask, fmt, 0);
+
+        // First, figure out if the new pattern would actually fit into an 8x8 mono pattern.
+        // Then we can use the hardware pattern registers, which are much faster.
+        // If not, upload the pattern to video memory and use that as mono blit source.
+        // We cache the last pattern to avoid re-uploading it if it didn't change.
+        UWORD patternHeight        = 1 << pattern->Size;
+        const UWORD *sysMemPattern = (const UWORD *)pattern->Memory;
+        UWORD *cachedPattern       = cd->patternCacheBuffer;
+        ULONG *videoMemPattern     = cd->patternVideoBuffer;
+
+        // Try to avoid wait-for-idle by first checking if the pattern changed.
+        // I'm not expecting huge patterns, so this will hopefully be fast
+        BOOL patternChanged = FALSE;
+        BOOL is8x8          = (patternHeight <= 8);
+        for (UWORD i = 0; i < patternHeight; ++i) {
+            UWORD row = sysMemPattern[i];
+            // Compare new pattern with last one uploaded
+            if (row != cachedPattern[i]) {
+                cachedPattern[i] = row;
+                patternChanged   = TRUE;
+            }
+            // Check if upper half and lower half of the 16bit pattern row are identical,
+            // so the pattern width is essentially 8bit
+            if ((UBYTE)(row >> 8) != (UBYTE)row) {
+                is8x8 = FALSE;
+            }
+        }
+
+        BOOL was8x8 = (cd->patternCacheKey & 0x80000000) != 0;
+        if (is8x8 != was8x8) {
+            patternChanged = TRUE;
+        }
+
+        if (is8x8) {
+            // The Rage 8x8 mono patttern cannot be offset directly.
+            // Instead, its "destination aligned". So in order to offset the pattern, we
+            // need to manually rotate it here.
+            UBYTE pattOffX = (UBYTE)((x - pattern->XOffset) & 7);
+            UBYTE pattOffY = (UBYTE)((y - pattern->YOffset) & 7);
+
+            ULONG pattCacheKey = (pattOffX << 16) | (pattOffY << 8) | pattern->Size | 0x80000000;
+            if (pattCacheKey != cd->patternCacheKey) {
+                cd->patternCacheKey = pattCacheKey;
+                patternChanged      = TRUE;
+            }
+
+            if (patternChanged) {
+                // replicate the 8xN pattern to 8x8
+                ULONG pat0;
+                ULONG pat1;
+
+                // Build the 8x8 pattern in the two registers
+                // Source patterns that are smaller than 8 in height will be extended to height 8
+                switch (pattern->Size) {
+                case 0:
+                    // our pattern data is already 16bit, with the upper half and lower half determined to be identical
+                    pat0 = cachedPattern[0] | (cachedPattern[0] << 16);
+                    pat1 = pat0;
+                    break;
+                case 1:
+                    pat0 = (cachedPattern[0] & 0xFF00) | ((cachedPattern[1] & 0xFF));
+                    pat0 |= (pat0 << 16);
+                    pat1 = pat0;
+                    break;
+                case 2:
+                    pat0 = ((cachedPattern[0] & 0xFF00) << 16) | ((cachedPattern[1] & 0xFF00) << 8) |
+                           (cachedPattern[2] & 0xFF00) | (cachedPattern[3] & 0xFF);
+                    pat1 = pat0;
+                    break;
+                case 3:
+                    pat0 = ((cachedPattern[0] & 0xFF00) << 16) | ((cachedPattern[1] & 0xFF00) << 8) |
+                           (cachedPattern[2] & 0xFF00) | (cachedPattern[3] & 0xFF);
+                    pat1 = ((cachedPattern[4] & 0xFF00) << 16) | ((cachedPattern[5] & 0xFF00) << 8) |
+                           (cachedPattern[6] & 0xFF00) | (cachedPattern[7] & 0xFF);
+                    break;
+                default:
+                    // fallthrough
+                    break;
+                }
+
+                // Since the Mach64 pattern is "destination aligned", emulate offsetting the pattern by uploading
+                // a rotated pattern
+                if (pattOffX) {
+                    // Rotate 'right' in X direction, we need to rotate within each byte
+                    ULONG maskLower = (1 << pattOffX) - 1;
+                    maskLower |= (maskLower << 8) | (maskLower << 16) | (maskLower << 24);
+                    ULONG maskUpper = ~maskLower;
+                    pat0            = ((pat0 & maskUpper) >> pattOffX) | ((pat0 & maskLower) << (8 - pattOffX));
+                    pat1            = ((pat1 & maskUpper) >> pattOffX) | ((pat1 & maskLower) << (8 - pattOffX));
+                }
+
+                if (pattOffY) {
+                    // Rotate 'down' in Y direction
+                    ULONG temp;
+                    if (pattOffY & 1) {
+                        temp = pat0;
+                        pat0 = (pat0 >> 8) | (pat1 << 24);
+                        pat1 = (pat1 >> 8) | (temp << 24);
+                    }
+                    if (pattOffY & 2) {
+                        temp = pat0;
+                        pat0 = (pat0 >> 16) | (pat1 << 16);
+                        pat1 = (pat1 >> 16) | (temp << 16);
+                    }
+                    if (pattOffY & 4) {
+                        temp = pat0;
+                        pat0 = pat1;
+                        pat1 = temp;
+                    }
+                }
+
+                waitFifo(3);
+
+                raw.writeL(PAT_REG0, pat0);
+                raw.writeL(PAT_REG1, pat1);
+            } else {
+                waitFifo(1);
+            }
+
+            ULONG trajectory = DST_X_DIR | DST_Y_DIR | PAT_MONO_EN;
+            mmio.writeL(GUI_TRAJ_CNTL, trajectory);
+
+            setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt, MONO_SRC_PATTERN);
+
+            waitFifo(2);
+        } else {
+            if (patternChanged) {
+                waitIdle();
+
+                for (UWORD i = 0; i < patternHeight; ++i) {
+                    // The video pattern has an 8-byte pitch. 64pixels (bits) is the minimum pitch for monochrome src blit
+                    // data.
+                    videoMemPattern[i * 2] = cachedPattern[i] << 16;
+                }
+            }
+
+            setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt, MONO_SRC_BLIT_SRC);
+
+            UBYTE xOff = pattern->XOffset & 15;
+            UWORD yOff = pattern->YOffset & (patternHeight - 1);
+
+            ULONG pattCacheKey = (yOff << 16) | (xOff << 8) | pattern->Size;
+            if (pattCacheKey != cd->patternCacheKey) {
+                cd->patternCacheKey = pattCacheKey;
+
+                waitFifo(6);
+
+                mmio.writeL(SRC_Y_X, SRC_X(xOff) | SRC_Y(yOff));
+                mmio.writeL(SRC_HEIGHT1_WIDTH1, SRC_HEIGHT1(patternHeight - yOff) | SRC_WIDTH1(16 - xOff));
+                mmio.writeL(SRC_HEIGHT2_WIDTH2, SRC_HEIGHT2(patternHeight) | SRC_WIDTH2(16));
+            } else {
+                waitFifo(3);
+            }
+            ULONG trajectory = DST_X_DIR | DST_Y_DIR | SRC_PATT_EN | SRC_PATT_ROT_EN;
+            mmio.writeL(GUI_TRAJ_CNTL, trajectory);
+        }
+
+        drawRect(x, y, width, height);
         return;
     }
 
-    if (isVideoMemory(pattern->Memory)) {
-        D(ERROR, "Pattern is in video memory\n");
-    }
-
-    Mach64MmioNoSwapQ raw(mmioBase());
-    DRIVER_LOCALS(this);
-
-    if (cd->GEOp != BLITPATTERN) {
-        cd->GEOp            = BLITPATTERN;
-        cd->GEdrawMode      = 0xFF;
-        cd->patternCacheKey = 0xFFFFFFFF;
-
-        waitFifo(2);
-
-        // Offset is in units of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'.
-        mmio.writeL(SRC_OFF_PITCH, SRC_OFFSET(memoryOffset(cd->patternVideoBuffer) / 8) | SRC_PITCH(8));
-        mmio.writeMaskL(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH_MASK, DP_SRC_PIX_WIDTH(COLOR_DEPTH_1));
-    }
-
-    setDstBuffer(ri, fmt);
-    setWriteMask(mask, fmt, 0);
-
-    // First, figure out if the new pattern would actually fit into an 8x8 mono pattern.
-    // Then we can use the hardware pattern registers, which are much faster.
-    // If not, upload the pattern to video memory and use that as mono blit source.
-    // We cache the last pattern to avoid re-uploading it if it didn't change.
-    UWORD patternHeight        = 1 << pattern->Size;
-    const UWORD *sysMemPattern = (const UWORD *)pattern->Memory;
-    UWORD *cachedPattern       = cd->patternCacheBuffer;
-    ULONG *videoMemPattern     = cd->patternVideoBuffer;
-
-    // Try to avoid wait-for-idle by first checking if the pattern changed.
-    // I'm not expecting huge patterns, so this will hopefully be fast
-    BOOL patternChanged = FALSE;
-    BOOL is8x8          = (patternHeight <= 8);
-    for (UWORD i = 0; i < patternHeight; ++i) {
-        UWORD row = sysMemPattern[i];
-        // Compare new pattern with last one uploaded
-        if (row != cachedPattern[i]) {
-            cachedPattern[i] = row;
-            patternChanged   = TRUE;
-        }
-        // Check if upper half and lower half of the 16bit pattern row are identical,
-        // so the pattern width is essentially 8bit
-        if ((UBYTE)(row >> 8) != (UBYTE)row) {
-            is8x8 = FALSE;
-        }
-    }
-
-    BOOL was8x8 = (cd->patternCacheKey & 0x80000000) != 0;
-    if (is8x8 != was8x8) {
-        patternChanged = TRUE;
-    }
-
-    if (is8x8) {
-        // The Rage 8x8 mono patttern cannot be offset directly.
-        // Instead, its "destination aligned". So in order to offset the pattern, we
-        // need to manually rotate it here.
-        UBYTE pattOffX = (UBYTE)((x - pattern->XOffset) & 7);
-        UBYTE pattOffY = (UBYTE)((y - pattern->YOffset) & 7);
-
-        ULONG pattCacheKey = (pattOffX << 16) | (pattOffY << 8) | pattern->Size | 0x80000000;
-        if (pattCacheKey != cd->patternCacheKey) {
-            cd->patternCacheKey = pattCacheKey;
-            patternChanged      = TRUE;
-        }
-
-        if (patternChanged) {
-            // replicate the 8xN pattern to 8x8
-            ULONG pat0;
-            ULONG pat1;
-
-            // Build the 8x8 pattern in the two registers
-            // Source patterns that are smaller than 8 in height will be extended to height 8
-            switch (pattern->Size) {
-            case 0:
-                // our pattern data is already 16bit, with the upper half and lower half determined to be identical
-                pat0 = cachedPattern[0] | (cachedPattern[0] << 16);
-                pat1 = pat0;
-                break;
-            case 1:
-                pat0 = (cachedPattern[0] & 0xFF00) | ((cachedPattern[1] & 0xFF));
-                pat0 |= (pat0 << 16);
-                pat1 = pat0;
-                break;
-            case 2:
-                pat0 = ((cachedPattern[0] & 0xFF00) << 16) | ((cachedPattern[1] & 0xFF00) << 8) |
-                       (cachedPattern[2] & 0xFF00) | (cachedPattern[3] & 0xFF);
-                pat1 = pat0;
-                break;
-            case 3:
-                pat0 = ((cachedPattern[0] & 0xFF00) << 16) | ((cachedPattern[1] & 0xFF00) << 8) |
-                       (cachedPattern[2] & 0xFF00) | (cachedPattern[3] & 0xFF);
-                pat1 = ((cachedPattern[4] & 0xFF00) << 16) | ((cachedPattern[5] & 0xFF00) << 8) |
-                       (cachedPattern[6] & 0xFF00) | (cachedPattern[7] & 0xFF);
-                break;
-            default:
-                // fallthrough
-                break;
-            }
-
-            // Since the Mach64 pattern is "destination aligned", emulate offsetting the pattern by uploading
-            // a rotated pattern
-            if (pattOffX) {
-                // Rotate 'right' in X direction, we need to rotate within each byte
-                ULONG maskLower = (1 << pattOffX) - 1;
-                maskLower |= (maskLower << 8) | (maskLower << 16) | (maskLower << 24);
-                ULONG maskUpper = ~maskLower;
-                pat0            = ((pat0 & maskUpper) >> pattOffX) | ((pat0 & maskLower) << (8 - pattOffX));
-                pat1            = ((pat1 & maskUpper) >> pattOffX) | ((pat1 & maskLower) << (8 - pattOffX));
-            }
-
-            if (pattOffY) {
-                // Rotate 'down' in Y direction
-                ULONG temp;
-                if (pattOffY & 1) {
-                    temp = pat0;
-                    pat0 = (pat0 >> 8) | (pat1 << 24);
-                    pat1 = (pat1 >> 8) | (temp << 24);
-                }
-                if (pattOffY & 2) {
-                    temp = pat0;
-                    pat0 = (pat0 >> 16) | (pat1 << 16);
-                    pat1 = (pat1 >> 16) | (temp << 16);
-                }
-                if (pattOffY & 4) {
-                    temp = pat0;
-                    pat0 = pat1;
-                    pat1 = temp;
-                }
-            }
-
-            waitFifo(3);
-
-            raw.writeL(PAT_REG0, pat0);
-            raw.writeL(PAT_REG1, pat1);
-        } else {
-            waitFifo(1);
-        }
-
-        ULONG trajectory = DST_X_DIR | DST_Y_DIR | PAT_MONO_EN;
-        mmio.writeL(GUI_TRAJ_CNTL, trajectory);
-
-        setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt, MONO_SRC_PATTERN);
-
-        waitFifo(2);
-    } else {
-        if (patternChanged) {
-            waitIdle();
-
-            for (UWORD i = 0; i < patternHeight; ++i) {
-                // The video pattern has an 8-byte pitch. 64pixels (bits) is the minimum pitch for monochrome src blit
-                // data.
-                videoMemPattern[i * 2] = cachedPattern[i] << 16;
-            }
-        }
-
-        setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt, MONO_SRC_BLIT_SRC);
-
-        UBYTE xOff = pattern->XOffset & 15;
-        UWORD yOff = pattern->YOffset & (patternHeight - 1);
-
-        ULONG pattCacheKey = (yOff << 16) | (xOff << 8) | pattern->Size;
-        if (pattCacheKey != cd->patternCacheKey) {
-            cd->patternCacheKey = pattCacheKey;
-
-            waitFifo(6);
-
-            mmio.writeL(SRC_Y_X, SRC_X(xOff) | SRC_Y(yOff));
-            mmio.writeL(SRC_HEIGHT1_WIDTH1, SRC_HEIGHT1(patternHeight - yOff) | SRC_WIDTH1(16 - xOff));
-            mmio.writeL(SRC_HEIGHT2_WIDTH2, SRC_HEIGHT2(patternHeight) | SRC_WIDTH2(16));
-        } else {
-            waitFifo(3);
-        }
-        ULONG trajectory = DST_X_DIR | DST_Y_DIR | SRC_PATT_EN | SRC_PATT_ROT_EN;
-        mmio.writeL(GUI_TRAJ_CNTL, trajectory);
-    }
-
-    drawRect(x, y, width, height);
+    fallback:
+        waitBlitter();
+        BlitPatternDefault(this, ri, pattern, x, y, width, height, mask, AS_RGBF(fmt));
 }
 
 void ASM Mach64Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct Line *line), __REGD0(UBYTE mask),
