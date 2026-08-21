@@ -12,6 +12,7 @@ CC = m68k-amigaos-gcc
 CXX = m68k-amigaos-g++
 LD = m68k-amigaos-gcc
 STRIP = m68k-amigaos-strip
+# Default strip (-s) drops HUNK_RELOC32; the Amiga loader then cannot fix up the binary.
 MKDIR = mkdir -p
 COPY = cp
 
@@ -132,14 +133,14 @@ ${1} : $$(${1}_OBJS)
 	$(info ============ Building: ${1} ============)
 	@ $$(MKDIR) $$(dir $$(${1}_TARGET))
 	@ $$(LD) $$^ $${LIBS} $$(LDFLAGS) -o ${2}${1}
-	@ $$(STRIP) ${2}${1} -o $$(${1}_TARGET)
+	@ $$(STRIP) --strip-debug ${2}${1} -o $$(${1}_TARGET)
 
 # Include dependency files for this target
 -include $$(${1}_DEPS)
 endef
 
 define make_exe
-${1}_SRC = ${3} freestanding_mem.c
+${1}_SRC = ${3}
 ${1}_OBJS = $$(call create_objlist,$$(${1}_SRC),${2})
 ${1}_DEPS = $$(call create_deplist,$$(${1}_SRC),${2})
 ${1}_TARGET = $$(BINDIR)/${1}
@@ -154,7 +155,7 @@ ${1} : $$(${1}_OBJS)
 	$(info ============ Building: ${1} ============)
 	@ $$(MKDIR) $$(dir $$(${1}_TARGET))
 	@ $$(LD) $$^ $$(LIBS) $$(LDFLAGS) -o ${2}${1}
-	@ $$(STRIP) ${2}${1} -o $$(${1}_TARGET)
+	@ $$(STRIP) --strip-debug ${2}${1} -o $$(${1}_TARGET)
 
 # Include dependency files for this target
 -include $$(${1}_DEPS)
