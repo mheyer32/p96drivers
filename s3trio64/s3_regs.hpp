@@ -13,6 +13,8 @@
 #include "common.h"
 #endif
 
+/* Absolute I/O port indices: IoReg / MmioReg. Chip builds -include s3config.h;
+ * the card TU gets defaults via s3_reg_apertures.hpp → s3config.h. */
 #ifndef MMIO_ONLY
 #error s3_regs.hpp requires MMIO_ONLY (include s3config.h first)
 #endif
