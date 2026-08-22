@@ -22,43 +22,89 @@ extern "C" {
 #define BUS_FIFO_WS_GT(x)        ((x) << 16)
 #define BUS_FIFO_WS_GT_MASK      (0xF << 16)
 
-static const UWORD defaultRegs_GT[] = {0x00a2, 0x7b33,   // BUS_CNTL upper
-                                       0x00a0, 0x0000,   // BUS_CNTL lower
-                                       0x0018, 0x0000,   // CRTC_INT_CNTL lower
-                                       0x001c, 0x0200,   // CRTC_GEN_CNTL lower
-                                       0x001e, 0x0400,   // CRTC_GEN_CNTL upper
-                                       0x00e4, 0x0020,   // CONFIG_STAT0 lower
-                                       0x00b0, 0x1a73,   // MEM_CNTL lower
-                                       0x00b2, 0x1075,   // MEM_CNTL upper
-                                       0x00ac, 0x0c01,   // EXT_MEM_CNTL lower
-                                       0x00ae, 0x2513,   // EXT_MEM_CNTL upper
-                                       0x00d0, 0x0000,   // GEN_TEST_CNTL lower
-                                       0x001e, 0x0000,   // CRTC_GEN_CNTL upper
-                                       0x0080, 0x0000,   // SCRATCH_REG0 lower
-                                       0x0082, 0x0000,   // SCRATCH_REG0 upper
-                                       0x0084, 0x0000,   // SCRATCH_REG1 lower
-                                       0x0086, 0x0000,   // SCRATCH_REG1 upper
-                                       0x00c4, 0x0002,   // DAC_CNTL lower
-                                       0x00c6, 0x8000,   // DAC_CNTL upper
-                                       0x007a, 0x0000,   // GP_IO lower
-                                       0x00d0, 0x0100,   // GEN_TEST_CNTL lower
-                                       0x00ca, 0x0000,   // DAC_REGS lower
-                                       0x00d4, 0x0171,   // CUSTOM_MACRO_CNTL lower
-                                       0x00d6, 0x003c,   // CUSTOM_MACRO_CNTL upper
-                                       0x0028, 0x0000,   // TIMER_CONFIG lower
-                                       0x002a, 0x0000,   // TIMER_CONFIG upper
-                                       0x002c, 0x2848,   // MEM_BUF_CNTL lower
-                                       0x002e, 0x0038,   // MEM_BUF_CNTL upper
-                                       0x00ec, 0x0000,   // MPP_CONFIG lower
-                                       0x00ee, 0x0000,   // MPP_CONFIG upper
-                                       0x00fc, 0x0000,   // TVO_CNTL lower
-                                       0x00fe, 0x0000,   // TVO_CNTL upper
-                                       0x004c, 0x07f2,   // VGA_DSP_CONFIG lower
-                                       0x004e, 0x0560,   // VGA_DSP_CONFIG upper
-                                       0x0050, 0x05b5,   // VGA_DSP_ON_OFF lower
-                                       0x0052, 0x03f8,   // VGA_DSP_ON_OFF upper
-                                       0x007c, 0x3800,   // HW_DEBUG lower
-                                       0x007e, 0x0084};  // HW_DEBUG upper
+/* Known-good on other GT boards; keep for revert / future card select. */
+static const UWORD defaultRegs_GT[] __attribute__((unused)) = {
+    0x00a2, 0x7b33,  // BUS_CNTL upper
+    0x00a0, 0x0000,  // BUS_CNTL lower
+    0x0018, 0x0000,  // CRTC_INT_CNTL lower
+    0x001c, 0x0200,  // CRTC_GEN_CNTL lower
+    0x001e, 0x0400,  // CRTC_GEN_CNTL upper
+    0x00e4, 0x0020,  // CONFIG_STAT0 lower
+    0x00b0, 0x1a73,  // MEM_CNTL lower
+    0x00b2, 0x1075,  // MEM_CNTL upper
+    0x00ac, 0x0c01,  // EXT_MEM_CNTL lower
+    0x00ae, 0x2513,  // EXT_MEM_CNTL upper
+    0x00d0, 0x0000,  // GEN_TEST_CNTL lower
+    0x001e, 0x0000,  // CRTC_GEN_CNTL upper
+    0x0080, 0x0000,  // SCRATCH_REG0 lower
+    0x0082, 0x0000,  // SCRATCH_REG0 upper
+    0x0084, 0x0000,  // SCRATCH_REG1 lower
+    0x0086, 0x0000,  // SCRATCH_REG1 upper
+    0x00c4, 0x0002,  // DAC_CNTL lower
+    0x00c6, 0x8000,  // DAC_CNTL upper
+    0x007a, 0x0000,  // GP_IO lower
+    0x00d0, 0x0100,  // GEN_TEST_CNTL lower
+    0x00ca, 0x0000,  // DAC_REGS lower
+    0x00d4, 0x0171,  // CUSTOM_MACRO_CNTL lower
+    0x00d6, 0x003c,  // CUSTOM_MACRO_CNTL upper
+    0x0028, 0x0000,  // TIMER_CONFIG lower
+    0x002a, 0x0000,  // TIMER_CONFIG upper
+    0x002c, 0x2848,  // MEM_BUF_CNTL lower
+    0x002e, 0x0038,  // MEM_BUF_CNTL upper
+    0x00ec, 0x0000,  // MPP_CONFIG lower
+    0x00ee, 0x0000,  // MPP_CONFIG upper
+    0x00fc, 0x0000,  // TVO_CNTL lower
+    0x00fe, 0x0000,  // TVO_CNTL upper
+    0x004c, 0x07f2,  // VGA_DSP_CONFIG lower
+    0x004e, 0x0560,  // VGA_DSP_CONFIG upper
+    0x0050, 0x05b5,  // VGA_DSP_ON_OFF lower
+    0x0052, 0x03f8,  // VGA_DSP_ON_OFF upper
+    0x007c, 0x3800,  // HW_DEBUG lower
+    0x007e, 0x0084,  // HW_DEBUG upper
+};
+
+/* VBIOS 113-52301-100 defaultRegs @ CS:7d86. Differs in MEM_CNTL lo, EXT_MEM hi
+ * (GCMRS=4), CUSTOM_MACRO/HW_DEBUG hi, and includes MEM_ADDR_CONFIG=0x0202. */
+static const UWORD defaultRegs_GT_52301[] = {
+    0x00a2, 0x7b33,  // BUS_CNTL upper
+    0x00a0, 0x0000,  // BUS_CNTL lower
+    0x0018, 0x0000,  // CRTC_INT_CNTL lower
+    0x001c, 0x0200,  // CRTC_GEN_CNTL lower
+    0x001e, 0x0400,  // CRTC_GEN_CNTL upper
+    0x00e4, 0x0020,  // CONFIG_STAT0 lower
+    0x00b0, 0x3a73,  // MEM_CNTL lower
+    0x00b2, 0x1075,  // MEM_CNTL upper
+    0x00ac, 0x0c01,  // EXT_MEM_CNTL lower (TILE=0)
+    0x00ae, 0x2400,  // EXT_MEM_CNTL upper (GCMRS=4)
+    0x00d0, 0x0000,  // GEN_TEST_CNTL lower
+    0x001e, 0x0000,  // CRTC_GEN_CNTL upper
+    0x0080, 0x0000,  // SCRATCH_REG0 lower
+    0x0082, 0x0000,  // SCRATCH_REG0 upper
+    0x0084, 0x0000,  // SCRATCH_REG1 lower
+    0x0086, 0x0000,  // SCRATCH_REG1 upper
+    0x00c4, 0x0002,  // DAC_CNTL lower
+    0x00c6, 0x8000,  // DAC_CNTL upper
+    0x007a, 0x0000,  // GP_IO lower
+    0x00d0, 0x0100,  // GEN_TEST_CNTL lower
+    0x00ca, 0x0000,  // DAC_REGS lower
+    0x00d4, 0x0171,  // CUSTOM_MACRO_CNTL lower
+    0x00d6, 0x0000,  // CUSTOM_MACRO_CNTL upper
+    0x0028, 0x0000,  // TIMER_CONFIG lower
+    0x002a, 0x0000,  // TIMER_CONFIG upper
+    0x002c, 0x2848,  // MEM_BUF_CNTL lower
+    0x002e, 0x0038,  // MEM_BUF_CNTL upper
+    0x00ec, 0x0000,  // MPP_CONFIG lower
+    0x00ee, 0x0000,  // MPP_CONFIG upper
+    0x00fc, 0x0000,  // TVO_CNTL lower
+    0x00fe, 0x0000,  // TVO_CNTL upper
+    0x004c, 0x07f2,  // VGA_DSP_CONFIG lower
+    0x004e, 0x0560,  // VGA_DSP_CONFIG upper
+    0x0050, 0x05b5,  // VGA_DSP_ON_OFF lower
+    0x0052, 0x03f8,  // VGA_DSP_ON_OFF upper
+    0x007c, 0x3800,  // HW_DEBUG lower
+    0x007e, 0x0080,  // HW_DEBUG upper
+    0x0034, 0x0202,  // MEM_ADDR_CONFIG
+};
 
 /* Primary VCLK post-div: VCLK0_POST[1:0] + ALT_VCLK0_POST (PLL_EXT_CNTL bit4).
  * PRG-215R3 App.J: without ALT, codes 00/01/10/11 = ÷1/2/4/8.
@@ -202,7 +248,7 @@ void SetMemoryClock_GT(BoardInfo_t *bi, UWORD freqKhz10)
     if (freqKhz10 < 1475) {
         freqKhz10 = 1475;
     }
-    // SGRAM is rated up to 100Mhz, Core engine up to 83Mhz
+    // Board SDRAM (GM72V161621) is rated to 143MHz; keep ≤100MHz until MCLK is validated.
     if (freqKhz10 > 10000) {
         freqKhz10 = 10000;
     }
@@ -261,9 +307,10 @@ void initClocks(struct BoardInfo *bi)
     WRITE_PLL(PLL_VPLL_CNTL, 0xD5);
     WRITE_PLL(PLL_VCLK_CNTL, 0x00);  // VLCK_SRC_SEL = 0b00 : VCLK set to CPUCLK
     WRITE_PLL(PLL_VFC_CNTL, 0x1B);
-    WRITE_PLL(PLL_REF_DIV, 0x1F);
-    ChipSpecific_t *cs   = getChipSpecific(bi);
-    cs->referenceDivider = 0x1F;
+    ChipSpecific_t *cs = getChipSpecific(bi);
+    if (!cs->referenceDivider)
+        cs->referenceDivider = 0x36;
+    WRITE_PLL(PLL_REF_DIV, cs->referenceDivider);
 
     WRITE_PLL(PLL_EXT_CNTL, 0x01);  // XCLK_SRC_SEL = 0b000 : XCLK set to MPLL/2
 
@@ -292,6 +339,16 @@ void initClocks(struct BoardInfo *bi)
     ResetEngine(bi);
 }
 
+static void pulseSdramReset(Mach64BlkIo blk)
+{
+    ULONG ext = blk.readL(BlkIoReg::EXT_MEM_CNTL) & ~(MEM_CYC_TEST_MASK | MEM_SDRAM_RESET_MASK);
+    blk.writeL(BlkIoReg::EXT_MEM_CNTL, ext);
+    blk.writeL(BlkIoReg::EXT_MEM_CNTL, ext | MEM_CYC_TEST(0b10) | MEM_SDRAM_RESET);
+    blk.writeL(BlkIoReg::EXT_MEM_CNTL, ext | MEM_CYC_TEST(0b11) | MEM_SDRAM_RESET);
+    delayMicroSeconds(1);
+    blk.writeL(BlkIoReg::EXT_MEM_CNTL, ext);
+}
+
 static BOOL probeMemorySize(BoardInfo_t *bi)
 {
     DFUNC(VERBOSE, "\n");
@@ -301,49 +358,66 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
 
     static const ULONG memorySizes[] = {0x800000, 0x600000, 0x400000, 0x200000, 0x100000};
     static const ULONG memoryCodes[] = {11, 9, 7, 3, 1};
+    /* ROW bits 2:0, GROUP bits 9:8 (COL=0). This board previously probed 6MB at 0x202. */
+    static const ULONG addrConfigs[] = {0x00000202, 0x00000101, 0x00000000};
 
     volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
     framebuffer[0]              = 0;
 
-    for (int i = 0; i < ARRAY_SIZE(memorySizes); i++) {
-        bi->MemorySize = memorySizes[i];
-        D(VERBOSE, "\nProbing memory size %ld\n", bi->MemorySize);
+    ULONG bestSize = 0;
+    ULONG bestAddr = 0;
+    ULONG bestCode = memoryCodes[ARRAY_SIZE(memoryCodes) - 1];
 
-        blk.writeMaskL(BlkIoReg::MEM_CNTL, 0xF, memoryCodes[i]);
-        // blk.writeMaskL(BlkIoReg::MEM_BUF_CNTL, INVALIDATE_RB_CACHE_MASK, INVALIDATE_RB_CACHE);
+    for (int a = 0; a < ARRAY_SIZE(addrConfigs); a++) {
+        blk.writeL(BlkIoReg::MEM_ADDR_CONFIG, addrConfigs[a]);
+        pulseSdramReset(blk);
+        D(VERBOSE, "MEM_ADDR_CONFIG=0x%lx\n", addrConfigs[a]);
 
-        for (int j = 2; j >= 0; --j) {
-            blk.writeL(BlkIoReg::MEM_ADDR_CONFIG, j << 8 | j);
+        for (int i = 0; i < ARRAY_SIZE(memorySizes); i++) {
+            if (memorySizes[i] <= bestSize)
+                continue;
+
+            blk.writeMaskL(BlkIoReg::MEM_CNTL, 0xF, memoryCodes[i]);
             flushWrites();
-
             CacheClearU();
 
-            // Probe the last and the first longword for the current segment,
-            // as well as offset 0 to check for wrap arounds
-            volatile ULONG *highOffset = framebuffer + (bi->MemorySize >> 2) - 512 - 1;
-            volatile ULONG *lowOffset  = framebuffer + (bi->MemorySize >> 3);
-            // Probe  memory
+            volatile ULONG *highOffset = framebuffer + (memorySizes[i] >> 2) - 512 - 1;
+            volatile ULONG *lowOffset  = framebuffer + (memorySizes[i] >> 3);
             *framebuffer = 0;
             *highOffset  = (ULONG)highOffset;
             *lowOffset   = (ULONG)lowOffset;
-
             CacheClearU();
 
             ULONG readbackHigh = *highOffset;
             ULONG readbackLow  = *lowOffset;
             ULONG readbackZero = *framebuffer;
 
-            D(VERBOSE, "Probing memory at 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= 0x%lx\n", highOffset, readbackHigh,
-              lowOffset, readbackLow, readbackZero);
+            D(VERBOSE, "size %ld: 0x%lx ?= 0x%lx; 0x%lx ?= 0x%lx, 0x0 ?= 0x%lx\n", memorySizes[i], highOffset,
+              readbackHigh, lowOffset, readbackLow, readbackZero);
 
             if (readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset && readbackZero == 0) {
-                D(VERBOSE, "Memory size sucessfully probed.\n\n");
-                return TRUE;
+                bestSize = memorySizes[i];
+                bestAddr = addrConfigs[a];
+                bestCode = memoryCodes[i];
+                D(VERBOSE, "candidate size %ld addr 0x%lx\n", bestSize, bestAddr);
+                break;
             }
         }
     }
-    D(VERBOSE, "Memory size probe failed.\n\n");
-    return FALSE;
+
+    if (!bestSize) {
+        D(VERBOSE, "Memory size probe failed.\n\n");
+        return FALSE;
+    }
+
+    blk.writeL(BlkIoReg::MEM_ADDR_CONFIG, bestAddr);
+    pulseSdramReset(blk);
+    blk.writeMaskL(BlkIoReg::MEM_CNTL, 0xF, bestCode);
+    bi->MemorySize = bestSize;
+    /* GM72V161621: 512K×16×2bank SDRAM. Keep BIOS EXT_MEM (GCMRS=4, ALL_PAGE_DIS). */
+    blk.writeMaskL(BlkIoReg::CONFIG_STAT0, CFG_MEM_TYPE_CT_MASK, CFG_MEM_TYPE_CT(CFG_MEM_TYPE_VT_SDRAM));
+    D(VERBOSE, "Using size %ld MEM_ADDR_CONFIG=0x%lx MEM_TYPE=SDRAM\n\n", bestSize, bestAddr);
+    return TRUE;
 }
 
 typedef struct
@@ -515,26 +589,23 @@ BOOL InitMach64GT(struct BoardInfo *bi)
     DRIVER_LOCALS(bi);
     Mach64BlkIo blk = drv->blkIo();
 
-    WriteDefaultRegList(bi, defaultRegs_GT, ARRAY_SIZE(defaultRegs_GT));
+    ULONG strapMemType = blk.readL(BlkIoReg::CONFIG_STAT0) & CFG_MEM_TYPE_CT_MASK;
+    D(VERBOSE, "CONFIG_STAT0 strap MEM_TYPE=%ld (before defaultRegs)\n", strapMemType);
+
+    WriteDefaultRegList(bi, defaultRegs_GT_52301, ARRAY_SIZE(defaultRegs_GT_52301));
 
     blk.writeMaskL(BlkIoReg::BUS_CNTL,
                    BUS_MASTER_DIS_GT_MASK | BUS_APER_REG_DIS_GT_MASK | BUS_PCI_RETRY_EN_GT_MASK | BUS_FIFO_WS_GT_MASK,
                    BUS_MASTER_DIS_GT | BUS_APER_REG_DIS_GT | BUS_PCI_RETRY_EN_GT | BUS_FIFO_WS_GT(0xF));
 
-    // Set to SGRAM
-    blk.writeMaskL(BlkIoReg::CONFIG_STAT0, CFG_MEM_TYPE_CT_MASK | CFG_CLOCK_EN_CT_MASK,
-                   CFG_MEM_TYPE_CT(CFG_MEM_TYPE_VT_SGRAM) | CFG_CLOCK_EN_CT);
-
-    // Changes in settings to this register will not take affect until MEM_SDRAM_RESET is pulsed (from 0 –>1).
-    // initClocks() will do that
-    blk.writeMaskL(BlkIoReg::EXT_MEM_CNTL, MEM_TILE_SELECT_MASK | MEM_ALL_PAGE_DIS_MASK | MEM_SDRAM_RESET_MASK,
-                   MEM_TILE_SELECT(0b1000) | MEM_ALL_PAGE_DIS);
+    /* VBIOS ApplyDefaultRegs_ConfigStat0: CONFIG_STAT0 = (x & ~7) | 0x34
+     * (MEM_TYPE=SDRAM, bit4, CFG_CLOCK_EN); then EXT_MEM |= ALL_PAGE_DIS. */
+    blk.writeMaskL(BlkIoReg::CONFIG_STAT0, CFG_MEM_TYPE_CT_MASK | BIT(4) | CFG_CLOCK_EN_CT_MASK,
+                   CFG_MEM_TYPE_CT(CFG_MEM_TYPE_VT_SDRAM) | BIT(4) | CFG_CLOCK_EN_CT);
+    blk.writeMaskL(BlkIoReg::EXT_MEM_CNTL, MEM_ALL_PAGE_DIS_MASK | MEM_SDRAM_RESET_MASK, MEM_ALL_PAGE_DIS);
 
     // Enable Auto-FastFill. ( block writes seem to cause corruption)
     blk.writeMaskL(BlkIoReg::HW_DEBUG, AUTO_FF_DIS_MASK /*| AUTO_BLKWRT_DIS_MASK | AUTO_BLKWRT_COLOR_DIS_MASK*/, 0);
-
-    // GUI clock activity controlled
-    blk.writeMaskL(BlkIoReg::CONFIG_STAT0, CFG_CLOCK_EN_CT_MASK, CFG_CLOCK_EN_CT);
 
     // FIFO must be empty before changing its size. Assuming we only used BLKIO above, there should not have been
     // any FIFO writes yet
