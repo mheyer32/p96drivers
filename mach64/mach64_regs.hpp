@@ -42,7 +42,7 @@
     X(DAC_REGS, 0x30)              \
     X(DAC_CNTL, 0x31)              \
     X(GEN_TEST_CNTL, 0x34)         \
-    X(CONFIG_CNTL, 0x37)           \
+    /* CONFIG_CNTL is I/O-only (RRG §1-3) — BlkIoReg / SparseIoReg, never MMIO */ \
     X(CONFIG_CHIP_ID, 0x38)        \
     X(CONFIG_STAT0, 0x39)          \
     X(CONFIG_STAT1, 0x3A)          \

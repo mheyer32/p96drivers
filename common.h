@@ -199,14 +199,14 @@ typedef enum BlitterOp
 } BlitterOp_t;
 
 // Remember: all in Little Endian!
-typedef struct OptionRomHeader
+typedef struct __attribute__((packed)) OptionRomHeader
 {
     UWORD signature;     // 0x0000: Signature (should be 0xAA55)
     UBYTE reserved[22];  // 0x0002: Reserved (usually 0, may contain PCI data structure pointer)
     UWORD pcir_offset;   // 0x0018: Pointer to PCI Data Structure (offset within the ROM)
 } OptionRomHeader_t;
 
-typedef struct PCI_DataStructure
+typedef struct __attribute__((packed)) PCI_DataStructure
 {
     UBYTE signature[4];            // 0x0000: Signature ('PCIR')
     UWORD vendor_id;               // 0x0004: Vendor ID (from PCI Configuration Space)

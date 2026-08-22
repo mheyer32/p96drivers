@@ -129,6 +129,136 @@ void printCdepthTable(const MaxColorDepthTableEntry_t *table)
     }
 }
 
+static const char *i2cTypeName(UBYTE t)
+{
+    switch (t & 0x0f) {
+    case 0: return "Normal GP_IO";
+    case 1: return "TVOut GP_IO";
+    case 2: return "Dedicated I2C";
+    case 3: return "GIO13/GIO12";
+    case 4: return "GIO10/GIO12";
+    case 15: return "No AMC";
+    default: return "Reserved";
+    }
+}
+
+static const char *tvoutTypeName(UBYTE t)
+{
+    switch (t & 0x0f) {
+    case 1: return "TVOut 1";
+    case 2: return "TVOut 2";
+    case 3: return "Improved TVOut 2";
+    case 4: return "RAGE THEATER";
+    default: return "none/unknown";
+    }
+}
+
+static const char *decoderTypeName(UBYTE bits)
+{
+    switch (bits & 7) {
+    case 0: return "none";
+    case 1: return "Bt819";
+    case 2: return "Bt829";
+    case 3: return "Bt829A";
+    case 4: return "Philips 7111";
+    case 5: return "Philips 7112";
+    default: return "reserved";
+    }
+}
+
+static const char *audioChipName(UBYTE bits)
+{
+    switch (bits & 0x0f) {
+    case 0x0: return "TEA5582";
+    case 0x1: return "Mono mux";
+    case 0x2: return "TDA9850";
+    case 0x3: return "CXA2020S";
+    case 0x4: return "MSP3410D";
+    case 0x5: return "CS4236B";
+    case 0x6: return "TDA9851";
+    case 0x7: return "MSP3415";
+    case 0x8: return "MSP3430";
+    case 0xF: return "none";
+    default: return "reserved";
+    }
+}
+
+static void printHardwareInfoTable(const HardwareInfoTable_t *hw)
+{
+    if (memcmp(hw->signature, "$ATI", 4) != 0)
+        return;
+    D(0, "Hardware Info ($ATI): rev %lu size %lu\n", (ULONG)hw->revision, (ULONG)hw->size);
+    D(0, "  AMC I2C: %s (%lu)\n", i2cTypeName(hw->i2c_type), (ULONG)(hw->i2c_type & 0x0f));
+    D(0, "  TVOut: %s (%lu)\n", tvoutTypeName(hw->tvout), (ULONG)(hw->tvout & 0x0f));
+    if (hw->revision >= 1 && hw->size >= 9)
+        D(0, "  Video port capture: 0x%02lx\n", (ULONG)hw->video_port);
+    if (hw->revision >= 2 && hw->size >= 10)
+        D(0, "  Host port: 0x%02lx\n", (ULONG)hw->host_port);
+}
+
+static void printVideoFeatureTable(const VideoFeatureTable_t *vf)
+{
+    D(0, "Video Feature (MMEDIA):\n");
+    D(0, "  Tuner type: 0x%02lx\n", (ULONG)vf->tuner_type);
+    D(0, "  Connectors: 0x%02lx (vin=%lu vout=%lu CD in/out=%lu/%lu pass=%lu)\n",
+      (ULONG)vf->connectors, (ULONG)(vf->connectors & 3), (ULONG)((vf->connectors >> 2) & 3),
+      (ULONG)((vf->connectors >> 4) & 1), (ULONG)((vf->connectors >> 5) & 1),
+      (ULONG)((vf->connectors >> 6) & 3));
+    D(0, "  Decoder: %s crystals=%lu TVOut xtal=%lu\n", decoderTypeName(vf->decoder_tvout),
+      (ULONG)((vf->decoder_tvout >> 3) & 7), (ULONG)((vf->decoder_tvout >> 6) & 3));
+    D(0, "  Audio: %s product=%lu OEM=0x%02lx\n", audioChipName(vf->audio_product),
+      (ULONG)((vf->audio_product >> 4) & 0x0f), (ULONG)vf->oem_id);
+}
+
+/* True if [ptr,ptr+max) contains a printable NUL-terminated C string (len>=1). */
+static BOOL romHasPrintableString(const UBYTE *romBase, ULONG romSize, UWORD off, ULONG maxLen)
+{
+    if (!off || off == 0xffff || (ULONG)off >= romSize)
+        return FALSE;
+    ULONG lim = romSize - off;
+    if (lim > maxLen)
+        lim = maxLen;
+    ULONG i;
+    for (i = 0; i < lim; i++) {
+        UBYTE c = romBase[off + i];
+        if (c == 0)
+            return i > 0;
+        if (c < 0x20 || c > 0x7e)
+            return FALSE;
+    }
+    return FALSE;
+}
+
+static void printRomHeaderExtras(const UBYTE *romBase, ULONG romSize, const Mach64RomHeader_t *hdr)
+{
+    UWORD tvout = swapw(hdr->tvout_info);
+    /* 0 / 0xffff = unused on non-multimedia BIOSes */
+    if (tvout && tvout != 0xffff) {
+        static const char *tvStd[] = {"NTSC", "PAL", "PAL-M", "PAL-60", "NTSC-J", "PAL-CN", "?", "?",
+                                      "?", "SCART-PAL"};
+        UBYTE std = tvout & 0x0f;
+        D(0, "TVOut info: 0x%04lx std=%s CRT/TV=%lu ref=%lu\n", (ULONG)tvout,
+          std < 10 ? tvStd[std] : "?", (ULONG)((tvout >> 4) & 3), (ULONG)((tvout >> 6) & 3));
+    }
+
+    UWORD vfPtr = swapw(hdr->video_feature_table_ptr);
+    if (vfPtr >= 8 && vfPtr != 0xffff && (ULONG)vfPtr < romSize &&
+        memcmp(romBase + vfPtr - 8, "MMEDIA", 6) == 0)
+        printVideoFeatureTable((const VideoFeatureTable_t *)(romBase + vfPtr));
+
+    UWORD hwPtr = swapw(hdr->hardware_info_table_ptr);
+    if (hwPtr && hwPtr != 0xffff && (ULONG)hwPtr + 4 <= romSize)
+        printHardwareInfoTable((const HardwareInfoTable_t *)(romBase + hwPtr));
+
+    for (int i = 0; i + 6 <= 16; i++) {
+        if (memcmp(hdr->signatures + i, "$TVS", 4) == 0) {
+            UWORD tvs = (UWORD)hdr->signatures[i + 4] | ((UWORD)hdr->signatures[i + 5] << 8);
+            D(0, "Multi-TV Standard ($TVS) ptr: 0x%04lx\n", (ULONG)swapw(tvs));
+            break;
+        }
+    }
+}
+
 const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
 {
 #define ROM_WORD(offset)              (swapw(*(UWORD *)(romBase + (offset))))
@@ -156,19 +286,27 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
         return NULL;
     }
 
+    ULONG romSize = (ULONG)swapw(pciData->image_length) * 512UL;
+    if (!romSize)
+        romSize = 65536UL;
+
     WORD atiRomHeaderOffset = ROM_WORD(0x48);
 
     ROM_TABLE(mach64RomHeader, Mach64RomHeader_t, atiRomHeaderOffset - 2);
 
     const char *logOnMessage = (const char *)(romBase + swapw(mach64RomHeader->logon_message_ptr));
-    // Doesn't seem to point to anything useful
-    const char *configString = (const char *)(romBase + swapw(mach64RomHeader->config_string_ptr));
 
     UWORD ioBase       = swapw(mach64RomHeader->io_base_address);
     UWORD ioSparseBase = swapw(mach64RomHeader->io_address_sparse);
 
     D(0, "ATI Mach64 ROM header found at offset 0x%lx, Block IO Base Address 0x%lx, Sparse IO Base: 0x%lx\n%s\n",
       (ULONG)atiRomHeaderOffset, (ULONG)ioBase, (ULONG)ioSparseBase, logOnMessage);
+
+    UWORD cfgOff = swapw(mach64RomHeader->config_string_ptr);
+    if (romHasPrintableString(romBase, romSize, cfgOff, 128))
+        D(0, "Config: %s\n", (const char *)(romBase + cfgOff));
+
+    printRomHeaderExtras(romBase, romSize, mach64RomHeader);
 
     USHORT freqTableOffset = swapw(mach64RomHeader->freq_table_ptr);
     ROM_TABLE(freqTable, FrequencyTable_t, freqTableOffset);
@@ -2524,12 +2662,15 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
             ioBase = 0x1c8;
             break;
         }
-        BOOL blockIO      = !!(config & 0x04);
-        BOOL enableGENENA = !(config & 0x08);
-
         // Try making it more compatible with other VGA cards down the line
         // By disabling all classic IO decoding
         config |= 0x08;  // Disable decoding GENENA (no response at IO 0x46E8)
+        /* Block-IO enable with no BAR1 leaves CONFIG_CNTL unreachable via MMIO
+         * (I/O-only) and may inhibit sparse — clear so CT can use 0x2EC. */
+        if (!bi->RegisterBase && (config & 0x04)) {
+            config &= (UBYTE)~0x04;
+            D(INFO, "PCI 0x40: cleared block-IO (no BAR1), use sparse\n");
+        }
         pci_write_config_byte(0x40, config, board);
 
         /* Seed sparse I/O before ROM parse (ROM itself carries the same base). */
@@ -2541,32 +2682,18 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // Test scratch register response
     D(INFO, "MMIO base address: 0x%08lx\n", (ULONG)asMach64(bi)->mmioBase());
     D(INFO, "Register base address: 0x%08lx\n", (ULONG)asMach64(bi)->ioBase());
-    if (cd->chipFamily != MACH64GX) {
-        /* CT letter f / VT+: AP_SIZE=2 → 2×8M (LE+BE). GX uses sparse I/O below. */
-        if ((mmio.readL(CONFIG_CNTL) & CFG_MEM_AP_SIZE_MASK) != CFG_MEM_AP_SIZE_8M) {
-            mmio.writeMaskL(CONFIG_CNTL, CFG_MEM_AP_SIZE_MASK, CFG_MEM_AP_SIZE_8M);
-        }
-        D(INFO, "CONFIG_CNTL=0x%08lx (AP_SIZE=%ld)\n", mmio.readL(CONFIG_CNTL),
-          mmio.readL(CONFIG_CNTL) & CFG_MEM_AP_SIZE_MASK);
 
-        /* CT/VT+: CONFIG_CNTL via MMIO — CT has no GX sparse-IO aperture programming. */
-        ULONG saveScratchReg1 = mmio.readL(SCRATCH_REG1);
-        mmio.writeL(SCRATCH_REG1, 0xAAAAAAAA);
-        ULONG scratchA = mmio.readL(SCRATCH_REG1);
-        mmio.writeL(SCRATCH_REG1, 0x55555555);
-        ULONG scratch5 = mmio.readL(SCRATCH_REG1);
-        mmio.writeL(SCRATCH_REG1, saveScratchReg1);
-        if (scratchA != 0xAAAAAAAA || scratch5 != 0x55555555) {
-            DFUNC(ERROR, "scratch register response broken.\n");
-            return FALSE;
+    /* CONFIG_CNTL is I/O-only (RRG §1-3). Enable LE aperture before BAR0 MMIO. */
+    {
+        ULONG cfg = drv->readConfigCntl();
+        if ((cfg & CFG_MEM_AP_SIZE_MASK) != CFG_MEM_AP_SIZE_8M) {
+            drv->writeMaskConfigCntl(CFG_MEM_AP_SIZE_MASK, CFG_MEM_AP_SIZE_8M);
+            cfg = drv->readConfigCntl();
         }
-    } else {
-        Mach64SparseIo sio = asMach64(bi)->sparseIo();
-        /* Warm reinit: aperture already 8MB — avoid redundant CONFIG_CNTL RMW. */
-        if ((sio.readL(SparseIoReg::CONFIG_CNTL) & CFG_MEM_AP_SIZE_MASK) != CFG_MEM_AP_SIZE_8M) {
-            sio.writeMaskL(SparseIoReg::CONFIG_CNTL, CFG_MEM_AP_SIZE_MASK, CFG_MEM_AP_SIZE_8M);
-        }
+        D(INFO, "CONFIG_CNTL=0x%08lx (AP_SIZE=%ld)\n", cfg, cfg & CFG_MEM_AP_SIZE_MASK);
+    }
 
+    {
         ULONG saveScratchReg1 = mmio.readL(SCRATCH_REG1);
         mmio.writeL(SCRATCH_REG1, 0xAAAAAAAA);
         ULONG scratchA = mmio.readL(SCRATCH_REG1);
@@ -2583,11 +2710,7 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     /* Warm reinit: CFG_VGA_DIS must be clear for Expansion ROM to be accessible*/
     {
-        if (cd->chipFamily == MACH64GX) {
-            asMach64(bi)->sparseIo().writeMaskL(SparseIoReg::CONFIG_CNTL, CFG_VGA_DIS_MASK, 0);
-        } else {
-            mmio.writeMaskL(CONFIG_CNTL, CFG_VGA_DIS_MASK, 0);
-        }
+        drv->writeMaskConfigCntl(CFG_VGA_DIS_MASK, 0);
         mmio.writeMaskL(BUS_CNTL, BUS_ROM_DIS_MASK, 0);
     }
 
@@ -2626,16 +2749,10 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
         return FALSE;
     }
 
-    if (cd->chipFamily >= MACH64CT) {
-        /* CT/VT+: VGA off via CONFIG_CNTL only (RRG CT STAT0 has no CFG_VGA_EN). */
-        mmio.writeMaskL(CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
-    } else {
-        /* GX: never touch CONFIG_STAT0 (CFG_MEM_TYPE_GX bits 3–5 — wedges BAR0).
-         * Set CFG_VGA_DIS for accelerator CRT, knowing it disables ROM access
-         * until the next InitChip clears it again (see CFG_VGA_DIS define). */
-        asMach64(bi)->sparseIo().writeMaskL(SparseIoReg::CONFIG_CNTL, CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK,
-                                            CFG_VGA_DIS);
-    }
+    /* GX: never touch CONFIG_STAT0 (CFG_MEM_TYPE_GX bits 3–5 — can kill BAR0).
+     * CT/VT+: VGA off via CONFIG_CNTL only (RRG CT STAT0 has no CFG_VGA_EN).
+     * CFG_VGA_DIS also blocks Expansion ROM until the next InitChip clears it. */
+    drv->writeMaskConfigCntl(CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
 
     /* MCLK: CT/VT/GT program in InitMach64*; GX reports ROM default only. */
     if (cd->chipFamily == MACH64GX && !bi->MemoryClock) {
@@ -2753,11 +2870,6 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define VENDOR_E3B 0xE3B
-#define VENDOR_MATAY      0xAD47
-#define DEVICE_FIRESTORM  200
-#define DEVICE_PROMETHEUS 1
 
 struct Library *OpenPciBase = NULL;
 
@@ -2963,8 +3075,55 @@ static void testVBlankInterrupt(BoardInfo_t *bi, struct pci_dev *board)
     }
 }
 
-/* ALL/S — cycle every built-in mode; VBLANK/S — PCI VBlank IRQ count; EEPROM/S — dump Microwire EEPROM. */
-static const char testArgsTemplate[] = "ALL/S,VBLANK/S,EEPROM/S";
+/* ALL/S — cycle every built-in mode; VBLANK/S — PCI VBlank IRQ count; EEPROM/S — dump Microwire EEPROM;
+ * DUMPROM/S — write OpenPCI expansion ROM to T:RagePro.rom */
+static const char testArgsTemplate[] = "ALL/S,VBLANK/S,EEPROM/S,DUMPROM/S";
+
+static void dumpMach64Rom(struct BoardInfo *bi)
+{
+    LOCAL_OPENPCIBASE();
+    LOCAL_SYSBASE();
+
+    UBYTE *romBase = NULL;
+    ULONG romSize  = 0;
+    GetBoardAttrs(getCardData(bi)->board, PRM_ROM_Address, (Tag)&romBase, PRM_ROM_Size, (Tag)&romSize, TAG_END);
+    if (!romBase || !romSize) {
+        DFUNC(ERROR, "No ROM mapping from OpenPCI\n");
+        return;
+    }
+    if (swapw(*(UWORD *)romBase) != 0xaa55) {
+        DFUNC(ERROR, "ROM signature not AA55 at 0x%lx\n", (ULONG)romBase);
+        return;
+    }
+
+    /* Option ROM length byte is 512-byte units (often smaller than BAR size). */
+    ULONG imageSize = (ULONG)romBase[2] * 512UL;
+    if (imageSize == 0 || imageSize > romSize)
+        imageSize = romSize;
+
+    D(ALWAYS, "Dumping expansion ROM 0x%lx size %ld (image %ld) → T:RagePro.rom\n", (ULONG)romBase, romSize,
+      imageSize);
+
+    struct Library *DOSBase = OpenLibrary("dos.library", 0);
+    if (!DOSBase) {
+        DFUNC(ERROR, "dos.library\n");
+        return;
+    }
+    BPTR fh = Open((STRPTR) "T:RagePro.rom", MODE_NEWFILE);
+    if (!fh) {
+        DFUNC(ERROR, "Open T:RagePro.rom failed\n");
+        CloseLibrary(DOSBase);
+        return;
+    }
+    LONG n = Write(fh, romBase, imageSize);
+    Close(fh);
+    CloseLibrary(DOSBase);
+    if (n != (LONG)imageSize) {
+        DFUNC(ERROR, "Write short %ld / %ld\n", n, imageSize);
+        return;
+    }
+    D(ALWAYS, "Wrote %ld bytes to T:RagePro.rom\n", n);
+}
 
 int main()
 {
@@ -2974,6 +3133,7 @@ int main()
     LONG allModes         = FALSE;
     LONG vblankTest       = FALSE;
     LONG eepromDump       = FALSE;
+    LONG dumpRom          = FALSE;
     struct RDArgs *rdargs = NULL;
     struct pci_dev *board = NULL;
 
@@ -2983,8 +3143,8 @@ int main()
     }
 
     {
-        static LONG args[3];
-        args[0] = args[1] = args[2] = 0;
+        static LONG args[4];
+        args[0] = args[1] = args[2] = args[3] = 0;
         rdargs                      = ReadArgs((STRPTR)testArgsTemplate, args, NULL);
         if (!rdargs) {
             PrintFault(IoErr(), (STRPTR) "TestMach64");
@@ -2993,6 +3153,7 @@ int main()
         allModes   = args[0] ? TRUE : FALSE;
         vblankTest = args[1] ? TRUE : FALSE;
         eepromDump = args[2] ? TRUE : FALSE;
+        dumpRom    = args[3] ? TRUE : FALSE;
         FreeArgs(rdargs);
         rdargs = NULL;
     }
@@ -3114,6 +3275,11 @@ int main()
 
             if (eepromDump) {
                 dumpMach64Eeprom(bi);
+                rval = EXIT_SUCCESS;
+                goto exit;
+            }
+            if (dumpRom) {
+                dumpMach64Rom(bi);
                 rval = EXIT_SUCCESS;
                 goto exit;
             }

@@ -259,7 +259,7 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
     ULONG memCntlSave = mmio.readL(MEM_CNTL);
     ULONG configStat0 = mmio.readL(CONFIG_STAT0);
     print_MEM_CNTL_CT(memCntlSave);
-    print_CONFIG_CNTL_CT(mmio.readL(CONFIG_CNTL));
+    print_CONFIG_CNTL_CT(drv->readConfigCntl());
     print_CONFIG_STAT0_CT(configStat0);
 
     /*

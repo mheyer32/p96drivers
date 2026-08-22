@@ -44,6 +44,21 @@ class Mach64Driver : public P96Driver
         return Mach64SparseIo(getConstCardData(this)->legacyIOBase + chip()->ioSparseBase);
     }
 
+    /* CONFIG_CNTL has no MMIO alias (RRG §1-3): block I/O if BAR1, else sparse. */
+    INLINE ULONG readConfigCntl()
+    {
+        if (RegisterBase)
+            return blkIo().readL(BlkIoReg::CONFIG_CNTL);
+        return sparseIo().readL(SparseIoReg::CONFIG_CNTL);
+    }
+    INLINE void writeMaskConfigCntl(ULONG mask, ULONG val)
+    {
+        if (RegisterBase)
+            blkIo().writeMaskL(BlkIoReg::CONFIG_CNTL, mask, val);
+        else
+            sparseIo().writeMaskL(SparseIoReg::CONFIG_CNTL, mask, val);
+    }
+
     void writeOvrClr(UBYTE index8, UBYTE r, UBYTE g, UBYTE b);
     void setColorArrayInternal(UWORD startIndex, UWORD count, const struct CLUTEntry *colors);
     INLINE void setMemoryModeInternal(RGBFTYPE format);
