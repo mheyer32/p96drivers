@@ -4,7 +4,7 @@
 #include "common.h"
 
 // EDID I2C addresses
-#define EDID_I2C_ADDR_PRIMARY  0x50  // Primary EDID block (and extension blocks via paging)
+#define EDID_I2C_ADDR_PRIMARY 0x50  // Primary EDID block (and extension blocks via paging)
 // Note: EDID 1.3+ uses paging on the same I2C address (0x50) for extension blocks.
 // Some older/non-standard implementations may use separate addresses (0x51, 0x52, etc.),
 // but the standard method (which we use) is paging on 0x50.
@@ -47,24 +47,27 @@ typedef struct EDIDData
 // EDID timing information structure
 typedef struct EDIDTiming
 {
-    UWORD width;           // Horizontal resolution in pixels
-    UWORD height;          // Vertical resolution in pixels
-    ULONG pixel_clock;     // Pixel clock in 10kHz units (e.g., 25175 = 251.75 MHz)
-    UWORD h_total;         // Total horizontal pixels (active + blanking)
-    UWORD v_total;         // Total vertical lines (active + blanking)
-    UWORD h_sync_offset;   // Horizontal sync offset in pixels
-    UWORD h_sync_width;    // Horizontal sync pulse width in pixels
-    UWORD v_sync_offset;   // Vertical sync offset in lines
-    UWORD v_sync_width;    // Vertical sync pulse width in lines
-    UWORD image_width_mm;  // Image width in millimeters
-    UWORD image_height_mm; // Image height in millimeters
-    UBYTE refresh;         // Refresh rate in Hz
-    UBYTE flags;           // Flags (interlaced, stereo, etc.)
+    UWORD width;            // Horizontal resolution in pixels
+    UWORD height;           // Vertical resolution in pixels
+    ULONG pixel_clock;      // Pixel clock in 10kHz units (e.g., 25175 = 251.75 MHz)
+    UWORD h_total;          // Total horizontal pixels (active + blanking)
+    UWORD v_total;          // Total vertical lines (active + blanking)
+    UWORD h_sync_offset;    // Horizontal sync offset in pixels
+    UWORD h_sync_width;     // Horizontal sync pulse width in pixels
+    UWORD v_sync_offset;    // Vertical sync offset in lines
+    UWORD v_sync_width;     // Vertical sync pulse width in lines
+    UWORD image_width_mm;   // Image width in millimeters
+    UWORD image_height_mm;  // Image height in millimeters
+    UBYTE refresh;          // Refresh rate in Hz
+    UBYTE flags;            // Flags (interlaced, stereo, etc.)
 } EDIDTiming_t;
 
 // Function to get I2C operations
 // Default implementation in edid_common.c returns NULL
 // Card drivers must provide their own implementation that accesses their CardData structure
+#ifdef __cplusplus
+extern "C" {
+#endif
 const I2COps_t *getI2COps(struct BoardInfo *bi);
 
 // I2C protocol functions (common implementation using I2COps)
@@ -87,6 +90,8 @@ void getEDIDMaxFrequencies(const UBYTE *edid_data, ULONG *max_h_freq, ULONG *max
 BOOL writeEDIDToFile(struct BoardInfo *bi, const UBYTE *edid_data);
 UBYTE readEDIDWithExtensions(struct BoardInfo *bi, UBYTE *edid_data, UBYTE max_blocks);
 
+#ifdef __cplusplus
+}
+#endif
+
 #endif  // EDID_COMMON_H
-
-

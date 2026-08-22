@@ -6,9 +6,6 @@
 
 #define SR_SCRATCH_PAD 0x21  // Scratch pad register in sequencer registers 0x20-0x27
 
-// Drawing engine control (register 040h). AT3D-only; per AT3D Table 4.3 / "Drawing engine control" p.188.
-#define DRAW_CMD 0x040
-
 #define DRAW_ENGINE_START        BIT(31)
 #define DRAW_QUICK_START(x)      ((x) << 29)
 #define DRAW_QUICK_START_MASK    (0x3 << 29)
@@ -54,80 +51,6 @@
 #define QUICKSTART_DIM_WIDTH 0b01
 #define QUICKSTART_SRC       0b10
 #define QUICKSTART_DST       0b11
-
-#define CLIP_CTRL   0x030
-#define CLIP_LEFT   0x038
-#define CLIP_TOP    0x03A
-#define CLIP_RIGHT  0x03C
-#define CLIP_BOTTOM 0x03E
-
-#define RASTEROP  0x046
-#define BYTE_MASK 0x047
-
-#define PATTERN             0x048
-#define SRC_LOCATION_X_LOW  0x050
-#define SRC_LOCATION_Y_HIGH 0x052
-#define DST_LOCATION_X_LOW  0x054
-#define DST_LOCATION_Y_HIGH 0x056
-#define SRC_SIZE_X          0x058  // FIXME: rename?
-#define SRC_SIZE_Y          0x05A
-// FIXE: this limits 32bit modes to 1024 pixels in width?
-#define DST_PITCH              0x05C  // On AT25/3D byte pitch between rows. AT24 and earlier, applies only to 24bit mode
-#define SRC_PITCH              0x05E  // On AT25/3D byte pitch between rows. AT24 and earlier, applies only to 24bit mode
-#define FRGD_COLOR             0x060
-#define BKGD_COLOR             0x064
-#define DST_TRANSPARENCY_COLOR 0x06C
-#define DST_TRANSPARENCY_MASK  0x06F
-#define DDA_AXIAL_STEP         0x070
-#define DDA_DIAGONAL_STEP      0x072
-#define DDA_ERROR_TERM         0x074
-
-#define SIGANALYSER_CTRL       0x0B4
-#define DPMS_SYNC_CTRL         0x0D0  // DPMS/sync control register at memory offset 0D0h
-#define MONITOR_INTERLACE_CTRL 0x0D2  // Monitor interlace control register at memory offset 0D2h
-#define PIXEL_FIFO_REQ_POINT   0x0D4  // Pixel FIFO request point register at memory offset 0D4h
-#define FIFO_UNDERFLOW         0x0D8
-#define EXTSIG_TIMING          0x0D9  // Extended signal timing register at memory offset 0D9h
-#define UNKNOWN                0x0DA
-#define ENABLE_EXT_REGS        0x0DB  // Enable extended registers at memory offset 0DBh
-#define BIENDIAN_CTRL          0x0DC  // Bi-endian control register (16-bit at 0xDC-0xDD)
-#define APERTURE_CTRL          0x0C2  // Aperture control register memory offset 0C2h
-#define DISP_MEM_CFG           0x0C4  // Display memory configuration register at memory offset 0C4h
-#define VGA_OVERRIDE           0x0C8
-#define FEATURE_CTRL           0x0CC
-#define COLOR_CORRECTION       0x0E0  // Color correction register at memory offset 0E0h
-#define DAC_CTRL               0x0E4  // DAC control register at memory offset 0E4h
-#define OVERCURRENT_RED        0x0E5
-#define OVERCURRENT_GREEN      0x0E6
-#define OVERCURRENT_BLUE       0x0E7
-
-#define VMI_PORT0_CTRL         0x100
-#define VMI_PORT0_TIMING       0x101
-#define VMI_PORT0_INDEX_OFFSET 0x102  // 16-bit at 102-103h
-
-#define VMI_PORT1_CTRL         0x104
-#define VMI_PORT1_TIMING       0x105
-#define VMI_PORT1_INDEX_OFFSET 0x106  // 16-bit at 106-107h
-
-#define THP_CTRL      0x110  // THP control register
-#define VMI_PORT_CTRL 0x120  //
-
-// Writes to registers -x140-0x1FF do not pass through the command FIFO
-#define HW_CURSOR_CTRL  0x140
-#define HW_CURSOR_COL1  0x141
-#define HW_CURSOR_COL2  0x142
-#define HW_CURSOR_COL3  0x143
-#define HW_CURSOR_BASE  0x144  // Hardware cursor base address register (16-bit at 144-145h)
-#define HW_CURSOR_X     0x148  // Hardware cursor X position register (16-bit at 148-149h)
-#define HW_CURSOR_Y     0x14A  // Hardware cursor Y position register (16-bit at 14A-14Bh)
-#define HW_CURSOR_OFF_X 0x14C  // Hardware cursor X offset register (6 bits)
-#define HW_CURSOR_OFF_Y 0x14D  // Hardware cursor Y offset register (6 bits), doc table 4.7
-
-#define DEVICE_ID      0x182  // Device ID register at memory offset 182-183h
-#define GPIO_CTRL      0x1F0
-#define VERTICAL_CURRENT_POS 0x1FA
-#define EXT_DAC_STATUS 0x1FC  // Extended/DAC status register at memory offset 1FC-1FFh
-#define ABORT          0x1FF  //
 
 #define FAST_RAS_DISABLE_MASK BIT(1)
 #define FAST_RAS_DISABLE      BIT(1)
@@ -183,15 +106,6 @@
 // N: 8-127 (numerator)
 // M: 1-5 (denominator)
 // L: 0-3 (postscaler)
-
-#define MCLK_CTRL 0x0E8  // MCLK control register
-#define MCLK_DEN  0x0E9  // MCLK denominator (M) register
-#define MCLK_NUM  0x0EA  // MCLK numerator (N) register
-
-#define VCLK_CTRL 0x0EC  // VCLK control register
-#define VCLK_DEN  0x0ED  // VCLK denominator (M) register
-#define VCLK_NUM  0x0EE  // VCLK numerator (N) register
-
 // MCLK/VCLK control register bits (0E8/0EC)
 #define CLK_BYPASS          BIT(0)      // Clock bypass
 #define CLK_POWER_OFF       BIT(1)      // Clock power off
@@ -220,7 +134,7 @@
 //   00 = indexed (CLUT)
 //   01 = direct RGB
 //   1x = reserved
-#define SERIAL_CTRL 0x080
+// #define SERIAL_CTRL 0x080
 
 #define PALETTE_ACCESS_MASK (0x3 << 5)
 #define PALETTE_ACCESS(x)   ((x) << 5)
@@ -263,7 +177,7 @@
 // Extended CRTC registers
 // Per AT3D documentation pages 183-184:
 // CR1D: Character clock adjust (bits [2:0])
-#define CR_CHAR_CLOCK_ADJUST 0x1d  // Character clock adjust register
+// #define CR_CHAR_CLOCK_ADJUST 0x1d  // Character clock adjust register
 
 // CR1E: Extended CRTC autoreset (bit 0 = disable automatic CRTC reset)
 #define CR_EXT_AUTORESET         0x1e    // Extended CRTC autoreset register
@@ -277,11 +191,10 @@
 // VGA Palette DAC registers
 // Per AT3D documentation pages 162-165:
 // Standard VGA palette registers for CLUT (Color Look-Up Table)
-#define DAC_MASK  0x3C6  // Palette RAM pel mask
-#define DAC_RD_AD 0x3C7  // Palette RAM state/read address
-#define DAC_WR_AD 0x3C8  // Palette RAM write address
-#define DAC_DATA  0x3C9  // Palette RAM data
-
+// #define DAC_MASK  0x3C6  // Palette RAM pel mask
+// #define DAC_RD_AD 0x3C7  // Palette RAM state/read address
+// #define DAC_WR_AD 0x3C8  // Palette RAM write address
+// #define DAC_DATA  0x3C9  // Palette RAM data
 
 #define BLIT_MAX_SIZE 4095
 #endif  // CHIP_AT3D_H

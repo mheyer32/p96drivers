@@ -23,10 +23,6 @@ typedef struct ChipSpecific
     ComputeFrequencyFromPllValueFunc_t computeVCLKFrequency;
 } ChipSpecific_t;
 
-/* bi->MemoryClock is Hz; ROM clocks are 10 kHz units. */
-UWORD resolveMemoryClockKhz10(BoardInfo_t *bi);
-void SetMemoryClock(BoardInfo_t *bi, UWORD freqKhz10);
-
 struct I2COps;
 typedef struct I2COps I2COps_t;
 
@@ -47,7 +43,7 @@ typedef struct ChipData
 
     UWORD ioSparseBase;
     UBYTE p96VBlankInt;  // P96 SetInterrupt(TRUE): Cause() soft IRQ on VBlank
-    UBYTE chipFamily;  // chip family
+    ChipFamily_t chipFamily;
     ChipSpecific_t *chipSpecific;
 
     const I2COps_t *i2cOps;
@@ -71,48 +67,29 @@ static INLINE const ChipSpecific_t *getConstChipSpecific(const struct BoardInfo 
     return getConstChipData(bi)->chipSpecific;
 }
 
-/* Mark `entries` FIFO slots as used in a FIFO_STAT-shaped value (ones from LSB). */
-static INLINE UWORD fifoStatConsume(UWORD stat, UBYTE entries)
-{
-    return ((ULONG)(stat + 1) << entries) - 1;
-}
-
-static inline void waitFifo(BoardInfo_t *bi, UBYTE entries)
-{
-#if MACH64_PCI_RETRY
-    (void)bi;
-    (void)entries;
-#else
-    ChipData_t *cd;
-    UWORD mask;
-    UWORD maskSwapped;
-    UWORD raw;
-
-    if (!entries)
-        return;
-
-    /* FIFO_STAT: 0 = empty; ones pack from LSB. entries free ⇒ top entries bits clear. */
-    mask = 0xffffU << (16 - entries);
-
-    cd = getChipData(bi);
-    if (!(cd->fifoSlotsCached & mask)) {
-        cd->fifoSlotsCached = fifoStatConsume(cd->fifoSlotsCached, entries);
-        return;
-    }
-
-    maskSwapped = SWAPW(mask);
-    {
-        MMIOBASE();
-        do {
-            raw = R_MMIO_NOSWAP_W_QI(FIFO_STAT);
-        } while (raw & maskSwapped);
-    }
-
-    cd->fifoSlotsCached = fifoStatConsume(SWAPW(raw), entries);
+#ifdef __cplusplus
+#include "mach64_driver.hpp"
 #endif
-}
 
-typedef struct Mach64RomHeader
+#ifdef __cplusplus
+extern "C" {
+#endif
+/* bi->MemoryClock is Hz; ROM clocks are 10 kHz units. */
+UWORD resolveMemoryClockKhz10(BoardInfo_t *bi);
+void SetMemoryClock(BoardInfo_t *bi, UWORD freqKhz10);
+void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count),
+                               __REGA1(const struct CLUTEntry *colors));
+BOOL InitChip(__REGA0(struct BoardInfo *bi));
+void ASM DrawLine(__REGA0(struct BoardInfo *bi), __REGA1(struct RenderInfo *ri), __REGA2(struct Line *line),
+                  __REGD0(UBYTE mask), __REGD7(RGBFTYPE_REG fmt));
+APTR ASM AllocCardMem(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system),
+                      __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE_REG format));
+ULONG ASM interruptServer(__REGA1(struct BoardInfo *bi));
+#ifdef __cplusplus
+}
+#endif
+
+typedef struct __attribute__((packed)) Mach64RomHeader
 {
     UBYTE struct_size[2];           // -1, -2: Size of the structure in number of bytes
     UBYTE type_definition;          // 0: Type definition
@@ -148,12 +125,34 @@ typedef struct Mach64RomHeader
     UWORD subsystem_id;             // 64 - 65: Subsystem ID
     UWORD device_id;                // 66 - 67: Device ID
     UWORD config_string_ptr;        // 68 - 69: Pointer to Config string
-    UWORD video_feature_table_ptr;  // 70 - 71: Pointer to Video Feature table
-    UWORD hardware_info_table_ptr;  // 72 - 73: Pointer to Hardware Info table
-    UBYTE signatures[16];           // 74 - 89: $??? Signatures indicating pointers to hardware information table
+    UWORD video_feature_table_ptr;  // 70 - 71: Video Feature table (valid if "MMEDIA" at ptr-8)
+    UWORD hardware_info_table_ptr;  // 72 - 73: Pointer to Hardware Info table ("$ATI")
+    UBYTE signatures[16];           // 74 - 89: e.g. MMEDIA / $TVS tags (+ optional Multi-TV ptr)
 } Mach64RomHeader_t;
 
-typedef struct FrequencyTable
+/* A.35.2 Hardware Information Table (signature "$ATI") */
+typedef struct __attribute__((packed)) HardwareInfoTable
+{
+    char signature[4];  // "$ATI"
+    UBYTE revision;
+    UBYTE size;         // 8–10 depending on revision
+    UBYTE i2c_type;     // bits[3:0] AMC I2C pinout; 15 = no AMC
+    UBYTE tvout;        // bits[3:0] TVOut type; rev≥2: crystal in [6:4], MPP2 in bit7
+    UBYTE video_port;   // rev≥1: capture port flags
+    UBYTE host_port;    // rev≥2: host port config
+} HardwareInfoTable_t;
+
+/* A.26 / Table A-3 Video Feature (Multimedia) — bytes after "MMEDIA"+size */
+typedef struct __attribute__((packed)) VideoFeatureTable
+{
+    UBYTE tuner_type;
+    UBYTE connectors;     // video in/out, CD in/out, pass-through
+    UBYTE decoder_tvout;  // decoder type/crystals, TVOut crystal
+    UBYTE audio_product;  // audio chip + ATI product type
+    UBYTE oem_id;
+} VideoFeatureTable_t;
+
+typedef struct __attribute__((packed)) FrequencyTable
 {
     UBYTE frequency_table_id;  // Frequency table identification
     UBYTE reserved2;
@@ -183,7 +182,7 @@ typedef struct FrequencyTable
 #define COLOR_DEPTH_24 5
 #define COLOR_DEPTH_32 6
 
-typedef struct MaxColorDepthTableEntry
+typedef struct __attribute__((packed)) MaxColorDepthTableEntry
 {
     UBYTE h_disp;       // max horizontal resolution in chars
     UBYTE dacmask;      // DAC this applies to
@@ -192,9 +191,5 @@ typedef struct MaxColorDepthTableEntry
     UBYTE color_depth;  // max color depth
     UBYTE DUMMY;
 } MaxColorDepthTableEntry_t;
-
-/* Shared CLUT load + chip OVR_CLR (palette index 0). GX DAC wrappers call this. */
-void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count),
-                               __REGA1(const struct CLUTEntry *colors));
 
 #endif

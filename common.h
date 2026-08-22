@@ -7,8 +7,14 @@
 #include <proto/exec.h>
 
 #include <boardinfo.h>
-// FIXME: copy header into common location
-// #include "endian.h"
+/*
+ * Older bebbo g++ ignored __asm("dn") on enum-typed parameters
+ * ("attributes applied to 'RGBFTYPE' after definition"). Local amiga-gcc
+ * 6.5 / 13.2 fix that; ULONG remains safe for unfixed toolchains.
+ */
+typedef ULONG RGBFTYPE_REG;
+#define AS_RGBF(x)          static_cast<RGBFTYPE>(x)
+#define P96_HOOK(field, fn) ((field) = reinterpret_cast<decltype(field)>(fn))
 
 #define ALWAYS  0       // Always print when DEBUG is enabled
 #define ERROR   ALWAYS  // Function failed, not recoverable
@@ -33,43 +39,22 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
     if (debugLevel >= (level)) { \
         myPrintF(__VA_ARGS__);   \
     }
-// Helper macro to allow call DFUNC with just one argument (and __VA_ARGS__
-// being empty)
-#define VA_ARGS(...) , ##__VA_ARGS__
+/* GNU ,##__VA_ARGS__ eats the comma when the varargs list is empty (C and C++). */
 #define DFUNC(level, fmt, ...)                                             \
     if (debugLevel >= (level)) {                                           \
-        myPrintF("%s:%ld: " fmt, __func__, __LINE__ VA_ARGS(__VA_ARGS__)); \
+        myPrintF("%s:%ld: " fmt, __func__, (long)__LINE__, ##__VA_ARGS__); \
     }
-#endif
-
-// The offsets allow for using signed 16bit indexed addressing be used
-#if !defined(REGISTER_OFFSET) || !defined(MMIOREGISTER_OFFSET)
-#pragma GCC error "REGISTER_OFFSET or MMIOREGISTER_OFFSET not defined"
 #endif
 
 #define STRINGIFX(x) #x
 #define STRINGIFY(x) STRINGIFX(x)
 
-#define SEQX     0x3C4  // Access SRxx registers
-#define SEQ_DATA 0x3C5
+/* Standard VGA ports: see vga_regs.hpp (VgaReg / VgaIo). */
 
-#define CRTC_IDX  0x3D4  // Access CRxx registers
-#define CRTC_DATA 0x3D5
-
-#define GRC_ADR  0x3CE
-#define GRC_DATA 0x3CF
-
-#define ATR_AD     0x3C0
-#define ATR_DATA_W 0x3C0
-#define ATR_DATA_R 0x3C1
-
-#define MISC_W 0x3C2
-#define MISC_R 0x3CC
-
-#define LOCAL_SYSBASE()        struct ExecBase *SysBase = bi->ExecBase
-#define LOCAL_UTILITYBASE()    struct Library *UtilityBase = bi->UtilBase
+#define LOCAL_SYSBASE()     struct ExecBase *SysBase = bi->ExecBase
+#define LOCAL_UTILITYBASE() struct Library *UtilityBase = bi->UtilBase
 #if OPENPCI
-#define LOCAL_OPENPCIBASE()    struct Library *OpenPciBase = getCardData(bi)->OpenPciBase
+#define LOCAL_OPENPCIBASE() struct Library *OpenPciBase = getCardData(bi)->OpenPciBase
 #endif
 
 /* BoardInfo.CardFlags — private; RTG does not touch these.
@@ -91,17 +76,24 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
  * Non-zero handler return → Z clear; zero → Z set.
  * Scratch for IS_CODE: d0-d1/a0-a1/a5-a6 — trampoline preserves the rest.
  */
-#define DEFINE_INTSERVER(entry, handler)           \
-    void entry(void);                              \
-    asm(".text\n"                                  \
-        "	.align	2\n"                           \
-        "	.globl	_" #entry "\n"                \
-        "_" #entry ":\n"                           \
-        "	jsr	_" #handler "\n"              \
-        "	tst.l	d0\n"                         \
+#define DEFINE_INTSERVER(entry, handler) \
+    extern "C" void entry(void);         \
+    asm(".section .text." #entry         \
+        ",\"ax\"\n"                      \
+        "	.align	2\n"                 \
+        "	.globl	_" #entry            \
+        "\n"                             \
+        "_" #entry                       \
+        ":\n"                            \
+        "	jsr	_" #handler              \
+        "\n"                             \
+        "	tst.l	d0\n"                \
         "	rts\n")
 
-static inline ULONG swapl(ULONG value)
+// FIXME: IDK if this is a good idea. Often times the compiler decides to promote something to int
+// and then this becomes ambiguous and may emit code that we don't want.
+// So we should probably just stick with the swapw/swapl functions instead?
+static inline ULONG swap(ULONG value)
 {
     // endian swap value
     value = ((value & 0xFFFF0000) >> 16) | ((value & 0x0000FFFF) << 16);
@@ -109,28 +101,38 @@ static inline ULONG swapl(ULONG value)
     return value;
 }
 
-static inline UWORD swapw(UWORD value)
+static inline UWORD swap(UWORD value)
 {
     // endian swap value
     value = (value & 0xFF00) >> 8 | (value & 0x00FF) << 8;
     return value;
 }
 
-#if BIGENDIAN_MMIO
-#define SWAPW(x) x
-#define SWAPL(x) x
-#else
-#define SWAPW(x) swapw(x)
-#define SWAPL(x) swapl(x)
-#endif
+static inline UWORD swapw(UWORD value)
+{
+    return swap(value);
+}
 
-#if BIGENDIAN_IO
-#define SWAPW_IO(x) x
-#define SWAPL_IO(x) x
-#else
-#define SWAPW_IO(x) swapw(x)
-#define SWAPL_IO(x) swapl(x)
-#endif
+static inline ULONG swapl(ULONG value)
+{
+    return swap(value);
+}
+
+// #if BIGENDIAN_MMIO
+// #define SWAPW(x) x
+// #define SWAPL(x) x
+// #else
+// #define SWAPW(x) swapw(x)
+// #define SWAPL(x) swapl(x)
+// #endif
+
+// #if BIGENDIAN_IO
+// #define SWAPW_IO(x) x
+// #define SWAPL_IO(x) x
+// #else
+// #define SWAPW_IO(x) swapw(x)
+// #define SWAPL_IO(x) swapl(x)
+// #endif
 
 #define BIT(x)          (1 << (x))
 #define TESTBIT(x, bit) (((x) & BIT(bit)) != 0)
@@ -197,14 +199,14 @@ typedef enum BlitterOp
 } BlitterOp_t;
 
 // Remember: all in Little Endian!
-typedef struct OptionRomHeader
+typedef struct __attribute__((packed)) OptionRomHeader
 {
     UWORD signature;     // 0x0000: Signature (should be 0xAA55)
     UBYTE reserved[22];  // 0x0002: Reserved (usually 0, may contain PCI data structure pointer)
     UWORD pcir_offset;   // 0x0018: Pointer to PCI Data Structure (offset within the ROM)
 } OptionRomHeader_t;
 
-typedef struct PCI_DataStructure
+typedef struct __attribute__((packed)) PCI_DataStructure
 {
     UBYTE signature[4];            // 0x0000: Signature ('PCIR')
     UWORD vendor_id;               // 0x0004: Vendor ID (from PCI Configuration Space)
@@ -295,438 +297,6 @@ static inline void flushWrites()
     asm volatile("nop" ::: "memory");
 }
 
-static INLINE UBYTE REGARGS readReg(volatile UBYTE *regbase, LONG reg)
-{
-    flushWrites();
-    return regbase[reg - REGISTER_OFFSET];
-}
-
-static INLINE void REGARGS writeReg(volatile UBYTE *regbase, LONG reg, UBYTE value)
-{
-    regbase[reg - REGISTER_OFFSET] = value;
-}
-
-static INLINE UWORD REGARGS readRegW(volatile UBYTE *regbase, LONG reg, const char *regName)
-{
-    flushWrites();
-    UWORD value = SWAPW_IO(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
-    asm volatile("" ::"r"(value));
-
-    D(VERBOSE, "R %s -> 0x%04lx\n", regName, (ULONG)value);
-
-    return value;
-}
-
-static INLINE UWORD REGARGS readRegWNoSwap(volatile UBYTE *regbase, LONG reg, const char *regName)
-{
-    flushWrites();
-    UWORD value = *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET));
-    asm volatile("" ::"r"(value));
-
-    D(VERBOSE, "R %s -> 0x%04lx\n", regName, (ULONG)SWAPW_IO(value));
-
-    return value;
-}
-
-static INLINE void REGARGS writeRegW(volatile UBYTE *regbase, LONG reg, UWORD value, const char *regName)
-{
-    D(VERBOSE, "W %s <- 0x%04lx\n", regName, (ULONG)value);
-
-    *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = SWAPW_IO(value);
-}
-
-static INLINE void REGARGS writeRegWNoSwap(volatile UBYTE *regbase, LONG reg, UWORD value, const char *regName)
-{
-    D(VERBOSE, "W %s <- 0x%04lx\n", regName, (ULONG)SWAPW_IO(value));
-
-    *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = value;
-}
-
-static INLINE void REGARGS writeRegMask_W(volatile UBYTE *regbase, LONG reg, UWORD mask, UWORD value,
-                                           const char *regName)
-{
-    UWORD regValue = readRegWNoSwap(regbase, reg, regName);
-    regValue &= SWAPW_IO(~mask);
-    regValue |= SWAPW_IO(value & mask);
-    writeRegWNoSwap(regbase, reg, regValue, regName);
-}
-
-
-static INLINE void REGARGS writeRegL(volatile UBYTE *regbase, LONG reg, ULONG value, const char *regName)
-{
-    D(VERBOSE, "W %s <- 0x%08lx\n", regName, (ULONG)value);
-
-    *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = SWAPL_IO(value);
-}
-
-static INLINE ULONG REGARGS readRegLNoSwap(volatile UBYTE *regbase, LONG reg, const char *regName)
-{
-    flushWrites();
-    ULONG value = *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET));
-    asm volatile("" ::"r"(value));
-
-    D(VERBOSE, "R %s -> 0x%08lx\n", regName, SWAPL_IO(value));
-
-    return value;
-}
-
-static INLINE void REGARGS writeRegLNoSwap(volatile UBYTE *regbase, LONG reg, ULONG value, const char *regName)
-{
-    D(VERBOSE, "W %s <- 0x%08lx\n", regName, SWAPL_IO(value));
-    *(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)) = value;
-}
-
-static INLINE ULONG REGARGS readRegL(volatile UBYTE *regbase, LONG reg, const char *regName)
-{
-    flushWrites();
-    ULONG value = SWAPL_IO(*(volatile ULONG *)(regbase + (reg - REGISTER_OFFSET)));
-    asm volatile("" ::"r"(value));
-
-    D(VERBOSE, "R %s -> 0x%08lx\n", regName, value);
-
-    return value;
-}
-
-static INLINE UBYTE REGARGS readMMIO_B(volatile UBYTE *mmiobase, LONG regOffset, const char *regName)
-{
-    flushWrites();
-    UBYTE value = *(mmiobase + (regOffset - MMIOREGISTER_OFFSET));
-
-    D(VERBOSE, "R %s -> 0x%02lx\n", (ULONG)regName, (ULONG)value);
-
-    return value;
-}
-
-static INLINE UWORD REGARGS readMMIO_W(volatile UBYTE *mmiobase, LONG regOffset, const char *regName)
-{
-    flushWrites();
-    UWORD value = SWAPW(*(volatile UWORD *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)));
-    // This construct makes sure, the compiler doesn't take shortcuts
-    // performing a byte access (for instance via btst) when the hardware really
-    // requires register access as words
-    asm volatile("" ::"r"(value));
-
-    D(VERBOSE, "R %s -> 0x%04lx\n", (ULONG)regName, (ULONG)value);
-
-    return value;
-}
-
-static INLINE ULONG read_L(volatile UBYTE *addr)
-{
-    flushWrites();
-    // This construct makes sure, the compiler doesn't take shortcuts
-    // performing a byte access (for instance via btst) when the hardware really
-    // requires register access as long words
-    ULONG value = *(volatile ULONG *)addr;
-    asm volatile("" ::"r"(value));
-    return value;
-}
-
-static INLINE ULONG REGARGS readMMIO_L(volatile UBYTE *mmiobase, LONG regOffset, const char *regName)
-{
-    ULONG value = read_L(mmiobase + (regOffset - MMIOREGISTER_OFFSET));
-    value       = SWAPL(value);
-    D(VERBOSE, "R %s -> 0x%08lx\n", (ULONG)regName, value);
-
-    return value;
-}
-
-static INLINE ULONG REGARGS readMMIO_NoSwap_L(volatile UBYTE *mmiobase, LONG regOffset, const char *regName)
-{
-    ULONG value = read_L(mmiobase + (regOffset - MMIOREGISTER_OFFSET));
-    D(VERBOSE, "R %s -> 0x%08lx\n", (ULONG)regName, SWAPL(value));
-    return value;
-}
-
-static INLINE void REGARGS writeMMIO_B(volatile UBYTE *mmiobase, LONG regOffset, UBYTE value, const char *regName)
-{
-    D(VERBOSE, "W %s <- 0x%02lx\n", regName, (LONG)value);
-    *(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = value;
-}
-
-static INLINE void REGARGS writeMMIO_W(volatile UBYTE *mmiobase, LONG regOffset, UWORD value, const char *regName)
-{
-    D(VERBOSE, "W %s <- 0x%04lx\n", regName, (LONG)value);
-    *(volatile UWORD *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPW(value);
-}
-
-static INLINE void REGARGS writeMMIOMask_B(volatile UBYTE *mmioBase, LONG regOffset, UBYTE mask, UBYTE value,
-                                           const char *regName)
-{
-    UBYTE regValue = readMMIO_B(mmioBase, regOffset, regName);
-    regValue &= ~mask;
-    regValue |= value & mask;
-    writeMMIO_B(mmioBase, regOffset, regValue, regName);
-}
-
-static INLINE void REGARGS writeMMIOMask_W(volatile UBYTE *mmioBase, LONG regOffset, UWORD mask, UWORD value,
-                                           const char *regName)
-{
-    UWORD regValue = readMMIO_W(mmioBase, regOffset, regName);
-    regValue &= ~mask;
-    regValue |= value & mask;
-    writeMMIO_W(mmioBase, regOffset, regValue, regName);
-}
-
-static INLINE void REGARGS writeMMIO_L(volatile UBYTE *mmiobase, LONG regOffset, ULONG value, const char *regName)
-{
-    D(VERBOSE, "W %s <- 0x%08lx\n", regName, (LONG)value);
-
-    *(volatile ULONG *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPL(value);
-}
-
-/* No D() — safe from interrupt servers (printf from ISR crashes). */
-static INLINE ULONG REGARGS readMMIO_L_qi(volatile UBYTE *mmiobase, LONG regOffset)
-{
-    return SWAPL(read_L(mmiobase + (regOffset - MMIOREGISTER_OFFSET)));
-}
-
-static INLINE void REGARGS writeMMIO_L_qi(volatile UBYTE *mmiobase, LONG regOffset, ULONG value)
-{
-    *(volatile ULONG *)(mmiobase + (regOffset - MMIOREGISTER_OFFSET)) = SWAPL(value);
-}
-
-static INLINE UWORD REGARGS readRegW_qi(volatile UBYTE *regbase, LONG reg)
-{
-    flushWrites();
-    return SWAPW_IO(*(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)));
-}
-
-static INLINE UWORD REGARGS readRegWNoSwap_qi(volatile UBYTE *regbase, LONG reg)
-{
-    flushWrites();
-    UWORD value = *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET));
-    /* Keep value in a data register so bit tests can't become byte IO btst. */
-    asm volatile("" ::"r"(value));
-    return value;
-}
-
-static INLINE void REGARGS writeRegW_qi(volatile UBYTE *regbase, LONG reg, UWORD value)
-{
-    *(volatile UWORD *)(regbase + (reg - REGISTER_OFFSET)) = SWAPW_IO(value);
-}
-
-static INLINE void REGARGS writeMMIO_NoSwap_L(volatile UBYTE *regbase, LONG reg, ULONG value, const char *regName)
-{
-    D(VERBOSE, "W %s <- 0x%08lx\n", regName, SWAPL(value));
-    *(volatile ULONG *)(regbase + (reg - MMIOREGISTER_OFFSET)) = value;
-}
-
-static INLINE UBYTE REGARGS readRegister(volatile UBYTE *regbase, LONG reg, const char *regName)
-{
-    UBYTE value = readReg(regbase, reg);
-    D(VERBOSE, "R %s -> 0x%02lx\n", regName, (LONG)value);
-
-    return value;
-}
-
-static INLINE void REGARGS writeRegister(volatile UBYTE *regbase, LONG reg, UBYTE value, const char *regName)
-{
-    D(VERBOSE, "W %s <- 0x%02lx\n", regName, (LONG)value);
-    writeReg(regbase, reg, value);
-}
-
-static INLINE void REGARGS writeRegisterMask(volatile UBYTE *regbase, LONG reg, UBYTE mask, UBYTE value,
-                                             const char *regName)
-{
-    writeRegister(regbase, reg, (readRegister(regbase, reg, regName) & ~mask) | (value & mask), regName);
-}
-
-static INLINE UBYTE REGARGS readCRx(volatile UBYTE *regbase, UBYTE regIndex)
-{
-    writeReg(regbase, CRTC_IDX, regIndex);
-    UBYTE value = readReg(regbase, CRTC_DATA);
-
-    D(VERBOSE, "R CR%lX -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
-    return value;
-}
-
-static INLINE void REGARGS writeCRx(volatile UBYTE *regbase, UBYTE regIndex, UBYTE value)
-{
-    writeReg(regbase, CRTC_IDX, regIndex);
-    writeReg(regbase, CRTC_DATA, value);
-    // FIXME: this doesn't work. I was hoping to write CRTC_IDX and CRTC_DATA in
-    // one go
-    //  writeRegW(regbase, CRTC_IDX, (regIndex << 8) | value );
-
-    D(VERBOSE, "W CR%lX <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
-}
-
-static INLINE void REGARGS writeCRxMask(volatile UBYTE *regbase, UBYTE regIndex, UBYTE mask, UBYTE value)
-{
-    UBYTE regvalue = (readCRx(regbase, regIndex) & ~mask) | (value & mask);
-    // Keep index register from previous read
-    writeReg(regbase, CRTC_DATA, regvalue);
-
-    D(VERBOSE, "W CR%lX <- 0x%02lx\n", (LONG)regIndex, (LONG)regvalue);
-}
-
-static INLINE UBYTE REGARGS readSRx(volatile UBYTE *regbase, UBYTE regIndex)
-{
-    writeReg(regbase, SEQX, regIndex);
-    UBYTE value = readReg(regbase, SEQ_DATA);
-
-    D(VERBOSE, "R SR%lX -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
-
-    return value;
-}
-
-static INLINE void REGARGS writeSRx(volatile UBYTE *regbase, UBYTE regIndex, UBYTE value)
-{
-    writeReg(regbase, SEQX, regIndex);
-    writeReg(regbase, SEQ_DATA, value);
-
-    D(VERBOSE, "W SR%lX <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
-}
-
-static INLINE void REGARGS writeSRxMask(volatile UBYTE *regbase, UBYTE regIndex, UBYTE mask, UBYTE value)
-{
-    writeReg(regbase, SEQX, regIndex);
-    UBYTE regvalue = (readReg(regbase, SEQ_DATA) & ~mask) | (value & mask);
-
-    D(VERBOSE, "W SR%lX <- 0x%02lx\n", (LONG)regIndex, (ULONG)regvalue);
-
-    writeReg(regbase, SEQ_DATA, regvalue);
-}
-
-static INLINE UBYTE REGARGS readGRx(volatile UBYTE *regbase, UBYTE regIndex)
-{
-    writeReg(regbase, GRC_ADR, regIndex);
-    UBYTE value = readReg(regbase, GRC_DATA);
-
-    D(VERBOSE, "R GR%lX -> 0x%02lx\n", (LONG)regIndex, (LONG)value);
-    return value;
-}
-
-static INLINE void REGARGS writeGRx(volatile UBYTE *regbase, UBYTE regIndex, UBYTE value)
-{
-    writeReg(regbase, GRC_ADR, regIndex);
-    writeReg(regbase, GRC_DATA, value);
-
-    D(VERBOSE, "W GR%lX <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
-}
-
-static INLINE UBYTE REGARGS readARx(volatile UBYTE *regbase, UBYTE regIndex)
-{
-    writeReg(regbase, ATR_AD, regIndex);
-    UBYTE value = readReg(regbase, ATR_DATA_R);
-
-    D(VERBOSE, "R AR%lX -> 0x%lx\n", (LONG)regIndex, (LONG)value);
-    return value;
-}
-
-static INLINE void REGARGS writeARx(volatile UBYTE *regbase, UBYTE regIndex, UBYTE value)
-{
-    writeReg(regbase, ATR_AD, regIndex | 0x20);
-    writeReg(regbase, ATR_DATA_W, value);
-
-    D(VERBOSE, "W AR%lX <- 0x%02lx\n", (LONG)regIndex, (LONG)value);
-}
-
-static INLINE void REGARGS writeMISC_OUT(volatile UBYTE *regbase, UBYTE mask, UBYTE value)
-{
-    UBYTE misc = (readRegister(regbase, 0x3CC, "MISC_OUT_3CC") & ~mask) | (value & mask);
-    writeRegister(regbase, 0x3C2, misc, "MISC_OUT_3C2");
-}
-
-#define REGBASE()      volatile UBYTE *RegBase = getIOBase(bi)
-#define MMIOBASE()     volatile UBYTE *MMIOBase = getMMIOBase(bi)
-#define LEGACYIOBASE() volatile UBYTE *RegBase = getCardData(bi)->legacyIOBase
-
-#define R_CR(reg)                   readCRx(RegBase, reg)
-#define W_CR(reg, value)            writeCRx(RegBase, reg, value)
-#define W_CR_MASK(reg, mask, value) writeCRxMask(RegBase, reg, mask, value)
-
-#define R_SR(reg)                   readSRx(RegBase, reg)
-#define W_SR(reg, value)            writeSRx(RegBase, reg, value)
-#define W_SR_MASK(reg, mask, value) writeSRxMask(RegBase, reg, mask, value)
-
-#define R_GR(reg)        readGRx(RegBase, reg)
-#define W_GR(reg, value) writeGRx(RegBase, reg, value)
-
-#define R_AR(reg)        readARx(RegBase, reg)
-#define W_AR(reg, value) writeARx(RegBase, reg, value)
-
-#define R_REG(reg)                   readRegister(RegBase, reg, #reg)
-#define W_REG(reg, value)            writeRegister(RegBase, reg, value, #reg)
-#define W_REG_MASK(reg, mask, value) writeRegisterMask(RegBase, reg, mask, value, #reg)
-
-#define R_IO_W(reg)        readRegW(RegBase, reg, #reg)
-#define R_IO_L(reg)        readRegL(RegBase, reg, #reg)
-#define W_IO_W(reg, value) writeRegW(RegBase, reg, value, #reg)
-#define W_IO_NOSWAP_W(reg, value) writeRegWNoSwap(RegBase, reg, value, #reg)
-#define W_IO_MASK_W(reg, mask, value) writeRegMask_W(RegBase, reg, mask, value, #reg)
-#define W_IO_L(reg, value) writeRegL(RegBase, reg, value, #reg)
-#define TST_IO_W(reg, mask)     ((readRegWNoSwap(RegBase, reg, #reg) & SWAPW_IO(mask)) != 0)
-
-#define W_MMIO_B(reg, value)            writeMMIO_B(MMIOBase, reg, value, #reg)
-#define R_MMIO_B(reg)                   readMMIO_B(MMIOBase, reg, #reg)
-#define W_MMIO_MASK_B(reg, mask, value) writeMMIOMask_B(MMIOBase, reg, mask, value, #reg)
-#define W_MMIO_W(reg, value)            writeMMIO_W(MMIOBase, reg, value, #reg)
-#define W_MMIO_MASK_W(reg, mask, value) writeMMIOMask_W(MMIOBase, reg, mask, value, #reg)
-#define R_MMIO_W(reg)                   readMMIO_W(MMIOBase, reg, #reg)
-#define W_MMIO_L(reg, value)            writeMMIO_L(MMIOBase, reg, value, #reg)
-#define W_MMIO_NOSWAP_L(reg, value)     writeMMIO_NoSwap_L(MMIOBase, reg, value, #reg)
-#define R_MMIO_L(reg)                   readMMIO_L(MMIOBase, reg, #reg)
-#define TST_MMIO_L(reg, mask)           ((readMMIO_NoSwap_L(MMIOBase, reg, #reg) & SWAPL(mask)) != 0)
-#define R_MMIO_L_QI(reg)                readMMIO_L_qi(MMIOBase, reg)
-#define W_MMIO_L_QI(reg, value)         writeMMIO_L_qi(MMIOBase, reg, value)
-#define R_IO_W_QI(reg)                  readRegW_qi(RegBase, reg)
-#define R_IO_NOSWAP_W_QI(reg)           readRegWNoSwap_qi(RegBase, reg)
-#define W_IO_W_QI(reg, value)           writeRegW_qi(RegBase, reg, value)
-
-#define W_MISC_MASK(mask, value) writeMISC_OUT(RegBase, mask, value)
-
-#define _W_CR_OF(value, reg, bitPos, numBits)                    \
-    if (numBits < 8) {                                           \
-        UWORD mask_W_CR_OF = ((1 << (numBits)) - 1) << (bitPos); \
-        UWORD val_W_CR_OF  = ((value) << (bitPos));              \
-        W_CR_MASK(reg, mask_W_CR_OF, val_W_CR_OF);               \
-    } else {                                                     \
-        W_CR(reg, value);                                        \
-    }
-
-#define W_CR_OVERFLOW1(value, reg, bitPos1, numBits1, overflowReg, bitPos2, numBits2) \
-    do {                                                                              \
-        UWORD val_W_CR_OVERFLOW1 = value;                                             \
-        _W_CR_OF(val_W_CR_OVERFLOW1, reg, bitPos1, numBits1);                         \
-        val_W_CR_OVERFLOW1 >>= numBits1;                                              \
-        _W_CR_OF(val_W_CR_OVERFLOW1, overflowReg, bitPos2, numBits2);                 \
-    } while (0);
-
-#define W_CR_OVERFLOW2(value, reg, bitPos1, numBits1, overflowReg, bitPos2, numBits2, extOverflowReg, bitPos3, \
-                       numBits3)                                                                               \
-    do {                                                                                                       \
-        _W_CR_OF(value, reg, bitPos1, numBits1);                                                               \
-        _W_CR_OF((value >> numBits1), overflowReg, bitPos2, numBits2);                                         \
-        _W_CR_OF((value >> (numBits1 + numBits2)), extOverflowReg, bitPos3, numBits3);                         \
-    } while (0);
-
-#define W_CR_OVERFLOW2_ULONG(value, reg, bitPos1, numBits1, overflowReg, bitPos2, numBits2, extOverflowReg, bitPos3, \
-                             numBits3)                                                                               \
-    do {                                                                                                             \
-        ULONG val_W_CR_OVERFLOW2_LONG = value;                                                                       \
-        _W_CR_OF(val_W_CR_OVERFLOW2_LONG, reg, bitPos1, numBits1);                                                   \
-        val_W_CR_OVERFLOW2_LONG >>= numBits1;                                                                        \
-        _W_CR_OF(val_W_CR_OVERFLOW2_LONG, overflowReg, bitPos2, numBits2);                                           \
-        val_W_CR_OVERFLOW2_LONG >>= numBits2;                                                                        \
-        _W_CR_OF(val_W_CR_OVERFLOW2_LONG, extOverflowReg, bitPos3, numBits3);                                        \
-    } while (0);
-
-// FIXME: can this be done vargs style?
-#define W_CR_OVERFLOW3(value, reg, bitPos1, numBits1, overflowReg, bitPos2, numBits2, extOverflowReg, bitPos3, \
-                       numBits3, extOverflowReg2, bitPos4, numBits4)                                           \
-    do {                                                                                                       \
-        UWORD val_W_CR_OVERFLOW3 = value;                                                                      \
-        _W_CR_OF(val_W_CR_OVERFLOW3, reg, bitPos1, numBits1);                                                  \
-        val_W_CR_OVERFLOW3 >>= numBits1;                                                                       \
-        _W_CR_OF(val_W_CR_OVERFLOW3, overflowReg, bitPos2, numBits2);                                          \
-        val_W_CR_OVERFLOW3 >>= numBits2;                                                                       \
-        _W_CR_OF(val_W_CR_OVERFLOW3, extOverflowReg, bitPos3, numBits3);                                       \
-        val_W_CR_OVERFLOW3 >>= numBits3;                                                                       \
-        _W_CR_OF(val_W_CR_OVERFLOW3, extOverflowReg2, bitPos4, numBits4);                                      \
-    } while (0);
-
 // make a DWORD from two shorts. Make sure, hi and lo are not the same variable!
 static INLINE int makeDWORD(short hi, short lo)
 {
@@ -755,7 +325,6 @@ static INLINE int copyToUpper(short hilo)
     //    return hilo << 16 | hilo;
 }
 
-
 // Move lowest byte of a into lowest byte of b
 static INLINE unsigned int moveb(unsigned char a, unsigned int b)
 {
@@ -772,10 +341,10 @@ static INLINE unsigned int movew(unsigned short a, unsigned int b)
     return res;
 }
 
-static inline UBYTE getBPP(RGBFTYPE format)
+static inline UBYTE getBPP(ULONG format)
 {
     // FIXME: replace with fixed table?
-    switch (format) {
+    switch ((RGBFTYPE)format) {
     case RGBFB_CLUT:
         return 1;
         break;
@@ -802,10 +371,10 @@ static inline UBYTE getBPP(RGBFTYPE format)
     return 0;
 }
 
-static inline UBYTE getBPPLog2(RGBFTYPE format)
+static inline UBYTE getBPPLog2(ULONG format)
 {
     // FIXME: replace with fixed table?
-    switch (format) {
+    switch ((RGBFTYPE)format) {
     case RGBFB_CLUT:
         return 0;
         break;
@@ -842,10 +411,10 @@ static inline UWORD revertBitsW(UWORD word)
 static inline ULONG spreadBits(UWORD word)
 {
     ULONG x = word;
-    x = (x | (x << 8)) & 0x00FF00FFUL;
-    x = (x | (x << 4)) & 0x0F0F0F0FUL;
-    x = (x | (x << 2)) & 0x33333333UL;
-    x = (x | (x << 1)) & 0x55555555UL;
+    x       = (x | (x << 8)) & 0x00FF00FFUL;
+    x       = (x | (x << 4)) & 0x0F0F0F0FUL;
+    x       = (x | (x << 2)) & 0x33333333UL;
+    x       = (x | (x << 1)) & 0x55555555UL;
     return x;
 }
 
@@ -861,7 +430,7 @@ static inline ULONG expandBits2x(UWORD word)
 
 static inline ULONG combineAtiCursor16(UWORD andBits, UWORD xorBits)
 {
-    return swapl((spreadBits(andBits) << 1) | spreadBits(xorBits));
+    return swap((spreadBits(andBits) << 1) | spreadBits(xorBits));
 }
 
 static inline ULONG packAtiCursor16(UWORD plane0, UWORD plane1)

@@ -20,8 +20,8 @@ APTR LibExpunge(__REGA6(struct CardBase *cb));
 LONG LibReserved(void);
 struct CardBase *LibInit(__REGD0(struct CardBase *cb), __REGA0(APTR seglist), __REGA6(struct Library *sysb));
 
-BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes));
-BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes));
+extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes));
+extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(char **ToolTypes));
 
 int USED _start(void)
 {
@@ -34,7 +34,8 @@ extern const char LibIdString[];
 extern const UWORD LibVersion;
 extern const UWORD LibRevision;
 
-USED_VAR void *FuncTable[] = {(APTR)LibOpen, (APTR)LibClose, (APTR)LibExpunge, (APTR)LibReserved, (APTR)FindCard, (APTR)InitCard, (APTR)-1};
+USED_VAR void *FuncTable[] = {(APTR)LibOpen,  (APTR)LibClose, (APTR)LibExpunge, (APTR)LibReserved,
+                              (APTR)FindCard, (APTR)InitCard, (APTR)-1};
 
 struct InitTable /* do not change */
 {
@@ -47,8 +48,17 @@ struct InitTable /* do not change */
 /* ------------------- ROM Tag ------------------------ */
 
 USED_VAR const struct Resident ROMTag = /* do not change */
-    {RTC_MATCHWORD,   (APTR)&ROMTag, &ROMTag.rt_Init + 1, RTF_AUTOINIT, 0, NT_LIBRARY, 0, &LibName[0],
-     &LibIdString[0], &InitTab};
+    {RTC_MATCHWORD,
+     const_cast<struct Resident *>(&ROMTag),
+     const_cast<struct Resident *>(&ROMTag + 1),
+     RTF_AUTOINIT,
+     0,
+     NT_LIBRARY,
+     0,
+     const_cast<char *>(&LibName[0]),
+     const_cast<char *>(&LibIdString[0]),
+     &InitTab};
+
 
 /*-------------------------------------------------------------------------*/
 /* INIT                                                                    */
@@ -68,14 +78,14 @@ struct CardBase *LibInit(__REGD0(struct CardBase *cb), __REGA0(APTR seglist), __
 
     cb->LibBase.lib_Node.ln_Type = NT_LIBRARY;
     cb->LibBase.lib_Node.ln_Name = (char *)LibName;
-    cb->LibBase.lib_Flags = LIBF_CHANGED | LIBF_SUMUSED;
-    cb->LibBase.lib_Version = (UWORD)LibVersion;
-    cb->LibBase.lib_Revision = (UWORD)LibRevision;
-    cb->LibBase.lib_IdString = (char *)LibIdString;
+    cb->LibBase.lib_Flags        = LIBF_CHANGED | LIBF_SUMUSED;
+    cb->LibBase.lib_Version      = (UWORD)LibVersion;
+    cb->LibBase.lib_Revision     = (UWORD)LibRevision;
+    cb->LibBase.lib_IdString     = (char *)LibIdString;
 
     /* setup private data */
     cb->ExecBase = SysBase;
-    cb->SegList = seglist;
+    cb->SegList  = seglist;
     return cb;
 }
 
@@ -87,8 +97,7 @@ struct CardBase *LibOpen(__REGA6(struct CardBase *cb))
 {
     BOOL open = TRUE;
 
-    if (cb->LibBase.lib_OpenCnt == 0)
-    {
+    if (cb->LibBase.lib_OpenCnt == 0) {
         struct ExecBase *SysBase = (struct ExecBase *)cb->ExecBase;
         if (!(cb->ExpansionBase = OpenLibrary("expansion.library", 0))) {
             return NULL;

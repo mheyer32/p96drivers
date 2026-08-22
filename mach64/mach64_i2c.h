@@ -3,6 +3,9 @@
 
 #include "common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 BOOL queryEDID(struct BoardInfo *bi);
 
@@ -45,7 +48,8 @@ BOOL mach64I2cReadScl(struct BoardInfo *bi);
  */
 BOOL mach64I2cReadSda(struct BoardInfo *bi);
 
-#endif // MACH64_I2C_H
+#ifdef __cplusplus
+}
+#endif
 
-
-
+#endif  // MACH64_I2C_H

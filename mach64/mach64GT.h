@@ -5,9 +5,6 @@
 
 #define BLOCK1(register) ((register) - 0x100)
 
-// new for GT
-#define EXT_MEM_CNTL 0x2B
-
 // Additional register definitions
 #define GP_IO        0x1E
 #define TIMER_CONFIG 0x0A
@@ -38,6 +35,8 @@
 #define MEM_ALL_PAGE_DIS      BIT(30)
 #define MEM_TILE_SELECT(x)    ((x) << 4)
 #define MEM_TILE_SELECT_MASK  (0xF << 4)
+#define MEM_GCMRS(x)          (((x) & 0xF) << 24)
+#define MEM_GCMRS_MASK        (0xF << 24)
 
 // CONFIG_STAT2
 #define CONFIG_STAT2 0x26
@@ -45,8 +44,7 @@
 #define PCI5VEN      BIT(25)
 #define PCI5VEN_MASK BIT(25)
 
-// DSP_CONFIG
-#define DSP_CONFIG            0x08
+/* DSP_CONFIG / DSP_ON_OFF / EXT_MEM_CNTL indices: BlkIoReg::Id */
 #define DSP_XCLKS_PER_QW(x)   (x)
 #define DSP_XCLKS_PER_QW_MASK (0x3FFF)
 #define DSP_LOOP_LATENCY(x)   ((x) << 16)
@@ -54,8 +52,6 @@
 #define DSP_PRECISION(x)      ((x) << 20)
 #define DSP_PRECISION_MASK    (0x7 << 20)
 
-// DSP_ON_OFF
-#define DSP_ON_OFF   0x09
 #define DSP_OFF(x)   (x)
 #define DSP_OFF_MASK (0x7FF)
 #define DSP_ON(x)    ((x) << 16)
@@ -70,6 +66,10 @@
 #define CMDFIFO_SIZE_MODE_MASK (0x3)
 #define CMDFIFO_SIZE_MODE(x)   ((x) & 0x3)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern const UBYTE g_VPLLPostDivider[];
 extern const UBYTE g_VPLLPostDividerCodes[];
 
@@ -77,5 +77,9 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv);
 
 BOOL InitMach64GT(struct BoardInfo *bi);
 void SetMemoryClock_GT(struct BoardInfo *bi, UWORD freqKhz10);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // MACH64GT_H

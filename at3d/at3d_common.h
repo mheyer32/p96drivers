@@ -36,18 +36,18 @@ typedef struct ChipData
     ULONG GEdrawCmd;
     ULONG GEbgPen;
 
-    UBYTE GEbppLog2;   // programmed graphics engine bpp
+    UBYTE GEbppLog2;  // programmed graphics engine bpp
     UBYTE GElinear;   // programmed graphics engine linear/xy address model
 
     UBYTE GEopCode;   // programmed minTerm
-    UBYTE memFormat;   // programmed memory layout/format
+    UBYTE memFormat;  // programmed memory layout/format
 
     UBYTE chipFamily;  // chip family
     UBYTE pad;
 
     UWORD *patternCacheBuffer;  // points to system memory
     ULONG patternCacheKey;
-    ULONG pat0, pat1; // cached value for pattern registers (for pattern cache)
+    ULONG pat0, pat1;  // cached value for pattern registers (for pattern cache)
 
     // PLL table for pixel clocks
     AT3DPLLValue_t *pllValues;
@@ -60,7 +60,7 @@ STATIC_ASSERT(sizeof(ChipData_t) <= sizeof(((BoardInfo_t *)0)->ChipData), ChipDa
 
 typedef struct CardData
 {
-    BYTE *legacyIOBase;  // legacy I/O base address (not used for AT3D)
+    volatile UBYTE *legacyIOBase;  // legacy I/O base address (not used for AT3D)
     struct Library *OpenPciBase;
     struct pci_dev *board;
     struct Node boardNode;
@@ -69,8 +69,19 @@ typedef struct CardData
 
 STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);
 
-extern ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision);
-extern const char *getChipFamilyName(ChipFamily_t family);
-extern BOOL initRegisterAndMemoryBases(BoardInfo_t *bi);
+#ifdef __cplusplus
+#include "at3d_driver.hpp"
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision);
+const char *getChipFamilyName(ChipFamily_t family);
+BOOL initRegisterAndMemoryBases(BoardInfo_t *bi);
+BOOL InitChip(__REGA0(struct BoardInfo *bi));
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // AT3D_COMMON_H

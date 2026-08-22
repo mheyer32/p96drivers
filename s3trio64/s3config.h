@@ -45,12 +45,20 @@
 #define MMIO_ONLY       0
 #define BIGENDIAN_MMIO  1
 #define BIGENDIAN_IO    1
-#define HAS_PACKED_MMIO 0 // Cybervision64 does not seem to map the MMIO region and thus can't expose packed IO(?)
+#define HAS_PACKED_MMIO 0  // Cybervision64 does not seem to map the MMIO region and thus can't expose packed IO(?)
 #define BUILD_VISION864 0
 #define OPENPCI         0
 
 #else
-#pragma GCC error "no CONFIG_xxx defined"
+/*
+ * S3Trio64.card (and similar) include the chip headers without CONFIG_*.
+ * Aperture endian / MMIO_ONLY only matter for chip TUs; use classic LE defaults.
+ */
+#define MMIO_ONLY       0
+#define BIGENDIAN_MMIO  0
+#define BIGENDIAN_IO    0
+#define HAS_PACKED_MMIO 0
+#define BUILD_VISION864 0
 #endif
 
 #endif  // S3CONFIG_H

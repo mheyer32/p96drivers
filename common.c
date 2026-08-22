@@ -2,6 +2,7 @@
 #include <clib/debug_protos.h>
 #include <hardware/cia.h>
 #include <proto/mmu.h>
+#include <dos/dos.h>
 
 #ifdef DBG
 
@@ -150,7 +151,7 @@ BOOL setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULON
         err = ERROR_NO_FREE_STORE;
 
         ULONG pageSize = GetPageSize(ctx);
-        ULONG start = (ULONG)from & ~(pageSize - 1);
+        ULONG start    = (ULONG)from & ~(pageSize - 1);
         size += (ULONG)from - start;
         size = (size + pageSize - 1) & ~(pageSize - 1);
 
@@ -182,10 +183,8 @@ BOOL setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULON
 
         CloseLibrary(MMUBase);
     }
-    if (err)
-    {
+    if (err) {
         DFUNC(ERROR, "failed with %ld\n", err);
     }
     return err == 0;
 }
-

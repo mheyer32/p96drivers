@@ -83,7 +83,7 @@ STATIC_ASSERT(sizeof(ChipData_t) <= sizeof(((BoardInfo_t *)0)->ChipData), ChipDa
 
 typedef struct CardData
 {
-    BYTE *legacyIOBase;  // legacy I/O base address
+    volatile UBYTE *legacyIOBase;  // legacy I/O base address
 #if OPENPCI
     struct Library *OpenPciBase;
     struct pci_dev *board;
@@ -101,36 +101,49 @@ typedef struct CardData
 
 STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);
 
+#ifdef __cplusplus
+#include "s3_driver.hpp"
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 extern ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision);
 extern const char *getChipFamilyName(ChipFamily_t family);
 extern BOOL initRegisterAndMemoryBases(BoardInfo_t *bi);
 
-#define LEGACYIOBASE() volatile UBYTE *RegBase = getCardData(bi)->legacyIOBase
+#ifdef __cplusplus
+}
+#endif
 
 #ifdef CONFIG_CYBERVISION64
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Cybervision64 specific stuff
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-static INLINE UBYTE readCv64CtrlRegister(const BoardInfo_t *bi)
-{
-    UBYTE value = getConstCardData(bi)->cv64Ctrl;
-    D(VERBOSE, "R CV64 -> 0x%02lx\n", (LONG)value);
-    return value;
-}
-static INLINE void writeCv64CtrlRegister(BoardInfo_t *bi, UBYTE value)
-{
-    getCardData(bi)->cv64Ctrl = value;
-    writeRegister(getCardData(bi)->cv64CtrlReg, 0, value, "CV64");
-}
-
-#define R_CV64()                 readCv64CtrlRegister(bi)
-#define W_CV64(value)            writeCv64CtrlRegister((bi), value)
-#define W_CV64_MASK(mask, value) writeCv64CtrlRegister((bi), (readCv64CtrlRegister(bi) & ~(mask)) | ((value) & (mask)))
-
 #define CV64_RESET_BIT          0x04  // 0 = Reset, 1 = Normal
 #define CV64_MONITOR_SWITCH_BIT 0x10  // 0 = show passthrough (Amiga), 1 = show Cybervision
 #define CV64_SWAP16_BIT         0x20  // 0 = no word swap, 1 = word swap
 #define CV64_SWAP32_BIT         0x40  // 0 = no dword swap, 1 = dword swap
-#endif                                // CONFIG_CYBERVISION64
+
+static INLINE UBYTE readCv64CtrlRegister(const BoardInfo_t *bi)
+{
+    return asS3(const_cast<BoardInfo_t *>(bi))->cv64().get();
+}
+
+static INLINE void writeCv64CtrlRegister(BoardInfo_t *bi, UBYTE value)
+{
+    asS3(bi)->cv64().write(value);
+}
+
+static INLINE void writeCv64CtrlRegisterMask(BoardInfo_t *bi, UBYTE mask, UBYTE value)
+{
+    asS3(bi)->cv64().writeMask(mask, value);
+}
+
+/* Prefer S3Driver::cv64() in methods; these macros remain for card/Init paths with bi. */
+#define R_CV64()                 readCv64CtrlRegister(bi)
+#define W_CV64(value)            writeCv64CtrlRegister((bi), value)
+#define W_CV64_MASK(mask, value) writeCv64CtrlRegisterMask((bi), (mask), (value))
+#endif  // CONFIG_CYBERVISION64
 
 #endif  // S3TRIO64_COMMON_H
