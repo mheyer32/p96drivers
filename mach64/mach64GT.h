@@ -35,6 +35,8 @@
 #define MEM_ALL_PAGE_DIS      BIT(30)
 #define MEM_TILE_SELECT(x)    ((x) << 4)
 #define MEM_TILE_SELECT_MASK  (0xF << 4)
+#define MEM_GCMRS(x)          (((x) & 0xF) << 24)
+#define MEM_GCMRS_MASK        (0xF << 24)
 
 // CONFIG_STAT2
 #define CONFIG_STAT2 0x26
