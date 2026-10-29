@@ -182,7 +182,7 @@ class S3Driver : public P96Driver
 };
 
 static_assert(sizeof(S3Driver) == sizeof(BoardInfo), "S3Driver must not grow BoardInfo");
-static_assert(std::is_standard_layout<S3Driver>::value, "S3Driver must be standard layout");
+static_assert(__is_standard_layout(S3Driver), "S3Driver must be standard layout");
 
 static INLINE S3Driver *asS3(BoardInfo *bi)
 {

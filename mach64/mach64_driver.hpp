@@ -173,7 +173,7 @@ class Mach64Driver : public P96Driver
 };
 
 static_assert(sizeof(Mach64Driver) == sizeof(BoardInfo), "Mach64Driver must not grow BoardInfo");
-static_assert(std::is_standard_layout<Mach64Driver>::value, "Mach64Driver must be standard layout");
+static_assert(__is_standard_layout(Mach64Driver), "Mach64Driver must be standard layout");
 
 static INLINE Mach64Driver *asMach64(BoardInfo *bi)
 {

@@ -115,7 +115,7 @@ class At3dDriver : public P96Driver
 };
 
 static_assert(sizeof(At3dDriver) == sizeof(BoardInfo), "At3dDriver must not grow BoardInfo");
-static_assert(std::is_standard_layout<At3dDriver>::value, "At3dDriver must be standard layout");
+static_assert(__is_standard_layout(At3dDriver), "At3dDriver must be standard layout");
 
 static INLINE At3dDriver *asAt3d(BoardInfo *bi)
 {
