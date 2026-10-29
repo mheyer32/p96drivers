@@ -3866,6 +3866,7 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #ifdef TESTEXE
 
 #include <stdio.h>
+#include <string.h>
 
 static void testDumpModeInfo(const struct ModeInfo *mi, const char *label)
 {

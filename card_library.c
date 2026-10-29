@@ -122,6 +122,10 @@ LONG LibClose(__REGA6(struct CardBase *cb))
 {
     if (!(--cb->LibBase.lib_OpenCnt)) {
         struct ExecBase *SysBase = (struct ExecBase *)cb->ExecBase;
+#ifdef CARD_CLOSE_HOOK
+        extern void CARD_CLOSE_HOOK(struct CardBase *);
+        CARD_CLOSE_HOOK(cb);
+#endif
         CloseLibrary(cb->ExpansionBase);
         cb->ExpansionBase = 0;
 

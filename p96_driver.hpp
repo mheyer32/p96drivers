@@ -3,8 +3,6 @@
 
 #include "common.h"
 
-#include <type_traits>
-
 /*
  * Method-only view of BoardInfo. No virtuals, no extra data — sizeof must match
  * BoardInfo so P96-allocated boards can be static_cast to P96Driver*.
@@ -21,7 +19,7 @@ class P96Driver : public BoardInfo
 };
 
 static_assert(sizeof(P96Driver) == sizeof(BoardInfo), "P96Driver must not grow BoardInfo");
-static_assert(std::is_standard_layout<P96Driver>::value, "P96Driver must be standard layout");
+static_assert(__is_standard_layout(P96Driver), "P96Driver must be standard layout");
 
 static INLINE P96Driver *asDriver(BoardInfo *bi)
 {

@@ -138,6 +138,7 @@ BOOL setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULON
     struct MinList *ctxl, *sctxl;
     struct Library *MMUBase = NULL;
 
+    const struct TagItem noTags[] = {{TAG_DONE, 0}};
     int err = ERROR_OBJECT_NOT_FOUND;
 
     if (MMUBase = OpenLibrary("mmu.library", 0)) {
@@ -157,8 +158,8 @@ BOOL setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULON
 
         if (ctxl = GetMapping(ctx)) {
             if (sctxl = GetMapping(sctx)) {
-                if (SetProperties(ctx, flags, mask, start, size, TAG_DONE)) {
-                    if (SetProperties(sctx, flags, mask, start, size, TAG_DONE)) {
+                if (SetPropertiesA(ctx, flags, mask, start, size, (struct TagItem *)noTags)) {
+                    if (SetPropertiesA(sctx, flags, mask, start, size, (struct TagItem *)noTags)) {
                         if (RebuildTree(ctx)) {
                             if (RebuildTree(sctx)) {
                                 err = 0;
