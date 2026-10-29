@@ -174,6 +174,7 @@ all : S3Trio64V2.chip \
       ATIMach64GX.chip \
       ATIMach64.chip \
       ATIMach64.card \
+      ATIRadeon.card \
       TestMach32 \
       TestMach32Card \
       TestMach64GX \
@@ -440,6 +441,27 @@ AT3DCARD_TESTEXE_SRC = common.c \
 TestAT3DCard : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -DOPENPCI=1 -DAT3D_EMBEDDED_CHIP=1
 $(eval $(call make_exe,TestAT3DCard,$(BUILDDIR)testat3dcard/, ${AT3DCARD_TESTEXE_SRC}))
 
+
+ATIRADEON_SRC = common.c \
+                card_common.c \
+                card_library.c \
+                radeon/card_radeon.cpp \
+                radeon/chip_radeon.cpp \
+                radeon/radeon_bios.cpp \
+                radeon/radeon_core.cpp \
+                radeon/radeon_callbacks.cpp \
+                radeon/radeon_display.cpp \
+                radeon/radeon_cursor.cpp \
+                radeon/radeon_draw.cpp \
+                radeon/radeon_overlay.cpp \
+                radeon/radeon_i2c.cpp \
+                radeon/radeon_cp.cpp \
+                radeon/radeon_resource.cpp \
+                radeon/radeon_render.cpp \
+                radeon/radeon_composite.cpp
+
+ATIRadeon.card: CFLAGS += -include radeon/radeonconfig.h -fno-fast-math -nostdinc++
+$(eval $(call make_driver,ATIRadeon.card,$(BUILDDIR)radeon/,${ATIRADEON_SRC}))
 
 # target 'clean'
 
