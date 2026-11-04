@@ -792,14 +792,6 @@ static INLINE void setWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE fmt, UBYTE
 #define SHADOW_SET_GE_PTR_SRC   (2u << SHADOW_SET_GE_PTR_SHIFT)
 
 /* Far-Blit: load dst and src offset/pitch independently via SHADOW_SET[9:8]. */
-static void myMemset(APTR dst, UBYTE val, ULONG len)
-{
-    UBYTE *p = (UBYTE *)dst;
-    while (len--) {
-        *p++ = val;
-    }
-}
-
 static int myMemcmp(CONST_APTR a, CONST_APTR b, ULONG len)
 {
     const UBYTE *p = (const UBYTE *)a;
@@ -1744,7 +1736,8 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
             cd->patternCache[i] = 0;
         }
         cd->lineMode = 0xFF;
-        myMemset(&cd->srcDstRenderInfoCache, 0, sizeof(cd->srcDstRenderInfoCache));
+        cd->srcDstRenderInfoCache[0] = (struct RenderInfo){0};
+        cd->srcDstRenderInfoCache[1] = (struct RenderInfo){0};
     }
 
     bi->GraphicsControllerType = GCT_ATIRV100;

@@ -1,6 +1,11 @@
 #include "common.h"
+
+#define __NOLIBBASE__
+
 #include <clib/debug_protos.h>
 #include <hardware/cia.h>
+
+#include <mmu/alerts.h>
 #include <proto/mmu.h>
 
 #ifdef DBG
@@ -137,7 +142,7 @@ BOOL setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULON
     struct MinList *ctxl, *sctxl;
     struct Library *MMUBase = NULL;
 
-    int err = ERROR_OBJECT_NOT_FOUND;
+    BOOL err = FALSE;
 
     if (MMUBase = OpenLibrary("mmu.library", 0)) {
         ctx  = DefaultContext();  /* get the default context */
@@ -147,10 +152,8 @@ BOOL setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULON
         LockMMUContext(ctx);
         LockMMUContext(sctx);
 
-        err = ERROR_NO_FREE_STORE;
-
         ULONG pageSize = GetPageSize(ctx);
-        ULONG start = (ULONG)from & ~(pageSize - 1);
+        ULONG start    = (ULONG)from & ~(pageSize - 1);
         size += (ULONG)from - start;
         size = (size + pageSize - 1) & ~(pageSize - 1);
 
@@ -182,10 +185,8 @@ BOOL setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULON
 
         CloseLibrary(MMUBase);
     }
-    if (err)
-    {
-        DFUNC(ERROR, "failed with %ld\n", err);
+    if (err) {
+        DFUNC(ERROR, "failed\n");
     }
     return err == 0;
 }
-
