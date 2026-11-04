@@ -232,7 +232,7 @@ static struct BoardInfo boardInfo = {0};
 static const char testArgsTemplate[] = "VBLANK/S";
 static LONG testArgs[1];
 
-void sigIntHandler(int dummy)
+__stdargs void sigIntHandler(int dummy)
 {
     releaseCard(&boardInfo);
     abort();

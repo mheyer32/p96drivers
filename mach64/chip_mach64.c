@@ -2724,7 +2724,7 @@ static void dumpScanout8bpp(BoardInfo_t *bi)
     }
 }
 
-void intHandler(int dummy)
+__stdargs void sigIntHandler(int dummy)
 {
     if (OpenPciBase) {
         CloseLibrary(OpenPciBase);
@@ -2802,7 +2802,7 @@ static const char testArgsTemplate[] = "ALL/S,VBLANK/S,EEPROM/S";
 
 int main()
 {
-    signal(SIGINT, intHandler);
+    signal(SIGINT, sigIntHandler);
 
     int rval              = EXIT_FAILURE;
     LONG allModes         = FALSE;

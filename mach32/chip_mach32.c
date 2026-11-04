@@ -2906,7 +2906,7 @@ static void setup640x480Screen(struct BoardInfo *bi)
 }
 
 #if defined(TESTEXE) && !defined(MACH32_EMBEDDED_CHIP)
-static void onSigInt(int dummy)
+static __stdargs void sigIntHandler(int dummy)
 {
     (void)dummy;
     if (OpenPciBase) {
@@ -2918,7 +2918,7 @@ static void onSigInt(int dummy)
 
 int main(void)
 {
-    signal(SIGINT, onSigInt);
+    signal(SIGINT, sigIntHandler);
 
     int rval              = EXIT_FAILURE;
     BOOL vblankTest       = FALSE;

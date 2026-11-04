@@ -4196,7 +4196,7 @@ struct Library *UtilityBase;
 struct IORequest ioRequest;
 struct Device *TimerBase;
 
-void sigIntHandler(int dummy)
+__stdargs void sigIntHandler(int dummy)
 {
     if (OpenPciBase) {
         CloseLibrary(OpenPciBase);

@@ -3152,7 +3152,7 @@ extern struct UtilityBase *UtilityBase;
 static struct BoardInfo boardInfo  = {0};
 static struct Library *OpenPciBase = NULL;
 
-void sigIntHandler(int dummy)
+__stdargs void sigIntHandler(int dummy)
 {
     if (OpenPciBase) {
         CloseLibrary(OpenPciBase);

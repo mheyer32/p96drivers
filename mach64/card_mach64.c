@@ -316,7 +316,7 @@ extern struct UtilityBase *UtilityBase;
 
 static struct BoardInfo boardInfo = {0};
 
-void sigIntHandler(int dummy)
+__stdargs void sigIntHandler(int dummy)
 {
     releaseCard(&boardInfo);
     abort();
