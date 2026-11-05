@@ -70,6 +70,18 @@ class Mach32Driver : public P96Driver
         cd->fifoSlotsCached = fifoStatConsume(swapw(raw), slots);
     }
 
+    /* --- GE helpers --- */
+    LONG memoryOffset(APTR memory) const { return (LONG)((ULONG)memory - (ULONG)MemoryBase); }
+    void setBlitterFormat(RGBFTYPE_REG fmt);
+    void setGEWriteMask(UBYTE mask, RGBFTYPE_REG fmt, UBYTE waitFifoSlots);
+    void setFarBlitBuffer(const struct RenderInfo *ri, RGBFTYPE_REG fmt, UWORD srcOrDst);
+    void drawRect(WORD x, WORD y, WORD width, WORD height);
+    void setDrawMode(ULONG fgPen, ULONG bgPen, UBYTE drawMode, RGBFTYPE_REG fmt);
+    void performBlitPlanar2ChunkyBlits(WORD dstX, WORD dstY, WORD width, WORD height, const UBYTE *bitmap,
+                                       WORD bmPitch, UWORD rol);
+    void blitPatternNon8x8(struct RenderInfo *ri, struct Pattern *pattern, WORD x, WORD y, WORD width, WORD height,
+                           UBYTE mask, RGBFTYPE_REG fmt);
+
     /* --- P96 BoardInfo hooks (ASM/__REGxx; this ≡ a0) --- */
     void ASM setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border));
     UWORD ASM calculateBytesPerRow(__REGD0(UWORD width), __REGD1(UWORD height), __REGA1(struct ModeInfo *mi),
