@@ -690,7 +690,7 @@ struct VgaAperture : protected AbsRegAperture<VgaReg::Id, RegEndian::Swap, BaseO
     {
         storeB(VgaReg::CRTC_INDEX, idx);
         UBYTE value = loadB(VgaReg::CRTC_VALUE);
-        D(VERBOSE, "R CR%lX -> 0x%02lx\n", (LONG)idx, (LONG)value);
+        RegLogOps<L>::read("CR", value);
         return value;
     }
 
@@ -698,21 +698,21 @@ struct VgaAperture : protected AbsRegAperture<VgaReg::Id, RegEndian::Swap, BaseO
     {
         storeB(VgaReg::CRTC_INDEX, idx);
         storeB(VgaReg::CRTC_VALUE, value);
-        D(VERBOSE, "W CR%lX <- 0x%02lx\n", (LONG)idx, (LONG)value);
+        RegLogOps<L>::write("CR", value);
     }
 
     INLINE void writeCRMask(UBYTE idx, UBYTE mask, UBYTE value) const
     {
         UBYTE regvalue = (readCR(idx) & ~mask) | (value & mask);
         storeB(VgaReg::CRTC_VALUE, regvalue);
-        D(VERBOSE, "W CR%lX <- 0x%02lx\n", (LONG)idx, (LONG)regvalue);
+        RegLogOps<L>::write("CR", regvalue);
     }
 
     INLINE UBYTE readSR(UBYTE idx) const
     {
         storeB(VgaReg::SEQ_INDEX, idx);
         UBYTE value = loadB(VgaReg::SEQ_VALUE);
-        D(VERBOSE, "R SR%lX -> 0x%02lx\n", (LONG)idx, (LONG)value);
+        RegLogOps<L>::read("SR", value);
         return value;
     }
 
@@ -720,14 +720,14 @@ struct VgaAperture : protected AbsRegAperture<VgaReg::Id, RegEndian::Swap, BaseO
     {
         storeB(VgaReg::SEQ_INDEX, idx);
         storeB(VgaReg::SEQ_VALUE, value);
-        D(VERBOSE, "W SR%lX <- 0x%02lx\n", (LONG)idx, (LONG)value);
+        RegLogOps<L>::write("SR", value);
     }
 
     INLINE void writeSRMask(UBYTE idx, UBYTE mask, UBYTE value) const
     {
         storeB(VgaReg::SEQ_INDEX, idx);
         UBYTE regvalue = (loadB(VgaReg::SEQ_VALUE) & ~mask) | (value & mask);
-        D(VERBOSE, "W SR%lX <- 0x%02lx\n", (LONG)idx, (ULONG)regvalue);
+        RegLogOps<L>::write("SR", regvalue);
         storeB(VgaReg::SEQ_VALUE, regvalue);
     }
 
@@ -735,7 +735,7 @@ struct VgaAperture : protected AbsRegAperture<VgaReg::Id, RegEndian::Swap, BaseO
     {
         storeB(VgaReg::GRC_INDEX, idx);
         UBYTE value = loadB(VgaReg::GRC_VALUE);
-        D(VERBOSE, "R GR%lX -> 0x%02lx\n", (LONG)idx, (LONG)value);
+        RegLogOps<L>::read("GR", value);
         return value;
     }
 
@@ -743,14 +743,14 @@ struct VgaAperture : protected AbsRegAperture<VgaReg::Id, RegEndian::Swap, BaseO
     {
         storeB(VgaReg::GRC_INDEX, idx);
         storeB(VgaReg::GRC_VALUE, value);
-        D(VERBOSE, "W GR%lX <- 0x%02lx\n", (LONG)idx, (LONG)value);
+        RegLogOps<L>::write("GR", value);
     }
 
     INLINE UBYTE readAR(UBYTE idx) const
     {
         storeB(VgaReg::ATTR_AD, idx);
         UBYTE value = loadB(VgaReg::ATTR_DATA_R);
-        D(VERBOSE, "R AR%lX -> 0x%lx\n", (LONG)idx, (LONG)value);
+        RegLogOps<L>::read("AR", value);
         return value;
     }
 
@@ -758,7 +758,7 @@ struct VgaAperture : protected AbsRegAperture<VgaReg::Id, RegEndian::Swap, BaseO
     {
         storeB(VgaReg::ATTR_AD, (UBYTE)(idx | 0x20));
         storeB(VgaReg::ATTR_DATA_W, value);
-        D(VERBOSE, "W AR%lX <- 0x%02lx\n", (LONG)idx, (LONG)value);
+        RegLogOps<L>::write("AR", value);
     }
 
     INLINE void writeMiscMask(UBYTE mask, UBYTE value) const
