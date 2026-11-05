@@ -6,9 +6,11 @@ Standalone probe suite for **bebbo `m68k-amigaos-gcc` / `m68k-amigaos-g++`**, ma
 
 Picasso96 passes BoardInfo hook arguments in fixed 68000 registers (`__REGA0`, `__REGD7`, …). Older bebbo **g++** silently ignored `__asm("dN")` on enum-typed parameters (`-Wattributes`: *"ignoring attributes applied to 'RGBFTYPE' after definition"*), so callees read the wrong register (e.g. `CalculateBytesPerRow` saw format `0` from `d2` instead of `d7`).
 
-**Fixed** in local `amiga-gcc` (6.5) and `amiga-gcc-13` (13.2): C++ now attaches `asmreg` via a type-variant copy (same idea as C’s `push_parm_decl`), not through `build_type_attribute_qual_variant`.
+**Fixed** in local `amiga-gcc` (6.5), `amiga-gcc-13` (13.2), and current **g++ 16**: C++ attaches `asmreg` via a type-variant copy (same idea as C’s `push_parm_decl`), not through `build_type_attribute_qual_variant`.
 
-Production code may still use `ULONG` (`RGBFTYPE_REG` in `common.h`) for compatibility with unfixed toolchains. This directory locks register behaviour with objdump inspection and optional Amiga runtime checks.
+Production `RGBFTYPE_REG` is now an alias of `RGBFTYPE` (`common.h`); prefer the enum type. This directory locks register behaviour with objdump inspection and optional Amiga runtime checks.
+
+`check_regparm.py` accepts both Motorola (`move.l`) and MIT/gas (`movel`) objdump syntax. **a5** probes are not generated (gcc 16+ errors on `__asm("a5")`).
 
 ## Quick start (host objdump — primary check)
 
@@ -70,7 +72,7 @@ make TestRegParm
 
 | Case | Expected |
 |------|----------|
-| **a5** | **SKIP** — GCC frame pointer; `__asm("a5")` reads `sp`. Unusable in hooks. |
+| **a5** | **Omitted** — GCC frame pointer; gcc 16+ hard-errors on `__asm("a5")`. Unusable in hooks. |
 | **a4** | Works in these trivial probes; still avoid in production (PIC / reserved). |
 | **C + enum + dN** | **OK** — attributes honoured. |
 | **C++ + enum / enum class + dN** | **OK** with fixed local g++ (6.5 / 13.2). Unfixed toolchains ignore the attribute (`-Wattributes`) and fall back to `-mregparm` (use `ULONG` / `RGBFTYPE_REG`). |

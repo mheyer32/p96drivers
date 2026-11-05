@@ -63,12 +63,12 @@ class S3Driver : public P96Driver
         return port.readW(IoReg::MULTI_FUNC_CNTL) & 0xFFF;
     }
 
-    INLINE void waitFifo(BYTE numSlots)
+    INLINE void waitFifo(UBYTE numSlots)
     {
 #if defined(CONFIG_VISION864) || defined(CONFIG_S3TRIO3264) || defined(CONFIG_CYBERVISION64)
         if (!numSlots)
             return;
-        BYTE testBit = (BYTE)((7 - (numSlots - 1)) & 0xF);
+        UBYTE testBit = (UBYTE)((7 - (numSlots - 1)) & 0xF);
 #if BUILD_VISION864
         S3IoQ port = ioQ();
         while (port.readW(IoReg::GP_STAT) & (1 << testBit)) {
@@ -193,7 +193,7 @@ static INLINE const S3Driver *asS3(const BoardInfo *bi)
     return static_cast<const S3Driver *>(bi);
 }
 
-static INLINE void waitFifo(BoardInfo *bi, BYTE numSlots)
+static INLINE void waitFifo(BoardInfo *bi, UBYTE numSlots)
 {
     asS3(bi)->waitFifo(numSlots);
 }

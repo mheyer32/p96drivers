@@ -27,15 +27,16 @@ EXPECTED_SKIP = {
     ("cxx", "a5"),
 }
 
+# Motorola (move.l) and MIT/gas (movel) syntax from m68k-amigaos-objdump.
 MOVE_TO_D0 = re.compile(
-    r"move\.[bwl]\s+(?:(?:a7|sp)|([da])(\d+)),d0\b"
+    r"move(?:\.[bwl]|[bwl])\s+(?:(?:a7|sp)|([da])(\d+)),d0\b"
 )
-MOVE_D_TO_A5 = re.compile(r"move\.[bwl]\s+d(\d+),(-?\d+)\(a5\)")
-MOVE_A_TO_A5 = re.compile(r"move\.[bwl]\s+a(\d+),(-?\d+)\(a5\)")
-MOVE_D_TO_SP = re.compile(r"move\.[bwl]\s+d(\d+),-\(sp\)")
-MOVE_A_TO_SP = re.compile(r"move\.[bwl]\s+a(\d+),-\(sp\)")
+MOVE_D_TO_A5 = re.compile(r"move(?:\.[bwl]|[bwl])\s+d(\d+),(-?\d+)\(a5\)")
+MOVE_A_TO_A5 = re.compile(r"move(?:\.[bwl]|[bwl])\s+a(\d+),(-?\d+)\(a5\)")
+MOVE_D_TO_SP = re.compile(r"move(?:\.[bwl]|[bwl])\s+d(\d+),(?:-\(sp\)|sp@-)")
+MOVE_A_TO_SP = re.compile(r"move(?:\.[bwl]|[bwl])\s+a(\d+),(?:-\(sp\)|sp@-)")
 EXT_FROM_D = re.compile(r"extb?\.?[wl]?\s+d(\d+)\b")
-ANDI_D0 = re.compile(r"andi\.[bwl]\s+#(?:0x)?[0-9a-fA-F]+,d0\b")
+ANDI_D0 = re.compile(r"andi(?:\.[bwl]|[bwl])\s+#(?:0x)?[0-9a-fA-F]+,d0\b")
 SYM_START = re.compile(r"^[0-9a-f]+\s+[0-9a-f]+\s+(_?[A-Za-z0-9_]+):\s*$")
 SYM_START_ELF = re.compile(r"^[0-9a-f]+ <([^>]+)>:")
 

@@ -13,7 +13,9 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 GEN = os.path.join(ROOT, "generated")
 
 DATA_REGS = [f"d{i}" for i in range(8)]
-ADDR_REGS = [f"a{i}" for i in range(7)]  # a0..a6
+# a5 is the frame pointer: gcc 16+ errors on __asm("a5"); older gcc miscompiled it.
+# Omit from generated probes (check_regparm EXPECTED_SKIP covers residual cases).
+ADDR_REGS = [f"a{i}" for i in range(7) if i != 5]  # a0..a4, a6
 
 DATA_TYPES = [
     ("ulong", "ULONG", "return v;"),

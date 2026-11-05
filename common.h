@@ -8,11 +8,12 @@
 
 #include <boardinfo.h>
 /*
- * Older bebbo g++ ignored __asm("dn") on enum-typed parameters
- * ("attributes applied to 'RGBFTYPE' after definition"). Local amiga-gcc
- * 6.5 / 13.2 fix that; ULONG remains safe for unfixed toolchains.
+ * Hook __REGD7 format args: use RGBFTYPE (enum). Older bebbo g++ ignored
+ * __asm("dn") on enums; amiga-gcc 6.5+ / 13.2 / 16 attach asmreg correctly
+ * (see tests/regparm_asm). RGBFTYPE_REG is an alias kept for existing call
+ * sites — prefer RGBFTYPE in new code. AS_RGBF is a no-op cast helper.
  */
-typedef ULONG RGBFTYPE_REG;
+typedef RGBFTYPE RGBFTYPE_REG;
 #define AS_RGBF(x)          static_cast<RGBFTYPE>(x)
 #define P96_HOOK(field, fn) ((field) = reinterpret_cast<decltype(field)>(fn))
 
@@ -78,8 +79,7 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
  */
 #define DEFINE_INTSERVER(entry, handler) \
     extern "C" void entry(void);         \
-    asm(".section .text." #entry         \
-        ",\"ax\"\n"                      \
+    asm(".text\n"                        \
         "	.align	2\n"                 \
         "	.globl	_" #entry            \
         "\n"                             \
