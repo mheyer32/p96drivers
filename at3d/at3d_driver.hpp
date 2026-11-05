@@ -126,9 +126,9 @@ static INLINE const At3dDriver *asAt3d(const BoardInfo *bi)
     return static_cast<const At3dDriver *>(bi);
 }
 
-static INLINE ULONG waitFifo(const BoardInfo_t *bi, UBYTE numSlots)
+static INLINE void waitFifo(BoardInfo_t *bi, UBYTE numSlots)
 {
-    return asAt3d(const_cast<BoardInfo_t *>(bi))->waitFifo(numSlots);
+    asAt3d(bi)->waitFifo(numSlots);
 }
 
 
