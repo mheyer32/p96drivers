@@ -39,20 +39,7 @@ int debugLevel = VERBOSE;
 
 BOOL releaseCard(__REGA0(struct BoardInfo *bi))
 {
-    CardData_t *cd = getCardData(bi);
-
-    if (cd->OpenPciBase) {
-        LOCAL_OPENPCIBASE();
-        if (cd->board) {
-            removePciVBlankInterrupt(bi);
-            // release ownership
-            SetBoardAttrs(cd->board, PRM_BoardOwner, (Tag)NULL, TAG_END);
-        }
-
-        LOCAL_SYSBASE();
-        CloseLibrary(cd->OpenPciBase);
-        cd->OpenPciBase = NULL;
-    }
+    releasePciCard(bi);
     return TRUE;
 }
 
@@ -216,15 +203,32 @@ extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
         return FALSE;
     }
 
-    static const char *libNames[] = {CHIP_NAME_VISION864,  CHIP_NAME_TRIO3264, CHIP_NAME_TRIO64PLUS,
-                                     CHIP_NAME_TRIO64PLUS, CHIP_NAME_TRIO64V2, CHIP_NAME_TRIO64V2,
-                                     CHIP_NAME_TRIO64V2};
-
-    struct ChipBase *ChipBase = NULL;
-
     ChipFamily_t chipFamily = (ChipFamily_t)getChipData(bi)->chipFamily;
-    if (!(ChipBase = (struct ChipBase *)OpenLibrary(libNames[chipFamily - 1], 0))) {
-        D(ERROR, "S3Trio.card: could not open chip library %s\n", libNames[chipFamily - 1]);
+    const char *chipLib     = NULL;
+    switch (chipFamily) {
+    case VISION864:
+        chipLib = CHIP_NAME_VISION864;
+        break;
+    case TRIO64:
+        chipLib = CHIP_NAME_TRIO3264;
+        break;
+    case VISION968:
+    case TRIO64PLUS:
+        chipLib = CHIP_NAME_TRIO64PLUS;
+        break;
+    case TRIO64UVPLUS:
+    case AURORA64PLUS:
+    case TRIO64V2:
+        chipLib = CHIP_NAME_TRIO64V2;
+        break;
+    default:
+        D(ERROR, "S3Trio.card: no chip library for family %ld\n", (LONG)chipFamily);
+        return FALSE;
+    }
+
+    struct ChipBase *ChipBase = (struct ChipBase *)OpenLibrary(chipLib, 0);
+    if (!ChipBase) {
+        D(ERROR, "S3Trio.card: could not open chip library %s\n", chipLib);
         return FALSE;
     }
 
