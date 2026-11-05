@@ -3263,7 +3263,10 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
     DFUNC(VERBOSE, "S3 chip wakeup\n");
 
 #if OPENPCI
-    pci_write_config_word(PCI_COMMAND, PCI_COMMAND_MEMORY | PCI_COMMAND_IO, getCardData(bi)->board);
+    {
+        UWORD cmd = pci_read_config_word(PCI_COMMAND, getCardData(bi)->board);
+        pci_write_config_word(PCI_COMMAND, cmd | PCI_COMMAND_MEMORY | PCI_COMMAND_IO, getCardData(bi)->board);
+    }
 #endif
 
     {
@@ -3343,9 +3346,12 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
         D(INFO, "Setting up MMIO only driver\n");
         bi->RegisterBase = bi->MemoryIOBase + 0x8000;  // bi->MemoryIObase has MMIOREGISTER_OFFSET added already
 #if OPENPCI
-                                                       // Disable IO Response
-
-        pci_write_config_word(PCI_COMMAND, PCI_COMMAND_MEMORY /*| PCI_COMMAND_IO*/, getCardData(bi)->board);
+        {
+            /* MMIO-only: keep MEMORY, clear IO, preserve other command bits. */
+            UWORD cmd = pci_read_config_word(PCI_COMMAND, getCardData(bi)->board);
+            cmd       = (UWORD)((cmd | PCI_COMMAND_MEMORY) & ~PCI_COMMAND_IO);
+            pci_write_config_word(PCI_COMMAND, cmd, getCardData(bi)->board);
+        }
 #endif
     }
 #endif
@@ -3866,6 +3872,7 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #ifdef TESTEXE
 
 #include <stdio.h>
+#include <string.h>
 
 static void testDumpModeInfo(const struct ModeInfo *mi, const char *label)
 {
