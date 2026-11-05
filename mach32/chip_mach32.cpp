@@ -51,11 +51,6 @@ void ASM Mach32Driver::waitBlitter()
     }
 }
 
-static INLINE ULONG getMemoryOffset(struct BoardInfo *bi, APTR memory)
-{
-    return (ULONG)memory - (ULONG)bi->MemoryBase;
-}
-
 /* 8514/A CRT: horizontal in units of 8 pixels; vertical in lines (see DISP_CNTL Y_CONTROL). */
 static INLINE UWORD toChars(UWORD pixels)
 {
@@ -250,7 +245,7 @@ void ASM Mach32Driver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
           (ULONG)mi->HorSyncSize, (ULONG)mi->VerTotal, (ULONG)mi->VerBlankSize, (ULONG)mi->VerSyncStart,
           (ULONG)mi->VerSyncSize, (int)border);
 
-    drv->waitBlitter();
+    waitBlitter();
 
     io.writeW(DISP_CNTL, CRT_RESET | Y_CONTROL_NORMAL);
 
@@ -336,7 +331,7 @@ void ASM Mach32Driver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), 
 
     bi->XOffset = xoffset;
     bi->YOffset = yoffset;
-    memOffset   = getMemoryOffset(bi, memory);
+    memOffset   = memoryOffset(memory);
 
     UBYTE bpp = getBPP(format);
     panOffset = (yoffset * width + xoffset) * bpp;
@@ -431,10 +426,10 @@ void ASM Mach32Driver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format
 
     UWORD dac8 = (format == RGBFB_CLUT && bi->BitsPerCannon == 8) ? DAC_8BIT_EN : 0;
 
-    asMach32(bi)->writeExtGeConfigMask(DISPLAY_PIXEL_SIZE_MASK | PIXEL_WIDTH_MASK | _16_BIT_COLOR_MODE_MASK |
-                                           _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK |
-                                           MULTIPLEX_PIXELS_MASK,
-                                       PIXEL_WIDTH(1) | DISPLAY_PIXEL_SIZE | dac8);
+    writeExtGeConfigMask(DISPLAY_PIXEL_SIZE_MASK | PIXEL_WIDTH_MASK | _16_BIT_COLOR_MODE_MASK |
+                             _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK |
+                             MULTIPLEX_PIXELS_MASK,
+                         PIXEL_WIDTH(1) | DISPLAY_PIXEL_SIZE | dac8);
 
     ops->setDac(bi, AS_RGBF(format));
 
@@ -473,10 +468,10 @@ void ASM Mach32Driver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format
     }
     config |= DISPLAY_PIXEL_SIZE | dac8;
 
-    asMach32(bi)->writeExtGeConfigMask(DISPLAY_PIXEL_SIZE_MASK | PIXEL_WIDTH_MASK | _16_BIT_COLOR_MODE_MASK |
-                                           _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK |
-                                           MULTIPLEX_PIXELS_MASK,
-                                       config);
+    writeExtGeConfigMask(DISPLAY_PIXEL_SIZE_MASK | PIXEL_WIDTH_MASK | _16_BIT_COLOR_MODE_MASK |
+                             _24_BIT_COLOR_CONFIG_MASK | _24_BIT_COLOR_ORDER_MASK | DAC_8BIT_EN_MASK |
+                             MULTIPLEX_PIXELS_MASK,
+                         config);
 }
 
 void ASM Mach32Driver::setColorArray(__REGD0(UWORD startIndex), __REGD1(UWORD count))
@@ -717,9 +712,9 @@ static void computeGEConfig(RGBFTYPE_REG fmt, UWORD *maskOut, UWORD *valOut)
     *valOut = cfg;
 }
 
-static INLINE void setBlitterFormat(BoardInfo_t *bi, RGBFTYPE_REG fmt)
+void Mach32Driver::setBlitterFormat(RGBFTYPE_REG fmt)
 {
-    ChipData_t *cd = getChipData(bi);
+    ChipData_t *cd = chip();
     ULONG f        = (ULONG)fmt;
 
     if (cd->GEfmt == f) {
@@ -727,12 +722,12 @@ static INLINE void setBlitterFormat(BoardInfo_t *bi, RGBFTYPE_REG fmt)
     }
     cd->GEfmt = f;
 
-    asMach32(bi)->waitBlitter();
+    waitBlitter();
     UWORD emask, eval;
     computeGEConfig(fmt, &emask, &eval);
 
-    DRIVER_LOCALS(bi);
-    asMach32(bi)->writeExtGeConfigMask(emask, eval);
+    DRIVER_LOCALS(this);
+    writeExtGeConfigMask(emask, eval);
 
     if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
         cd->GEmask = 0xFF;
@@ -760,17 +755,17 @@ static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE_REG fmt)
     return pen;
 }
 
-static INLINE void setGEWriteMask(BoardInfo_t *bi, UBYTE mask, RGBFTYPE_REG fmt, UBYTE waitFifoSlots)
+void Mach32Driver::setGEWriteMask(UBYTE mask, RGBFTYPE_REG fmt, UBYTE waitFifoSlots)
 {
-    ChipData_t *cd = getChipData(bi);
+    ChipData_t *cd = chip();
 
     if (fmt == RGBFB_CLUT && cd->GEmask != mask) {
         cd->GEmask = mask;
-        asMach32(bi)->waitFifo(waitFifoSlots + 1);
-        DRIVER_LOCALS(bi);
+        waitFifo(waitFifoSlots + 1);
+        DRIVER_LOCALS(this);
         ioNS.writeW(WRT_MASK, ((mask << 8) | mask));
     } else {
-        asMach32(bi)->waitFifo(waitFifoSlots);
+        waitFifo(waitFifoSlots);
     }
 }
 
@@ -796,14 +791,14 @@ static int myMemcmp(CONST_APTR a, CONST_APTR b, ULONG len)
     return 0;
 }
 
-static INLINE void setFarBlitBuffer(BoardInfo_t *bi, const struct RenderInfo *ri, RGBFTYPE_REG fmt, UWORD srcOrDst)
+void Mach32Driver::setFarBlitBuffer(const struct RenderInfo *ri, RGBFTYPE_REG fmt, UWORD srcOrDst)
 {
-    ChipData_t *cd              = getChipData(bi);
+    ChipData_t *cd              = chip();
     struct RenderInfo *cachedRi = NULL;
     UWORD shadowSel             = (srcOrDst + 1) << SHADOW_SET_GE_PTR_SHIFT;
 
     /* Keep draw engine's format in sync with pitch/offset programming. */
-    setBlitterFormat(bi, fmt);
+    setBlitterFormat(fmt);
 
     cachedRi = &cd->srcDstRenderInfoCache[srcOrDst];
     if (myMemcmp(ri, cachedRi, sizeof(*cachedRi)) == 0) {
@@ -813,10 +808,10 @@ static INLINE void setFarBlitBuffer(BoardInfo_t *bi, const struct RenderInfo *ri
 
     UBYTE bppLog2  = getBPPLog2(fmt);
     UWORD pitch    = ri->BytesPerRow >> (bppLog2 + 3);
-    ULONG offWords = getMemoryOffset(bi, ri->Memory) >> 2;
+    ULONG offWords = (ULONG)memoryOffset(ri->Memory) >> 2;
 
-    asMach32(bi)->waitBlitter();
-    DRIVER_LOCALS(bi);
+    waitBlitter();
+    DRIVER_LOCALS(this);
     /* Select dst/src shadow for GE_OFFSET/GE_PITCH load. */
     io.writeW(SHADOW_SET, shadowSel);
     io.writeW(GE_PITCH, pitch);
@@ -824,10 +819,10 @@ static INLINE void setFarBlitBuffer(BoardInfo_t *bi, const struct RenderInfo *ri
     io.writeW(GE_OFFSET_HI, offWords >> 16);
 }
 
-static void drawRect(BoardInfo_t *bi, WORD x, WORD y, WORD width, WORD height)
+void Mach32Driver::drawRect(WORD x, WORD y, WORD width, WORD height)
 {
-    asMach32(bi)->waitFifo(5);
-    DRIVER_LOCALS(bi);
+    waitFifo(5);
+    DRIVER_LOCALS(this);
 
     // io.writeW(SRC_Y_DIR, 1); // FIXME: needed?
     io.writeW(CUR_X, x);
@@ -862,7 +857,7 @@ void ASM Mach32Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x),
             cd->GEOp       = FILLRECT;
             cd->GEdrawMode = 0xFF;
 
-            asMach32(bi)->waitFifo(3);
+            waitFifo(3);
             DRIVER_LOCALS(bi);
 
             io.writeW(DP_CONFIG, DP_CONFIG_REPLACE);
@@ -873,14 +868,14 @@ void ASM Mach32Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x),
         if (cd->GEfgPen != pen) {
             cd->GEfgPen = pen;
             pen         = penToColor(pen, fmt);
-            asMach32(bi)->waitFifo(1);
+            waitFifo(1);
             DRIVER_LOCALS(bi);
             io.writeW(FRGD_COLOR, pen);
         }
 
-        setFarBlitBuffer(bi, ri, fmt, 0);
-        setGEWriteMask(bi, mask, fmt, 0);
-        drawRect(bi, x, y, width, height);
+        setFarBlitBuffer(ri, fmt, 0);
+        setGEWriteMask(mask, fmt, 0);
+        drawRect(x, y, width, height);
         return;
     }
 
@@ -912,7 +907,7 @@ void ASM Mach32Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x
             cd->GEOp       = INVERTRECT;
             cd->GEdrawMode = 0xFF;
 
-            asMach32(bi)->waitFifo(2);
+            waitFifo(2);
             DRIVER_LOCALS(bi);
 
             io.writeW(DP_CONFIG, DP_CONFIG_REPLACE);
@@ -920,9 +915,9 @@ void ASM Mach32Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x
             io.writeW(FRGD_MIX, 0x0020);
         }
 
-        setFarBlitBuffer(bi, ri, fmt, 0);
-        setGEWriteMask(bi, mask, fmt, 0);
-        drawRect(bi, x, y, width, height);
+        setFarBlitBuffer(ri, fmt, 0);
+        setGEWriteMask(mask, fmt, 0);
+        drawRect(x, y, width, height);
         return;
     }
 
@@ -955,7 +950,7 @@ void ASM Mach32Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD src
             cd->GEOp       = BLITRECT;
             cd->GEdrawMode = 0xFF;
 
-            asMach32(bi)->waitFifo(3);
+            waitFifo(3);
             DRIVER_LOCALS(bi);
             io.writeW(DP_CONFIG, DP_CONFIG_BLIT);
             /* COLOR_SRC must be blit source (11b) to read from VRAM, MIX=replace (REG688000-15 §8-24) */
@@ -963,8 +958,8 @@ void ASM Mach32Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD src
             io.writeW(BKGD_MIX, 0x0067);
         }
 
-        setFarBlitBuffer(bi, ri, fmt, 0);
-        setGEWriteMask(bi, mask, fmt, 10);
+        setFarBlitBuffer(ri, fmt, 0);
+        setGEWriteMask(mask, fmt, 10);
 
         DRIVER_LOCALS(bi);
 
@@ -1062,7 +1057,7 @@ void ASM Mach32Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), _
             cd->GEdrawMode = 0xFF; /* invalidate minterm cache */
             cd->GEmask     = 0xFF;
 
-            asMach32(bi)->waitFifo(3);
+            waitFifo(3);
 
             io.writeW(DP_CONFIG, DP_CONFIG_BLIT);
             io.writeW(ALU_BG_FN, MIX_ZERO);
@@ -1072,18 +1067,18 @@ void ASM Mach32Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), _
         if (cd->GEdrawMode != opCode) {
             cd->GEdrawMode = opCode;
 
-            asMach32(bi)->waitFifo(1);
+            waitFifo(1);
 
             UWORD mix = minTermToMix[opCode & 0xF];
             io.writeW(ALU_FG_FN, mix);
         }
 
-        setFarBlitBuffer(bi, dri, fmt, 0);
-        setFarBlitBuffer(bi, sri, fmt, 1);
+        setFarBlitBuffer(dri, fmt, 0);
+        setFarBlitBuffer(sri, fmt, 1);
 
         BOOL overlap = (sri->Memory == dri->Memory) && (sri->BytesPerRow == dri->BytesPerRow);
 
-        asMach32(bi)->waitFifo(10);
+        waitFifo(10);
 
         if (overlap && ((dstY > srcY) || (dstY == srcY && dstX > srcX))) {
             /* Overlap: copy bottom-to-top, right-to-left */
@@ -1122,9 +1117,9 @@ void ASM Mach32Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), _
         bi->BlitRectNoMaskCompleteDefault(bi, sri, dri, srcX, srcY, dstX, dstY, width, height, opCode, AS_RGBF(fmt));
 }
 
-static INLINE void REGARGS setDrawMode(BoardInfo_t *bi, ULONG fgPen, ULONG bgPen, UBYTE drawMode, RGBFTYPE_REG fmt)
+void Mach32Driver::setDrawMode(ULONG fgPen, ULONG bgPen, UBYTE drawMode, RGBFTYPE_REG fmt)
 {
-    ChipData_t *cd = getChipData(bi);
+    ChipData_t *cd = chip();
     if (cd->GEfgPen == fgPen && cd->GEbgPen == bgPen && cd->GEdrawMode == drawMode) {
         return;
     }
@@ -1159,8 +1154,8 @@ static INLINE void REGARGS setDrawMode(BoardInfo_t *bi, ULONG fgPen, ULONG bgPen
         bSrc       = tSrc;
     }
 
-    asMach32(bi)->waitFifo(4);
-    DRIVER_LOCALS(bi);
+    waitFifo(4);
+    DRIVER_LOCALS(this);
 
     io.writeW(FRGD_COLOR, fg);
     io.writeW(BKGD_COLOR, bg);
@@ -1194,13 +1189,13 @@ void ASM Mach32Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(stru
             cd->GEOp       = BLITTEMPLATE;
             cd->GEdrawMode = 0xFF;
 
-            asMach32(bi)->waitFifo(1);
+            waitFifo(1);
             io.writeW(DP_CONFIG, DP_CONFIG_TEMPLATE);
         }
 
-        setFarBlitBuffer(bi, ri, fmt, 0);
-        setDrawMode(bi, tmpl->FgPen, tmpl->BgPen, tmpl->DrawMode, fmt);
-        setGEWriteMask(bi, mask, fmt, 1);
+        setFarBlitBuffer(ri, fmt, 0);
+        setDrawMode(tmpl->FgPen, tmpl->BgPen, tmpl->DrawMode, fmt);
+        setGEWriteMask(mask, fmt, 1);
 
         /* Clip padding (and avoid CPU bit-rotation into left margin). */
         // io.writeW(SCISSOR_LEFT, x);
@@ -1211,12 +1206,12 @@ void ASM Mach32Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(stru
         WORD blitWidth = (width + rol + 15) & ~15;
 
         /* Set up rectangle; writing DEST_Y_END kicks the engine. */
-        drawRect(bi, x, y, blitWidth, height);
+        drawRect(x, y, blitWidth, height);
 
         WORD wordsPerLn    = blitWidth >> 4;
         ULONG fifoNeed     = (ULONG)wordsPerLn * (ULONG)height + 3u;
         UBYTE numFifoSlots = fifoNeed > 16u ? 16 : (UBYTE)fifoNeed;
-        asMach32(bi)->waitFifo(numFifoSlots);
+        waitFifo(numFifoSlots);
         WORD usedFifoSlots = 16 - numFifoSlots;
 
         const UBYTE *bitmap = (const UBYTE *)tmpl->Memory;
@@ -1233,7 +1228,7 @@ void ASM Mach32Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(stru
 
                     usedFifoSlots = (usedFifoSlots + 1) & 15;
                     if (!usedFifoSlots) {
-                        asMach32(bi)->waitFifo(16);
+                        waitFifo(16);
                     }
                 }
             } else {
@@ -1246,7 +1241,7 @@ void ASM Mach32Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(stru
 
                     usedFifoSlots = (usedFifoSlots + 1) & 15;
                     if (!usedFifoSlots) {
-                        asMach32(bi)->waitFifo(16);
+                        waitFifo(16);
                     }
                 }
             }
@@ -1254,7 +1249,7 @@ void ASM Mach32Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(stru
         }
 
         if (!usedFifoSlots) {
-            asMach32(bi)->waitFifo(1);
+            waitFifo(1);
         }
         // io.writeW(SCISSOR_LEFT, 0);
         io.writeW(SCISSOR_RIGHT, 0x600);
@@ -1267,21 +1262,21 @@ void ASM Mach32Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(stru
         bi->BlitTemplateDefault(bi, ri, tmpl, x, y, width, height, mask, AS_RGBF(fmt));
 }
 
-static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY, WORD width, WORD height,
-                                          const UBYTE *bitmap, WORD bmPitch, UWORD rol)
+void Mach32Driver::performBlitPlanar2ChunkyBlits(WORD dstX, WORD dstY, WORD width, WORD height,
+                                                  const UBYTE *bitmap, WORD bmPitch, UWORD rol)
 {
     rol &= 15u;
     /* 16 pixels per PIX_TRANS word. Round up width+offset to 16. */
     WORD blitWidth = (width + rol + 15) & ~15;
-    drawRect(bi, dstX, dstY, blitWidth, height);
+    drawRect(dstX, dstY, blitWidth, height);
 
     WORD wordsPerLn    = blitWidth >> 4;
     ULONG fifoNeed     = (ULONG)wordsPerLn * (ULONG)height + 3u;
     UBYTE numFifoSlots = fifoNeed > 16u ? 16 : (UBYTE)fifoNeed;
-    asMach32(bi)->waitFifo(numFifoSlots);
+    waitFifo(numFifoSlots);
     WORD usedFifoSlots = 16 - numFifoSlots;
 
-    DRIVER_LOCALS(bi);
+    DRIVER_LOCALS(this);
     if ((ULONG)bitmap == 0) {
         // FIXME: use blitter fill instead
         for (WORD row = 0; row < height; ++row) {
@@ -1289,7 +1284,7 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
                 ioNS.writeW(PIX_TRANS, 0);
                 usedFifoSlots = (usedFifoSlots + 1) & 15;
                 if (!usedFifoSlots) {
-                    asMach32(bi)->waitFifo(16);
+                    waitFifo(16);
                 }
             }
         }
@@ -1300,7 +1295,7 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
                 ioNS.writeW(PIX_TRANS, 0xFFFF);
                 usedFifoSlots = (usedFifoSlots + 1) & 15;
                 if (!usedFifoSlots) {
-                    asMach32(bi)->waitFifo(16);
+                    waitFifo(16);
                 }
             }
         }
@@ -1314,7 +1309,7 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
 
                     usedFifoSlots = (usedFifoSlots + 1) & 15;
                     if (!usedFifoSlots) {
-                        asMach32(bi)->waitFifo(16);
+                        waitFifo(16);
                     }
                 }
             } else {
@@ -1326,7 +1321,7 @@ static void performBlitPlanar2ChunkyBlits(BoardInfo_t *bi, WORD dstX, WORD dstY,
 
                     usedFifoSlots = (usedFifoSlots + 1) & 15;
                     if (!usedFifoSlots) {
-                        asMach32(bi)->waitFifo(16);
+                        waitFifo(16);
                     }
                 }
             }
@@ -1361,7 +1356,7 @@ void ASM Mach32Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(str
             cd->GEfgPen    = ~0UL;
             cd->GEbgPen    = 0;
 
-            asMach32(bi)->waitFifo(4);
+            waitFifo(4);
             DRIVER_LOCALS(bi);
             io.writeW(DP_CONFIG, DP_CONFIG_TEMPLATE);
             io.writeW(WRT_MASK, 0xFFFF);
@@ -1372,15 +1367,15 @@ void ASM Mach32Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(str
         UBYTE mix = minTermToMix[minTerm & 0xF];
         if (cd->GEdrawMode != minTerm) {
             cd->GEdrawMode = minTerm;
-            asMach32(bi)->waitFifo(2);
+            waitFifo(2);
             DRIVER_LOCALS(bi);
             io.writeW(FRGD_MIX, (UWORD)(CLR_SRC_FRGD_COLOR | mix));
             io.writeW(BKGD_MIX, (UWORD)(CLR_SRC_BKGD_COLOR | mix));
         }
 
-        setFarBlitBuffer(bi, ri, RGBFB_CLUT, 0);
+        setFarBlitBuffer(ri, RGBFB_CLUT, 0);
 
-        asMach32(bi)->waitFifo(1);
+        waitFifo(1);
         DRIVER_LOCALS(bi);
 
         /* Clip padding (and avoid CPU bit-rotation into left margin). */
@@ -1396,16 +1391,16 @@ void ASM Mach32Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(str
                 continue;
             }
 
-            setGEWriteMask(bi, writeMask, RGBFB_CLUT, 0);
+            setGEWriteMask(writeMask, RGBFB_CLUT, 0);
 
             const UBYTE *bitmap = (const UBYTE *)bm->Planes[p];
             if ((ULONG)bitmap != 0 && (ULONG)bitmap != 0xFFFFFFFFu) {
                 bitmap += bmStartOffset;
             }
-            performBlitPlanar2ChunkyBlits(bi, dstX, dstY, width, height, bitmap, bmPitch, rol);
+            performBlitPlanar2ChunkyBlits(dstX, dstY, width, height, bitmap, bmPitch, rol);
         }
 
-        asMach32(bi)->waitFifo(1);
+        waitFifo(1);
         io.writeW(SCISSOR_RIGHT, 0x600);
         flushWrites();
         return;
@@ -1447,24 +1442,24 @@ static INLINE UWORD REGARGS rotate16(UWORD v, UBYTE r)
     return (UWORD)((v << r) | (v >> (16u - r)));
 }
 
-static void REGARGS BlitPatternNon8x8(BoardInfo_t *bi, struct RenderInfo *ri, struct Pattern *pattern, WORD x, WORD y,
-                                      WORD width, WORD height, UBYTE mask, RGBFTYPE_REG fmt)
+void Mach32Driver::blitPatternNon8x8(struct RenderInfo *ri, struct Pattern *pattern, WORD x, WORD y, WORD width,
+                                     WORD height, UBYTE mask, RGBFTYPE_REG fmt)
 {
-    setFarBlitBuffer(bi, ri, fmt, 0);
+    setFarBlitBuffer(ri, fmt, 0);
 
-    DRIVER_LOCALS(bi);
+    DRIVER_LOCALS(this);
 
-    ChipData_t *cd = getChipData(bi);
+    ChipData_t *cd = chip();
     if (cd->GEOp != BLITTEMPLATE) {
         cd->GEOp       = BLITTEMPLATE;
         cd->GEdrawMode = 0xFF;
 
-        asMach32(bi)->waitFifo(1);
+        waitFifo(1);
         io.writeW(DP_CONFIG, DP_CONFIG_TEMPLATE);
     }
 
-    setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
-    setGEWriteMask(bi, mask, fmt, 1);
+    setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
+    setGEWriteMask(mask, fmt, 1);
 
     /* Clip padding from our 16px expansion. */
     io.writeW(SCISSOR_RIGHT, x + width - 1);
@@ -1476,12 +1471,12 @@ static void REGARGS BlitPatternNon8x8(BoardInfo_t *bi, struct RenderInfo *ri, st
     UWORD pattOffY = pattern->YOffset;
 
     WORD blitWidth = (width + 15) & ~15;
-    drawRect(bi, x, y, blitWidth, height);
+    drawRect(x, y, blitWidth, height);
 
     WORD wordsPerLn    = blitWidth >> 4;
     ULONG fifoNeed     = (ULONG)wordsPerLn * (ULONG)height + 3u;
     UBYTE numFifoSlots = fifoNeed > 16u ? 16 : (UBYTE)fifoNeed;
-    asMach32(bi)->waitFifo(numFifoSlots);
+    waitFifo(numFifoSlots);
     WORD usedFifoSlots = 16 - numFifoSlots;
 
     for (WORD row = 0; row < height; ++row) {
@@ -1492,13 +1487,13 @@ static void REGARGS BlitPatternNon8x8(BoardInfo_t *bi, struct RenderInfo *ri, st
 
             usedFifoSlots = (usedFifoSlots + 1) & 15;
             if (!usedFifoSlots) {
-                asMach32(bi)->waitFifo(16);
+                waitFifo(16);
             }
         }
     }
 
     if (!usedFifoSlots) {
-        asMach32(bi)->waitFifo(1);
+        waitFifo(1);
     }
     io.writeW(SCISSOR_RIGHT, 0x600);
     flushWrites();
@@ -1534,7 +1529,7 @@ void ASM Mach32Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
             }
         }
         if (!is8x8) {
-            BlitPatternNon8x8(bi, ri, pattern, x, y, width, height, mask, fmt);
+            blitPatternNon8x8(ri, pattern, x, y, width, height, mask, fmt);
             return;
         }
 
@@ -1547,16 +1542,16 @@ void ASM Mach32Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
             // last uploaded is stil there.
             cd->patternCacheKey = 0xFFFFFFFFu;
 
-            asMach32(bi)->waitFifo(2);
+            waitFifo(2);
             DRIVER_LOCALS(bi);
             io.writeW(DP_CONFIG, DP_CONFIG_MONO_PATTERN);
             // 8x8 Mono Pattern Enable
             io.writeW(PATT_LENGTH, BIT(7));
         }
 
-        setFarBlitBuffer(bi, ri, fmt, 0);
-        setDrawMode(bi, pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
-        setGEWriteMask(bi, mask, fmt, 0);
+        setFarBlitBuffer(ri, fmt, 0);
+        setDrawMode(pattern->FgPen, pattern->BgPen, pattern->DrawMode, fmt);
+        setGEWriteMask(mask, fmt, 0);
 
         UBYTE pattOffX = (UBYTE)((x - pattern->XOffset) & 7);
         UBYTE pattOffY = (UBYTE)((y - pattern->YOffset) & 7);
@@ -1581,7 +1576,7 @@ void ASM Mach32Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
         if (changed) {
             cd->patternCacheKey = cacheKey;
 
-            asMach32(bi)->waitFifo(5);
+            waitFifo(5);
             DRIVER_LOCALS(bi);
 
             /* Load PATT_DATA_10..17 via PATT_DATA_INDEX, then enable 8x8 mono pattern mode (PATT_LENGTH[7]). */
@@ -1597,7 +1592,7 @@ void ASM Mach32Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
             }
         }
 
-        drawRect(bi, x, y, width, height);
+        drawRect(x, y, width, height);
         return;
     }
 
@@ -1618,7 +1613,7 @@ void ASM Mach32Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
     }
     {
 
-        setFarBlitBuffer(bi, ri, fmt, 0);
+        setFarBlitBuffer(ri, fmt, 0);
 
         ChipData_t *cd = getChipData(bi);
         if (cd->GEOp != LINE) {
@@ -1626,15 +1621,15 @@ void ASM Mach32Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
             cd->lineMode        = 0xFF;
             cd->patternCacheKey = 0x0000;
 
-            asMach32(bi)->waitFifo(2);
+            waitFifo(2);
             DRIVER_LOCALS(bi);
             /* Disable special pre-clip modes by default. */
             io.writeW(PATT_LENGTH, (UWORD)PATT_LENGTH_MONO16);
             io.writeW(DP_CONFIG, DP_CONFIG_REPLACE);
         }
 
-        setDrawMode(bi, line->FgPen, line->BgPen, line->DrawMode, fmt);
-        setGEWriteMask(bi, mask, fmt, 0);
+        setDrawMode(line->FgPen, line->BgPen, line->DrawMode, fmt);
+        setGEWriteMask(mask, fmt, 0);
 
         DRIVER_LOCALS(bi);
 
@@ -1642,9 +1637,9 @@ void ASM Mach32Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
         if (solid) {
             if (cd->lineMode != 1) {
                 cd->lineMode = 1;
-                asMach32(bi)->waitFifo(9);
+                waitFifo(9);
                 DRIVER_LOCALS(bi);
-                asMach32(bi)->writeBee8(PIXEL_CNTL, MASK_BIT_SRC_ONE);
+                writeBee8(PIXEL_CNTL, MASK_BIT_SRC_ONE);
             }
         } else {
             UBYTE phase  = (UBYTE)((15u - (line->PatternShift & 15u)) & 15u);
@@ -1652,14 +1647,14 @@ void ASM Mach32Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
             if (cd->lineMode != 0 || needPat) {
                 cd->lineMode         = 0;
                 cd->linePatternCache = line->LinePtrn;
-                asMach32(bi)->waitFifo(11);
+                waitFifo(11);
                 DRIVER_LOCALS(bi);
-                asMach32(bi)->writeBee8(PIXEL_CNTL, MASK_BIT_SRC_PATTEN);
+                writeBee8(PIXEL_CNTL, MASK_BIT_SRC_PATTEN);
                 io.writeW(PATT_DATA_INDEX, 0x10);
                 ioNS.writeW(PATT_DATA, line->LinePtrn);
                 io.writeW(PATT_INDEX, (UWORD)phase);
             } else {
-                asMach32(bi)->waitFifo(8);
+                waitFifo(8);
                 io.writeW(PATT_INDEX, (UWORD)phase);
             }
         }
