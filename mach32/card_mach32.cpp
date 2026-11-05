@@ -38,20 +38,7 @@ int debugLevel = VERBOSE;
 
 BOOL releaseCard(__REGA0(struct BoardInfo *bi))
 {
-    CardData_t *cd = getCardData(bi);
-
-    if (cd->OpenPciBase) {
-        LOCAL_OPENPCIBASE();
-        if (cd->board) {
-            removePciVBlankInterrupt(bi);
-            SetBoardAttrs(cd->board, PRM_BoardOwner, (Tag)NULL, TAG_END);
-        }
-
-        LOCAL_SYSBASE();
-        CloseLibrary(cd->OpenPciBase);
-        cd->OpenPciBase = NULL;
-    }
-
+    releasePciCard(bi);
     return TRUE;
 }
 

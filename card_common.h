@@ -40,6 +40,19 @@ void parseBlackLevelToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes);
 BOOL parseInterruptToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes);
 
 #if OPENPCI
+#include <libraries/openpci.h>
+
+/*
+ * Common prefix of OpenPCI CardData (mach32/mach64/at3d/s3trio64).
+ * Each driver's CardData must start with these three fields in this order.
+ */
+struct PciCardData
+{
+    volatile UBYTE *legacyIOBase;
+    struct Library *OpenPciBase;
+    struct pci_dev *board;
+};
+
 /**
  * Parse INTERRUPT tooltype and register HardInterrupt via OpenPCI when enabled.
  * Sets CFF_VBLANK_INTSERVER and BIF_VBLANKINTERRUPT on success.
@@ -51,6 +64,11 @@ void installPciVBlankInterrupt(struct BoardInfo *bi, CONST_STRPTR *ToolTypes);
  * Unregister HardInterrupt via OpenPCI if CFF_VBLANK_INTSERVER is set.
  */
 void removePciVBlankInterrupt(struct BoardInfo *bi);
+
+/**
+ * Close ChipBase (if set), remove VBlank, clear PRM_BoardOwner, CloseLibrary(OpenPciBase).
+ */
+void releasePciCard(struct BoardInfo *bi);
 #endif
 
 /**
