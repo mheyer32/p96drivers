@@ -12,7 +12,7 @@
  * P96 ABI entry points are thin registerized trampolines that call methods.
  *
  * Hook-facing methods use the same ASM/__REGxx layout as BoardInfo (this ≡ a0).
- * Format args in d7 are RGBFTYPE_REG (ULONG) — g++ drops __asm on enum types.
+ * Format args in d7 are RGBFTYPE (RGBFTYPE_REG is an alias; see common.h).
  *
  * Pass Mach64Driver* into I2C/RAMDAC helpers. Build with -ffunction-sections and
  * link with --gc-sections so out-of-line method bodies unused after trampoline
