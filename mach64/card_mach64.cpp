@@ -40,20 +40,7 @@ int debugLevel = VERBOSE;
 
 BOOL releaseCard(__REGA0(struct BoardInfo *bi))
 {
-    CardData_t *cd = getCardData(bi);
-
-    if (cd->OpenPciBase) {
-        LOCAL_OPENPCIBASE();
-        if (cd->board) {
-            removePciVBlankInterrupt(bi);
-            // release ownership
-            SetBoardAttrs(cd->board, PRM_BoardOwner, (Tag)NULL, TAG_END);
-        }
-
-        LOCAL_SYSBASE();
-        CloseLibrary(cd->OpenPciBase);
-        cd->OpenPciBase = NULL;
-    }
+    releasePciCard(bi);
     return TRUE;
 }
 
@@ -256,6 +243,7 @@ extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
     // Set up register and memory bases
     if (chipFamily >= MACH64VT && !memory1) {
         DFUNC(ERROR, "Cannot find block IO aperture\n");
+        releaseCard(bi);
         return FALSE;
     }
 

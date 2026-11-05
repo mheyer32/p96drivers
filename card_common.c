@@ -7,16 +7,8 @@
 #include <proto/utility.h>
 
 #if OPENPCI
-#include <libraries/openpci.h>
+#include <libraries/pcitags.h>
 #include <proto/openpci.h>
-
-/* Common prefix of OpenPCI CardData across mach32/mach64/at3d/s3trio64. */
-struct PciCardData
-{
-    APTR legacyIOBase;
-    struct Library *OpenPciBase;
-    struct pci_dev *board;
-};
 #endif
 
 ULONG parseHexOrDecimal(CONST_STRPTR str)
@@ -200,6 +192,27 @@ void removePciVBlankInterrupt(struct BoardInfo *bi)
     }
     bi->CardFlags &= ~CFF_VBLANK_INTSERVER;
     bi->Flags &= ~BIF_VBLANKINTERRUPT;
+}
+
+void releasePciCard(struct BoardInfo *bi)
+{
+    struct PciCardData *cd = (struct PciCardData *)getCardData(bi);
+    LOCAL_SYSBASE();
+
+    if (bi->ChipBase) {
+        CloseLibrary((struct Library *)bi->ChipBase);
+        bi->ChipBase = NULL;
+    }
+
+    if (cd->OpenPciBase) {
+        struct Library *OpenPciBase = cd->OpenPciBase;
+        if (cd->board) {
+            removePciVBlankInterrupt(bi);
+            SetBoardAttrs(cd->board, PRM_BoardOwner, (Tag)NULL, TAG_END);
+        }
+        CloseLibrary(cd->OpenPciBase);
+        cd->OpenPciBase = NULL;
+    }
 }
 #endif
 

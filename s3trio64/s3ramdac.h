@@ -18,14 +18,7 @@ extern "C" {
 struct ModeInfo;
 struct svga_pll;
 
-typedef struct RamdacOps
-{
-    void (*getPllParams)(struct BoardInfo *bi, const struct svga_pll **pll, UWORD *maxFreqMhz);
-    void (*packPllToModeInfo)(struct BoardInfo *bi, UWORD m, UWORD n, UWORD r, struct ModeInfo *mi);
-    void (*setClock)(struct BoardInfo *bi);
-    ULONG (*setMemoryClock)(struct BoardInfo *bi, ULONG clockHz);
-    void (*setDac)(struct BoardInfo *bi, RGBFTYPE format);
-} RamdacOps_t;
+#include "ramdac_ops.h"
 
 BOOL InitRAMDAC(struct BoardInfo *bi);
 const RamdacOps_t *getRamdacOps(struct BoardInfo *bi);
