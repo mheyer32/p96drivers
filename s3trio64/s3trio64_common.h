@@ -22,8 +22,7 @@ STATIC_ASSERT(REGISTER_OFFSET == MMIOREGISTER_OFFSET, check_register_offset);
 // Forward declaration to avoid including s3ramdac.h here
 struct RamdacOps;
 
-// Beware: if we ever add a new chip family, make sure to check the chip library loading code
-// in InitCard, because its using static arrays indexed by this enum!
+/* InitCard maps ChipFamily → chip library via an explicit switch (not enum index). */
 typedef enum ChipFamily
 {
     UNKNOWN,

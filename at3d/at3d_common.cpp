@@ -76,6 +76,13 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
     bi->MemorySpaceSize           = memory0Size;
     getCardData(bi)->legacyIOBase = (volatile UBYTE *)legacyIOBase + REGISTER_OFFSET;
 
+    {
+        UWORD cmd = pci_read_config_word(PCI_COMMAND, card->board);
+        pci_write_config_word(PCI_COMMAND, cmd | PCI_COMMAND_MEMORY | PCI_COMMAND_IO, card->board);
+    }
+
+    setCacheMode(bi, memory0, memory0Size, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED, CACHEFLAGS);
+
     if (chip->chipFamily <= AT24) {
         bi->RegisterBase = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
         APTR mmioSpace   = bi->MemoryBase + 4 * 1024 * 1024 - 2048;
