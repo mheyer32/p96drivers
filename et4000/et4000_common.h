@@ -9,7 +9,6 @@ STATIC_ASSERT(REGISTER_OFFSET == MMIOREGISTER_OFFSET, check_register_offset);
 
 #define VENDOR_ID_TSENG 0x100C
 
-// Tseng ET4000/6000 chip variants
 typedef enum ChipFamily
 {
     ET4000_UNKNOWN,
@@ -21,24 +20,24 @@ typedef struct ChipData
     ULONG GEfgPen;
     ULONG GEbgPen;
 
-    UWORD GEbytesPerRow;  // programmed graphics engine bytes per row
-    UWORD GEsegs;         // programmed src/dst memory segments
+    UWORD GEbytesPerRow;
+    UWORD GEsegs;
 
-    UBYTE GEOp;  // programmed graphics engine setup
+    UBYTE GEOp;
     UBYTE GEFormat;
 
-    UBYTE GEbpp;   // programmed graphics engine bpp
-    UBYTE GEmask;  // programmed mask
+    UBYTE GEbpp;
+    UBYTE GEmask;
 
     UBYTE GEdrawMode;
-    UBYTE MemFormat;            // programmed memory layout/format
-    UBYTE chipFamily;           // chip family
-    UBYTE hasCH8398;            // CH8398 RAMDAC detected
-    UWORD pattSegment;          // segment where pattern is stored
-    UWORD pattX;                // x offset in pattern
-    UWORD pattY;                // y offset in pattern
-    ULONG *patternVideoBuffer;  // points to video memory
-    UWORD *patternCacheBuffer;  // points to system memory
+    UBYTE MemFormat;
+    UBYTE chipFamily;
+    UBYTE hasCH8398;
+    UWORD pattSegment;
+    UWORD pattX;
+    UWORD pattY;
+    ULONG *patternVideoBuffer;
+    UWORD *patternCacheBuffer;
     ULONG patternCacheKey;
 
 } ChipData_t;
@@ -47,16 +46,28 @@ STATIC_ASSERT(sizeof(ChipData_t) <= sizeof(((BoardInfo_t *)0)->ChipData), ChipDa
 
 typedef struct CardData
 {
-    BYTE *legacyIOBase;  // legacy I/O base address
+    volatile UBYTE *legacyIOBase;
     struct Library *OpenPciBase;
     struct pci_dev *board;
     struct Node boardNode;
+    char boardName[16];
 } CardData_t;
 
 STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);
 
-extern ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision);
-extern const char *getChipFamilyName(ChipFamily_t family);
-extern BOOL initRegisterAndMemoryBases(BoardInfo_t *bi);
+#ifdef __cplusplus
+#include "et4000_driver.hpp"
+#endif
 
-#endif  // ET4000_COMMON_H
+#ifdef __cplusplus
+extern "C" {
+#endif
+ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision);
+const char *getChipFamilyName(ChipFamily_t family);
+BOOL initRegisterAndMemoryBases(BoardInfo_t *bi);
+BOOL InitChip(__REGA0(struct BoardInfo *bi));
+#ifdef __cplusplus
+}
+#endif
+
+#endif

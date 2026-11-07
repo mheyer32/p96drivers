@@ -1,23 +1,24 @@
 #include "et4000_common.h"
 
-#define OPENPCI_SWAP  // don't make it define its own SWAP macros
-#include <proto/openpci.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>
+#include <proto/openpci.h>
 
 ChipFamily_t getChipFamily(UWORD deviceId, UWORD revision)
 {
-    // ET4000/W32p device IDs typically start with 0x3200
-    // The device ID format is 0x32xx where xx includes revision info
-    // For now, we'll identify based on device ID range
+    (void)revision;
     switch (deviceId) {
     case 0x3202:  // W32p rev A
     case 0x3205:  // W32p Rev B
     case 0x3206:  // W32p Rev C
     case 0x3207:  // W32p Rev D
-            return ET4000_W32P;
+        return ET4000_W32P;
     default:
-        DFUNC(WARN, "Unknown ET4000 chip family, device ID: 0x%04x\n", deviceId);
+        DFUNC(WARN, "Unknown ET4000 chip family, device ID: 0x%04lx\n", (ULONG)deviceId);
         return ET4000_UNKNOWN;
     }
 }
@@ -40,8 +41,8 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
     CardData_t *card = getCardData(bi);
     ChipData_t *chip = getChipData(bi);
 
-    ULONG deviceId = 0, revision = 0, memory0Size = 0, legacyIOBase = 0;
-    APTR memory0 = 0;
+    ULONG deviceId = 0, revision = 0, memory0Size = 0;
+    APTR memory0 = 0, legacyIOBase = 0;
 
     ULONG count = GetBoardAttrs(card->board, PRM_Device, (Tag)&deviceId, PRM_Revision, (Tag)&revision, PRM_MemoryAddr0,
                                 (Tag)&memory0, PRM_MemorySize0, (Tag)&memory0Size, PRM_LegacyIOSpace,
@@ -61,21 +62,25 @@ BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
     APTR physicalAddress = pci_logic_to_physic_addr(memory0, card->board);
     D(INFO, "physicalAddress 0x%08lx\n", physicalAddress);
 
-    // ET4000 uses standard VGA I/O registers
-    card->legacyIOBase = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
-    bi->RegisterBase    = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
-    
-    // ET4000/W32p may have MMIO registers, but primarily uses I/O space
-    // For now, set MemoryIOBase to NULL if no MMIO is available
-    bi->MemoryIOBase = NULL;
-    
-    // Set memory base
-    bi->MemoryBase = (UBYTE *)memory0;
+    card->legacyIOBase = (volatile UBYTE *)legacyIOBase + REGISTER_OFFSET;
+    bi->RegisterBase   = (UBYTE *)legacyIOBase + REGISTER_OFFSET;
+    bi->MemoryIOBase   = NULL;
+    bi->MemoryBase     = (UBYTE *)memory0;
 
-    // enable special cache mode settings
+    {
+        UWORD cmd = pci_read_config_word(PCI_COMMAND, card->board);
+        pci_write_config_word(PCI_COMMAND, cmd | PCI_COMMAND_MEMORY | PCI_COMMAND_IO, card->board);
+    }
+
     bi->MemorySpaceBase = memory0;
     bi->MemorySpaceSize = memory0Size;
     bi->Flags |= BIF_CACHEMODECHANGE;
 
+    setCacheMode(bi, memory0, memory0Size, MAPP_CACHEINHIBIT | MAPP_IMPRECISE | MAPP_NONSERIALIZED, CACHEFLAGS);
+
     return TRUE;
 }
+
+#ifdef __cplusplus
+}
+#endif

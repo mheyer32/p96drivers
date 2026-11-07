@@ -444,28 +444,29 @@ TestAT3DCard : CFLAGS+=-DREGISTER_OFFSET=0 -DMMIOREGISTER_OFFSET=0 -DOPENPCI=1 -
 $(eval $(call make_exe,TestAT3DCard,$(BUILDDIR)testat3dcard/, ${AT3DCARD_TESTEXE_SRC}))
 
 ET4000_SRC = common.c \
-             et4000/et4000_common.c \
-             et4000/chip_et4000.c \
-             et4000/ch8398ramdac.c \
+             et4000/et4000_common.cpp \
+             et4000/chip_et4000.cpp \
+             et4000/ch8398ramdac.cpp \
              chip_library.c
 
-ET4000.chip : CFLAGS+=-DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
+ET4000.chip : CFLAGS+=-DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0 -DOPENPCI=1
 $(eval $(call make_driver,ET4000.chip,$(BUILDDIR)et4000/, ${ET4000_SRC}))
 
 ET4000CARD_SRC = common.c \
-                 et4000/card_et4000.c \
-                 et4000/et4000_common.c \
-                 card_library.c
+                 et4000/card_et4000.cpp \
+                 et4000/et4000_common.cpp \
+                 card_library.c \
+                 card_common.c
 
-ET4000.card : CFLAGS+=-DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
+ET4000.card : CFLAGS+=-DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0 -DOPENPCI=1
 $(eval $(call make_driver,ET4000.card,$(BUILDDIR)et4000card/, ${ET4000CARD_SRC}))
 
 ET4000_TESTEXE_SRC = common.c \
-                     et4000/et4000_common.c \
-                     et4000/chip_et4000.c \
-                     et4000/ch8398ramdac.c
+                     et4000/et4000_common.cpp \
+                     et4000/chip_et4000.cpp \
+                     et4000/ch8398ramdac.cpp
 
-TestET4000 : CFLAGS+=-DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0
+TestET4000 : CFLAGS+=-DREGISTER_OFFSET=0x0 -DMMIOREGISTER_OFFSET=0x0 -DOPENPCI=1
 $(eval $(call make_exe,TestET4000,$(BUILDDIR)testet4000/, ${ET4000_TESTEXE_SRC}))
 
 

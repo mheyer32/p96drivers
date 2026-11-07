@@ -64,11 +64,6 @@ extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, .
 #define CFF_BLACKLEVEL_BLACK (1UL << 0)
 #define CFF_VBLANK_INTSERVER (1UL << 1) /* VBlank HardInterrupt registered (OpenPCI or PORTS) */
 
-/* Standard VGA DAC ports (C drivers; C++ uses VgaReg in vga_regs.hpp). */
-#define DAC_WR_AD 0x3C8 /* RS[1:0] 00 */
-#define DAC_DATA  0x3C9 /* RS[1:0] 01 */
-#define DAC_MASK  0x3C6 /* RS[1:0] 10 */
-#define DAC_RD_AD 0x3C7 /* RS[1:0] 11 */
 // #define LOCAL_DOSBASE() struct Library *DOSBase = getChipData(bi)->DOSBase
 
 /*
