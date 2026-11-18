@@ -6,13 +6,6 @@
 using namespace MmioReg;
 using namespace PllReg;
 
-#ifdef __cplusplus
-#ifndef _Static_assert
-#define _Static_assert static_assert
-#endif
-extern "C" {
-#endif
-
 #define BUS_APER_REG_DIS_GT      BIT(4)
 #define BUS_APER_REG_DIS_GT_MASK BIT(4)
 #define BUS_MASTER_DIS_GT        BIT(6)
@@ -21,6 +14,14 @@ extern "C" {
 #define BUS_PCI_RETRY_EN_GT_MASK BIT(15)
 #define BUS_FIFO_WS_GT(x)        ((x) << 16)
 #define BUS_FIFO_WS_GT_MASK      (0xF << 16)
+
+#ifdef __cplusplus
+#ifndef _Static_assert
+#define _Static_assert static_assert
+#endif
+extern "C" {
+#endif
+
 
 /* Known-good on other GT boards; keep for revert / future card select. */
 static const UWORD defaultRegs_GT[] __attribute__((unused)) = {

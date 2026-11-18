@@ -25,7 +25,12 @@ ChipFamily_t getChipFamily(UWORD deviceId)
         return MACH64GT;
     case 0x4750:  // mach64 Rage Pro
         return MACH64GT;
-    case 0x4752:  // mach64 Rage 3 XL
+    case 0x474C:  // Rage XC (GL)
+    case 0x474D:  // Rage XL (GM, AGP)
+    case 0x474E:  // Rage XC (GN, AGP)
+    case 0x474F:  // Rage XL (GO, PCI-66)
+    case 0x4752:  // Rage XL (GR, PCI-33)
+    case 0x4753:  // Rage XC (GS, PCI-33)
         return MACH64GM;
     default:
         return UNKNOWN;
@@ -44,7 +49,7 @@ const char *getChipFamilyName(ChipFamily_t family)
     case MACH64GT:
         return "Mach64 GT (Rage Pro)";
     case MACH64GM:
-        return "Mach64 GR (Rage3 XL)";
+        return "Mach64 GM (Rage XL)";
     default:
         return "Unknown";
     }

@@ -16,7 +16,7 @@ typedef enum __attribute__((packed)) ChipFamily
     MACH64CT,  // integrated DAC/PLL; dual 8MB LE+BE aperture; waitFifo
     MACH64VT,  // dual 8MB LE+BE (same aperture layout as CT)
     MACH64GT,
-    MACH64GM  // Rage 3 XL
+    MACH64GM  // Rage XL / XC (GM/GN/GO/GL/GR/GS): memory PLL from option ROM
 } ChipFamily_t;
 
 STATIC_ASSERT(sizeof(ChipFamily_t) == 1, chipfamily_is_byte);

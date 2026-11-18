@@ -4,6 +4,7 @@
 #include "mach64GT.h"
 #include "mach64GX.h"
 #include "mach64VT.h"
+#include "mach64GM.h"
 #include "mach64_common.h"
 #include "mach64_eeprom.h"
 #include "mach64_i2c.h"
@@ -507,7 +508,7 @@ void SetMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
 #else
     if (family == MACH64VT) {
         SetMemoryClock_VT(bi, freqKhz10);
-    } else if (family >= MACH64GT) {
+    } else if (family == MACH64GT) {
         SetMemoryClock_GT(bi, freqKhz10);
     }
 #endif
@@ -2633,6 +2634,12 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
         }
         D(INFO, "Chip family: %s\n", getChipFamilyName(cd->chipFamily));
 
+#if MACH64_PCI_RETRY
+        /* XL memory PLL and DRAM timings come from the option ROM. */
+        if (cd->chipFamily == MACH64GM && !mach64GMRunBios(bi))
+            return FALSE;
+#endif
+
         /* LE aperture formats for all; CT+ also advertise BE (+8MB) aliases. */
         bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC;
         if (cd->chipFamily >= MACH64CT) {
@@ -2738,8 +2745,12 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
         }
         break;
     case MACH64GT:
-    case MACH64GM:
         if (!InitMach64GT(bi)) {
+            return FALSE;
+        }
+        break;
+    case MACH64GM:
+        if (!InitMach64GM(bi)) {
             return FALSE;
         }
         break;
@@ -3175,7 +3186,7 @@ int main()
         if (family != UNKNOWN && !mach64ChipFamilySupported(family)) {
             D(ALWAYS, "Skipping %s (this binary is %s)\n", getChipFamilyName(family),
 #if MACH64_PCI_RETRY
-              "VT+/Rage (TestMach64 / ATIMach64.chip)"
+              "VT/GT/GM (TestMach64 / ATIMach64.chip)"
 #else
               "GX/CT (TestMach64GX / ATIMach64GX.chip)"
 #endif
@@ -3342,15 +3353,15 @@ int main()
                     bi->SetDAC(bi, 0, RGBFB_CLUT);
                     bi->SetColorArray(bi, 0, 256);
                     verifyPaletteReadback(bi);
-                    bi->SetPanning(bi, bi->MemoryBase, modes[m].w, modes[m].h, 0, 0, RGBFB_CLUT);
-                    bi->SetDisplay(bi, TRUE);
-
                     {
-                        /* CPU pattern for med; small GUI rect proves blitter still works. */
+                        /* P96 SetPanning width is bitmap row pixels (= BPR at 8bpp), not ModeInfo.Width. */
+                        UWORD bpr = bi->CalculateBytesPerRow(bi, modes[m].w, modes[m].h, &testMi, RGBFB_CLUT);
+                        bi->SetPanning(bi, bi->MemoryBase, bpr, modes[m].h, 0, 0, RGBFB_CLUT);
+                        bi->SetDisplay(bi, TRUE);
                         testFillPattern8bppBytes(bi, modes[m].w, modes[m].h);
                         struct RenderInfo ri;
                         ri.Memory      = bi->MemoryBase;
-                        ri.BytesPerRow = modes[m].w;
+                        ri.BytesPerRow = bpr;
                         ri.RGBFormat   = RGBFB_CLUT;
                         FillRect(bi, &ri, (WORD)(modes[m].w / 4), (WORD)(modes[m].h / 4), (WORD)(modes[m].w / 2),
                                  (WORD)(modes[m].h / 2), 0xFF, 0xFF, RGBFB_CLUT);
