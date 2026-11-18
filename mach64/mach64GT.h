@@ -70,7 +70,7 @@
 extern "C" {
 #endif
 
-extern const UBYTE g_VPLLPostDivider[];
+extern const UBYTE g_VPLLPostDivider[7];
 extern const UBYTE g_VPLLPostDividerCodes[];
 
 void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv);

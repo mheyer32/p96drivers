@@ -17,7 +17,7 @@ typedef struct ChipSpecific
     UWORD minMClock;
     UWORD maxDRAMClock;
     UWORD maxVRAMClock;
-    UBYTE mclkFBDiv;
+    UWORD mclkFBDiv; /* feedback divider; ×4 PLL path stores 2*N */
     UBYTE mclkPostDiv;
     struct PLLValue *vclkPllValues;
     ComputeFrequencyFromPllValueFunc_t computeVCLKFrequency;

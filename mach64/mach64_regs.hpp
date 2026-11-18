@@ -111,7 +111,8 @@
     X(SCRATCH_REG1, 0x21)        \
     X(CLOCK_CNTL, 0x24)          \
     X(BUS_CNTL, 0x28)            \
-    X(LT_GIO, 0x2A)              \
+    X(LCD_INDEX, 0x29)           \
+    X(LCD_DATA, 0x2A)            \
     X(EXT_MEM_CNTL, 0x2B)        \
     X(MEM_CNTL, 0x2C)            \
     X(DAC_REGS, 0x30)            \
