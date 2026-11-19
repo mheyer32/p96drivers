@@ -567,7 +567,7 @@ static UWORD ics2595_calculateProgramWord(const BoardInfo_t *bi, UWORD freqKhz10
     programWord = (UWORD)temp;
 
     DFUNC(CHATTY, "Freq: %ld, AdjFreq: %ld, Divider: %ld, N: %ld\n", (ULONG)freqKhz10, (ULONG)adjustedFreq,
-          (ULONG)divider, (ULONG)programWord)
+          (ULONG)divider, (ULONG)programWord);
 
     if (programWord > n_adj) {
         programWord -= n_adj;

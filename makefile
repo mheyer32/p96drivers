@@ -46,7 +46,9 @@ BUILDFLAGS += -DOPENPCI_SWAP
 
 ifeq ($(DEBUG),1)
     CFLAGS += -DDBG
-    LIBS += -ldebug -lm
+    # Do not link -ldebug/-lm into .chip/.card: libdebug's KVPrintF needs a
+    # libnix SysBase, and -lm/defaultlibs pull an uninitialized UtilityBase.
+    # Drivers use AbsExecBase+RawDoFmt in common.c; testexe uses vprintf (-lm ok).
     # -g with older amiga-gcc (6.5 / image :latest) yields hunks m68k-amigaos-strip cannot read
     BUILDFLAGS += -O2 -g -ggdb
 else
@@ -120,12 +122,8 @@ ${1}_OBJS = $$(call create_objlist,$$(${1}_SRC),${2})
 ${1}_DEPS = $$(call create_deplist,$$(${1}_SRC),${2})
 ${1}_TARGET = $$(BINDIR)/${1}
 
-${1} : LDFLAGS += -ramiga-lib -nostartfiles
+${1} : LDFLAGS += -ramiga-lib -nostartfiles -nodefaultlibs
 ${1} : CFLAGS += -fno-builtin-strlen -ffreestanding
-
-ifeq ($(DEBUG),0)
-${1} : LDFLAGS += -nodefaultlibs
-endif
 
 $$(eval $$(call build_rules,${2}))
 ${1} : $$(BUILDDIR)=${2}
@@ -146,7 +144,7 @@ ${1}_DEPS = $$(call create_deplist,$$(${1}_SRC),${2})
 ${1}_TARGET = $$(BINDIR)/${1}
 
 ${1} : CFLAGS += -DTESTEXE -DDBG -DDEBUG
-${1} : LIBS += -ldebug -lm
+${1} : LIBS += -lm
 
 $$(eval $$(call build_rules,${2}))
 
