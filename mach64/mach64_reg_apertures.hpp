@@ -4,29 +4,14 @@
 #include "mach64_regs.hpp"
 #include "reg_access.hpp"
 
-/*
- * Aperture typedefs: endian from BIGENDIAN_MMIO / BIGENDIAN_IO (via SWAP* macros).
- * When BIGENDIAN_*=1, Swap* ops are already identity in common.h.
- */
-#if BIGENDIAN_MMIO
-#define MACH64_MMIO_ENDIAN RegEndian::NoSwap
-#else
-#define MACH64_MMIO_ENDIAN RegEndian::Swap
-#endif
-
-#if BIGENDIAN_IO
-#define MACH64_IO_ENDIAN RegEndian::NoSwap
-#else
-#define MACH64_IO_ENDIAN RegEndian::Swap
-#endif
-
-using Mach64Mmio  = AtiRegAperture<MmioReg::Id, MACH64_MMIO_ENDIAN, 0, RegLog::Verbose>;
-using Mach64MmioQ = AtiRegAperture<MmioReg::Id, MACH64_MMIO_ENDIAN, 0, RegLog::Quiet>;
+/* Register MMIO / block / sparse I/O are always LE on Mach64 (FB BE window is separate). */
+using Mach64Mmio  = AtiRegAperture<MmioReg::Id, RegEndian::Swap, 0, RegLog::Verbose>;
+using Mach64MmioQ = AtiRegAperture<MmioReg::Id, RegEndian::Swap, 0, RegLog::Quiet>;
 /* Forced NoSwap quiet — FIFO_STAT word poll. */
 using Mach64MmioNoSwapQ = AtiRegAperture<MmioReg::Id, RegEndian::NoSwap, 0, RegLog::Quiet>;
 
-using Mach64BlkIo  = AtiRegAperture<BlkIoReg::Id, MACH64_IO_ENDIAN, 0, RegLog::Verbose>;
-using Mach64BlkIoQ = AtiRegAperture<BlkIoReg::Id, MACH64_IO_ENDIAN, 0, RegLog::Quiet>;
+using Mach64BlkIo  = AtiRegAperture<BlkIoReg::Id, RegEndian::Swap, 0, RegLog::Verbose>;
+using Mach64BlkIoQ = AtiRegAperture<BlkIoReg::Id, RegEndian::Swap, 0, RegLog::Quiet>;
 
 /*
  * GX sparse I/O: byte offset = (SparseIoReg::Id << 10) from
@@ -62,7 +47,7 @@ struct AtiSparseIoAperture
     }
 };
 
-using Mach64SparseIo = AtiSparseIoAperture<MACH64_IO_ENDIAN, RegLog::Verbose>;
+using Mach64SparseIo = AtiSparseIoAperture<RegEndian::Swap, RegLog::Verbose>;
 
 static INLINE Mach64Mmio mach64Mmio(volatile UBYTE *base)
 {

@@ -151,7 +151,7 @@ void delayMilliSeconds(ULONG ms)
 // Taken from MMULib example code
 BOOL setCacheMode(struct BoardInfo *bi, APTR from, ULONG size, ULONG flags, ULONG mask)
 {
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     struct MMUContext *ctx, *sctx; /* default context, supervisorcontext */
     struct MinList *ctxl, *sctxl;

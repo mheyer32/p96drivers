@@ -483,7 +483,7 @@ void ASM Mach32Driver::setColorArray(__REGD0(UWORD startIndex), __REGD1(UWORD co
         return;
     }
 
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     const UBYTE bppDiff = 8 - bi->BitsPerCannon;
     Mach32IoQ dac       = ioQ();
@@ -589,7 +589,7 @@ BOOL ASM Mach32Driver::setInterrupt(__REGD0(BOOL state))
 {
     BoardInfo *bi = this;
     DRIVER_LOCALS(bi);
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     Disable();
 
     /* Do not touch GE_RESET[15:14] (0 = no change). */
@@ -630,7 +630,7 @@ ULONG __attribute__((noinline)) Mach32Driver::interruptServer()
     hardVBlankHandled++;
 #endif
     {
-        LOCAL_SYSBASE();
+        LOCAL_SYSBASE(bi);
         Cause(&bi->SoftInterrupt);
     }
     return 1;
@@ -1697,7 +1697,7 @@ static ULONG probeFramebufferSize(BoardInfo_t *bi)
 {
     volatile UBYTE *base = (volatile UBYTE *)bi->MemoryBase;
 
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     DRIVER_LOCALS(bi);
 
     ULONG lastSize = 0;
@@ -2184,7 +2184,7 @@ static void ASM SoftVBlankCount(__REGA1(ULONG *count))
 static void testVBlankPoll(BoardInfo_t *bi)
 {
     DRIVER_LOCALS(bi);
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     Disable();
     io.writeW(SUBSYS_CNTL, SUBSYS_VBLANK_ACK);
@@ -2236,7 +2236,7 @@ static void testVBlankPoll(BoardInfo_t *bi)
 /* Register PCI VBlank server, enable chip IRQ, count SoftInterrupts for 2s. */
 static void testVBlankInterrupt(BoardInfo_t *bi, struct pci_dev *board)
 {
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     softVBlankCount   = 0;
     hardVBlankEntries = 0;
     hardVBlankHandled = 0;

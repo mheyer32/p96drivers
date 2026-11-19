@@ -44,7 +44,7 @@ BOOL releaseCard(__REGA0(struct BoardInfo *bi))
 
 extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     CardData_t *cd = getCardData(bi);
 
     struct Library *OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION);
@@ -171,8 +171,8 @@ extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
 
     parseBlackLevelToolType(bi, ToolTypes);
 
-    LOCAL_OPENPCIBASE();
-    LOCAL_SYSBASE();
+    LOCAL_OPENPCIBASE(bi);
+    LOCAL_SYSBASE(bi);
 
     ULONG deviceId = 0, revision = 0;
     ULONG memory0 = NULL, memory0Size = 0, legacyIOBase = NULL;

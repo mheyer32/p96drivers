@@ -297,7 +297,7 @@ $(eval $(call make_exe,TestCybervision64,$(BUILDDIR)testcybervision64card/, ${CY
 
 ATIMACH64_COMMON_SRC = common.c \
                 mach64/mach64_common.cpp \
-                mach64/chip_mach64.cpp \
+                mach64/mach64_driver.cpp \
                 mach64/mach64_i2c.cpp \
                 mach64/mach64_eeprom.cpp \
                 edid_common.c \
@@ -310,7 +310,8 @@ ATIMACH64_GX_SRC = ${ATIMACH64_COMMON_SRC} \
 ATIMACH64_VT_SRC = ${ATIMACH64_COMMON_SRC} \
                 mach64/mach64GT.cpp \
                 mach64/mach64VT.cpp \
-                mach64/mach64GM.cpp
+                mach64/mach64GM.cpp \
+                mach64/mach64_vbios.cpp
 
 ATIMach64GX.chip : CFLAGS+=-DCONFIG_ATIMACH64_GX -include mach64/mach64config.h
 $(eval $(call make_driver,ATIMach64GX.chip,$(BUILDDIR)mach64gx/, ${ATIMACH64_GX_SRC}))
@@ -320,7 +321,7 @@ $(eval $(call make_driver,ATIMach64.chip,$(BUILDDIR)mach64/, ${ATIMACH64_VT_SRC}
 
 ATIMACH64CARD_SRC = common.c \
                     card_common.c \
-                    mach64/card_mach64.cpp \
+                    mach64/mach64_card.cpp \
                     mach64/mach64_common.cpp \
                     card_library.c
 
@@ -329,7 +330,7 @@ $(eval $(call make_driver,ATIMach64.card,$(BUILDDIR)mach64card/, ${ATIMACH64CARD
 
 ATIMACH64_TESTEXE_COMMON_SRC = common.c \
                         mach64/mach64_common.cpp \
-                        mach64/chip_mach64.cpp \
+                        mach64/mach64_driver.cpp \
                         mach64/mach64_i2c.cpp \
                         mach64/mach64_eeprom.cpp \
                         edid_common.c
@@ -341,7 +342,8 @@ ATIMACH64_GX_TESTEXE_SRC = ${ATIMACH64_TESTEXE_COMMON_SRC} \
 ATIMACH64_VT_TESTEXE_SRC = ${ATIMACH64_TESTEXE_COMMON_SRC} \
                         mach64/mach64GT.cpp \
                         mach64/mach64VT.cpp \
-                        mach64/mach64GM.cpp
+                        mach64/mach64GM.cpp \
+                        mach64/mach64_vbios.cpp
 
 TestMach64GX : CFLAGS+=-DCONFIG_ATIMACH64_GX -include mach64/mach64config.h
 $(eval $(call make_exe,TestMach64GX,$(BUILDDIR)testmach64gx/, ${ATIMACH64_GX_TESTEXE_SRC}))
@@ -352,7 +354,7 @@ $(eval $(call make_exe,TestMach64,$(BUILDDIR)testmach64/, ${ATIMACH64_VT_TESTEXE
 TestMach64Card : CFLAGS+=-DCONFIG_ATIMACH64 -include mach64/mach64config.h
 TESTATIMACH64CARD_SRC = common.c \
 						card_common.c \
-						mach64/card_mach64.cpp \
+						mach64/mach64_card.cpp \
 						mach64/mach64_common.cpp \
 						mach64/mach64_i2c.cpp \
 						edid_common.c

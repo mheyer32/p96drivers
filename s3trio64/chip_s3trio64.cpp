@@ -141,7 +141,7 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
 {
     DFUNC(VERBOSE, "\n");
 
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     ChipData_t *cd             = getChipData(bi);
     const struct svga_pll *pll = NULL;
@@ -272,7 +272,7 @@ void ASM S3Driver::setColorArray(__REGD0(UWORD startIndex), __REGD1(UWORD count)
     DFUNC(VERBOSE, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
 
     VgaIo vga = this->vga();
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     // FIXME: this should be a constant for the Trio, no need to make it dynamic
     const UBYTE bppDiff = 2;  // 8 - bi->BitsPerCannon;
@@ -652,7 +652,7 @@ void ASM S3Driver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
     vga.writeCR(0x34, 0x10);
 
     {
-        LOCAL_SYSBASE();
+        LOCAL_SYSBASE(bi);
         Disable();
 
         // Atttribute Controller Index register to AR11 while preserving "Bit 5 ENB
@@ -675,7 +675,7 @@ void ASM S3Driver::setPanning(__REGA1(UBYTE *memory), __REGD0(UWORD width), __RE
 {
     BoardInfo *bi = this;
     VgaIo vga     = this->vga();
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     DFUNC(INFO,
           "mem 0x%lx, width %ld, height %ld, xoffset %ld, yoffset %ld, "
@@ -1113,7 +1113,7 @@ BOOL ASM S3Driver::setInterrupt(__REGD0(BOOL state))
 {
     BoardInfo *bi = this;
     VgaIo vga     = this->vga();
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     Disable();
 
     UBYTE idx = vga.readB(VgaReg::CRTC_INDEX);
@@ -1355,7 +1355,7 @@ void ASM S3Driver::setSpriteImage(__REGD7(RGBFTYPE_REG fmt))
     }
 #endif
 
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     CacheClearU();
 
 #if HAS_ROXXLER
@@ -1369,7 +1369,7 @@ void ASM S3Driver::setSpriteColor(__REGD0(UBYTE index), __REGD1(UBYTE red), __RE
     BoardInfo *bi = this;
     DFUNC(VERBOSE, "Index %ld, Red %ld, Green %ld, Blue %ld\n", (ULONG)index, (ULONG)red, (ULONG)green, (ULONG)blue);
     VgaIo vga = this->vga();
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     if (index != 0 && index != 2) {
         return;
@@ -2793,7 +2793,7 @@ static UBYTE getMemoryType(struct BoardInfo *bi)
 /** Probe framebuffer at current bi->MemorySize: write/read high, low, zero; return TRUE if all match. */
 static BOOL testFramebufferReadWrite(struct BoardInfo *bi)
 {
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
     CacheClearU();
     volatile ULONG *highOffset = framebuffer + (bi->MemorySize >> 2) - 1;
@@ -3210,7 +3210,7 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #if OPENPCI
     ULONG revision;
     ULONG deviceId;
-    LOCAL_OPENPCIBASE();
+    LOCAL_OPENPCIBASE(bi);
     GetBoardAttrs(getCardData(bi)->board, PRM_Device, (ULONG)&deviceId, PRM_Revision, (ULONG)&revision, TAG_END);
 
     if ((cd->chipFamily = getChipFamily(deviceId, revision)) == UNKNOWN) {
@@ -3432,7 +3432,7 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 #ifdef DBG
 #if OPENPCI
         {
-            LOCAL_OPENPCIBASE();
+            LOCAL_OPENPCIBASE(bi);
             // LAW start address
             ULONG physAddress = (ULONG)pci_logic_to_physic_addr(bi->MemoryBase, getCardData(bi)->board);
             if (physAddress & 0x3FFFFF) {
@@ -3830,7 +3830,7 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
     mmio.writeW(CMD, CMD_ALWAYS | CMD_TYPE_NOP);
 
     {
-        LOCAL_SYSBASE();
+        LOCAL_SYSBASE(bi);
         // reserve memory for a 8x8 monochrome pattern
         // Unfortunately we're overallocating here for the largest pitch.
         ULONG patternSize      = 8 * 3200;  // 800 * 4 * 8
@@ -3959,7 +3959,7 @@ static void ASM SoftVBlankCount(__REGA1(ULONG *count))
  * PCI: pci_add_intserver; Zorro CV64: AddIntServer(INTB_PORTS). */
 static void testVBlankInterrupt(BoardInfo_t *bi)
 {
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     softVBlankCount = 0;
     BOOL addedHere  = FALSE;
 
@@ -3982,7 +3982,7 @@ static void testVBlankInterrupt(BoardInfo_t *bi)
 
     if (!(bi->CardFlags & CFF_VBLANK_INTSERVER)) {
 #if OPENPCI
-        LOCAL_OPENPCIBASE();
+        LOCAL_OPENPCIBASE(bi);
         if (!pci_add_intserver(&bi->HardInterrupt, getCardData(bi)->board)) {
             D(ERROR, "VBlank IRQ test: pci_add_intserver failed\n");
             return;
@@ -4014,7 +4014,7 @@ static void testVBlankInterrupt(BoardInfo_t *bi)
 
     if (addedHere) {
 #if OPENPCI
-        LOCAL_OPENPCIBASE();
+        LOCAL_OPENPCIBASE(bi);
         pci_rem_intserver(&bi->HardInterrupt, getCardData(bi)->board);
 #else
         RemIntServer(INTB_PORTS, &bi->HardInterrupt);

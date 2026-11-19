@@ -46,8 +46,8 @@ BOOL releaseCard(__REGA0(struct BoardInfo *bi))
 
 extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
-    LOCAL_SYSBASE();
-    CardData_t *cd = getCardData(bi);
+    LOCAL_SYSBASE(bi);
+    CardData *cd = getCardData(bi);
 
     struct Library *OpenPciBase = NULL;
     if (!(OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION))) {
@@ -103,7 +103,7 @@ extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
             continue;
         }
         D(INFO, "ATI device %lx revision %lx\n", foundDeviceId, revision);
-        ChipFamily_t chipFamily = getChipFamily(foundDeviceId);
+        ChipFamily chipFamily = getChipFamily(foundDeviceId);
         if (chipFamily == UNKNOWN) {
             D(WARN, "Unknown Chip family\n");
             continue;
@@ -163,7 +163,7 @@ extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
             continue;
         }
 
-        ChipFamily_t chipFamily = getChipFamily(otherDeviceId);
+        ChipFamily chipFamily = getChipFamily(otherDeviceId);
         if (chipFamily == UNKNOWN) {
             continue;
         }
@@ -186,7 +186,7 @@ extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
 
 extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
-    CardData_t *cd = getCardData(bi);
+    CardData *cd = getCardData(bi);
     if (!cd->board || !cd->OpenPciBase) {
         DFUNC(ERROR, "No board claimed\n");
         return FALSE;
@@ -194,8 +194,8 @@ extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
 
     parseBlackLevelToolType(bi, ToolTypes);
 
-    LOCAL_OPENPCIBASE();
-    LOCAL_SYSBASE();
+    LOCAL_OPENPCIBASE(bi);
+    LOCAL_SYSBASE(bi);
 
     ULONG deviceId = 0, revision = 0, memory0Size = 0, memory1Size = 0, memory2Size = 0;
     APTR memory0 = 0, memory1 = 0, memory2 = 0, legacyIOBase = 0;
@@ -209,7 +209,7 @@ extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
         return FALSE;
     }
 
-    ChipFamily_t chipFamily = getChipFamily(deviceId);
+    ChipFamily chipFamily = getChipFamily(deviceId);
 
     if (chipFamily == UNKNOWN) {
         DFUNC(ERROR, "Unknown Chip family\n");
@@ -232,7 +232,7 @@ extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
     }
 
     bi->ChipBase                  = ChipBase;
-    getCardData(bi)->legacyIOBase = (volatile UBYTE *)legacyIOBase + REGISTER_OFFSET;
+    getCardData(bi)->legacyIOBase = (volatile UBYTE *)legacyIOBase;
 
     {
         /* Preserve BusMaster and other command bits (do not replace the word). */
@@ -248,7 +248,7 @@ extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
     }
 
     // Block IO is in BAR1
-    bi->RegisterBase = (UBYTE *)memory1 + REGISTER_OFFSET;
+    bi->RegisterBase = (UBYTE *)memory1;
 
     // Framebuffer is at BAR0
     bi->MemoryBase = (UBYTE *)memory0;
@@ -257,13 +257,13 @@ extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
     if (memory2) {
         // Use Auxiliary Aperture for MMIO if available
         D(INFO, "Using auxiliary register aperture at 0x%08lx\n", memory2);
-        bi->MemoryIOBase = (UBYTE *)memory2 + 1024 + MMIOREGISTER_OFFSET;
+        bi->MemoryIOBase = (UBYTE *)memory2 + 1024;
         D(INFO, "MMIO base set to: 0x%08lx\n", bi->MemoryIOBase);
         setCacheMode(bi, memory2, memory2Size, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
     } else {
         ULONG mmioOff = mach64MmioOffsetInBar0(memory0Size);
         D(INFO, "Using BAR0 MMIO at +0x%lx (BAR0 size %ld)\n", mmioOff, memory0Size);
-        bi->MemoryIOBase = (UBYTE *)memory0 + mmioOff + MMIOREGISTER_OFFSET;
+        bi->MemoryIOBase = (UBYTE *)memory0 + mmioOff;
         setCacheMode(bi, (UBYTE *)memory0 + mmioOff, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
     }
 

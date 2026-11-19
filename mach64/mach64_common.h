@@ -3,13 +3,10 @@
 
 #include "common.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 struct BoardInfo;
+class Mach64Driver;
 
-typedef enum __attribute__((packed)) ChipFamily
+enum ChipFamily : UBYTE
 {
     UNKNOWN,
     MACH64GX,
@@ -17,9 +14,9 @@ typedef enum __attribute__((packed)) ChipFamily
     MACH64VT,  // dual 8MB LE+BE (same aperture layout as CT)
     MACH64GT,
     MACH64GM  // Rage XL / XC (GM/GN/GO/GL/GR/GS): memory PLL from option ROM
-} ChipFamily_t;
+};
 
-STATIC_ASSERT(sizeof(ChipFamily_t) == 1, chipfamily_is_byte);
+STATIC_ASSERT(sizeof(ChipFamily) == 1, chipfamily_is_byte);
 
 /* Register dword indices: MmioReg::Id / BlkIoReg::Id / SparseIoReg::Id (mach64_regs.hpp). */
 #define CLOCK_CNTL_ADDR (1)
@@ -182,7 +179,15 @@ STATIC_ASSERT(sizeof(ChipFamily_t) == 1, chipfamily_is_byte);
 #define BUS_HOST_ERR_INT    BIT(23)  // only in CT, not GT
 #define BUS_HOST_ERR_AK     BIT(23)  // only in CT, not GT.  INT and ACK are the same bit, distiguished by R/W operation
 
-typedef struct CardData
+/* GT/GM MMIO block1 / engine setup. */
+#define GUI_CNTL               (0x5E - 0x100)
+#define CMDFIFO_SIZE_MODE_MASK (0x3)
+#define CMDFIFO_SIZE_MODE(x)   ((x) & 0x3)
+#define DP_SET_GUI_ENGINE      0xBF
+#define SCALE_3D_CNTL          0x7f
+#define SETUP_CNTL             (0xc1 - 0x100)
+
+struct CardData
 {
     volatile UBYTE *legacyIOBase;
     struct Library *OpenPciBase;
@@ -193,17 +198,17 @@ typedef struct CardData
     APTR ASM (*AllocCardMemDefault)(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force),
                                     __REGD2(BOOL system), __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi),
                                     __REGD7(RGBFTYPE));
-} CardData_t;
+};
 
-STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);
+STATIC_ASSERT(sizeof(CardData) < SIZEOF_MEMBER(BoardInfo_t, CardData), check_carddata_size);
 
-typedef struct PLL
+struct PLL
 {
     const BYTE *multipliers;
     BYTE numMultipliers;
     UWORD maxVCO;  // in 10Khz
     UWORD minVCO;  // in 10Khz
-} PLL_t;
+};
 
 enum PLLType
 {
@@ -217,13 +222,12 @@ enum PLLType
     PLL_PM_DYN_CLK,
 };
 
-typedef struct PLLValue
+struct PLLValue
 {
     UBYTE Pidx;  // index into the postDividers table
     UBYTE N;     // feedback divider
-} PLLValue_t;
+};
 
-#ifdef __cplusplus
 namespace PllReg {
 enum Id : UBYTE
 {
@@ -264,7 +268,6 @@ enum Id : UBYTE
     PLL_PM_DYN_CLK_CNTL  = 42,  // GT
 };
 }
-#endif
 
 #define PLL_ADDR_MASK      (0x3F << 10)  // 6 bits on GT, used to be less on older chips
 #define PLL_ADDR(x)        ((ULONG)(x) << 10)
@@ -277,33 +280,28 @@ enum Id : UBYTE
 #define CLOCK_STROBE       BIT(6)
 #define CLOCK_STROBE_MASK  BIT(6)
 
-#ifdef __cplusplus
-extern void WritePLL(struct BoardInfo *bi, PllReg::Id pllAddr, UBYTE pllDataMask, UBYTE pllData);
-extern UBYTE ReadPLL(struct BoardInfo *bi, PllReg::Id pllAddr);
-#else
-extern void WritePLL(struct BoardInfo *bi, UBYTE pllAddr, UBYTE pllDataMask, UBYTE pllData);
-extern UBYTE ReadPLL(struct BoardInfo *bi, UBYTE pllAddr);
-#endif
+void WritePLL(Mach64Driver &drv, PllReg::Id pllAddr, UBYTE pllDataMask, UBYTE pllData);
+UBYTE ReadPLL(Mach64Driver &drv, PllReg::Id pllAddr);
 
-#define WRITE_PLL(pllAddr, data)            WritePLL(drv, (pllAddr), 0xFF, (data))
-#define WRITE_PLL_MASK(pllAddr, mask, data) WritePLL(drv, (pllAddr), (mask), (data))
-#define READ_PLL(pllAddr)                   ReadPLL(drv, (pllAddr))
+#define WRITE_PLL(pllAddr, data)            WritePLL(*drv, (pllAddr), 0xFF, (data))
+#define WRITE_PLL_MASK(pllAddr, mask, data) WritePLL(*drv, (pllAddr), (mask), (data))
+#define READ_PLL(pllAddr)                   ReadPLL(*drv, (pllAddr))
 
-extern void WriteDefaultRegList(const struct BoardInfo *bi, const UWORD *defaultRegs, int numRegs);
-extern void InitVClockPLLTable(struct BoardInfo *bi, const BYTE *multipliers, BYTE numMultipliers);
+void WriteDefaultRegList(Mach64Driver &drv, const UWORD *defaultRegs, int numRegs);
+void InitVClockPLLTable(Mach64Driver &drv, const BYTE *multipliers, BYTE numMultipliers);
 
-extern ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *multipliers, WORD numMultipliers,
-                              PLLValue_t *pllValues);
-extern ULONG computeFrequencyKhz10(UWORD RefFreq, UWORD FBDiv, UWORD RefDiv, UBYTE PostDiv);
-extern ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues,
-                                               const UBYTE *postDivMultipliers);
+ULONG computePLLValues(const Mach64Driver &drv, ULONG freqKhz10, const UBYTE *multipliers, WORD numMultipliers,
+                       PLLValue *pllValues);
+ULONG computeFrequencyKhz10(UWORD RefFreq, UWORD FBDiv, UWORD RefDiv, UBYTE PostDiv);
+ULONG computeFrequencyKhz10FromPllValue(const Mach64Driver &drv, const PLLValue *pllValues,
+                                        const UBYTE *postDivMultipliers);
 
-extern void ResetEngine(const BoardInfo_t *bi);
+void ResetEngine(Mach64Driver &drv);
 
-extern ChipFamily_t getChipFamily(UWORD deviceId);
-extern const char *getChipFamilyName(ChipFamily_t family);
+ChipFamily getChipFamily(UWORD deviceId);
+const char *getChipFamilyName(ChipFamily family);
 
-static INLINE BOOL mach64ChipFamilySupported(ChipFamily_t family)
+static INLINE BOOL mach64ChipFamilySupported(ChipFamily family)
 {
 #if MACH64_PCI_RETRY
     return family == MACH64VT || family == MACH64GT || family == MACH64GM;
@@ -320,13 +318,6 @@ static INLINE ULONG mach64MmioOffsetInBar0(ULONG bar0Size)
     return aper - 1024UL;
 }
 
-/* waitFifo is Mach64Driver::waitFifo (mach64_driver.hpp). */
-
-UBYTE getAsicVersion(const BoardInfo_t *bi);
-BOOL isAsiclessThanV4(const BoardInfo_t *bi);
-
-#ifdef __cplusplus
-}
-#endif
+UBYTE getAsicVersion(const Mach64Driver &drv);
 
 #endif  // MACH64_COMMON_H

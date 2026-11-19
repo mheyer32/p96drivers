@@ -17,16 +17,18 @@
  * Pass Mach64Driver* into I2C/RAMDAC helpers. Build with -ffunction-sections and
  * link with --gc-sections so out-of-line method bodies unused after trampoline
  * inlining can be dropped.
+ *
+ * Qualify ::ChipData — BoardInfo has a member named ChipData.
  */
 class Mach64Driver : public P96Driver
 {
    public:
     /* --- regular members --- */
-    ChipData_t *chip() { return getChipData(this); }
-    const ChipData_t *chip() const { return getConstChipData(this); }
+    ::ChipData &chip() { return *getChipData(this); }
+    const ::ChipData &chip() const { return *getConstChipData(this); }
 
-    ChipSpecific_t *chipSpecific() { return chip()->chipSpecific; }
-    const ChipSpecific_t *chipSpecific() const { return chip()->chipSpecific; }
+    ::ChipSpecific &chipSpecific() { return *chip().chipSpecific; }
+    const ::ChipSpecific &chipSpecific() const { return *chip().chipSpecific; }
 
     Mach64Mmio mmio() { return Mach64Mmio(mmioBase()); }
     Mach64Mmio mmio() const { return Mach64Mmio(mmioBase()); }
@@ -38,10 +40,10 @@ class Mach64Driver : public P96Driver
     Mach64BlkIoQ blkIoQ() const { return Mach64BlkIoQ(ioBase()); }
 
     /* GX sparse CONFIG_CNTL etc.: legacyIOBase + ioSparseBase, id << 10. */
-    Mach64SparseIo sparseIo() { return Mach64SparseIo(getCardData(this)->legacyIOBase + chip()->ioSparseBase); }
+    Mach64SparseIo sparseIo() { return Mach64SparseIo(getCardData(this)->legacyIOBase + chip().ioSparseBase); }
     Mach64SparseIo sparseIo() const
     {
-        return Mach64SparseIo(getConstCardData(this)->legacyIOBase + chip()->ioSparseBase);
+        return Mach64SparseIo(getConstCardData(this)->legacyIOBase + chip().ioSparseBase);
     }
 
     /* CONFIG_CNTL has no MMIO alias (RRG §1-3): block I/O if BAR1, else sparse. */
@@ -90,9 +92,9 @@ class Mach64Driver : public P96Driver
         /* FIFO_STAT: 0 = empty; ones pack from LSB. entries free ⇒ top entries bits clear. */
         UWORD mask = 0xffffU << (16 - entries);
 
-        ChipData_t *cd = chip();
-        if (!(cd->fifoSlotsCached & mask)) {
-            cd->fifoSlotsCached = fifoStatConsume(cd->fifoSlotsCached, entries);
+        ::ChipData &cd = chip();
+        if (!(cd.fifoSlotsCached & mask)) {
+            cd.fifoSlotsCached = fifoStatConsume(cd.fifoSlotsCached, entries);
             return;
         }
 
@@ -100,7 +102,7 @@ class Mach64Driver : public P96Driver
         do {
         } while (mmio.testW(MmioReg::FIFO_STAT, mask));
 
-        cd->fifoSlotsCached = fifoStatConsume(mmio.readW(MmioReg::FIFO_STAT), entries);
+        cd.fifoSlotsCached = fifoStatConsume(mmio.readW(MmioReg::FIFO_STAT), entries);
 #endif
     }
 
@@ -154,22 +156,6 @@ class Mach64Driver : public P96Driver
     void ASM waitBlitter();
     APTR ASM allocCardMem(__REGD0(ULONG size), __REGD1(BOOL force), __REGD2(BOOL system), __REGD3(ULONG bytesperrow),
                           __REGA1(struct ModeInfo *mi), __REGD7(RGBFTYPE_REG format));
-
-    void ASM setDAC_GX(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format));
-    void ASM setDAC_RGB514(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format));
-    void ASM setClock_GX();
-    void ASM setClock_RGB514();
-    void ASM setColorArray_RGB514(__REGD0(UWORD startIndex), __REGD1(UWORD count));
-    void ASM setSpriteColor_GX(__REGD0(UBYTE index), __REGD1(UBYTE red), __REGD2(UBYTE green), __REGD3(UBYTE blue),
-                               __REGD7(RGBFTYPE_REG fmt));
-    void ASM setSpriteColor_RGB514(__REGD0(UBYTE index), __REGD1(UBYTE red), __REGD2(UBYTE green), __REGD3(UBYTE blue),
-                                   __REGD7(RGBFTYPE_REG fmt));
-    void ASM setSpriteImage_RGB514(__REGD7(RGBFTYPE_REG fmt));
-    void ASM setSpritePosition_RGB514(__REGD0(WORD xpos), __REGD1(WORD ypos), __REGD7(RGBFTYPE_REG fmt));
-    BOOL ASM setSprite_RGB514(__REGD0(BOOL activate), __REGD7(RGBFTYPE_REG RGBFormat));
-    void ASM setClock_CT();
-    void ASM setClock_VT();
-    void ASM setClock_GT();
 };
 
 static_assert(sizeof(Mach64Driver) == sizeof(BoardInfo), "Mach64Driver must not grow BoardInfo");
@@ -185,6 +171,16 @@ static INLINE const Mach64Driver *asMach64(const BoardInfo *bi)
     return static_cast<const Mach64Driver *>(bi);
 }
 
+static INLINE Mach64Driver *asMach64(BoardInfo &bi)
+{
+    return static_cast<Mach64Driver *>(&bi);
+}
+
+static INLINE const Mach64Driver *asMach64(const BoardInfo &bi)
+{
+    return static_cast<const Mach64Driver *>(&bi);
+}
+
 static INLINE Mach64Driver *asMach64(P96Driver *drv)
 {
     return static_cast<Mach64Driver *>(drv);
@@ -195,13 +191,38 @@ static INLINE const Mach64Driver *asMach64(const P96Driver *drv)
     return static_cast<const Mach64Driver *>(drv);
 }
 
-/* Bind drv/mmio/cd from BoardInfo* or Mach64Driver* (this). */
+static INLINE Mach64Driver *asMach64(Mach64Driver &drv)
+{
+    return &drv;
+}
+
+static INLINE const Mach64Driver *asMach64(const Mach64Driver &drv)
+{
+    return &drv;
+}
+
+static INLINE Mach64Driver *asMach64(Mach64Driver *drv)
+{
+    return drv;
+}
+
+static INLINE const Mach64Driver *asMach64(const Mach64Driver *drv)
+{
+    return drv;
+}
+
+/* Bind drv/mmio/cd from BoardInfo*, Mach64Driver*, or Mach64Driver&. */
 #define DRIVER_LOCALS(self_)             \
     Mach64Driver *drv = asMach64(self_); \
     Mach64MmioQ mmio  = drv->mmioQ();    \
-    ChipData_t *cd    = drv->chip()
+    ::ChipData &cd    = drv->chip()
 
-static INLINE void waitFifo(BoardInfo_t *bi, UBYTE entries)
+static INLINE void waitFifo(Mach64Driver &drv, UBYTE entries)
+{
+    drv.waitFifo(entries);
+}
+
+static INLINE void waitFifo(BoardInfo *bi, UBYTE entries)
 {
     asMach64(bi)->waitFifo(entries);
 }

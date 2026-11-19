@@ -1,10 +1,26 @@
 #include "mach64GT.h"
-#include "chip_mach64.h"
+#include "mach64_chip.h"
 #include "common.h"
 #include "mach64_common.h"
 
 using namespace MmioReg;
 using namespace PllReg;
+
+#define MEM_SDRAM_RESET_MASK BIT(1)
+#define MEM_SDRAM_RESET      BIT(1)
+#define MEM_CYC_TEST_MASK    (0x3 << 2)
+#define MEM_CYC_TEST(x)      ((x) << 2)
+#define MEM_ALL_PAGE_DIS_MASK BIT(30)
+#define MEM_ALL_PAGE_DIS     BIT(30)
+
+#define DSP_XCLKS_PER_QW(x)   (x)
+#define DSP_XCLKS_PER_QW_MASK (0x3FFF)
+#define DSP_LOOP_LATENCY(x)   ((x) << 16)
+#define DSP_PRECISION(x)      ((x) << 20)
+#define DSP_OFF(x)            (x)
+#define DSP_OFF_MASK          (0x7FF)
+#define DSP_ON(x)             ((x) << 16)
+#define DSP_ON_MASK           (0x7FF << 16)
 
 #define BUS_APER_REG_DIS_GT      BIT(4)
 #define BUS_APER_REG_DIS_GT_MASK BIT(4)
@@ -19,7 +35,6 @@ using namespace PllReg;
 #ifndef _Static_assert
 #define _Static_assert static_assert
 #endif
-extern "C" {
 #endif
 
 
@@ -118,7 +133,7 @@ const UBYTE g_VPLLPostDividerCodes[] = {
     // *1,    *2,    *3,    *4,    *6,    *8,   *12
     0b000, 0b001, 0b100, 0b010, 0b110, 0b011, 0b111};
 
-static ULONG computeVCLKFrequencyKhz10_GT(const struct BoardInfo *bi, const struct PLLValue *pllValues)
+static ULONG computeVCLKFrequencyKhz10_GT(const Mach64Driver &bi, const struct PLLValue *pllValues)
 {
     return computeFrequencyKhz10FromPllValue(bi, pllValues, g_VPLLPostDivider);
 }
@@ -135,12 +150,12 @@ static const UBYTE g_SPLLPostDividerCodes[] = {
     // *1,    *2,    *4,    *8
     0b000, 0b001, 0b010, 0b011};
 
-ULONG computeSPLLValues(const BoardInfo_t *bi, ULONG freqKhz10, PLLValue_t *pllValues)
+ULONG computeSPLLValues(const Mach64Driver &bi, ULONG freqKhz10, PLLValue *pllValues)
 {
     return computePLLValues(bi, freqKhz10, g_SPLLPostDivider, ARRAY_SIZE(g_SPLLPostDivider), pllValues);
 }
 
-static void initSecondaryPLL(BoardInfo_t *bi, UWORD freqKhz10)
+static void initSecondaryPLL(Mach64Driver &bi, UWORD freqKhz10)
 {
     DFUNC(VERBOSE, "Setting GUI Engine Clock to %ld0 KHz\n", freqKhz10);
     DRIVER_LOCALS(bi);
@@ -151,7 +166,7 @@ static void initSecondaryPLL(BoardInfo_t *bi, UWORD freqKhz10)
     if (freqKhz10 > 8300) {
         freqKhz10 = 8300;
     }
-    PLLValue_t pllValues;
+    PLLValue pllValues;
     if (!computeSPLLValues(bi, freqKhz10, &pllValues)) {
         DFUNC(ERROR, "Failed to compute SPLL values\n");
         return;
@@ -178,7 +193,7 @@ static void initSecondaryPLL(BoardInfo_t *bi, UWORD freqKhz10)
     WRITE_PLL(PLL_SPLL_CNTL2, postDivCode << 4);
 }
 
-void lockDLL(BoardInfo_t *bi)
+void lockDLL(Mach64Driver &bi)
 {
     // When using SDRAM/SGRAM, the DLL phase locks the external version of the
     // memory clock to the internal XCLK
@@ -241,7 +256,7 @@ void lockDLL(BoardInfo_t *bi)
 #define PLL_SLEEP      BIT(0)
 #define PLL_SLEEP_MASK BIT(0)
 
-void SetMemoryClock_GT(BoardInfo_t *bi, UWORD freqKhz10)
+void SetMemoryClock_GT(Mach64Driver &bi, UWORD freqKhz10)
 {
     DFUNC(VERBOSE, "Setting Memory Clock to %ld0 KHz\n", (ULONG)freqKhz10);
     DRIVER_LOCALS(bi);
@@ -253,7 +268,7 @@ void SetMemoryClock_GT(BoardInfo_t *bi, UWORD freqKhz10)
     if (freqKhz10 > 10000) {
         freqKhz10 = 10000;
     }
-    PLLValue_t pllValues;
+    PLLValue pllValues;
     if (!computePLLValues(bi, freqKhz10, g_MPLLPostDividers, ARRAY_SIZE(g_MPLLPostDividers), &pllValues)) {
         DFUNC(ERROR, "Failed to compute PLL values\n");
         return;
@@ -289,9 +304,9 @@ void SetMemoryClock_GT(BoardInfo_t *bi, UWORD freqKhz10)
     // XCLK = PLLMCLK / x
     WRITE_PLL_MASK(PLL_EXT_CNTL, XCLK_SRC_SEL_MASK, XCLK_SRC_SEL(g_MPLLPostDividerCodes[pllValues.Pidx]));
 
-    ChipSpecific_t *cs = getChipSpecific(bi);
-    cs->mclkFBDiv      = pllValues.N;
-    cs->mclkPostDiv    = g_MPLLPostDividers[pllValues.Pidx];
+    ChipSpecific &cs = getChipSpecific(bi);
+    cs.mclkFBDiv      = pllValues.N;
+    cs.mclkPostDiv    = g_MPLLPostDividers[pllValues.Pidx];
 
     delayMilliSeconds(5);
 
@@ -299,7 +314,7 @@ void SetMemoryClock_GT(BoardInfo_t *bi, UWORD freqKhz10)
     return;
 }
 
-void initClocks(struct BoardInfo *bi)
+void initClocks(Mach64Driver &bi)
 {
     DFUNC(VERBOSE, "\n");
     DRIVER_LOCALS(bi);
@@ -308,10 +323,10 @@ void initClocks(struct BoardInfo *bi)
     WRITE_PLL(PLL_VPLL_CNTL, 0xD5);
     WRITE_PLL(PLL_VCLK_CNTL, 0x00);  // VLCK_SRC_SEL = 0b00 : VCLK set to CPUCLK
     WRITE_PLL(PLL_VFC_CNTL, 0x1B);
-    ChipSpecific_t *cs = getChipSpecific(bi);
-    if (!cs->referenceDivider)
-        cs->referenceDivider = 0x36;
-    WRITE_PLL(PLL_REF_DIV, cs->referenceDivider);
+    ChipSpecific &cs = getChipSpecific(bi);
+    if (!cs.referenceDivider)
+        cs.referenceDivider = 0x36;
+    WRITE_PLL(PLL_REF_DIV, cs.referenceDivider);
 
     WRITE_PLL(PLL_EXT_CNTL, 0x01);  // XCLK_SRC_SEL = 0b000 : XCLK set to MPLL/2
 
@@ -350,19 +365,19 @@ static void pulseSdramReset(Mach64BlkIo blk)
     blk.writeL(BlkIoReg::EXT_MEM_CNTL, ext);
 }
 
-static BOOL probeMemorySize(BoardInfo_t *bi)
+static BOOL probeMemorySize(Mach64Driver &bi)
 {
     DFUNC(VERBOSE, "\n");
 
     Mach64BlkIo blk = asMach64(bi)->blkIo();
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     static const ULONG memorySizes[] = {0x800000, 0x600000, 0x400000, 0x200000, 0x100000};
     static const ULONG memoryCodes[] = {11, 9, 7, 3, 1};
     /* ROW bits 2:0, GROUP bits 9:8 (COL=0). This board previously probed 6MB at 0x202. */
     static const ULONG addrConfigs[] = {0x00000202, 0x00000101, 0x00000000};
 
-    volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
+    volatile ULONG *framebuffer = (volatile ULONG *)bi.MemoryBase;
     framebuffer[0]              = 0;
 
     ULONG bestSize = 0;
@@ -414,7 +429,7 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
     blk.writeL(BlkIoReg::MEM_ADDR_CONFIG, bestAddr);
     pulseSdramReset(blk);
     blk.writeMaskL(BlkIoReg::MEM_CNTL, 0xF, bestCode);
-    bi->MemorySize = bestSize;
+    bi.MemorySize = bestSize;
     /* GM72V161621: 512K×16×2bank SDRAM. Keep BIOS EXT_MEM (GCMRS=4, ALL_PAGE_DIS). */
     blk.writeMaskL(BlkIoReg::CONFIG_STAT0, CFG_MEM_TYPE_CT_MASK, CFG_MEM_TYPE_CT(CFG_MEM_TYPE_VT_SDRAM));
     D(VERBOSE, "Using size %ld MEM_ADDR_CONFIG=0x%lx MEM_TYPE=SDRAM\n\n", bestSize, bestAddr);
@@ -510,7 +525,7 @@ void print_EXT_MEM_CNTL(EXT_MEM_CNTL_t ext_mem_cntl)
     D(ALWAYS, "------------------------------\n");
 }
 
-static void resetCRTC(BoardInfo_t *bi)
+static void resetCRTC(Mach64Driver &bi)
 {
     Mach64BlkIo blk = asMach64(bi)->blkIo();
 
@@ -530,20 +545,20 @@ static void resetCRTC(BoardInfo_t *bi)
 #define ALT_VCLK0_POST      BIT(4)
 #define ALT_VCLK0_POST_MASK BIT(4)
 
-void ASM Mach64Driver::setClock_GT()
+void ASM SetClock_GT(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(VERBOSE, "\n");
-    DRIVER_LOCALS(this);
+    DRIVER_LOCALS(bi);
 
-    struct ModeInfo *mi = ModeInfo;
+    struct ModeInfo *mi = bi->ModeInfo;
     ULONG pixelClock    = mi->PixelClock;
 
 #ifdef DBG
-    const ChipSpecific_t *cs = getConstChipSpecific(this);
-    UBYTE maxPost            = g_VPLLPostDivider[ARRAY_SIZE(g_VPLLPostDivider) - 1];
-    ULONG minVClkKhz10       = 2 * cs->referenceFrequency * 128 / (cs->referenceDivider * maxPost);
-    if (cs->minPClock && cs->minPClock > minVClkKhz10)
-        minVClkKhz10 = cs->minPClock;
+    const ChipSpecific &cs = getConstChipSpecific(bi);
+    UBYTE maxPost          = g_VPLLPostDivider[ARRAY_SIZE(g_VPLLPostDivider) - 1];
+    ULONG minVClkKhz10     = 2 * cs.referenceFrequency * 128 / (cs.referenceDivider * maxPost);
+    if (cs.minPClock && cs.minPClock > minVClkKhz10)
+        minVClkKhz10 = cs.minPClock;
 
     D(CHATTY, "minimum VCLK %ldHz\n", minVClkKhz10 * 10000);
     if (pixelClock < minVClkKhz10 * 10000) {
@@ -551,10 +566,9 @@ void ASM Mach64Driver::setClock_GT()
         return;
     }
 
-    D(CHATTY, "SetClock: PixelClock %ldHz -> %ldHz \n", ModeInfo->PixelClock, pixelClock);
+    D(CHATTY, "SetClock: PixelClock %ldHz -> %ldHz \n", bi->ModeInfo->PixelClock, pixelClock);
 #endif
 
-    // Temporarily select CPUCLK as VCLK source, bring VPLL into reset
     WRITE_PLL_MASK(PLL_VCLK_CNTL, VCLK_SRC_SEL_MASK, VCLK_SRC_SEL(0b00));
     delayMilliSeconds(5);
     WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, PLL_PRESET);
@@ -569,7 +583,7 @@ void ASM Mach64Driver::setClock_GT()
 
     WRITE_PLL_MASK(PLL_EXT_CNTL, ALT_VCLK0_POST_MASK, (postDivCode & 0x4) ? ALT_VCLK0_POST : 0);
 
-    AdjustDSP(this, mi->pll1.Numerator, g_VPLLPostDivider[mi->pll2.Denominator]);
+    AdjustDSP(*drv, mi->pll1.Numerator, g_VPLLPostDivider[mi->pll2.Denominator]);
 
     WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, 0);
     delayMilliSeconds(5);
@@ -578,12 +592,7 @@ void ASM Mach64Driver::setClock_GT()
     delayMilliSeconds(5);
 }
 
-static void ASM SetClock_GT(__REGA0(struct BoardInfo *bi))
-{
-    asMach64(bi)->setClock_GT();
-}
-
-BOOL InitMach64GT(struct BoardInfo *bi)
+BOOL InitMach64GT(Mach64Driver &bi)
 {
     DFUNC(VERBOSE, "ASIC Version: %ld\n", (ULONG)getAsicVersion(bi));
 
@@ -641,9 +650,9 @@ BOOL InitMach64GT(struct BoardInfo *bi)
 
     resetCRTC(bi);
 
-    ChipSpecific_t *cs       = getChipSpecific(bi);
-    cs->computeVCLKFrequency = computeVCLKFrequencyKhz10_GT;
-    bi->SetClock             = SetClock_GT;
+    ChipSpecific &cs = getChipSpecific(bi);
+    cs.computeVCLKFrequency = computeVCLKFrequencyKhz10_GT;
+    bi.SetClock             = SetClock_GT;
 
     InitVClockPLLTable(bi, reinterpret_cast<const BYTE *>(g_VPLLPostDivider), ARRAY_SIZE(g_VPLLPostDivider));
 
@@ -659,16 +668,16 @@ BOOL InitMach64GT(struct BoardInfo *bi)
     return TRUE;
 }
 
-void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
+void AdjustDSP(Mach64Driver &bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
 {
     DFUNC(VERBOSE, "vFBDiv: %ld, vPostDiv: %ld, bpp: %ld\n", (ULONG)vclkFBDiv, (ULONG)vclkPostDiv,
-          (ULONG)bi->ModeInfo->Depth);
+          (ULONG)bi.ModeInfo->Depth);
 
     Mach64BlkIo blk          = asMach64(bi)->blkIo();
-    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    const ChipSpecific &cs = getConstChipSpecific(bi);
 
     // Bits per pixel
-    ULONG bpp = bi->ModeInfo->Depth;
+    ULONG bpp = bi.ModeInfo->Depth;
 
     // Width of display FIFO entry
     const ULONG w = 64;  // for extended , using internal DAC
@@ -683,8 +692,8 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     // FreqX = 2 * R * Nx / (M * Px)
     // Reference Freq. R and M are shared between XCLK and VCLCK, thus
     // Ratio x = XCLK / VCLK = (Nx/Px) / (Nv/Pv) = Nx * Pv / Px * Nv
-    ULONG xclkFBDiv    = cs->mclkFBDiv;
-    ULONG xclkPostDiv  = cs->mclkPostDiv;
+    ULONG xclkFBDiv    = cs.mclkFBDiv;
+    ULONG xclkPostDiv  = cs.mclkPostDiv;
     ULONG xNumerator   = xclkFBDiv * vclkPostDiv * w;
     ULONG xDenominator = vclkFBDiv * xclkPostDiv * bpp;
 
@@ -707,8 +716,8 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     }
 
     D(VERBOSE, "MCLK %ld0Khz, VCLK %ld0Khz, %ld numerator %ld denominator, x: %ld\n",
-      computeFrequencyKhz10(cs->referenceFrequency, xclkFBDiv, cs->referenceDivider, xclkPostDiv),
-      computeFrequencyKhz10(cs->referenceFrequency, vclkFBDiv, cs->referenceDivider, vclkPostDiv), xNumerator,
+      computeFrequencyKhz10(cs.referenceFrequency, xclkFBDiv, cs.referenceDivider, xclkPostDiv),
+      computeFrequencyKhz10(cs.referenceFrequency, vclkFBDiv, cs.referenceDivider, vclkPostDiv), xNumerator,
       xDenominator, xNumerator / xDenominator);
 
     // Minimum number of bits to hold integer portion of x
@@ -747,7 +756,7 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     ULONG roff = ceilDivu(roffNum << shift, xDenominator);
 
     ULONG memType = blk.readL(BlkIoReg::CONFIG_STAT0) & CFG_MEM_TYPE_CT_MASK;
-    BOOL smallMem = bi->MemorySize <= 0x100000;
+    BOOL smallMem = bi.MemorySize <= 0x100000;
     /* DSP_LOOP_LATENCY programmed as l+2 (DISP_ACTIVE resync). Values chosen so
      * the register matches the CT/VT/GT+ table for each MEM_TYPE. */
     ULONG l;
@@ -817,6 +826,3 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
     blk.writeL(BlkIoReg::DSP_ON_OFF, DSP_OFF(dspOff) | DSP_ON(dspOn));
 }
 
-#ifdef __cplusplus
-}
-#endif

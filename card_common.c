@@ -52,7 +52,7 @@ ULONG parseHexOrDecimal(CONST_STRPTR str)
 BOOL parseToolTypes(struct BoardInfo *bi, CONST_STRPTR *ToolTypes, ULONG *deviceId, ULONG *vendorId, ULONG *slot,
                     ULONG *bus)
 {
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     struct Library *IconBase = OpenLibrary("icon.library", 0);
     if (!IconBase) {
@@ -100,7 +100,7 @@ BOOL parseToolTypes(struct BoardInfo *bi, CONST_STRPTR *ToolTypes, ULONG *device
 
 void parseBlackLevelToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes)
 {
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     if (!ToolTypes)
         return;
@@ -129,7 +129,7 @@ void parseBlackLevelToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes)
 
 BOOL parseInterruptToolType(struct BoardInfo *bi, CONST_STRPTR *ToolTypes)
 {
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     if (!ToolTypes)
         return TRUE;
@@ -197,7 +197,7 @@ void removePciVBlankInterrupt(struct BoardInfo *bi)
 void releasePciCard(struct BoardInfo *bi)
 {
     struct PciCardData *cd = (struct PciCardData *)getCardData(bi);
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     if (bi->ChipBase) {
         CloseLibrary((struct Library *)bi->ChipBase);

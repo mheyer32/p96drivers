@@ -3,14 +3,8 @@
 
 #include "common.h"
 
-#ifdef __cplusplus
-extern "C" {
+class Mach64Driver;
+
+BOOL queryEDID(Mach64Driver &bi);
+
 #endif
-
-BOOL queryEDID(struct BoardInfo *bi);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif  // MACH64_I2C_H

@@ -3,16 +3,8 @@
 
 #include <boardinfo.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+class Mach64Driver;
 
-/* Run the card option ROM, then continue from the state it left. */
-BOOL mach64GMRunBios(struct BoardInfo *bi);
-BOOL InitMach64GM(struct BoardInfo *bi);
-
-#ifdef __cplusplus
-}
-#endif
+BOOL InitMach64GM(Mach64Driver &bi);
 
 #endif

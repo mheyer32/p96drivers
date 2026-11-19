@@ -54,7 +54,7 @@ using namespace VgaReg;
 // Helper function to probe framebuffer memory size
 static ULONG probeFramebufferSize(BoardInfo_t *bi)
 {
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     DFUNC(INFO, "Probing framebuffer memory size...\n");
 
@@ -155,7 +155,7 @@ static BOOL testMMIO(BoardInfo_t *bi)
 {
     DFUNC(INFO, "Testing MMIO access...\n");
 
-    LOCAL_OPENPCIBASE();
+    LOCAL_OPENPCIBASE(bi);
 
     // Get device ID from PCI configuration space
     ULONG pciDeviceId = 0;
@@ -247,7 +247,7 @@ void initPixelClockPLLTable(BoardInfo_t *bi)
 {
     DFUNC(VERBOSE, "\n");
 
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     ChipData_t *cd = getChipData(bi);
 
@@ -365,7 +365,7 @@ BOOL ASM At3dDriver::setDisplay(__REGD0(BOOL state))
     BoardInfo *bi = this;
     // Clocking Mode Register (ClK_MODE) (SR1)
     VgaIo vga = this->vga();
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     DFUNC(VERBOSE, " state %ld\n", (ULONG)state);
 
@@ -1025,7 +1025,7 @@ void ASM At3dDriver::setColorArray(__REGD0(UWORD startIndex), __REGD1(UWORD coun
     BoardInfo *bi = this;
     DFUNC(VERBOSE, "startIndex %ld, count %ld\n", (ULONG)startIndex, (ULONG)count);
 
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     // This may not be interrupted, so DAC_WR_AD remains set throughout the function
     Disable();
@@ -1211,7 +1211,7 @@ BOOL ASM At3dDriver::setInterrupt(__REGD0(BOOL state))
     VgaIo vga = this->vga();
 
     BoardInfo *bi = this;  // FIXME: we need this just for the LOCAL_SYSBASE
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     Disable();
 
     UBYTE idx = vga.readB(CRTC_INDEX);
@@ -2922,7 +2922,7 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(ALWAYS, "AT3D InitChip - Testing hardware access\n");
 
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     ChipData_t *cd = getChipData(bi);
 

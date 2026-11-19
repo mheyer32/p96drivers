@@ -1,5 +1,5 @@
 #include "mach64_common.h"
-#include "chip_mach64.h"
+#include "mach64_chip.h"
 
 #include <libraries/openpci.h>
 #include <libraries/pcitags.h>
@@ -8,11 +8,7 @@
 using namespace MmioReg;
 using namespace PllReg;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-ChipFamily_t getChipFamily(UWORD deviceId)
+ChipFamily getChipFamily(UWORD deviceId)
 {
     switch (deviceId) {
     case 0x5654:  // mach64 VT
@@ -37,7 +33,7 @@ ChipFamily_t getChipFamily(UWORD deviceId)
     }
 }
 
-const char *getChipFamilyName(ChipFamily_t family)
+const char *getChipFamilyName(ChipFamily family)
 {
     switch (family) {
     case MACH64VT:
@@ -55,7 +51,7 @@ const char *getChipFamilyName(ChipFamily_t family)
     }
 }
 
-UBYTE ReadPLL(BoardInfo_t *bi, PllReg::Id pllAddr)
+UBYTE ReadPLL(Mach64Driver &bi, PllReg::Id pllAddr)
 {
     DRIVER_LOCALS(bi);
     // FIXME: its possible older Mach chips want 8bit access here
@@ -74,7 +70,7 @@ UBYTE ReadPLL(BoardInfo_t *bi, PllReg::Id pllAddr)
     return pllValue;
 }
 
-void WritePLL(BoardInfo_t *bi, PllReg::Id pllAddr, UBYTE pllDataMask, UBYTE pllData)
+void WritePLL(Mach64Driver &bi, PllReg::Id pllAddr, UBYTE pllDataMask, UBYTE pllData)
 {
     DRIVER_LOCALS(bi);
     UBYTE addr = (UBYTE)pllAddr;
@@ -96,17 +92,17 @@ ULONG computeFrequencyKhz10(UWORD RefFreq, UWORD FBDiv, UWORD RefDiv, UBYTE Post
     return ((ULONG)2 * RefFreq * FBDiv) / (RefDiv * PostDiv);
 }
 
-ULONG computeFrequencyKhz10FromPllValue(const BoardInfo_t *bi, const PLLValue_t *pllValues, const UBYTE *postDividers)
+ULONG computeFrequencyKhz10FromPllValue(const Mach64Driver &bi, const PLLValue *pllValues, const UBYTE *postDividers)
 {
-    const ChipSpecific_t *cs = getConstChipSpecific(bi);
+    const ChipSpecific &cs = getConstChipSpecific(bi);
     UBYTE postDiv            = postDividers[pllValues->Pidx];
-    if (!cs->referenceDivider || !postDiv) {
+    if (!cs.referenceDivider || !postDiv) {
         return 0;
     }
-    return computeFrequencyKhz10(cs->referenceFrequency, pllValues->N, cs->referenceDivider, postDiv);
+    return computeFrequencyKhz10(cs.referenceFrequency, pllValues->N, cs.referenceDivider, postDiv);
 }
 
-static BOOL inline isGoodVCOFrequency(const BoardInfo_t *bi, ULONG freqKhz10)
+static BOOL inline isGoodVCOFrequency(const Mach64Driver &bi, ULONG freqKhz10)
 {
     /* Appendix J: CT/ET VCO 68–135 MHz; later CT-family / GT use ~100–235 MHz. */
     if (getConstChipData(bi)->chipFamily == MACH64CT)
@@ -119,19 +115,19 @@ static BOOL inline isGoodVCOFrequency(const BoardInfo_t *bi, ULONG freqKhz10)
 #define MACH64_PCLK_MIN_FLOOR 0
 #endif
 
-ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *postDividers, WORD numPostDividers,
-                       PLLValue_t *pllValues)
+ULONG computePLLValues(const Mach64Driver &bi, ULONG freqKhz10, const UBYTE *postDividers, WORD numPostDividers,
+                       PLLValue *pllValues)
 {
     DFUNC(CHATTY, "targetFrequency: %ld0 KHz\n", freqKhz10);
 
-    const ChipSpecific_t *cs = getConstChipSpecific(bi);
-    UWORD M                  = cs->referenceDivider;
-    UWORD R                  = cs->referenceFrequency;
+    const ChipSpecific &cs = getConstChipSpecific(bi);
+    UWORD M                  = cs.referenceDivider;
+    UWORD R                  = cs.referenceFrequency;
 
     /* 0 = use ROM minPClock (repro for low-floor regression); else hard floor in 10kHz units. */
     ULONG floor = MACH64_PCLK_MIN_FLOOR;
     if (floor == 0) {
-        floor = cs->minPClock ? cs->minPClock : 1;
+        floor = cs.minPClock ? cs.minPClock : 1;
     }
     if (freqKhz10 < floor) {
         freqKhz10 = floor;
@@ -203,36 +199,36 @@ ULONG computePLLValues(const BoardInfo_t *bi, ULONG freqKhz10, const UBYTE *post
     return outputFreq;
 }
 
-void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultipliers)
+void InitVClockPLLTable(Mach64Driver &bi, const BYTE *multipliers, BYTE numMultipliers)
 {
     DFUNC(VERBOSE, "\n", bi);
 
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
-    const ChipData_t *cd = getConstChipData(bi);
-    ChipSpecific_t *cs   = getChipSpecific(bi);
+    const ::ChipData &cd = *getConstChipData(bi);
+    ChipSpecific &cs = getChipSpecific(bi);
 
-    if (cs->maxPClock <= cs->minPClock) {
-        DFUNC(ERROR, "invalid PCLK range min=%ld max=%ld\n", (ULONG)cs->minPClock, (ULONG)cs->maxPClock);
+    if (cs.maxPClock <= cs.minPClock) {
+        DFUNC(ERROR, "invalid PCLK range min=%ld max=%ld\n", (ULONG)cs.minPClock, (ULONG)cs.maxPClock);
         return;
     }
 
     /* One entry per minFreq step, plus room for the optional maxPClock squeeze. */
-    UWORD maxNumEntries = (UWORD)((cs->maxPClock - cs->minPClock) / 100u + 2u);
+    UWORD maxNumEntries = (UWORD)((cs.maxPClock - cs.minPClock) / 100u + 2u);
 
-    D(VERBOSE, "Number of Pixelclocks %ld (PCLK %ld..%ld)\n", (ULONG)maxNumEntries, (ULONG)cs->minPClock,
-      (ULONG)cs->maxPClock);
+    D(VERBOSE, "Number of Pixelclocks %ld (PCLK %ld..%ld)\n", (ULONG)maxNumEntries, (ULONG)cs.minPClock,
+      (ULONG)cs.maxPClock);
 
     // FIXME: there's no free... is there ever a time a chip driver gets expunged?
-    PLLValue_t *pllValues = static_cast<PLLValue_t *>(AllocVec(sizeof(PLLValue_t) * maxNumEntries, MEMF_PUBLIC));
+    PLLValue *pllValues = static_cast<PLLValue *>(AllocVec(sizeof(PLLValue) * maxNumEntries, MEMF_PUBLIC));
     if (!pllValues) {
         DFUNC(ERROR, "AllocVec pllValues failed\n");
         return;
     }
-    cs->vclkPllValues = pllValues;
+    cs.vclkPllValues = pllValues;
 
-    UWORD minFreq    = cs->minPClock;
-    UWORD maxFreq    = cs->maxPClock;
+    UWORD minFreq    = cs.minPClock;
+    UWORD maxFreq    = cs.maxPClock;
     UWORD e          = 0;
     UWORD failStreak = 0;
     while (minFreq < maxFreq && e < maxNumEntries) {
@@ -254,7 +250,7 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
         minFreq += 100;
     }
     if (e < maxNumEntries) {
-        ULONG frequency = computePLLValues(bi, cs->maxPClock, reinterpret_cast<const UBYTE *>(multipliers),
+        ULONG frequency = computePLLValues(bi, cs.maxPClock, reinterpret_cast<const UBYTE *>(multipliers),
                                            numMultipliers, &pllValues[e]);
         if (frequency) {
             ++e;
@@ -262,38 +258,38 @@ void InitVClockPLLTable(BoardInfo_t *bi, const BYTE *multipliers, BYTE numMultip
     }
 
     if (e == 0) {
-        DFUNC(ERROR, "PLL table empty (PCLK %ld..%ld, R=%ld M=%ld)\n", (ULONG)cs->minPClock, (ULONG)cs->maxPClock,
-              (ULONG)cs->referenceFrequency, (ULONG)cs->referenceDivider);
+        DFUNC(ERROR, "PLL table empty (PCLK %ld..%ld, R=%ld M=%ld)\n", (ULONG)cs.minPClock, (ULONG)cs.maxPClock,
+              (ULONG)cs.referenceFrequency, (ULONG)cs.referenceDivider);
         return;
     }
 
-    ULONG maxHiColorFreq = cd->chipFamily <= MACH64VT ? 8000 : cs->maxPClock;
+    ULONG maxHiColorFreq = cd.chipFamily <= MACH64VT ? 8000 : cs.maxPClock;
 
     for (int i = 0; i < 5; i++) {
-        bi->PixelClockCount[i] = 0;
+        bi.PixelClockCount[i] = 0;
     }
 
     // FIXME: Account for OVERCLOCK
     for (UWORD i = 0; i < e; ++i) {
-        ULONG frequency = cs->computeVCLKFrequency(bi, &pllValues[i]);
+        ULONG frequency = cs.computeVCLKFrequency(bi, &pllValues[i]);
         D(CHATTY, "Pixelclock %03ld %09ldHz: \n\n", (ULONG)i, frequency * 10000);
 
-        bi->PixelClockCount[CHUNKY]++;
+        bi.PixelClockCount[CHUNKY]++;
 
         if (frequency <= maxHiColorFreq) {
-            bi->PixelClockCount[HICOLOR]++;
-            bi->PixelClockCount[TRUECOLOR]++;
-            bi->PixelClockCount[TRUEALPHA]++;
+            bi.PixelClockCount[HICOLOR]++;
+            bi.PixelClockCount[TRUECOLOR]++;
+            bi.PixelClockCount[TRUEALPHA]++;
         }
     }
 
-    DFUNC(VERBOSE, "built %ld clocks, CHUNKY count %ld\n", (ULONG)e, bi->PixelClockCount[CHUNKY]);
+    DFUNC(VERBOSE, "built %ld clocks, CHUNKY count %ld\n", (ULONG)e, bi.PixelClockCount[CHUNKY]);
 }
 
-void WriteDefaultRegList(const BoardInfo_t *bi, const UWORD *defaultRegs, int numRegs)
+void WriteDefaultRegList(Mach64Driver &bi, const UWORD *defaultRegs, int numRegs)
 {
     /* Byte offsets (incl. hi/lo halves); AtiRegAperture is dword-index only. */
-    RegAperture<MACH64_MMIO_ENDIAN, 0, RegLog::Verbose> mmio(asMach64(bi)->mmioBase());
+    RegAperture<RegEndian::Swap, 0, RegLog::Verbose> mmio(asMach64(bi)->mmioBase());
 
     for (int r = 0; r < numRegs; r += 2) {
         // if (!( r % 32)) // not necessary as all regs in default list are < 0x40 DWORD OFFSET
@@ -321,27 +317,18 @@ void Mach64Driver::resetEngine()
     mmio.writeL(GEN_TEST_CNTL, genTestCntl | GEN_GUI_RESETB);
     delayMicroSeconds(10);
 
-    if (chip()->chipFamily < MACH64GT) {
+    if (chip().chipFamily < MACH64GT) {
         mmio.writeMaskL(BUS_CNTL, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK, BUS_FIFO_ERR_AK | BUS_HOST_ERR_AK);
     }
 }
 
-void ResetEngine(const BoardInfo_t *bi)
+void ResetEngine(Mach64Driver &bi)
 {
-    asMach64(const_cast<BoardInfo_t *>(bi))->resetEngine();
+    bi.resetEngine();
 }
 
-UBYTE getAsicVersion(const BoardInfo_t *bi)
+UBYTE getAsicVersion(const Mach64Driver &bi)
 {
     Mach64MmioQ mmio = asMach64(bi)->mmioQ();
     return (mmio.readB(CONFIG_CHIP_ID, 3) & 0x7);
 }
-
-BOOL isAsiclessThanV4(const BoardInfo_t *bi)
-{
-    return getAsicVersion(bi) < 4;
-}
-
-#ifdef __cplusplus
-}
-#endif
