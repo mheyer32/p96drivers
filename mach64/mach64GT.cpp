@@ -746,19 +746,44 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
         roffNum = ~0UL >> shift;
     ULONG roff = ceilDivu(roffNum << shift, xDenominator);
 
-    // latency for 32bit SGRAM
-    const ULONG l = 9;
+    ULONG memType = blk.readL(BlkIoReg::CONFIG_STAT0) & CFG_MEM_TYPE_CT_MASK;
+    BOOL smallMem = bi->MemorySize <= 0x100000;
+    /* DSP_LOOP_LATENCY programmed as l+2 (DISP_ACTIVE resync). Values chosen so
+     * the register matches the CT/VT/GT+ table for each MEM_TYPE. */
+    ULONG l;
+    ULONG pfcExtra; /* added to trp+trcd+tcrd (+2 base below) */
+    switch (memType) {
+    case CFG_MEM_TYPE_VT_SDRAM:
+    case CFG_MEM_TYPE_VT_SDRAM_32BIT:
+        l        = smallMem ? 9 : 8; /* → 11 / 10 */
+        pfcExtra = smallMem ? 0 : 1;
+        break;
+    case CFG_MEM_TYPE_VT_SGRAM:
+        l        = 6; /* → 8 */
+        pfcExtra = 3;
+        break;
+    case CFG_MEM_TYPE_CT_EDO:
+    case CFG_MEM_TYPE_VT_PSEUDO_EDO:
+        l        = smallMem ? 7 : 6; /* → 9 / 8 */
+        pfcExtra = smallMem ? 0 : 1;
+        break;
+    case CFG_MEM_TYPE_CT_DRAM:
+        l        = smallMem ? 8 : 6; /* → 10 / 8 */
+        pfcExtra = smallMem ? 0 : 2;
+        break;
+    default:
+        l        = 9; /* → 11 */
+        pfcExtra = 3;
+        break;
+    }
 
-    // Display loop latency (two added for DISP_ACTIVE resynchronization)
     ULONG rloop = (l + 2) << shift;
 
     ULONG m             = blk.readL(BlkIoReg::MEM_CNTL);
     MEM_CNTL_t mem_cntl = *reinterpret_cast<const MEM_CNTL_t *>(&m);
 
-    // Page fault clocks
-    ULONG pfc = mem_cntl.mem_trp + mem_cntl.mem_trcd + mem_cntl.mem_tcrd;
+    ULONG pfc = mem_cntl.mem_trp + mem_cntl.mem_trcd + mem_cntl.mem_tcrd + 2 + pfcExtra;
 
-    // Number of cycles per QWORD for 32bit SGRAM:
     ULONG n = 2;
 
     // Maximum random access cycle blocks
@@ -783,8 +808,9 @@ void AdjustDSP(struct BoardInfo *bi, UBYTE vclkFBDiv, UBYTE vclkPostDiv)
         dspXclksPerQword = ((xNumerator << xclkShift) / xDenominator) & DSP_XCLKS_PER_QW_MASK;
     ULONG dspLoopLatency = rloop >> shift;
 
-    D(VERBOSE, "dspOn: %ld, dspOff: %ld, dspPrecision: %ld, dspXclksPerQword: %ld, dspLoopLatency: %ld\n", (ULONG)dspOn,
-      (ULONG)dspOff, (ULONG)dspPrecision, (ULONG)dspXclksPerQword, (ULONG)dspLoopLatency);
+    D(VERBOSE,
+      "memType=%ld l=%ld pfc=%ld ron=%ld; dspOn=%ld dspOff=%ld prec=%ld xclks=%ld loopLat=%ld\n", memType, l, pfc, ron,
+      (ULONG)dspOn, (ULONG)dspOff, (ULONG)dspPrecision, (ULONG)dspXclksPerQword, (ULONG)dspLoopLatency);
 
     blk.writeL(BlkIoReg::DSP_CONFIG,
                DSP_XCLKS_PER_QW(dspXclksPerQword) | DSP_LOOP_LATENCY(dspLoopLatency) | DSP_PRECISION(dspPrecision));
