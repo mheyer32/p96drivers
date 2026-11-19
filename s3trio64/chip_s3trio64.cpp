@@ -884,7 +884,7 @@ LONG ASM S3Driver::resolvePixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULONG
     // Enable Double Clock for 8Bit modes when required pixelclock exceeds 80Mhz
     if (RGBFormat == RGBFB_CLUT || RGBFormat == RGBFB_NONE) {
         if (pixelClock > 67500000) {
-            D(VERBOSE, "Applying pixel multiplex clocking\n")
+            D(VERBOSE, "Applying pixel multiplex clocking\n");
             mi->Flags |= GMF_DOUBLECLOCK;
         }
     }

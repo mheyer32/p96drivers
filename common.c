@@ -2,7 +2,6 @@
 
 #define __NOLIBBASE__
 
-#include <clib/debug_protos.h>
 #include <hardware/cia.h>
 
 #include <mmu/alerts.h>
@@ -14,32 +13,47 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-void myPrintF(const char *fmt, ...)
+#if !defined(TESTEXE)
+/* Freestanding .chip/.card: no libnix SysBase init. Pass AbsExecBase explicitly —
+ * works as C or C++ (NDK RawDoFmt inline is C-only: void* → VOID(*)()). */
+#define ABS_SYSBASE (*(struct ExecBase *const *)4)
+
+static void dbgRawPutChar(struct ExecBase *SysBase, UBYTE c)
 {
-    va_list args;
-    va_start(args, fmt);
-
-#if defined(TESTEXE)
-    vprintf(fmt, args);
-#else
-    KVPrintF(fmt, args);
-#endif
-
-    va_end(args);
+    register struct ExecBase *a6 asm("a6") = SysBase;
+    register ULONG d0 asm("d0")            = c;
+    asm volatile("jsr a6@(-516)" : "+d"(d0), "+r"(a6) : : "a0", "a1", "d1", "memory");
 }
 
-void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, ...)
+static void dbgRawDoFmt(struct ExecBase *SysBase, CONST_STRPTR fmt, APTR data, VOID (*putCh)(),
+                        APTR putData)
 {
-    va_list args;
-    va_start(args, fmt);
+    register struct ExecBase *a6 asm("a6") = SysBase;
+    register CONST_STRPTR a0 asm("a0")     = fmt;
+    register APTR a1 asm("a1")             = data;
+    register VOID (*a2)() asm("a2")        = putCh;
+    register APTR a3 asm("a3")             = putData;
+    asm volatile("jsr a6@(-522)" : "+r"(a6), "+r"(a0), "+r"(a1), "+r"(a2), "+r"(a3) : : "d0", "d1",
+                 "memory");
+}
 
-#if defined(TESTEXE)
-    vprintf(fmt, args);
-#else
-    KVPrintF(fmt, args);
+static void ASM dbgPutCh(__REGD0(char c), __REGA3(APTR unused))
+{
+    (void)unused;
+    dbgRawPutChar(ABS_SYSBASE, (UBYTE)c);
+}
 #endif
 
-    va_end(args);
+void __stdargs myPrintF(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+#if defined(TESTEXE)
+    vprintf(fmt, ap);
+#else
+    dbgRawDoFmt(ABS_SYSBASE, (CONST_STRPTR)fmt, (APTR)ap, (VOID(*)())dbgPutCh, NULL);
+#endif
+    va_end(ap);
 }
 
 #endif

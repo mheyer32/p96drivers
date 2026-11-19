@@ -33,18 +33,26 @@ typedef RGBFTYPE RGBFTYPE_REG;
 extern int debugLevel;
 #define LOCAL_DEBUGLEVEL(level) int debugLevel = level;
 
-extern void myPrintF(const char *fmt, ...);
-extern void mySprintF(struct ExecBase *SysBase, char *outStr, const char *fmt, ...);
+/* __stdargs: -mregparm=4 must not apply — va_list needs stacked args. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern void __stdargs myPrintF(const char *fmt, ...);
+#ifdef __cplusplus
+}
+#endif
 
-#define D(level, ...)            \
-    if (debugLevel >= (level)) { \
-        myPrintF(__VA_ARGS__);   \
-    }
-/* GNU ,##__VA_ARGS__ eats the comma when the varargs list is empty (C and C++). */
-#define DFUNC(level, fmt, ...)                                             \
-    if (debugLevel >= (level)) {                                           \
-        myPrintF("%s:%ld: " fmt, __func__, (long)__LINE__, ##__VA_ARGS__); \
-    }
+#define D(level, ...)                          \
+    do {                                       \
+        if (debugLevel >= (level))             \
+            myPrintF(__VA_ARGS__);             \
+    } while (0)
+/* GNU ,##__VA_ARGS__ eats the comma when the varargs list is empty. */
+#define DFUNC(level, fmt, ...)                                               \
+    do {                                                                     \
+        if (debugLevel >= (level))                                           \
+            myPrintF("%s:%ld: " fmt, __func__, (long)__LINE__, ##__VA_ARGS__); \
+    } while (0)
 #endif
 
 #define STRINGIFX(x) #x
@@ -333,7 +341,7 @@ static INLINE unsigned int moveb(unsigned char a, unsigned int b)
     return res;
 }
 
-// Move lowest byte of a into lowest byte of b
+// Move lowest word of a into lowest word of b
 static INLINE unsigned int movew(unsigned short a, unsigned int b)
 {
     unsigned int res;
