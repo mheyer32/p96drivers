@@ -81,7 +81,7 @@ const char *getChipFamilyName(ChipFamily_t family)
 #if OPENPCI
 BOOL initRegisterAndMemoryBases(BoardInfo_t *bi)
 {
-    LOCAL_OPENPCIBASE();
+    LOCAL_OPENPCIBASE(bi);
 
     CardData_t *card = getCardData(bi);
     ChipData_t *chip = getChipData(bi);

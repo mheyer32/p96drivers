@@ -1,5 +1,5 @@
 #include "mach64_i2c.h"
-#include "chip_mach64.h"
+#include "mach64_chip.h"
 #include "mach64_common.h"
 
 using namespace MmioReg;
@@ -9,7 +9,6 @@ using namespace PllReg;
 #ifndef _Static_assert
 #define _Static_assert(cond, msg) static_assert(cond, msg)
 #endif
-extern "C" {
 #endif
 
 #include "edid_common.h"
@@ -139,7 +138,7 @@ static BOOL mach64I2cReadSda(struct BoardInfo *bi)
     return i2cReadLine(bi, GT_SDA_DATA, GT_SDA_DIR);
 }
 
-static const I2COps_t mach64_i2c_ops_gt = {.init    = mach64I2cInit,
+static const I2COps mach64_i2c_ops_gt = {.init    = mach64I2cInit,
                                            .setScl  = mach64I2cSetScl,
                                            .setSda  = mach64I2cSetSda,
                                            .readScl = mach64I2cReadScl,
@@ -190,45 +189,45 @@ static BOOL mach64GmI2cReadSda(struct BoardInfo *bi)
     return i2cReadLine(bi, GM_SDA_DATA, GM_SDA_DIR);
 }
 
-static const I2COps_t mach64_i2c_ops_gm = {.init    = mach64GmI2cInit,
+static const I2COps mach64_i2c_ops_gm = {.init    = mach64GmI2cInit,
                                            .setScl  = mach64GmI2cSetScl,
                                            .setSda  = mach64GmI2cSetSda,
                                            .readScl = mach64GmI2cReadScl,
                                            .readSda = mach64GmI2cReadSda};
 
-const I2COps_t *getI2COps(struct BoardInfo *bi)
+const I2COps *getI2COps(struct BoardInfo *bi)
 {
-    ChipData_t *cd = getChipData(bi);
-    return cd->i2cOps;
+    ::ChipData &cd = *getChipData(bi);
+    return cd.i2cOps;
 }
 
-BOOL queryEDID(struct BoardInfo *bi)
+BOOL queryEDID(Mach64Driver &bi)
 {
-    ChipData_t *cd = getChipData(bi);
-    const I2COps_t *ops = NULL;
+    ::ChipData &cd = bi.chip();
+    const I2COps *ops = NULL;
 
-    if (cd->chipFamily == MACH64GM) {
+    if (cd.chipFamily == MACH64GM) {
         ops = &mach64_i2c_ops_gm;
     }
-    else if (cd->chipFamily == MACH64GT) {
+    else if (cd.chipFamily == MACH64GT) {
         ops = &mach64_i2c_ops_gt;
     }
     if (!ops) {
-        cd->i2cOps = NULL;
+        cd.i2cOps = NULL;
         D(INFO, "I2C/EDID not available for this chip family\n");
         return TRUE;
     }
 
-    if (!ops->init(bi)) {
-        cd->i2cOps = NULL;
+    if (!ops->init(&bi)) {
+        cd.i2cOps = NULL;
         return TRUE;
     }
 
-    cd->i2cOps = ops;
-    D(INFO, "I2C ops ready for EDID (%s)\n", cd->chipFamily == MACH64GM ? "GM/XL MONID" : "GT GPIO14/15");
+    cd.i2cOps = ops;
+    D(INFO, "I2C ops ready for EDID (%s)\n", cd.chipFamily == MACH64GM ? "GM/XL MONID" : "GT GPIO14/15");
 
     UBYTE edid_data[EDID_BLOCK_SIZE];
-    if (readEDID(bi, edid_data)) {
+    if (readEDID(&bi, edid_data)) {
         D(INFO, "EDID read successfully for mach64\n");
     } else {
         D(WARN, "Failed to read EDID for mach64\n");
@@ -237,6 +236,3 @@ BOOL queryEDID(struct BoardInfo *bi)
     return TRUE;
 }
 
-#ifdef __cplusplus
-}
-#endif

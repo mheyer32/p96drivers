@@ -3,14 +3,8 @@
 
 #include <boardinfo.h>
 
-#ifdef __cplusplus
-extern "C" {
+class Mach64Driver;
+
+BOOL InitMach64GX(Mach64Driver &drv);
+
 #endif
-
-BOOL InitMach64GX(struct BoardInfo *bi);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif  // MACH64GX_H

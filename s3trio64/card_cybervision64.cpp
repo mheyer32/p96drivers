@@ -57,7 +57,7 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
 extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *Tooltypes))
 {
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     CardData_t *cd = getCardData(bi);
 
     // Open Expansion Library
@@ -105,7 +105,7 @@ extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
 void releaseCard(__REGA0(struct BoardInfo *bi))
 {
     CardData_t *cd = getCardData(bi);
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     if (bi->CardFlags & CFF_VBLANK_INTSERVER) {
         RemIntServer(INTB_PORTS, &bi->HardInterrupt);
@@ -138,7 +138,7 @@ extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
     parseBlackLevelToolType(bi, ToolTypes);
     BOOL wantInterrupt = parseInterruptToolType(bi, ToolTypes);
 
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     // Get board address and size from ConfigDev
     APTR memoryBase  = (APTR)cd->configDev->cd_BoardAddr;

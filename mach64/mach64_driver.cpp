@@ -1,4 +1,4 @@
-#include "chip_mach64.h"
+#include "mach64_chip.h"
 #include "edid_common.h"
 #include "mach64CT.h"
 #include "mach64GT.h"
@@ -8,6 +8,7 @@
 #include "mach64_common.h"
 #include "mach64_eeprom.h"
 #include "mach64_i2c.h"
+#include "mach64_vbios.h"
 
 #include <graphics/rastport.h>
 #include <libraries/openpci.h>
@@ -74,15 +75,46 @@ static const UBYTE g_bitWidths[] = {
 
 // FIXME: No good, need dynamic allocations. If the same chipdriver needs to talk to multiple
 //  cards, these tables will have different values for each card
-typedef struct PLLTable
+struct PLLTable
 {
     USHORT pllValues[20];
-} PLLTable_t;
-static PLLTable_t g_pllTable;
-static MaxColorDepthTableEntry_t g_maxCDepthTable[50];
-static MaxColorDepthTableEntry_t g_maxCDepthSecondTable[50];
+};
+static PLLTable g_pllTable;
 
-void printFrequencyTable(const FrequencyTable_t *ft)
+struct __attribute__((packed)) HardwareInfoTable
+{
+    char signature[4];
+    UBYTE revision;
+    UBYTE size;
+    UBYTE i2c_type;
+    UBYTE tvout;
+    UBYTE video_port;
+    UBYTE host_port;
+};
+
+struct __attribute__((packed)) VideoFeatureTable
+{
+    UBYTE tuner_type;
+    UBYTE connectors;
+    UBYTE decoder_tvout;
+    UBYTE audio_product;
+    UBYTE oem_id;
+};
+
+struct __attribute__((packed)) MaxColorDepthTableEntry
+{
+    UBYTE h_disp;
+    UBYTE dacmask;
+    UBYTE ram_req;
+    UBYTE max_dot_clk;
+    UBYTE color_depth;
+    UBYTE DUMMY;
+};
+
+static MaxColorDepthTableEntry g_maxCDepthTable[50];
+static MaxColorDepthTableEntry g_maxCDepthSecondTable[50];
+
+void printFrequencyTable(const FrequencyTable *ft)
 {
     D(VERBOSE, "Frequency Table ID: 0x%02lX\n", (ULONG)ft->frequency_table_id);
     D(VERBOSE, "Minimum PCLK Frequency: %lu KHz\n", (ULONG)swapw(ft->min_pclk_freq) * 10);
@@ -105,20 +137,20 @@ void printFrequencyTable(const FrequencyTable_t *ft)
     D(VERBOSE, "Terminator: 0x%04lX\n", (ULONG)swapw(ft->terminator));
 }
 
-UBYTE getDACType(BoardInfo_t *bi)
+UBYTE getDACType(Mach64Driver &bi)
 {
     DRIVER_LOCALS(bi);
     return (mmio.readB(DAC_CNTL, 2) & 0x7);
 }
 
-void printPLLTable(const PLLTable_t *pllTable)
+void printPLLTable(const PLLTable *pllTable)
 {
     for (int i = 0; i < 20; i++) {
         D(VERBOSE, "PLL[%ld] = %lu\n", i, (ULONG)pllTable->pllValues[i]);
     }
 }
 
-void printCdepthTable(const MaxColorDepthTableEntry_t *table)
+void printCdepthTable(const MaxColorDepthTableEntry *table)
 {
     for (int i = 0; table[i].h_disp != 0; i++) {
         D(VERBOSE, "MaxColorDepthTableEntry[%ld]:\n", i);
@@ -184,7 +216,7 @@ static const char *audioChipName(UBYTE bits)
     }
 }
 
-static void printHardwareInfoTable(const HardwareInfoTable_t *hw)
+static void printHardwareInfoTable(const HardwareInfoTable *hw)
 {
     if (memcmp(hw->signature, "$ATI", 4) != 0)
         return;
@@ -197,7 +229,7 @@ static void printHardwareInfoTable(const HardwareInfoTable_t *hw)
         D(0, "  Host port: 0x%02lx\n", (ULONG)hw->host_port);
 }
 
-static void printVideoFeatureTable(const VideoFeatureTable_t *vf)
+static void printVideoFeatureTable(const VideoFeatureTable *vf)
 {
     D(0, "Video Feature (MMEDIA):\n");
     D(0, "  Tuner type: 0x%02lx\n", (ULONG)vf->tuner_type);
@@ -230,7 +262,7 @@ static BOOL romHasPrintableString(const UBYTE *romBase, ULONG romSize, UWORD off
     return FALSE;
 }
 
-static void printRomHeaderExtras(const UBYTE *romBase, ULONG romSize, const Mach64RomHeader_t *hdr)
+static void printRomHeaderExtras(const UBYTE *romBase, ULONG romSize, const Mach64RomHeader *hdr)
 {
     UWORD tvout = swapw(hdr->tvout_info);
     /* 0 / 0xffff = unused on non-multimedia BIOSes */
@@ -245,11 +277,11 @@ static void printRomHeaderExtras(const UBYTE *romBase, ULONG romSize, const Mach
     UWORD vfPtr = swapw(hdr->video_feature_table_ptr);
     if (vfPtr >= 8 && vfPtr != 0xffff && (ULONG)vfPtr < romSize &&
         memcmp(romBase + vfPtr - 8, "MMEDIA", 6) == 0)
-        printVideoFeatureTable((const VideoFeatureTable_t *)(romBase + vfPtr));
+        printVideoFeatureTable((const VideoFeatureTable *)(romBase + vfPtr));
 
     UWORD hwPtr = swapw(hdr->hardware_info_table_ptr);
     if (hwPtr && hwPtr != 0xffff && (ULONG)hwPtr + 4 <= romSize)
-        printHardwareInfoTable((const HardwareInfoTable_t *)(romBase + hwPtr));
+        printHardwareInfoTable((const HardwareInfoTable *)(romBase + hwPtr));
 
     for (int i = 0; i + 6 <= 16; i++) {
         if (memcmp(hdr->signatures + i, "$TVS", 4) == 0) {
@@ -260,13 +292,13 @@ static void printRomHeaderExtras(const UBYTE *romBase, ULONG romSize, const Mach
     }
 }
 
-const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
+const Mach64RomHeader *parseRomHeader(Mach64Driver &bi)
 {
 #define ROM_WORD(offset)              (swapw(*(UWORD *)(romBase + (offset))))
 #define ROM_BYTE(offset)              (*(romBase + (offset)))
 #define ROM_TABLE(name, type, offset) const type *name = (type *)(romBase + (offset))
 
-    LOCAL_OPENPCIBASE();
+    LOCAL_OPENPCIBASE(bi);
 
     UBYTE *romBase = NULL;
     GetBoardAttrs(getCardData(bi)->board, PRM_ROM_Address, (Tag)&romBase, TAG_END);
@@ -293,7 +325,7 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
 
     WORD atiRomHeaderOffset = ROM_WORD(0x48);
 
-    ROM_TABLE(mach64RomHeader, Mach64RomHeader_t, atiRomHeaderOffset - 2);
+    ROM_TABLE(mach64RomHeader, Mach64RomHeader, atiRomHeaderOffset - 2);
 
     const char *logOnMessage = (const char *)(romBase + swapw(mach64RomHeader->logon_message_ptr));
 
@@ -310,38 +342,38 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
     printRomHeaderExtras(romBase, romSize, mach64RomHeader);
 
     USHORT freqTableOffset = swapw(mach64RomHeader->freq_table_ptr);
-    ROM_TABLE(freqTable, FrequencyTable_t, freqTableOffset);
+    ROM_TABLE(freqTable, FrequencyTable, freqTableOffset);
     printFrequencyTable(freqTable);
 
     USHORT pllTableOffset = ROM_WORD(freqTableOffset - 2);
-    ROM_TABLE(pllTable, PLLTable_t, pllTableOffset);
+    ROM_TABLE(pllTable, PLLTable, pllTableOffset);
     for (int i = 0; i < 20; i++) {
         g_pllTable.pllValues[i] = swapw(pllTable->pllValues[i]);
     }
     printPLLTable(&g_pllTable);
 
-    ChipData_t *cd     = getChipData(bi);
-    ChipSpecific_t *cs = getChipSpecific(bi);
+    ::ChipData &cd = *getChipData(bi);
+    ChipSpecific &cs = getChipSpecific(bi);
 
-    cd->ioSparseBase       = ioSparseBase;
-    cs->referenceFrequency = swapw(freqTable->ref_clock_freq);
-    cs->referenceDivider   = swapw(freqTable->ref_clock_divider);
-    cs->memClock           = swapw(freqTable->mclk_freq_normal_dram);
-    cs->minPClock          = swapw(freqTable->min_pclk_freq);
-    cs->maxPClock          = swapw(freqTable->max_pclk_freq);
-    cs->minMClock          = swapw(freqTable->mclk_freq_power_down);
-    cs->maxDRAMClock       = swapw(freqTable->mclk_freq_normal_dram);
-    cs->maxVRAMClock       = swapw(freqTable->mclk_freq_normal_vram);
+    cd.ioSparseBase       = ioSparseBase;
+    cs.referenceFrequency = swapw(freqTable->ref_clock_freq);
+    cs.referenceDivider   = swapw(freqTable->ref_clock_divider);
+    cs.memClock           = swapw(freqTable->mclk_freq_normal_dram);
+    cs.minPClock          = swapw(freqTable->min_pclk_freq);
+    cs.maxPClock          = swapw(freqTable->max_pclk_freq);
+    cs.minMClock          = swapw(freqTable->mclk_freq_power_down);
+    cs.maxDRAMClock       = swapw(freqTable->mclk_freq_normal_dram);
+    cs.maxVRAMClock       = swapw(freqTable->mclk_freq_normal_vram);
 
     USHORT cdepthTableOffset = ROM_WORD(freqTableOffset - 6);
-    ROM_TABLE(cdepthTable, MaxColorDepthTableEntry_t, cdepthTableOffset);
+    ROM_TABLE(cdepthTable, MaxColorDepthTableEntry, cdepthTableOffset);
     UBYTE entrySize = ROM_BYTE(cdepthTableOffset - 1);
 
     UBYTE dacType = getDACType(bi);
     {
         int e;
         for (e = 0; ROM_BYTE(cdepthTableOffset) != 0; cdepthTableOffset += entrySize) {
-            ROM_TABLE(cdepthTable, MaxColorDepthTableEntry_t, cdepthTableOffset);
+            ROM_TABLE(cdepthTable, MaxColorDepthTableEntry, cdepthTableOffset);
             if (dacType & cdepthTable->dacmask) {
                 // No endian conversion; works because all struct members are byte
                 g_maxCDepthTable[e] = *cdepthTable;
@@ -359,7 +391,7 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
         cdepthTableOffset += 2;
         int e;
         for (e = 0; ROM_BYTE(cdepthTableOffset) != 0; cdepthTableOffset += entrySize) {
-            ROM_TABLE(cdepthTable, MaxColorDepthTableEntry_t, cdepthTableOffset);
+            ROM_TABLE(cdepthTable, MaxColorDepthTableEntry, cdepthTableOffset);
             if (dacType == cdepthTable->dacmask) {
                 // No endian conversion; works because all struct members are byte
                 g_maxCDepthSecondTable[e] = *cdepthTable;
@@ -444,41 +476,41 @@ const Mach64RomHeader_t *parseRomHeader(struct BoardInfo *bi)
 //     if (xclkCntl & MFB_TIMES_4_2b) {
 //         fbDiv <<= 1;
 //     }
-//     const ChipSpecific_t *cs = getConstChipSpecific(bi);
-//     ULONG mClock             = ComputeFrequencyKhz10(cs->referenceFrequency, fbDiv, refDiv, mClkSrcSel);
+//     const ChipSpecific &cs = getConstChipSpecific(bi);
+//     ULONG mClock             = ComputeFrequencyKhz10(cs.referenceFrequency, fbDiv, refDiv, mClkSrcSel);
 
 //     DFUNC(5, "clock source: %s, PLL frequency: %ld0 KHz, R: %ld0 KHz, M: %ld, P: %ld, N: %ld\n", mClockSrc, mClock,
-//           (ULONG)cs->referenceFrequency, (ULONG)refDiv, (ULONG)1 << mClkSrcSel, (ULONG)fbDiv);
+//           (ULONG)cs.referenceFrequency, (ULONG)refDiv, (ULONG)1 << mClkSrcSel, (ULONG)fbDiv);
 // }
 
-UWORD resolveMemoryClockKhz10(BoardInfo_t *bi)
+UWORD resolveMemoryClockKhz10(Mach64Driver &bi)
 {
-    const ChipSpecific_t *cs = getConstChipSpecific(bi);
-    ChipFamily_t family      = getChipData(bi)->chipFamily;
+    const ChipSpecific &cs = getConstChipSpecific(bi);
+    ChipFamily family      = getChipData(bi)->chipFamily;
     ULONG khz10;
 
     /* P96 MemoryClock is Hz; ROM table entries are 10 kHz units. */
-    if (bi->MemoryClock) {
-        khz10 = bi->MemoryClock / 10000UL;
+    if (bi.MemoryClock) {
+        khz10 = bi.MemoryClock / 10000UL;
     } else if (family >= MACH64GT) {
         khz10 = 10000UL; /* previous initClocks default (100 MHz) */
-    } else if (cs->memClock) {
-        khz10 = cs->memClock;
-    } else if (cs->maxDRAMClock) {
-        khz10 = cs->maxDRAMClock;
+    } else if (cs.memClock) {
+        khz10 = cs.memClock;
+    } else if (cs.maxDRAMClock) {
+        khz10 = cs.maxDRAMClock;
     } else {
         khz10 = 5050UL; /* ~50.5 MHz CT ROM DRAM entry */
     }
 
-    if (cs->minMClock && khz10 < cs->minMClock) {
-        khz10 = cs->minMClock;
+    if (cs.minMClock && khz10 < cs.minMClock) {
+        khz10 = cs.minMClock;
     }
 
     {
-        UWORD max = cs->maxDRAMClock;
+        UWORD max = cs.maxDRAMClock;
         if (family >= MACH64GT) {
-            if (cs->maxVRAMClock > max) {
-                max = cs->maxVRAMClock;
+            if (cs.maxVRAMClock > max) {
+                max = cs.maxVRAMClock;
             }
             if (max < 10000) {
                 max = 10000;
@@ -494,9 +526,9 @@ UWORD resolveMemoryClockKhz10(BoardInfo_t *bi)
     return (UWORD)khz10;
 }
 
-void SetMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
+void SetMemoryClock(Mach64Driver &bi, UWORD freqKhz10)
 {
-    ChipFamily_t family = getChipData(bi)->chipFamily;
+    ChipFamily family = getChipData(bi)->chipFamily;
 
     DFUNC(INFO, "MCLK request %ld0 kHz (family %s)\n", (ULONG)freqKhz10, getChipFamilyName(family));
 
@@ -513,7 +545,7 @@ void SetMemoryClock(BoardInfo_t *bi, UWORD freqKhz10)
     }
 #endif
 
-    bi->MemoryClock = (ULONG)freqKhz10 * 10000UL;
+    bi.MemoryClock = (ULONG)freqKhz10 * 10000UL;
 }
 
 #define DAC_W_INDEX 0
@@ -626,7 +658,7 @@ void ASM Mach64Driver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format
     }
 
     /* Integrated DAC: 8-bit LUT (BitsPerCannon=8). GX external DAC is SetDAC_GX. */
-    if (chip()->chipFamily != MACH64GX) {
+    if (chip().chipFamily != MACH64GX) {
         mmio.writeMaskL(DAC_CNTL, DAC_8BIT_EN_MASK, DAC_8BIT_EN);
     }
     if (format != RGBFB_CLUT) {
@@ -725,7 +757,7 @@ static INLINE REGARGS UWORD AdjustBorder(UWORD x, BOOL border, UWORD defaultX)
 void ASM Mach64Driver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
 {
     Mach64MmioQ mmio = mmioQ();
-    ChipData_t *cd   = chip();
+    ::ChipData &cd = chip();
 
     BOOL isInterlaced;
     UBYTE modeFlags;
@@ -822,16 +854,16 @@ void ASM Mach64Driver::setGC(__REGA1(struct ModeInfo *mi), __REGD0(BOOL border))
     }
 
 #if MACH64_PCI_RETRY
-    if (cd->chipFamily == MACH64VT) {
-        AdjustCrtcFifo_VT(this);
+    if (cd.chipFamily == MACH64VT) {
+        AdjustCrtcFifo_VT(*this);
     }
 #else
-    if (cd->chipFamily == MACH64CT) {
-        AdjustCrtcFifo_CT(this);
+    if (cd.chipFamily == MACH64CT) {
+        AdjustCrtcFifo_CT(*this);
     }
 #endif
 
-    if (cd->chipFamily < MACH64GT) {
+    if (cd.chipFamily < MACH64GT) {
         ULONG dpChainMask = 0x8080;
 
         // FIXME: replace with fixed table?
@@ -895,7 +927,7 @@ APTR ASM Mach64Driver::calculateMemory(__REGA1(APTR memory), __REGD0(struct Rend
 
     DFUNC(VERBOSE, "mem 0x%lx, format %ld\n", mem, (ULONG)format);
     /* CT/VT+: BE alias at +8MB (RRG/PG dual 8MB). GX: LE only. */
-    if (chip()->chipFamily >= MACH64CT) {
+    if (chip().chipFamily >= MACH64CT) {
         switch (format) {
         case RGBFB_A8R8G8B8:
         case RGBFB_R5G6B5:
@@ -925,13 +957,13 @@ ULONG ASM Mach64Driver::getCompatibleFormats(__REGD7(RGBFTYPE_REG format))
     // These formats can always reside in the Little Endian Window.
     // We never need to change any aperture setting for them
     ULONG compatible = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC;
-    if (chip()->chipFamily == MACH64GX) {
+    if (chip().chipFamily == MACH64GX) {
         compatible |= RGBFF_R8G8B8A8;
     } else {
         compatible |= RGBFF_B8G8R8A8;
     }
 
-    if (chip()->chipFamily >= MACH64CT) {
+    if (chip().chipFamily >= MACH64CT) {
         switch (format) {
         case RGBFB_A8R8G8B8:
             // In Big Endian aperture, configured MEM_CNTL for byte swapping in long word
@@ -982,11 +1014,11 @@ LONG ASM Mach64Driver::resolvePixelClock(__REGA1(struct ModeInfo *mi), __REGD0(U
 {
     DFUNC(CHATTY, "ModeInfo 0x%lx pixelclock %ld, format %ld\n", mi, pixelClock, (ULONG)RGBFormat);
 
-    const ChipSpecific_t *cs = chipSpecific();
+    const ChipSpecific &cs = chipSpecific();
 
     UWORD targetFreq = pixelClock / 10000;
 
-    if (PixelClockCount[CHUNKY] == 0 || !cs->vclkPllValues || !cs->computeVCLKFrequency) {
+    if (PixelClockCount[CHUNKY] == 0 || !cs.vclkPllValues || !cs.computeVCLKFrequency) {
         DFUNC(ERROR, "PLL table not initialized\n");
         mi->PixelClock = 0;
         return 0;
@@ -994,13 +1026,13 @@ LONG ASM Mach64Driver::resolvePixelClock(__REGA1(struct ModeInfo *mi), __REGD0(U
 
     // find pixel clock in pllValues via bisection
     UWORD upper     = PixelClockCount[CHUNKY] - 1;
-    UWORD upperFreq = cs->computeVCLKFrequency(this, &cs->vclkPllValues[upper]);
+    UWORD upperFreq = cs.computeVCLKFrequency(*this, &cs.vclkPllValues[upper]);
     UWORD lower     = 0;
-    UWORD lowerFreq = cs->computeVCLKFrequency(this, &cs->vclkPllValues[lower]);
+    UWORD lowerFreq = cs.computeVCLKFrequency(*this, &cs.vclkPllValues[lower]);
 
     while (lower + 1 < upper) {
         UWORD middle     = (upper + lower) / 2;
-        UWORD middleFreq = cs->computeVCLKFrequency(this, &cs->vclkPllValues[middle]);
+        UWORD middleFreq = cs.computeVCLKFrequency(*this, &cs.vclkPllValues[middle]);
         if (middleFreq < targetFreq) {
             lower     = middle;
             lowerFreq = middleFreq;
@@ -1029,8 +1061,8 @@ LONG ASM Mach64Driver::resolvePixelClock(__REGA1(struct ModeInfo *mi), __REGD0(U
 
     D(CHATTY, "Resulting pixelclock Hz: %ld\n\n", mi->PixelClock);
 
-    mi->pll1.Numerator   = cs->vclkPllValues[lower].N;
-    mi->pll2.Denominator = cs->vclkPllValues[lower].Pidx;
+    mi->pll1.Numerator   = cs.vclkPllValues[lower].N;
+    mi->pll2.Denominator = cs.vclkPllValues[lower].Pidx;
 
     return lower;
 }
@@ -1041,9 +1073,9 @@ ULONG ASM Mach64Driver::getPixelClock(__REGA1(struct ModeInfo *mi), __REGD0(ULON
     (void)mi;
     (void)format;
 
-    const ChipSpecific_t *cs = chipSpecific();
+    const ChipSpecific &cs = chipSpecific();
 
-    UWORD freq = cs->computeVCLKFrequency(this, &cs->vclkPllValues[index]);
+    UWORD freq = cs.computeVCLKFrequency(*this, &cs.vclkPllValues[index]);
 
     return freq * 10000;
 }
@@ -1054,7 +1086,7 @@ INLINE void Mach64Driver::setMemoryModeInternal(RGBFTYPE format)
     DRIVER_LOCALS(this);
     DFUNC(VERBOSE, "format %ld\n", (ULONG)format);
 
-    if (cd->chipFamily < MACH64GT) {
+    if (cd.chipFamily < MACH64GT) {
 #define MEM_PIX_WIDTH(x)   ((x) << 24)
 #define MEM_PIX_WIDTH_MASK (0x7 << 24)
         // These are the formats we place in the big endian aperture.
@@ -1063,10 +1095,10 @@ INLINE void Mach64Driver::setMemoryModeInternal(RGBFTYPE format)
         case RGBFB_A8R8G8B8:
         case RGBFB_R5G6B5:
         case RGBFB_R5G5B5:
-            if (cd->MemFormat == format) {
+            if (cd.MemFormat == format) {
                 return;
             }
-            cd->MemFormat = format;
+            cd.MemFormat = format;
             mmio.writeMaskL(MEM_CNTL, MEM_PIX_WIDTH_MASK, MEM_PIX_WIDTH(g_bitWidths[format]));
             break;
         }
@@ -1087,10 +1119,10 @@ INLINE void Mach64Driver::setMemoryModeInternal(RGBFTYPE format)
         default:;  // fallthrough
         }
 
-        if (cd->MemFormat == format) {
+        if (cd.MemFormat == format) {
             return;
         }
-        cd->MemFormat = format;
+        cd.MemFormat = format;
 
         mmio.writeMaskL(MEM_CNTL, UPPER_APER_ENDIAN_MASK, byteSwap);
     }
@@ -1133,7 +1165,7 @@ void Mach64Driver::syncCrtcInterruptEnables()
     }
 
     DRIVER_LOCALS(this);
-    ULONG en = cd->p96VBlankInt ? CRTC_VBLANK_INT_EN : 0;
+    ULONG en = cd.p96VBlankInt ? CRTC_VBLANK_INT_EN : 0;
 
     mmio.writeL(CRTC_INT_CNTL, en | CRTC_INT_ACKS);
     mmio.writeL(CRTC_INT_CNTL, en);
@@ -1144,7 +1176,7 @@ BOOL ASM Mach64Driver::setInterrupt(__REGD0(BOOL state))
     struct ExecBase *SysBase = ExecBase;
     Disable();
 
-    chip()->p96VBlankInt = state ? 1 : 0;
+    chip().p96VBlankInt = state ? 1 : 0;
     syncCrtcInterruptEnables();
 
     Enable();
@@ -1167,7 +1199,7 @@ ULONG Mach64Driver::interruptServer()
 
     mmio.writeL(CRTC_INT_CNTL, (status & CRTC_INT_EN_MASK) | CRTC_VBLANK_INT_AK);
 
-    if (cd->p96VBlankInt) {
+    if (cd.p96VBlankInt) {
         struct ExecBase *SysBase = ExecBase;
         Cause(&SoftInterrupt);
     }
@@ -1311,15 +1343,15 @@ void Mach64Driver::setWriteMask(UBYTE mask, ULONG fmt, BYTE waitFifoSlots)
 {
     DRIVER_LOCALS(this);
 
-    if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
+    if (fmt != RGBFB_CLUT && cd.GEmask != 0xFF) {
         // 16/32 bit modes ignore the mask
-        cd->GEmask = 0xFF;
+        cd.GEmask = 0xFF;
         waitFifo(waitFifoSlots + 1);
         mmio.writeL(DP_WRITE_MSK, 0xFFFFFFFF);
     } else {
         // 8bit modes use the mask
-        if (cd->GEmask != mask) {
-            cd->GEmask = mask;
+        if (cd.GEmask != mask) {
+            cd.GEmask = mask;
 
             waitFifo(waitFifoSlots + 1);
 
@@ -1359,16 +1391,16 @@ BOOL Mach64Driver::isVideoMemory(APTR memory) const
 
 BOOL Mach64Driver::setDstBuffer(const struct RenderInfo *ri, ULONG format)
 {
-    ChipData_t *cd = chip();
+    ::ChipData &cd = chip();
 
     /* Memory + pitch + format drive DST_OFF_PITCH / DP_PIX_WIDTH; ignore pad. */
-    if (cd->dstBuffer.Memory == ri->Memory && cd->dstBuffer.BytesPerRow == ri->BytesPerRow &&
-        (ULONG)cd->dstBuffer.RGBFormat == format) {
+    if (cd.dstBuffer.Memory == ri->Memory && cd.dstBuffer.BytesPerRow == ri->BytesPerRow &&
+        (ULONG)cd.dstBuffer.RGBFormat == format) {
         return TRUE;
     }
-    cd->dstBuffer.Memory      = ri->Memory;
-    cd->dstBuffer.BytesPerRow = ri->BytesPerRow;
-    cd->dstBuffer.RGBFormat   = (RGBFTYPE)format;
+    cd.dstBuffer.Memory      = ri->Memory;
+    cd.dstBuffer.BytesPerRow = ri->BytesPerRow;
+    cd.dstBuffer.RGBFormat   = (RGBFTYPE)format;
 
     Mach64MmioQ mmio = mmioQ();
     BYTE bppLog2     = getBPPLog2(format);
@@ -1404,10 +1436,10 @@ BOOL Mach64Driver::setSrcBuffer(const struct RenderInfo *ri, ULONG format)
 {
     DRIVER_LOCALS(this);
 
-    // if (memcmp(ri, &cd->srcBuffer, sizeof(struct RenderInfo)) == 0) {
+    // if (memcmp(ri, &cd.srcBuffer, sizeof(struct RenderInfo)) == 0) {
     //     return TRUE;
     // }
-    // cd->dstBuffer = *ri;
+    // cd.dstBuffer = *ri;
 
     waitFifo(2);
 
@@ -1543,8 +1575,8 @@ void ASM Mach64Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x),
 
     DRIVER_LOCALS(this);
 
-    if (cd->GEOp != FILLRECT) {
-        cd->GEOp = FILLRECT;
+    if (cd.GEOp != FILLRECT) {
+        cd.GEOp = FILLRECT;
 
         waitFifo(3);
 
@@ -1554,9 +1586,9 @@ void ASM Mach64Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x),
         mmio.writeL(GUI_TRAJ_CNTL, DST_X_DIR | DST_Y_DIR);
     }
 
-    if (cd->GEfgPen != pen) {
-        cd->GEfgPen    = pen;
-        cd->GEdrawMode = 0xFF;  // invalidate drawmode cache
+    if (cd.GEfgPen != pen) {
+        cd.GEfgPen    = pen;
+        cd.GEdrawMode = 0xFF;  // invalidate drawmode cache
 
         pen = penToColor(pen, fmt);
 
@@ -1583,9 +1615,9 @@ void ASM Mach64Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x
 
     DRIVER_LOCALS(this);
 
-    if (cd->GEOp != INVERTRECT) {
-        cd->GEOp       = INVERTRECT;
-        cd->GEdrawMode = 0xFF;  // invalidate minterm cache
+    if (cd.GEOp != INVERTRECT) {
+        cd.GEOp       = INVERTRECT;
+        cd.GEdrawMode = 0xFF;  // invalidate minterm cache
 
         waitFifo(3);
 
@@ -1651,10 +1683,10 @@ void ASM Mach64Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), _
 
     DRIVER_LOCALS(this);
 
-    if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
-        cd->GEOp       = BLITRECTNOMASKCOMPLETE;
-        cd->GEmask     = 0xFF;
-        cd->GEdrawMode = 0xFF;  // invalidate minterm cache
+    if (cd.GEOp != BLITRECTNOMASKCOMPLETE) {
+        cd.GEOp       = BLITRECTNOMASKCOMPLETE;
+        cd.GEmask     = 0xFF;
+        cd.GEdrawMode = 0xFF;  // invalidate minterm cache
 
         waitFifo(2);
 
@@ -1663,8 +1695,8 @@ void ASM Mach64Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), _
                     DP_BKGD_SRC(CLR_SRC_BKGD_COLOR) | DP_FRGD_SRC(CLR_SRC_BLIT_SRC) | DP_MONO_SRC(MONO_SRC_ONE));
     }
 
-    if (cd->GEdrawMode != opCode) {
-        cd->GEdrawMode = opCode;
+    if (cd.GEdrawMode != opCode) {
+        cd.GEdrawMode = opCode;
 
         waitFifo(1);
         mmio.writeL(DP_MIX, DP_BKGD_MIX(MIX_CURRENT) | DP_FRGD_MIX(minTermToMix[opCode]));
@@ -1708,9 +1740,9 @@ void ASM Mach64Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD src
 
     DRIVER_LOCALS(this);
 
-    if (cd->GEOp != BLITRECT) {
-        cd->GEOp       = BLITRECT;
-        cd->GEdrawMode = 0xFF;  // invalidate minterm cache
+    if (cd.GEOp != BLITRECT) {
+        cd.GEOp       = BLITRECT;
+        cd.GEdrawMode = 0xFF;  // invalidate minterm cache
 
         waitFifo(2);
 
@@ -1744,12 +1776,12 @@ void ASM Mach64Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD src
 
 void Mach64Driver::setDrawMode(ULONG FgPen, ULONG BgPen, UBYTE DrawMode, ULONG format, BYTE monoSource)
 {
-    ChipData_t *cd = chip();
+    ::ChipData &cd = chip();
 
-    if (cd->GEfgPen != FgPen || cd->GEbgPen != BgPen || cd->GEdrawMode != DrawMode) {
-        cd->GEfgPen    = FgPen;
-        cd->GEbgPen    = BgPen;
-        cd->GEdrawMode = DrawMode;
+    if (cd.GEfgPen != FgPen || cd.GEbgPen != BgPen || cd.GEdrawMode != DrawMode) {
+        cd.GEfgPen    = FgPen;
+        cd.GEbgPen    = BgPen;
+        cd.GEdrawMode = DrawMode;
 
         ULONG fgPen = penToColor(FgPen, format);
         ULONG bgPen = penToColor(BgPen, format);
@@ -1810,9 +1842,9 @@ void ASM Mach64Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(stru
     DRIVER_LOCALS(this);
     Mach64MmioNoSwapQ raw(mmioBase());
 
-    if (cd->GEOp != BLITTEMPLATE) {
-        cd->GEOp       = BLITTEMPLATE;
-        cd->GEdrawMode = 0xFF;
+    if (cd.GEOp != BLITTEMPLATE) {
+        cd.GEOp       = BLITTEMPLATE;
+        cd.GEdrawMode = 0xFF;
         waitFifo(1);
         mmio.writeL(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
 
@@ -1950,13 +1982,13 @@ void ASM Mach64Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(str
 
     setDstBuffer(ri, RGBFB_CLUT);
 
-    if (cd->GEOp != BLITPLANAR2CHUNKY) {
-        cd->GEOp = BLITPLANAR2CHUNKY;
+    if (cd.GEOp != BLITPLANAR2CHUNKY) {
+        cd.GEOp = BLITPLANAR2CHUNKY;
         // Invalidate the pen and drawmode caches
-        cd->GEdrawMode = 0xFF;
-        cd->GEmask     = mask;
-        cd->GEfgPen    = 0xFFFFFFFF;
-        cd->GEbgPen    = 0x0;
+        cd.GEdrawMode = 0xFF;
+        cd.GEmask     = mask;
+        cd.GEfgPen    = 0xFFFFFFFF;
+        cd.GEbgPen    = 0x0;
 
         waitFifo(3);
         mmio.writeL(GUI_TRAJ_CNTL, SRC_LINEAR_EN | DST_X_DIR | DST_Y_DIR);
@@ -1964,8 +1996,8 @@ void ASM Mach64Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(str
         mmio.writeL(DP_BKGD_CLR, 0x0);
     }
 
-    if (cd->GEdrawMode != minTerm) {
-        cd->GEdrawMode = minTerm;
+    if (cd.GEdrawMode != minTerm) {
+        cd.GEdrawMode = minTerm;
 
         waitFifo(1);
         // Set the mix mode (minterm)
@@ -2028,15 +2060,15 @@ void ASM Mach64Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
         Mach64MmioNoSwapQ raw(mmioBase());
         DRIVER_LOCALS(this);
 
-        if (cd->GEOp != BLITPATTERN) {
-            cd->GEOp            = BLITPATTERN;
-            cd->GEdrawMode      = 0xFF;
-            cd->patternCacheKey = 0xFFFFFFFF;
+        if (cd.GEOp != BLITPATTERN) {
+            cd.GEOp            = BLITPATTERN;
+            cd.GEdrawMode      = 0xFF;
+            cd.patternCacheKey = 0xFFFFFFFF;
 
             waitFifo(2);
 
             // Offset is in units of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'.
-            mmio.writeL(SRC_OFF_PITCH, SRC_OFFSET(memoryOffset(cd->patternVideoBuffer) / 8) | SRC_PITCH(8));
+            mmio.writeL(SRC_OFF_PITCH, SRC_OFFSET(memoryOffset(cd.patternVideoBuffer) / 8) | SRC_PITCH(8));
             mmio.writeMaskL(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH_MASK, DP_SRC_PIX_WIDTH(COLOR_DEPTH_1));
         }
 
@@ -2049,8 +2081,8 @@ void ASM Mach64Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
         // We cache the last pattern to avoid re-uploading it if it didn't change.
         UWORD patternHeight        = 1 << pattern->Size;
         const UWORD *sysMemPattern = (const UWORD *)pattern->Memory;
-        UWORD *cachedPattern       = cd->patternCacheBuffer;
-        ULONG *videoMemPattern     = cd->patternVideoBuffer;
+        UWORD *cachedPattern       = cd.patternCacheBuffer;
+        ULONG *videoMemPattern     = cd.patternVideoBuffer;
 
         // Try to avoid wait-for-idle by first checking if the pattern changed.
         // I'm not expecting huge patterns, so this will hopefully be fast
@@ -2070,7 +2102,7 @@ void ASM Mach64Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
             }
         }
 
-        BOOL was8x8 = (cd->patternCacheKey & 0x80000000) != 0;
+        BOOL was8x8 = (cd.patternCacheKey & 0x80000000) != 0;
         if (is8x8 != was8x8) {
             patternChanged = TRUE;
         }
@@ -2083,8 +2115,8 @@ void ASM Mach64Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
             UBYTE pattOffY = (UBYTE)((y - pattern->YOffset) & 7);
 
             ULONG pattCacheKey = (pattOffX << 16) | (pattOffY << 8) | pattern->Size | 0x80000000;
-            if (pattCacheKey != cd->patternCacheKey) {
-                cd->patternCacheKey = pattCacheKey;
+            if (pattCacheKey != cd.patternCacheKey) {
+                cd.patternCacheKey = pattCacheKey;
                 patternChanged      = TRUE;
             }
 
@@ -2184,8 +2216,8 @@ void ASM Mach64Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
             UWORD yOff = pattern->YOffset & (patternHeight - 1);
 
             ULONG pattCacheKey = (yOff << 16) | (xOff << 8) | pattern->Size;
-            if (pattCacheKey != cd->patternCacheKey) {
-                cd->patternCacheKey = pattCacheKey;
+            if (pattCacheKey != cd.patternCacheKey) {
+                cd.patternCacheKey = pattCacheKey;
 
                 waitFifo(6);
 
@@ -2217,21 +2249,21 @@ void ASM Mach64Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
 
     DRIVER_LOCALS(this);
 
-    if (cd->GEOp != LINE) {
-        cd->GEOp            = LINE;
-        cd->GEdrawMode      = 0xFF;
-        cd->patternCacheKey = 0xFFFFFFFF;
+    if (cd.GEOp != LINE) {
+        cd.GEOp            = LINE;
+        cd.GEdrawMode      = 0xFF;
+        cd.patternCacheKey = 0xFFFFFFFF;
 
         waitFifo(4);
 
         // Offset is in units of '64 bit words' (8 bytes), while pitch is in units of '8 Pixels'.
-        mmio.writeL(SRC_OFF_PITCH, SRC_OFFSET(memoryOffset(cd->patternVideoBuffer) / 8) | SRC_PITCH(8));
+        mmio.writeL(SRC_OFF_PITCH, SRC_OFFSET(memoryOffset(cd.patternVideoBuffer) / 8) | SRC_PITCH(8));
         mmio.writeMaskL(DP_PIX_WIDTH, DP_SRC_PIX_WIDTH_MASK, DP_SRC_PIX_WIDTH(COLOR_DEPTH_1));
         mmio.writeL(GUI_TRAJ_CNTL, SRC_LINE_X_DIR | SRC_PATT_EN | SRC_PATT_ROT_EN);
         mmio.writeL(SRC_HEIGHT2_WIDTH2, SRC_HEIGHT2(1) | SRC_WIDTH2(16));
     }
-    UWORD *cachedPattern   = cd->patternCacheBuffer;
-    ULONG *videoMemPattern = cd->patternVideoBuffer;
+    UWORD *cachedPattern   = cd.patternCacheBuffer;
+    ULONG *videoMemPattern = cd.patternVideoBuffer;
 
     // Try to avoid wait-for-idle by first checking if the pattern changed.
     BOOL patternChanged = FALSE;
@@ -2245,8 +2277,8 @@ void ASM Mach64Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
     UBYTE xOff = line->PatternShift & 15;
 
     ULONG pattCache = xOff;
-    if (pattCache != cd->patternCacheKey) {
-        cd->patternCacheKey = pattCache;
+    if (pattCache != cd.patternCacheKey) {
+        cd.patternCacheKey = pattCache;
 
         waitFifo(5);
 
@@ -2346,12 +2378,6 @@ static void ASM SetDAC(__REGA0(struct BoardInfo *bi), __REGD0(UWORD region), __R
 static void ASM SetColorArray(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count))
 {
     asMach64(bi)->setColorArray(startIndex, count);
-}
-
-void ASM SetColorArrayInternal(__REGA0(struct BoardInfo *bi), __REGD0(UWORD startIndex), __REGD1(UWORD count),
-                               __REGA1(const struct CLUTEntry *colors))
-{
-    asMach64(bi)->setColorArrayInternal(startIndex, count, colors);
 }
 
 static BOOL ASM SetDisplay(__REGA0(struct BoardInfo *bi), __REGD0(BOOL state))
@@ -2512,7 +2538,7 @@ static void ASM BlitPattern(__REGA0(struct BoardInfo *bi), __REGA1(struct Render
 
 extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 {
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     DFUNC(ALWAYS, "\n");
 
@@ -2614,35 +2640,35 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
         DFUNC(INFO, "Determine Chip Family\n");
 
         // Allocate ChipSpecific structure
-        cd->chipSpecific = (ChipSpecific_t *)AllocMem(sizeof(ChipSpecific_t), MEMF_ANY | MEMF_CLEAR);
-        if (!cd->chipSpecific) {
+        cd.chipSpecific = (ChipSpecific *)AllocMem(sizeof(ChipSpecific), MEMF_ANY | MEMF_CLEAR);
+        if (!cd.chipSpecific) {
             DFUNC(ERROR, "Failed to allocate ChipSpecific\n");
             return FALSE;
         }
 
         ULONG revision;
         ULONG deviceId;
-        LOCAL_OPENPCIBASE();
+        LOCAL_OPENPCIBASE(bi);
         GetBoardAttrs(board, PRM_Device, (Tag)&deviceId, PRM_Revision, (Tag)&revision, TAG_END);
 
-        cd->chipFamily      = getChipFamily(deviceId);
-        cd->fifoSlotsCached = 0xffff; /* no free slots known yet */
+        cd.chipFamily      = getChipFamily(deviceId);
+        cd.fifoSlotsCached = 0xffff; /* no free slots known yet */
 
-        if (cd->chipFamily == UNKNOWN || !mach64ChipFamilySupported(cd->chipFamily)) {
+        if (cd.chipFamily == UNKNOWN || !mach64ChipFamilySupported(cd.chipFamily)) {
             DFUNC(ERROR, "Unsupported chip family for this driver, aborting\n");
             return FALSE;
         }
-        D(INFO, "Chip family: %s\n", getChipFamilyName(cd->chipFamily));
+        D(INFO, "Chip family: %s\n", getChipFamilyName(cd.chipFamily));
 
 #if MACH64_PCI_RETRY
         /* XL memory PLL and DRAM timings come from the option ROM. */
-        if (cd->chipFamily == MACH64GM && !mach64GMRunBios(bi))
+        if (cd.chipFamily == MACH64GM && !RunVBIOS(*drv))
             return FALSE;
 #endif
 
         /* LE aperture formats for all; CT+ also advertise BE (+8MB) aliases. */
         bi->RGBFormats = RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC;
-        if (cd->chipFamily >= MACH64CT) {
+        if (cd.chipFamily >= MACH64CT) {
             bi->RGBFormats |= RGBFF_B8G8R8A8 | RGBFF_A8R8G8B8 | RGBFF_R5G6B5 | RGBFF_R5G5B5;
         }
         /* GX: 32bpp LE order is DAC-specific — InitMach64GX ORs it. */
@@ -2682,7 +2708,7 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
         /* Seed sparse I/O before ROM parse (ROM itself carries the same base). */
         if (ioBase) {
-            cd->ioSparseBase = ioBase;
+            cd.ioSparseBase = ioBase;
         }
     }
 
@@ -2721,36 +2747,36 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
         mmio.writeMaskL(BUS_CNTL, BUS_ROM_DIS_MASK, 0);
     }
 
-    if (!parseRomHeader(bi)) {
+    if (!parseRomHeader(*drv)) {
         DFUNC(ERROR, "Failed to parse ROM header\n");
         return FALSE;
     }
 
-    switch (cd->chipFamily) {
+    switch (cd.chipFamily) {
 #if !MACH64_PCI_RETRY
     case MACH64GX:
-        if (!InitMach64GX(bi)) {
+        if (!InitMach64GX(*drv)) {
             return FALSE;
         }
         break;
     case MACH64CT:
-        if (!InitMach64CT(bi)) {
+        if (!InitMach64CT(*drv)) {
             return FALSE;
         }
         break;
 #else
     case MACH64VT:
-        if (!InitMach64VT(bi)) {
+        if (!InitMach64VT(*drv)) {
             return FALSE;
         }
         break;
     case MACH64GT:
-        if (!InitMach64GT(bi)) {
+        if (!InitMach64GT(*drv)) {
             return FALSE;
         }
         break;
     case MACH64GM:
-        if (!InitMach64GM(bi)) {
+        if (!InitMach64GM(*drv)) {
             return FALSE;
         }
         break;
@@ -2766,19 +2792,19 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
     drv->writeMaskConfigCntl(CFG_VGA_DIS_MASK | CFG_MEM_VGA_AP_EN_MASK, CFG_VGA_DIS);
 
     /* MCLK: CT/VT/GT program in InitMach64*; GX reports ROM default only. */
-    if (cd->chipFamily == MACH64GX && !bi->MemoryClock) {
-        bi->MemoryClock = (ULONG)resolveMemoryClockKhz10(bi) * 10000UL;
+    if (cd.chipFamily == MACH64GX && !bi->MemoryClock) {
+        bi->MemoryClock = (ULONG)resolveMemoryClockKhz10(*drv) * 10000UL;
     }
     D(INFO, "MemoryClock %ld Hz\n", bi->MemoryClock);
 
     // FIXME: no need to crop FB size on later chips with auxilliary MMIO aperture
-    if (bi->MemorySize == 8 * 1024 * 1024 && cd->chipFamily <= MACH64VT) {
+    if (bi->MemorySize == 8 * 1024 * 1024 && cd.chipFamily <= MACH64VT) {
         bi->MemorySize -= 2048;  // Upper 2kb are reserved for MMIO register blocks 0 and 1
     }
 
     // Init DAC: 8-bit LUT + optional blanking pedestal; disable legacy VGA DAC
     // decode. GX external DAC is programmed in SetDAC_GX.
-    if (cd->chipFamily != MACH64GX) {
+    if (cd.chipFamily != MACH64GX) {
         ULONG dacBits = DAC_8BIT_EN;
         if (!(bi->CardFlags & CFF_BLACKLEVEL_BLACK)) {
             dacBits |= DAC_BLANKING;
@@ -2796,16 +2822,16 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
                         VGA_ATI_LINEAR_MASK | CRTC_CSYNC_EN | CRTC_PIC_BY_2_EN | CRTC_HSYNC_DIS | CRTC_VSYNC_DIS |
                         CRTC_LOCK_REGS_MASK,
                     CRTC_ENABLE | CRTC_EXT_DISP_EN /*| VGA_XCRT_CNT_EN*/);
-    if (cd->chipFamily == MACH64CT) {
+    if (cd.chipFamily == MACH64CT) {
         /* Mode set retunes via AdjustCrtcFifo_CT; start below max (0xF starves GE). */
         mmio.writeMaskL(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK, CRTC_FIFO_LWM(0x8));
-    } else if (cd->chipFamily == MACH64VT) {
+    } else if (cd.chipFamily == MACH64VT) {
         mmio.writeMaskL(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK | CRTC_FIFO_OVERFILL_VT_MASK | CRTC_DISPREQ_ONLY_VT_MASK,
                         CRTC_FIFO_LWM(0x8) | CRTC_FIFO_OVERFILL_VT(1));
     }
 
     // Init Engine
-    ResetEngine(bi);
+    ResetEngine(*drv);
 
     waitFifo(bi, 16);
     mmio.writeL(CONTEXT_MASK, 0xFFFFFFFF);
@@ -2840,7 +2866,7 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
 
     D(INFO, "Monitor is %s present\n", ((mmio.readB(DAC_CNTL, 0) & 0x80) ? "NOT" : ""));
 
-    queryEDID(bi);
+    queryEDID(*drv);
 
     // Two sprite images, each 64x64*2 bits
     // BEWARE: softsprite data would use 4 byte per pixel
@@ -2856,8 +2882,8 @@ extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi))
     // The P96 pattern is just 16 pixels (bits) wide.
     ULONG patternSize      = 8 * 256;
     bi->MemorySize         = (bi->MemorySize - patternSize) & ~(7);
-    cd->patternVideoBuffer = (ULONG *)(bi->MemoryBase + bi->MemorySize);
-    cd->patternCacheBuffer = (UWORD *)AllocVec(patternSize, MEMF_PUBLIC);
+    cd.patternVideoBuffer = (ULONG *)(bi->MemoryBase + bi->MemorySize);
+    cd.patternCacheBuffer = (UWORD *)AllocVec(patternSize, MEMF_PUBLIC);
 
     return TRUE;
 }
@@ -2892,7 +2918,7 @@ struct Library *OpenPciBase = NULL;
  */
 static void testFillPattern8bppBytes(BoardInfo_t *bi, UWORD width, UWORD height)
 {
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     volatile UBYTE *mem = (volatile UBYTE *)bi->MemoryBase;
     UWORD bpr           = width;
     if (bi->CalculateBytesPerRow) {
@@ -2932,7 +2958,7 @@ static BOOL lutGunOk(UBYTE got, UBYTE wr, BOOL *sixBit)
 static void verifyPaletteReadback(BoardInfo_t *bi)
 {
     DRIVER_LOCALS(bi);
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     static const UWORD idxs[] = {0, 1, 2, 127, 128, 254, 255};
     ULONG broken              = 0;
     BOOL sixBit               = FALSE;
@@ -2997,7 +3023,7 @@ static void dumpScanout8bpp(BoardInfo_t *bi)
     D(ALWAYS, "CRTC_V_TOTAL_DISP=0x%08lx vtot=%ld vdisp=%ld\n", vtd, vtd & 0x7ff, (vtd >> 16) & 0x7ff);
     D(ALWAYS, "CRTC_OFF_PITCH=0x%08lx off=0x%lx pitch8=%ld\n", pitch, pitch & 0xfffff, (pitch >> 22) & 0x3ff);
     D(ALWAYS, "DAC_CNTL=0x%08lx dac8=%ld rs=%ld type_byte=%ld\n", dac, !!(dac & BIT(8)), dac & 3, (dac >> 16) & 7);
-    if (cd->chipFamily == MACH64GX) {
+    if (cd.chipFamily == MACH64GX) {
         D(ALWAYS, "CONFIG_STAT0_GX bus=%ld mem_type=%ld dac_strap=%ld vga_en=%ld\n",
           (ULONG)(cfg0 & CFG_BUS_TYPE_GX_MASK), (ULONG)((cfg0 & CFG_MEM_TYPE_GX_MASK) >> 3),
           (ULONG)((cfg0 & CFG_INIT_DAC_TYPE_GX_MASK) >> 9), !!(cfg0 & CFG_VGA_EN_GX));
@@ -3006,7 +3032,7 @@ static void dumpScanout8bpp(BoardInfo_t *bi)
           !!(cfg0 & CFG_DUAL_CAS_EN_CT), !!(cfg0 & CFG_CLOCK_EN_CT));
     }
     ULONG mem = mmio.readL(MEM_CNTL);
-    if (cd->chipFamily == MACH64CT) {
+    if (cd.chipFamily == MACH64CT) {
         D(ALWAYS, "MEM_CNTL=0x%08lx CT size=%ld refresh=%ld refrate=%ld\n", mem, mem & 7, (mem >> 3) & 0xf,
           (mem >> 11) & 3);
     } else {
@@ -3033,7 +3059,7 @@ static void ASM SoftVBlankCount(__REGA1(ULONG *count))
 static void testVBlankInterrupt(BoardInfo_t *bi, struct pci_dev *board)
 {
     DRIVER_LOCALS(bi);
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     softVBlankCount = 0;
 
     /* OpenPCI: server may run immediately — chip must not assert INTA yet. */
@@ -3042,7 +3068,7 @@ static void testVBlankInterrupt(BoardInfo_t *bi, struct pci_dev *board)
         mmio.writeL(CRTC_INT_CNTL, CRTC_INT_ACKS);
         mmio.writeL(CRTC_INT_CNTL, 0);
     }
-    cd->p96VBlankInt = 0;
+    cd.p96VBlankInt = 0;
     Enable();
 
     bi->SoftInterrupt.is_Node.ln_Type = NT_INTERRUPT;
@@ -3092,8 +3118,8 @@ static const char testArgsTemplate[] = "ALL/S,VBLANK/S,EEPROM/S,DUMPROM/S";
 
 static void dumpMach64Rom(struct BoardInfo *bi)
 {
-    LOCAL_OPENPCIBASE();
-    LOCAL_SYSBASE();
+    LOCAL_OPENPCIBASE(bi);
+    LOCAL_SYSBASE(bi);
 
     UBYTE *romBase = NULL;
     ULONG romSize  = 0;
@@ -3181,7 +3207,7 @@ int main()
 
         D(0, "Found ATI device %x revision %x\n", Device, Revision);
 
-        ChipFamily_t family = getChipFamily((UWORD)Device);
+        ChipFamily family = getChipFamily((UWORD)Device);
 
         if (family != UNKNOWN && !mach64ChipFamilySupported(family)) {
             D(ALWAYS, "Skipping %s (this binary is %s)\n", getChipFamilyName(family),
@@ -3228,7 +3254,7 @@ int main()
             getCardData(bi)->OpenPciBase = OpenPciBase;
             getCardData(bi)->board       = board;
 
-            getCardData(bi)->legacyIOBase = (volatile UBYTE *)legacyIOBase + REGISTER_OFFSET;
+            getCardData(bi)->legacyIOBase = (volatile UBYTE *)legacyIOBase;
 
             /* CT: optional BAR1 block-IO. VT+: required. GX: sparse IO via PCI 0x40. */
             if (family >= MACH64VT) {
@@ -3236,10 +3262,10 @@ int main()
                     D(ERROR, "Cannot find block IO Aperture\n");
                     goto exit;
                 }
-                bi->RegisterBase = (UBYTE *)Memory1 + REGISTER_OFFSET;
+                bi->RegisterBase = (UBYTE *)Memory1;
                 D(ALWAYS, "RegisterBase (block IO) 0x%08lx\n", bi->RegisterBase);
             } else if (family == MACH64CT && Memory1) {
-                bi->RegisterBase = (UBYTE *)Memory1 + REGISTER_OFFSET;
+                bi->RegisterBase = (UBYTE *)Memory1;
                 D(ALWAYS, "RegisterBase (CT block IO) 0x%08lx\n", bi->RegisterBase);
             } else {
                 UBYTE userConfig = pci_read_config_byte(0x40, board);
@@ -3262,12 +3288,12 @@ int main()
 
                 if (Memory2) {
                     D(ALWAYS, "Using auxiliary register aperture at 0x%08lx\n", Memory2);
-                    bi->MemoryIOBase = (UBYTE *)Memory2 + 1024 + MMIOREGISTER_OFFSET;
+                    bi->MemoryIOBase = (UBYTE *)Memory2 + 1024;
                     setCacheMode(bi, Memory2, Memory2Size, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
                 } else {
                     D(ALWAYS, "Using BAR0 MMIO at 0x%08lx (+0x%lx, BAR0 size %ld)\n", (BYTE *)Memory0 + mmioOff,
                       mmioOff, Memory0Size);
-                    bi->MemoryIOBase = (UBYTE *)Memory0 + mmioOff + MMIOREGISTER_OFFSET;
+                    bi->MemoryIOBase = (UBYTE *)Memory0 + mmioOff;
                     setCacheMode(bi, (BYTE *)Memory0 + mmioOff, 1024, MAPP_IO | MAPP_CACHEINHIBIT, CACHEFLAGS);
                 }
             }
@@ -3285,7 +3311,7 @@ int main()
             bi->MemorySpaceSize = bi->MemorySize;
 
             if (eepromDump) {
-                dumpMach64Eeprom(bi);
+                dumpMach64Eeprom(*asMach64(bi));
                 rval = EXIT_SUCCESS;
                 goto exit;
             }

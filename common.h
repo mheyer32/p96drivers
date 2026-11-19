@@ -60,12 +60,6 @@ extern void __stdargs myPrintF(const char *fmt, ...);
 
 /* Standard VGA ports: see vga_regs.hpp (VgaReg / VgaIo). */
 
-#define LOCAL_SYSBASE()     struct ExecBase *SysBase = bi->ExecBase
-#define LOCAL_UTILITYBASE() struct Library *UtilityBase = bi->UtilBase
-#if OPENPCI
-#define LOCAL_OPENPCIBASE() struct Library *OpenPciBase = getCardData(bi)->OpenPciBase
-#endif
-
 /* BoardInfo.CardFlags — private; RTG does not touch these.
  * P96 monitor tooltype BLACKLEVEL=Black|Pedestal (same as S3ViRGE.chip).
  * Unset / Pedestal → clear bit (DAC blanking pedestal on). Black → set bit (0 IRE). */
@@ -288,6 +282,66 @@ static INLINE const struct CardData *getConstCardData(const struct BoardInfo *bi
 {
     return (const struct CardData *)&bi->CardData[0];
 }
+
+#ifdef __cplusplus
+static INLINE struct ChipData *getChipData(struct BoardInfo &bi)
+{
+    return getChipData(&bi);
+}
+static INLINE const struct ChipData *getConstChipData(const struct BoardInfo &bi)
+{
+    return getConstChipData(&bi);
+}
+static INLINE struct CardData *getCardData(struct BoardInfo &bi)
+{
+    return getCardData(&bi);
+}
+static INLINE const struct CardData *getConstCardData(const struct BoardInfo &bi)
+{
+    return getConstCardData(&bi);
+}
+#endif
+
+/* Board argument: BoardInfo* / BoardInfo& (Mach64Driver& binds to BoardInfo&).
+ * Pass bi, drv, or *this — name-in-scope SFINAE is not possible.
+ * OPENPCI stays a macro so CardData is complete at the call site. */
+#ifdef __cplusplus
+static INLINE struct BoardInfo *p96BoardPtr(struct BoardInfo *b)
+{
+    return b;
+}
+static INLINE struct BoardInfo *p96BoardPtr(struct BoardInfo &b)
+{
+    return &b;
+}
+static INLINE struct ExecBase *p96ExecBase(struct BoardInfo *b)
+{
+    return b->ExecBase;
+}
+static INLINE struct ExecBase *p96ExecBase(struct BoardInfo &b)
+{
+    return b.ExecBase;
+}
+static INLINE struct Library *p96UtilBase(struct BoardInfo *b)
+{
+    return b->UtilBase;
+}
+static INLINE struct Library *p96UtilBase(struct BoardInfo &b)
+{
+    return b.UtilBase;
+}
+#define LOCAL_SYSBASE(board)     struct ExecBase *SysBase = p96ExecBase(board)
+#define LOCAL_UTILITYBASE(board) struct Library *UtilityBase = p96UtilBase(board)
+#if OPENPCI
+#define LOCAL_OPENPCIBASE(board) struct Library *OpenPciBase = getCardData(p96BoardPtr(board))->OpenPciBase
+#endif
+#else
+#define LOCAL_SYSBASE(board)     struct ExecBase *SysBase = (board)->ExecBase
+#define LOCAL_UTILITYBASE(board) struct Library *UtilityBase = (board)->UtilBase
+#if OPENPCI
+#define LOCAL_OPENPCIBASE(board) struct Library *OpenPciBase = getCardData(board)->OpenPciBase
+#endif
+#endif
 
 static INLINE REGARGS volatile UBYTE *getIOBase(const struct BoardInfo *bi)
 {

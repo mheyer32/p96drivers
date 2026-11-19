@@ -41,7 +41,7 @@ BOOL releaseCard(__REGA0(struct BoardInfo *bi))
 
 extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
     CardData_t *cd = getCardData(bi);
 
     struct Library *OpenPciBase = NULL;
@@ -190,8 +190,8 @@ extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
 
     parseBlackLevelToolType(bi, ToolTypes);
 
-    LOCAL_OPENPCIBASE();
-    LOCAL_SYSBASE();
+    LOCAL_OPENPCIBASE(bi);
+    LOCAL_SYSBASE(bi);
 
     if (!initRegisterAndMemoryBases(bi)) {
         D(ERROR, "AT3D.card: could not init card\n");

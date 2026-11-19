@@ -1,13 +1,9 @@
 #include "mach64_eeprom.h"
-#include "chip_mach64.h"
+#include "mach64_chip.h"
 #include "mach64_common.h"
 
 using namespace MmioReg;
 using namespace PllReg;
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /*
  * Mach64 external Microwire EEPROM via GEN_TEST_CNTL (ATI.TXT / GX VBIOS eeprom_ReadWord_BX).
@@ -28,7 +24,7 @@ static const UWORD g_crtcTableOff[] = {0x17, 0x26, 0x35, 0x44, 0x53, 0x62, 0x71}
 
 #ifndef DBG
 
-void dumpMach64Eeprom(struct BoardInfo *bi)
+void dumpMach64Eeprom(Mach64Driver &bi)
 {
     (void)bi;
 }
@@ -36,7 +32,7 @@ void dumpMach64Eeprom(struct BoardInfo *bi)
 #else
 
 /* RMW only GEN_EE_* bits; quiet MMIO (bit-bang is chatty if logged). */
-static ULONG eeSetBits(BoardInfo_t *bi, ULONG set, ULONG clear)
+static ULONG eeSetBits(Mach64Driver &bi, ULONG set, ULONG clear)
 {
     DRIVER_LOCALS(bi);
     ULONG v = mmio.readL(GEN_TEST_CNTL);
@@ -46,13 +42,13 @@ static ULONG eeSetBits(BoardInfo_t *bi, ULONG set, ULONG clear)
     return mmio.readL(GEN_TEST_CNTL);
 }
 
-static ULONG eeClock(BoardInfo_t *bi)
+static ULONG eeClock(Mach64Driver &bi)
 {
     eeSetBits(bi, GEN_EE_CLOCK, 0);
     return eeSetBits(bi, 0, GEN_EE_CLOCK);
 }
 
-static UWORD eeReadWord(BoardInfo_t *bi, UBYTE addr)
+static UWORD eeReadWord(Mach64Driver &bi, UBYTE addr)
 {
     ULONG cur;
     UWORD data;
@@ -124,7 +120,7 @@ static void dumpCrtcTable(const UWORD *buf, UWORD wordOff, int idx)
     }
 }
 
-void dumpMach64Eeprom(struct BoardInfo *bi)
+void dumpMach64Eeprom(Mach64Driver &bi)
 {
     UWORD buf[EEPROM_NUM_WORDS];
     UWORD w;
@@ -166,6 +162,3 @@ void dumpMach64Eeprom(struct BoardInfo *bi)
 
 #endif /* DBG */
 
-#ifdef __cplusplus
-}
-#endif

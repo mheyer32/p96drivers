@@ -795,8 +795,8 @@ BOOL writeEDIDToFile(struct BoardInfo *bi, const UBYTE *edid_data)
         return FALSE;
     }
 
-    LOCAL_SYSBASE();
-    LOCAL_UTILITYBASE();
+    LOCAL_SYSBASE(bi);
+    LOCAL_UTILITYBASE(bi);
 
     // Open dos.library
     struct Library *DOSBase = OpenLibrary("dos.library", 0);

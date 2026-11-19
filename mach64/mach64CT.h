@@ -3,16 +3,10 @@
 
 #include <boardinfo.h>
 
-#ifdef __cplusplus
-extern "C" {
+class Mach64Driver;
+
+BOOL InitMach64CT(Mach64Driver &bi);
+void AdjustCrtcFifo_CT(Mach64Driver &bi);
+void SetMemoryClock_CT(Mach64Driver &bi, UWORD freqKhz10);
+
 #endif
-
-BOOL InitMach64CT(struct BoardInfo *bi);
-void AdjustCrtcFifo_CT(struct BoardInfo *bi);
-void SetMemoryClock_CT(struct BoardInfo *bi, UWORD freqKhz10);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif  // MACH64CT_H

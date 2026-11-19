@@ -1,13 +1,9 @@
 #include "mach64CT.h"
-#include "chip_mach64.h"
+#include "mach64_chip.h"
 #include "mach64_common.h"
 
 using namespace MmioReg;
 using namespace PllReg;
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #define VCLK_SRC_SEL(x)   ((x))
 #define VCLK_SRC_SEL_MASK (0x3)
@@ -30,7 +26,7 @@ static const UBYTE g_VPLLPostDividerCodes[] = {
 static const UBYTE g_MPLLPostDividers[]     = {1, 2, 4, 8};
 static const UBYTE g_MPLLPostDividerCodes[] = {0b000, 0b001, 0b010, 0b011};
 
-void SetMemoryClock_CT(BoardInfo_t *bi, UWORD freqKhz10)
+void SetMemoryClock_CT(Mach64Driver &bi, UWORD freqKhz10)
 {
     DFUNC(VERBOSE, "Setting Memory Clock to %ld0 KHz\n", (ULONG)freqKhz10);
     DRIVER_LOCALS(bi);
@@ -41,7 +37,7 @@ void SetMemoryClock_CT(BoardInfo_t *bi, UWORD freqKhz10)
     if (freqKhz10 > 6800)
         freqKhz10 = 6800;
 
-    PLLValue_t pllValues;
+    PLLValue pllValues;
     if (!computePLLValues(bi, freqKhz10, g_MPLLPostDividers, ARRAY_SIZE(g_MPLLPostDividers), &pllValues)) {
         DFUNC(ERROR, "Failed to compute MCLK PLL values\n");
         return;
@@ -59,15 +55,15 @@ void SetMemoryClock_CT(BoardInfo_t *bi, UWORD freqKhz10)
                    MCLK_SRC_SEL(g_MPLLPostDividerCodes[pllValues.Pidx]));
     delayMilliSeconds(1);
 
-    ChipSpecific_t *cs = getChipSpecific(bi);
-    cs->mclkFBDiv      = pllValues.N;
-    cs->mclkPostDiv    = g_MPLLPostDividers[pllValues.Pidx];
+    ChipSpecific &cs = getChipSpecific(bi);
+    cs.mclkFBDiv      = pllValues.N;
+    cs.mclkPostDiv    = g_MPLLPostDividers[pllValues.Pidx];
 
     D(INFO, "MCLK N=%ld P=%ld PLL_GEN_CNTL=0x%02lx PLL_MCLK_FB_DIV=0x%02lx\n", (ULONG)pllValues.N,
-      (ULONG)cs->mclkPostDiv, (ULONG)READ_PLL(PLL_GEN_CNTL), (ULONG)READ_PLL(PLL_MCLK_FB_DIV));
+      (ULONG)cs.mclkPostDiv, (ULONG)READ_PLL(PLL_GEN_CNTL), (ULONG)READ_PLL(PLL_MCLK_FB_DIV));
 }
 
-static ULONG computeVCLKFrequencyKhz10_CT(const struct BoardInfo *bi, const struct PLLValue *pllValues)
+static ULONG computeVCLKFrequencyKhz10_CT(const Mach64Driver &bi, const struct PLLValue *pllValues)
 {
     return computeFrequencyKhz10FromPllValue(bi, pllValues, g_VPLLPostDivider);
 }
@@ -109,9 +105,9 @@ static UBYTE lookupFifoLwm_CT(const FifoEntry_CT_t *tab, UBYTE n, ULONG clock10k
     return tab[n - 1].lwm;
 }
 
-void AdjustCrtcFifo_CT(struct BoardInfo *bi)
+void AdjustCrtcFifo_CT(Mach64Driver &bi)
 {
-    const struct ModeInfo *mi = bi->ModeInfo;
+    const struct ModeInfo *mi = bi.ModeInfo;
     if (!mi)
         return;
 
@@ -140,16 +136,16 @@ void AdjustCrtcFifo_CT(struct BoardInfo *bi)
     mmio.writeMaskL(CRTC_GEN_CNTL, CRTC_FIFO_LWM_MASK, CRTC_FIFO_LWM(lwm));
 }
 
-void ASM Mach64Driver::setClock_CT()
+static void ASM SetClock_CT(__REGA0(struct BoardInfo *bi))
 {
     DFUNC(VERBOSE, "\n");
-    DRIVER_LOCALS(this);
+    DRIVER_LOCALS(bi);
 
-    struct ModeInfo *mi = ModeInfo;
+    struct ModeInfo *mi = bi->ModeInfo;
 
 #ifdef DBG
-    const ChipSpecific_t *cs = getConstChipSpecific(drv);
-    ULONG minVClkKhz10       = 2 * cs->referenceFrequency * 128 / (cs->referenceDivider * 8);
+    const ChipSpecific &cs = getConstChipSpecific(bi);
+    ULONG minVClkKhz10     = 2 * cs.referenceFrequency * 128 / (cs.referenceDivider * 8);
 
     D(CHATTY, "minimum VCLK %ldHz\n", minVClkKhz10 * 10000);
     if (mi->PixelClock < minVClkKhz10 * 10000) {
@@ -160,10 +156,8 @@ void ASM Mach64Driver::setClock_CT()
       (ULONG)mi->pll2.Denominator);
 #endif
 
-    /* Select VCLK0 before programming. */
     mmio.writeMaskL(CLOCK_CNTL, CLOCK_SEL_MASK | CLOCK_STROBE_MASK, CLOCK_SEL(0) | CLOCK_STROBE);
 
-    /* BedRock VPLL: CPUCLK → reset → program N/P → unreset → PLLVCLK. */
     WRITE_PLL_MASK(PLL_VCLK_CNTL, VCLK_SRC_SEL_MASK | PLL_EXT_CLK_EN_MASK, VCLK_SRC_SEL(0b00));
     delayMilliSeconds(5);
     WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK, PLL_PRESET);
@@ -178,16 +172,9 @@ void ASM Mach64Driver::setClock_CT()
 
     delayMilliSeconds(5);
 
-    /* Re-select / strobe VCLK0 into the CRTC (CLOCK_CNTL|STROBE). */
     mmio.writeMaskL(CLOCK_CNTL, CLOCK_SEL_MASK | CLOCK_STROBE_MASK, CLOCK_SEL(0) | CLOCK_STROBE);
 
-    /* Lower display FIFO LWM → fewer DRAM page faults → more GE bandwidth (RRG). */
-    AdjustCrtcFifo_CT(this);
-}
-
-static void ASM SetClock_CT(__REGA0(struct BoardInfo *bi))
-{
-    asMach64(bi)->setClock_CT();
+    AdjustCrtcFifo_CT(*drv);
 }
 
 /*
@@ -250,11 +237,11 @@ static void print_CONFIG_STAT0_CT(ULONG raw)
     }
 }
 
-static BOOL probeMemorySize(BoardInfo_t *bi)
+static BOOL probeMemorySize(Mach64Driver &bi)
 {
     DFUNC(VERBOSE, "\n");
     DRIVER_LOCALS(bi);
-    LOCAL_SYSBASE();
+    LOCAL_SYSBASE(bi);
 
     ULONG memCntlSave = mmio.readL(MEM_CNTL);
     ULONG configStat0 = mmio.readL(CONFIG_STAT0);
@@ -283,19 +270,19 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
     static const ULONG memorySizes[] = {0x400000, 0x200000, 0x100000};
     static const ULONG memoryCodes[] = {MEM_SIZE_CT_4M, MEM_SIZE_CT_2M, MEM_SIZE_CT_1M};
 
-    volatile ULONG *framebuffer = (volatile ULONG *)bi->MemoryBase;
+    volatile ULONG *framebuffer = (volatile ULONG *)bi.MemoryBase;
     framebuffer[0]              = 0;
 
     for (int i = 0; i < ARRAY_SIZE(memorySizes); i++) {
-        bi->MemorySize = memorySizes[i];
-        D(VERBOSE, "\nProbing CT memory size %ld (MEM_SIZE=%ld) via LFB\n", bi->MemorySize, memoryCodes[i]);
+        bi.MemorySize = memorySizes[i];
+        D(VERBOSE, "\nProbing CT memory size %ld (MEM_SIZE=%ld) via LFB\n", bi.MemorySize, memoryCodes[i]);
 
         mmio.writeMaskL(MEM_CNTL, MEM_SIZE_CT_MASK, memoryCodes[i]);
         flushWrites();
         CacheClearU();
 
-        volatile ULONG *highOffset = framebuffer + (bi->MemorySize >> 2) - 512 - 1;
-        volatile ULONG *lowOffset  = framebuffer + (bi->MemorySize >> 3);
+        volatile ULONG *highOffset = framebuffer + (bi.MemorySize >> 2) - 512 - 1;
+        volatile ULONG *lowOffset  = framebuffer + (bi.MemorySize >> 3);
         *framebuffer               = 0;
         *highOffset                = (ULONG)highOffset;
         *lowOffset                 = (ULONG)lowOffset;
@@ -309,7 +296,7 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
           lowOffset, readbackLow, readbackZero);
 
         if (readbackHigh == (ULONG)highOffset && readbackLow == (ULONG)lowOffset && readbackZero == 0) {
-            D(INFO, "CT MemorySize %ld (MEM_SIZE=%ld, LFB)\n", bi->MemorySize, memoryCodes[i]);
+            D(INFO, "CT MemorySize %ld (MEM_SIZE=%ld, LFB)\n", bi.MemorySize, memoryCodes[i]);
             print_MEM_CNTL_CT(mmio.readL(MEM_CNTL));
             return TRUE;
         }
@@ -321,7 +308,7 @@ static BOOL probeMemorySize(BoardInfo_t *bi)
     return FALSE;
 }
 
-BOOL InitMach64CT(struct BoardInfo *bi)
+BOOL InitMach64CT(Mach64Driver &bi)
 {
     DFUNC(INFO, "\n");
     DRIVER_LOCALS(bi);
@@ -329,17 +316,17 @@ BOOL InitMach64CT(struct BoardInfo *bi)
     ULONG chipID = mmio.readL(CONFIG_CHIP_ID);
     DFUNC(INFO, "Mach64 CT init (CONFIG_CHIP_ID 0x%04lx, rev 0x%02lx)\n", chipID & 0xFFFF, chipID >> 24);
 
-    ChipSpecific_t *cs = getChipSpecific(bi);
+    ChipSpecific &cs = getChipSpecific(bi);
 
-    if (!cs->referenceDivider)
-        cs->referenceDivider = 0x36;
+    if (!cs.referenceDivider)
+        cs.referenceDivider = 0x36;
 
     /* Appendix J CT/ET VCO ≤ 135 MHz — ROM max_pclk can be higher. */
-    if (cs->maxPClock > 13500)
-        cs->maxPClock = 13500;
+    if (cs.maxPClock > 13500)
+        cs.maxPClock = 13500;
 
     /* Match ROM M; take PLL out of override/reset; OSC on; VCLK from PLL (Appendix J §J.4). */
-    WRITE_PLL(PLL_REF_DIV, cs->referenceDivider);
+    WRITE_PLL(PLL_REF_DIV, cs.referenceDivider);
     WRITE_PLL_MASK(PLL_GEN_CNTL, PLL_OVERRIDE_MASK | PLL_MRESET_MASK | OSC_EN_MASK | MCLK_SRC_SEL_MASK,
                    OSC_EN | MCLK_SRC_SEL(0b100));
     WRITE_PLL_MASK(PLL_VCLK_CNTL, PLL_PRESET_MASK | PLL_EXT_CLK_EN_MASK | VCLK_SRC_SEL_MASK, VCLK_SRC_SEL(0b11));
@@ -348,8 +335,8 @@ BOOL InitMach64CT(struct BoardInfo *bi)
     D(INFO, "PLL_REF_DIV=%ld PLL_GEN_CNTL=0x%02lx PLL_VCLK_CNTL=0x%02lx\n", (ULONG)READ_PLL(PLL_REF_DIV),
       (ULONG)READ_PLL(PLL_GEN_CNTL), (ULONG)READ_PLL(PLL_VCLK_CNTL));
 
-    cs->computeVCLKFrequency = computeVCLKFrequencyKhz10_CT;
-    bi->SetClock             = SetClock_CT;
+    cs.computeVCLKFrequency = computeVCLKFrequencyKhz10_CT;
+    bi.SetClock             = SetClock_CT;
 
     InitVClockPLLTable(bi, reinterpret_cast<const BYTE *>(g_VPLLPostDivider), ARRAY_SIZE(g_VPLLPostDivider));
 
@@ -368,6 +355,3 @@ BOOL InitMach64CT(struct BoardInfo *bi)
     return TRUE;
 }
 
-#ifdef __cplusplus
-}
-#endif
