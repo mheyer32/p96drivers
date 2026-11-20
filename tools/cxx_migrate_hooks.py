@@ -482,7 +482,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s mach32/chip_mach32.c --driver-class Mach32Driver --as-fn asMach32 -o chip_mach32.cpp
+  %(prog)s mach32/chip_mach32.c --driver-class Mach32Driver --as-fn asMach32 -o mach32_driver.cpp
   %(prog)s --self-test
   head -200 mach32/chip_mach32.c | %(prog)s - --driver-class Mach32Driver --as-fn asMach32
 """,

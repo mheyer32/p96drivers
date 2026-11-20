@@ -1,10 +1,6 @@
-#include "mach32_ramdac.h"
+#include "mach32_chip.h"
 
 using namespace IoReg;
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /*
  * Sorted by achieved pixel clock (centi-MHz). For each CLK_SEL (except "external"=6),
@@ -111,14 +107,14 @@ static const struct svga_pll g_svga_pll = {
     .f_base    = 14318,
 };
 
-static void generic_getPllParams(BoardInfo_t *bi, const struct svga_pll **pll, UWORD *maxFreqMhz)
+static void generic_getPllParams(BoardInfo *bi, const struct svga_pll **pll, UWORD *maxFreqMhz)
 {
     (void)bi;
     *pll        = &g_svga_pll;
     *maxFreqMhz = 135;
 }
 
-static void generic_packPllToModeInfo(BoardInfo_t *bi, UWORD m, UWORD n, UWORD r, struct ModeInfo *mi)
+static void generic_packPllToModeInfo(BoardInfo *bi, UWORD m, UWORD n, UWORD r, struct ModeInfo *mi)
 {
     (void)bi;
     mi->pll1.Numerator   = (UBYTE)m;
@@ -126,13 +122,13 @@ static void generic_packPllToModeInfo(BoardInfo_t *bi, UWORD m, UWORD n, UWORD r
     (void)r;
 }
 
-static UBYTE vfifoDepthForMode(BoardInfo_t *bi)
+static UBYTE vfifoDepthForMode(Mach32Driver &bi)
 {
     UBYTE depth;
     ULONG clockHz = 0;
     UWORD width   = 0;
 
-    switch (bi->RGBFormat) {
+    switch (bi.RGBFormat) {
     case RGBFB_CLUT:
     case RGBFB_NONE:
         depth = 6;
@@ -154,9 +150,9 @@ static UBYTE vfifoDepthForMode(BoardInfo_t *bi)
         break;
     }
 
-    if (bi->ModeInfo) {
-        clockHz = bi->ModeInfo->PixelClock;
-        width   = bi->ModeInfo->Width;
+    if (bi.ModeInfo) {
+        clockHz = bi.ModeInfo->PixelClock;
+        width   = bi.ModeInfo->Width;
     }
 
     /*
@@ -179,14 +175,14 @@ static UBYTE vfifoDepthForMode(BoardInfo_t *bi)
     return depth;
 }
 
-static void generic_setClock(BoardInfo_t *bi)
+static void generic_setClock(BoardInfo *bi)
 {
     const struct ModeInfo *mi = bi->ModeInfo;
 
     UBYTE selEnc = mi->pll1.Clock;
     UBYTE sel    = selEnc & 0x0F;
     UBYTE div2   = (selEnc & 0x80) != 0;
-    UBYTE vfifo  = vfifoDepthForMode(bi);
+    UBYTE vfifo  = vfifoDepthForMode(*asMach32(bi));
     UWORD bits   = CLK_SEL(sel) | VFIFO_DEPTH(vfifo);
     if (div2) {
         bits |= CLK_DIV;
@@ -199,7 +195,7 @@ static void generic_setClock(BoardInfo_t *bi)
                   bits | PASS_THROUGH_DISABLE);
 }
 
-static ULONG generic_setMemoryClock(BoardInfo_t *bi, ULONG clockHz)
+static ULONG generic_setMemoryClock(BoardInfo *bi, ULONG clockHz)
 {
     (void)bi;
     (void)clockHz;
@@ -213,7 +209,7 @@ static ULONG generic_setMemoryClock(BoardInfo_t *bi, ULONG clockHz)
  * reads of DAC_MASK prime it so that the next WRITE to DAC_MASK is redirected
  * to Command Register A instead of the pixel read mask.
  */
-static void bt481_enterExtended(BoardInfo_t *bi)
+static void bt481_enterExtended(Mach32Driver &bi)
 {
     DRIVER_LOCALS(bi);
     DAC_ENABLE_RS2()
@@ -230,7 +226,7 @@ static void bt481_enterExtended(BoardInfo_t *bi)
     // io.readB(DAC_MASK); io.writeB(DAC_MASK, 0x01); /* Command A: A0=1 → extended set enabled */
 }
 
-static void bt481_exitExtended(BoardInfo_t *bi)
+static void bt481_exitExtended(Mach32Driver &bi)
 {
     DRIVER_LOCALS(bi);
     DAC_ENABLE_RS2()
@@ -249,7 +245,7 @@ static void bt481_exitExtended(BoardInfo_t *bi)
     // io.writeB(DAC_MASK, 0x00); /* Command A: clear A0 */
 }
 
-static void bt481_writeCommandRegisterB(BoardInfo_t *bi, UBYTE value)
+static void bt481_writeCommandRegisterB(Mach32Driver &bi, UBYTE value)
 {
     DRIVER_LOCALS(bi);
     /* Indirect access: addr reg = 2, then data via "read mask" port (datasheet Table 5). */
@@ -262,7 +258,7 @@ static void bt481_writeCommandRegisterB(BoardInfo_t *bi, UBYTE value)
  * Brooktree Bt481A detection and mode init: enter extended access, verify
  * Command Register B, then program 8-bit DAC and BLACKLEVEL pedestal bit.
  */
-BOOL initBt481(BoardInfo_t *bi)
+BOOL initBt481(Mach32Driver &bi)
 {
     DRIVER_LOCALS(bi);
     bt481_enterExtended(bi);
@@ -279,9 +275,9 @@ BOOL initBt481(BoardInfo_t *bi)
     }
 
     UBYTE cmdB = 0;
-    if (!(bi->CardFlags & CFF_BLACKLEVEL_BLACK))
+    if (!(bi.CardFlags & CFF_BLACKLEVEL_BLACK))
         cmdB |= BT481_CMD_B_7_5_IRE;
-    if (bi->BitsPerCannon == 8) {
+    if (bi.BitsPerCannon == 8) {
         cmdB |= BT481_CMD_B_8BIT_DAC;
     }
 
@@ -294,14 +290,14 @@ BOOL initBt481(BoardInfo_t *bi)
 }
 
 /* Brooktree Table 2: RS=000 palette addr write, RS=001 palette RAM data. */
-static void bt481_write_palette_addr_write(BoardInfo_t *bi, UBYTE addr)
+static void bt481_write_palette_addr_write(Mach32Driver &bi, UBYTE addr)
 {
     DRIVER_LOCALS(bi);
     io.writeB(DAC_W_INDEX, addr);
     delayMicroSeconds(2);
 }
 
-static void bt481_write_rgb(BoardInfo_t *bi, UBYTE r, UBYTE g, UBYTE b)
+static void bt481_write_rgb(Mach32Driver &bi, UBYTE r, UBYTE g, UBYTE b)
 {
     DRIVER_LOCALS(bi);
     io.writeB(DAC_DATA, r);
@@ -309,7 +305,7 @@ static void bt481_write_rgb(BoardInfo_t *bi, UBYTE r, UBYTE g, UBYTE b)
     io.writeB(DAC_DATA, b);
 }
 
-static void bt481_setDac(BoardInfo_t *bi, RGBFTYPE format)
+static void bt481_setDac(BoardInfo *bi, RGBFTYPE format)
 {
 #define BT481_MODE(x) ((x) << 4)
 #define BT481_BGR     BIT(1)
@@ -349,7 +345,7 @@ static void bt481_setDac(BoardInfo_t *bi, RGBFTYPE format)
     DAC_DISABLE_RS2();
 }
 
-static const RamdacOps_t bt481_ramdac_ops = {
+static const RamdacOps bt481_ramdac_ops = {
     .getPllParams      = generic_getPllParams,
     .packPllToModeInfo = generic_packPllToModeInfo,
     .setClock          = generic_setClock,
@@ -357,7 +353,7 @@ static const RamdacOps_t bt481_ramdac_ops = {
     .setDac            = bt481_setDac,
 };
 
-BOOL InitRAMDAC(BoardInfo_t *bi, DACType dacType)
+BOOL InitRAMDAC(Mach32Driver &bi, DACType dacType)
 {
     if (dacType == BT481) {
         if (initBt481(bi) == FALSE) {
@@ -365,7 +361,7 @@ BOOL InitRAMDAC(BoardInfo_t *bi, DACType dacType)
                   dacType);
             return FALSE;
         }
-        getChipData(bi)->ramdacOps = &bt481_ramdac_ops;
+        bi.chip().ramdacOps = &bt481_ramdac_ops;
         DFUNC(INFO, "RamdacOps: Brooktree Bt481/Bt482\n");
     } else {
         return FALSE;
@@ -374,6 +370,3 @@ BOOL InitRAMDAC(BoardInfo_t *bi, DACType dacType)
     return TRUE;
 }
 
-#ifdef __cplusplus
-}
-#endif

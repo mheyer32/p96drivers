@@ -1,8 +1,9 @@
-#ifndef CHIP_MACH32_H
-#define CHIP_MACH32_H
+#ifndef MACH32_CHIP_H
+#define MACH32_CHIP_H
 
 #include "common.h"
-#include "mach32_ramdac.h"
+
+/* DACType / InitRAMDAC — after ChipData + Mach32Driver (see below). */
 
 #define MACH32_SUPPORTED_RGBFF (RGBFF_CLUT | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_R8G8B8 | RGBFF_B8G8R8)
 /*    | RGBFF_A8R8G8B8 |           \
@@ -12,7 +13,7 @@
 #define MACH32_GE_PITCH_MAX     255
 #define MACH32_MAX_PITCH_PIXELS (MACH32_GE_PITCH_MAX * 8) /* 2040 */
 
-typedef struct ChipData
+struct ChipData
 {
     ULONG GEfgPen;
     ULONG GEbgPen;
@@ -30,11 +31,11 @@ typedef struct ChipData
     /* Cached EXT_FIFO_STATUS after accounting for pending GE writes. */
     UWORD fifoSlotsCached;
     const struct RamdacOps *ramdacOps;
-} ChipData_t;
+};
 
-STATIC_ASSERT(sizeof(ChipData_t) < SIZEOF_MEMBER(BoardInfo_t, ChipData), chipdata_fits_boardinfo);
+STATIC_ASSERT(sizeof(ChipData) < SIZEOF_MEMBER(BoardInfo_t, ChipData), chipdata_fits_boardinfo);
 
-typedef struct CardData
+struct CardData
 {
     volatile UBYTE *legacyIOBase;
     struct Library *OpenPciBase;
@@ -45,13 +46,11 @@ typedef struct CardData
     APTR ASM (*AllocCardMemDefault)(__REGA0(struct BoardInfo *bi), __REGD0(ULONG size), __REGD1(BOOL force),
                                     __REGD2(BOOL system), __REGD3(ULONG bytesperrow), __REGA1(struct ModeInfo *mi),
                                     __REGD7(RGBFTYPE));
-} CardData_t;
+};
 
-STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddata_fits_boardinfo);
+STATIC_ASSERT(sizeof(CardData) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddata_fits_boardinfo);
 
-#ifdef __cplusplus
 #include "mach32_driver.hpp"
-#endif
 
 /* Absolute I/O port indices: IoReg in mach32_regs.hpp.
  * BEE8 indexed regs (MIN_AXIS_PCNT, PIXEL_CNTL, …) remain below as indices.
@@ -226,10 +225,6 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define MEM_SIZE_ALIAS_MASK (0x3 << 2)
 #define MEM_SIZE_ALIAS(x)   ((x) << 2)
 
-#ifdef __cplusplus
-/* Prefer Mach32Driver::writeBee8 / writeExtGeConfigMask in .cpp. */
-#endif
-
 /* DISP_CNTL (22E8) — REG688000-15 §8-7 */
 #define Y_CONTROL_SHIFT  1u
 #define Y_CONTROL_MASK   (3u << Y_CONTROL_SHIFT)
@@ -245,13 +240,9 @@ STATIC_ASSERT(sizeof(CardData_t) < SIZEOF_MEMBER(BoardInfo_t, CardData), carddat
 #define HSYN_CONT    BIT(14)
 #define VSYN_CONT    BIT(15)
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-void dumpMach32Eeprom(BoardInfo_t *bi);
-BOOL InitChip(__REGA0(struct BoardInfo *bi));
-#ifdef __cplusplus
-}
-#endif
+#include "mach32_ramdac.h"
 
-#endif  // CHIP_MACH32_H
+void dumpMach32Eeprom(Mach32Driver &bi);
+extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi));
+
+#endif  // MACH32_CHIP_H

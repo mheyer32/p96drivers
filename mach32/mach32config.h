@@ -1,9 +1,7 @@
 #ifndef MACH32CONFIG_H
 #define MACH32CONFIG_H
 
-#define BIGENDIAN_MMIO 0
-#define BIGENDIAN_IO   0
-
+/* Sparse I/O: AbsRegAperture subtracts this from IoReg::Id byte addresses. */
 #define REGISTER_OFFSET     0x8000
 #define MMIOREGISTER_OFFSET 0
 
