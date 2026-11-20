@@ -22,11 +22,6 @@ struct ChipBase *LibInit(__REGD0(struct ChipBase *cb), __REGA0(APTR seglist), __
 
 extern "C" BOOL InitChip(__REGA0(struct BoardInfo *bi));
 
-int USED _start(void)
-{
-    return -1;
-}
-
 /*--------------------------------------------------------------------------*/
 extern const char LibName[];
 extern const char LibIdString[];
@@ -45,11 +40,14 @@ struct InitTable /* do not change */
 } InitTab = {(ULONG)sizeof(struct ChipBase), (APTR *)&FuncTable[0], NULL, (APTR)LibInit};
 
 /* ------------------- ROM Tag ------------------------ */
-
-USED_VAR const struct Resident ROMTag = /* do not change */
+/* Must live in the code hunk (Amiga ld merges .rodata into .text). LoadSeg only
+ * finds Resident tags in the first hunk; non-const .data puts it in hunk 2.
+ * External linkage + -Wl,--undefined=_ROMTag keeps it under --gc-sections. */
+extern "C" {
+__attribute__((used, section(".rodata"))) struct Resident ROMTag = /* do not change */
     {RTC_MATCHWORD,
-     const_cast<struct Resident *>(&ROMTag),
-     const_cast<struct Resident *>(&ROMTag + 1),
+     &ROMTag,
+     &ROMTag + 1,
      RTF_AUTOINIT,
      0,
      NT_LIBRARY,
@@ -57,6 +55,7 @@ USED_VAR const struct Resident ROMTag = /* do not change */
      const_cast<char *>(&LibName[0]),
      const_cast<char *>(&LibIdString[0]),
      &InitTab};
+}
 
 /*-------------------------------------------------------------------------*/
 /* INIT                                                                    */

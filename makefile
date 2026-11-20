@@ -12,7 +12,7 @@ CC = m68k-amigaos-gcc
 CXX = m68k-amigaos-g++
 LD = m68k-amigaos-gcc
 STRIP = m68k-amigaos-strip
-# Default strip (-s) drops HUNK_RELOC32; the Amiga loader then cannot fix up the binary.
+# --strip-all drops HUNK_SYMBOL (nm/objdump names) but keeps HUNK_RELOC32 on current AmigaDev strip.
 MKDIR = mkdir -p
 COPY = cp
 
@@ -78,10 +78,11 @@ define source_to_depend
 	$(addprefix ${2},$(patsubst %.c,%.d,$(patsubst %.cpp,%.d,${1})))
 endef
 
-# place chip_library / card_library first (ROMTag must be at start of Amiga libs)
+# lib_start.o first (idle stub at code-hunk offset 0), then chip/card_library
 define create_objlist
+	$(filter %/lib_start.o lib_start.o,$(call source_to_object,${1},${2}))\
 	$(filter %/chip_library.o %/card_library.o chip_library.o card_library.o,$(call source_to_object,${1},${2}))\
-	$(filter-out %/chip_library.o %/card_library.o chip_library.o card_library.o,$(call source_to_object,${1},${2}))
+	$(filter-out %/lib_start.o lib_start.o %/chip_library.o %/card_library.o chip_library.o card_library.o,$(call source_to_object,${1},${2}))
 endef
 
 define create_deplist
@@ -117,12 +118,14 @@ ${1}%.o: %.s | makefile $$$$(@D)/.
 endef
 
 define make_driver
-${1}_SRC = ${3} freestanding_mem.c # $$(call collect_sources,$$(SOURCES))
+${1}_SRC = lib_start.c ${3} freestanding_mem.c # $$(call collect_sources,$$(SOURCES))
 ${1}_OBJS = $$(call create_objlist,$$(${1}_SRC),${2})
 ${1}_DEPS = $$(call create_deplist,$$(${1}_SRC),${2})
 ${1}_TARGET = $$(BINDIR)/${1}
 
-${1} : LDFLAGS += -ramiga-lib -nostartfiles -nodefaultlibs
+# Idle stub is first in .text and becomes the gc root; keep Resident ROMTag so
+# InitTab/FuncTable/Lib* and the driver are not discarded by --gc-sections.
+${1} : LDFLAGS += -ramiga-lib -nostartfiles -nodefaultlibs -Wl,--undefined=_ROMTag
 ${1} : CFLAGS += -fno-builtin-strlen -ffreestanding
 
 $$(eval $$(call build_rules,${2}))
@@ -131,7 +134,7 @@ ${1} : $$(${1}_OBJS)
 	$(info ============ Building: ${1} ============)
 	@ $$(MKDIR) $$(dir $$(${1}_TARGET))
 	@ $$(LD) $$^ $${LIBS} $$(LDFLAGS) -o ${2}${1}
-	@ $$(STRIP) --strip-debug ${2}${1} -o $$(${1}_TARGET)
+	@ $$(STRIP) --strip-all ${2}${1} -o $$(${1}_TARGET)
 
 # Include dependency files for this target
 -include $$(${1}_DEPS)
@@ -153,7 +156,7 @@ ${1} : $$(${1}_OBJS)
 	$(info ============ Building: ${1} ============)
 	@ $$(MKDIR) $$(dir $$(${1}_TARGET))
 	@ $$(LD) $$^ $$(LIBS) $$(LDFLAGS) -o ${2}${1}
-	@ $$(STRIP) --strip-debug ${2}${1} -o $$(${1}_TARGET)
+	@ $$(STRIP) --strip-all ${2}${1} -o $$(${1}_TARGET)
 
 # Include dependency files for this target
 -include $$(${1}_DEPS)
