@@ -365,7 +365,7 @@ $(eval $(call make_exe,TestMach64Card,$(BUILDDIR)testmach64card/, ${TESTATIMACH6
 ATIMACH32_SRC = common.c \
                 mach32/mach32_ramdac.cpp \
                 mach32/mach32_eeprom.cpp \
-                mach32/chip_mach32.cpp \
+                mach32/mach32_driver.cpp \
                 chip_library.c
 
 ATIMach32.chip : CFLAGS+= -DCONFIG_ATIMACH32 -include mach32/mach32config.h
@@ -375,8 +375,8 @@ ATIMACH32CARD_SRC = common.c \
                       card_common.c \
                       mach32/mach32_ramdac.cpp \
                       mach32/mach32_eeprom.cpp \
-                      mach32/chip_mach32.cpp \
-                      mach32/card_mach32.cpp \
+                      mach32/mach32_driver.cpp \
+                      mach32/mach32_card.cpp \
                       card_library.c
 
 ATIMach32.card : CFLAGS+= -DCONFIG_ATIMACH32 -DMACH32_EMBEDDED_CHIP=1 -include mach32/mach32config.h
@@ -385,7 +385,7 @@ $(eval $(call make_driver,ATIMach32.card,$(BUILDDIR)mach32card/, ${ATIMACH32CARD
 ATIMACH32_TESTEXE_SRC = common.c \
                         mach32/mach32_ramdac.cpp \
                         mach32/mach32_eeprom.cpp \
-                        mach32/chip_mach32.cpp
+                        mach32/mach32_driver.cpp
 
 TestMach32 : CFLAGS+= -DCONFIG_ATIMACH32 -include mach32/mach32config.h
 $(eval $(call make_exe,TestMach32,$(BUILDDIR)testmach32/, ${ATIMACH32_TESTEXE_SRC}))
@@ -394,8 +394,8 @@ TESTATIMACH32CARD_SRC = common.c \
                         card_common.c \
                         mach32/mach32_ramdac.cpp \
                         mach32/mach32_eeprom.cpp \
-                        mach32/chip_mach32.cpp \
-                        mach32/card_mach32.cpp
+                        mach32/mach32_driver.cpp \
+                        mach32/mach32_card.cpp
 
 TestMach32Card : CFLAGS+= -DCONFIG_ATIMACH32 -DMACH32_EMBEDDED_CHIP=1 -include mach32/mach32config.h
 $(eval $(call make_exe,TestMach32Card,$(BUILDDIR)testmach32card/, ${TESTATIMACH32CARD_SRC}))

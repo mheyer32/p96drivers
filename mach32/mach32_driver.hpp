@@ -9,12 +9,14 @@
 /*
  * Non-virtual Mach32 view of BoardInfo. P96 ABI entry points are thin
  * registerized trampolines that call methods (this ≡ a0).
+ *
+ * Qualify ::ChipData — BoardInfo has a member named ChipData.
  */
 class Mach32Driver : public P96Driver
 {
    public:
-    ChipData_t *chip() { return getChipData(this); }
-    const ChipData_t *chip() const { return getConstChipData(this); }
+    ::ChipData &chip() { return *getChipData(this); }
+    const ::ChipData &chip() const { return *getConstChipData(this); }
 
     Mach32Io io() { return Mach32Io(ioBase()); }
     Mach32Io io() const { return Mach32Io(ioBase()); }
@@ -54,9 +56,9 @@ class Mach32Driver : public P96Driver
 
         UWORD mask = 0xffffU << (16 - slots);
 
-        ChipData_t *cd = chip();
-        if (!(cd->fifoSlotsCached & mask)) {
-            cd->fifoSlotsCached = fifoStatConsume(cd->fifoSlotsCached, slots);
+        ::ChipData &cd = chip();
+        if (!(cd.fifoSlotsCached & mask)) {
+            cd.fifoSlotsCached = fifoStatConsume(cd.fifoSlotsCached, slots);
             return;
         }
 
@@ -67,7 +69,7 @@ class Mach32Driver : public P96Driver
             raw = io.readWRaw(IoReg::EXT_FIFO_STATUS);
         } while (raw & maskSwapped);
 
-        cd->fifoSlotsCached = fifoStatConsume(swapw(raw), slots);
+        cd.fifoSlotsCached = fifoStatConsume(swapw(raw), slots);
     }
 
     /* --- GE helpers --- */
@@ -152,12 +154,47 @@ static INLINE const Mach32Driver *asMach32(const BoardInfo *bi)
     return static_cast<const Mach32Driver *>(bi);
 }
 
-static INLINE void waitFifo(BoardInfo_t *bi, UBYTE slots)
+static INLINE Mach32Driver *asMach32(BoardInfo &bi)
+{
+    return static_cast<Mach32Driver *>(&bi);
+}
+
+static INLINE const Mach32Driver *asMach32(const BoardInfo &bi)
+{
+    return static_cast<const Mach32Driver *>(&bi);
+}
+
+static INLINE Mach32Driver *asMach32(Mach32Driver &drv)
+{
+    return &drv;
+}
+
+static INLINE const Mach32Driver *asMach32(const Mach32Driver &drv)
+{
+    return &drv;
+}
+
+static INLINE Mach32Driver *asMach32(Mach32Driver *drv)
+{
+    return drv;
+}
+
+static INLINE const Mach32Driver *asMach32(const Mach32Driver *drv)
+{
+    return drv;
+}
+
+static INLINE void waitFifo(Mach32Driver &drv, UBYTE slots)
+{
+    drv.waitFifo(slots);
+}
+
+static INLINE void waitFifo(BoardInfo *bi, UBYTE slots)
 {
     asMach32(bi)->waitFifo(slots);
 }
 
-/* Bind drv/io from BoardInfo* or Mach32Driver* (this). */
+/* Bind drv/io from BoardInfo*, Mach32Driver*, or Mach32Driver&. */
 #define DRIVER_LOCALS(self_)                \
     Mach32Driver *drv    = asMach32(self_); \
     Mach32Io io          = drv->io();       \

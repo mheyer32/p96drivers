@@ -1,10 +1,6 @@
-#include "chip_mach32.h"
+#include "mach32_chip.h"
 
 using namespace IoReg;
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #define __NOLIBBASE__
 
@@ -32,21 +28,21 @@ extern "C" {
 
 #ifndef DBG
 
-void dumpMach32Eeprom(BoardInfo_t *bi)
+void dumpMach32Eeprom(Mach32Driver &bi)
 {
     (void)bi;
 }
 
 #else
 
-static void eeWriteExtGe(BoardInfo_t *bi, UWORD baseNoEe, UWORD eeBits)
+static void eeWriteExtGe(Mach32Driver &bi, UWORD baseNoEe, UWORD eeBits)
 {
     DRIVER_LOCALS(bi);
     io.writeW(EXT_GE_CONFIG, (UWORD)(baseNoEe | (eeBits & EXT_GE_EE_MASK)));
     delayMicroSeconds(2);
 }
 
-static void eeSendBit(BoardInfo_t *bi, UWORD baseNoEe, int di)
+static void eeSendBit(Mach32Driver &bi, UWORD baseNoEe, int di)
 {
     UWORD lo = (UWORD)(baseNoEe | BIT(EE_SELECT_BIT) | BIT(EE_CS_BIT) | (di ? BIT(EE_DATA_OUT_BIT) : 0));
     eeWriteExtGe(bi, baseNoEe, lo);
@@ -54,7 +50,7 @@ static void eeSendBit(BoardInfo_t *bi, UWORD baseNoEe, int di)
     eeWriteExtGe(bi, baseNoEe, lo);
 }
 
-static int eeReadDataBit(BoardInfo_t *bi, UWORD baseNoEe)
+static int eeReadDataBit(Mach32Driver &bi, UWORD baseNoEe)
 {
     DRIVER_LOCALS(bi);
     UWORD lo = (UWORD)(baseNoEe | BIT(EE_SELECT_BIT) | BIT(EE_CS_BIT));
@@ -65,7 +61,7 @@ static int eeReadDataBit(BoardInfo_t *bi, UWORD baseNoEe)
     return (st & BIT(EE_DATA_IN_BIT)) ? 1 : 0;
 }
 
-static UWORD eeReadWordM93c56x16(BoardInfo_t *bi, UWORD baseNoEe, UBYTE addr7)
+static UWORD eeReadWordM93c56x16(Mach32Driver &bi, UWORD baseNoEe, UBYTE addr7)
 {
     UWORD cmd10 = (UWORD)(EEPROM_CMD_READ_PREFIX_M93C56 | (addr7 & 0x7Fu));
     int i;
@@ -92,7 +88,7 @@ static UWORD eeReadWordM93c56x16(BoardInfo_t *bi, UWORD baseNoEe, UBYTE addr7)
     }
 }
 
-void dumpMach32Eeprom(BoardInfo_t *bi)
+void dumpMach32Eeprom(Mach32Driver &bi)
 {
     enum
     {
@@ -127,7 +123,3 @@ void dumpMach32Eeprom(BoardInfo_t *bi)
 }
 
 #endif /* DBG */
-
-#ifdef __cplusplus
-}
-#endif

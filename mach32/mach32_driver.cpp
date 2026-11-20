@@ -1,4 +1,4 @@
-#include "chip_mach32.h"
+#include "mach32_chip.h"
 #include "common.h"
 
 #define __NOLIBBASE__
@@ -422,7 +422,7 @@ void ASM Mach32Driver::setDAC(__REGD0(UWORD region), __REGD7(RGBFTYPE_REG format
     BoardInfo *bi = this;
     DFUNC(INFO, "region=%lu fmt=%ld\n", (ULONG)region, (ULONG)format);
     (void)region;
-    const RamdacOps_t *ops = getConstChipData(bi)->ramdacOps;
+    const RamdacOps *ops = getConstChipData(bi)->ramdacOps;
 
     UWORD dac8 = (format == RGBFB_CLUT && bi->BitsPerCannon == 8) ? DAC_8BIT_EN : 0;
 
@@ -570,7 +570,7 @@ void ASM Mach32Driver::setClock()
 {
     BoardInfo *bi = this;
     DFUNC(VERBOSE, "\n");
-    const RamdacOps_t *ops = getConstChipData(bi)->ramdacOps;
+    const RamdacOps *ops = getConstChipData(bi)->ramdacOps;
     ops->setClock(bi);
 }
 
@@ -714,13 +714,13 @@ static void computeGEConfig(RGBFTYPE_REG fmt, UWORD *maskOut, UWORD *valOut)
 
 void Mach32Driver::setBlitterFormat(RGBFTYPE_REG fmt)
 {
-    ChipData_t *cd = chip();
     ULONG f        = (ULONG)fmt;
 
-    if (cd->GEfmt == f) {
+    ::ChipData &cd = chip();
+    if (cd.GEfmt == f) {
         return;
     }
-    cd->GEfmt = f;
+    cd.GEfmt = f;
 
     waitBlitter();
     UWORD emask, eval;
@@ -729,8 +729,8 @@ void Mach32Driver::setBlitterFormat(RGBFTYPE_REG fmt)
     DRIVER_LOCALS(this);
     writeExtGeConfigMask(emask, eval);
 
-    if (fmt != RGBFB_CLUT && cd->GEmask != 0xFF) {
-        cd->GEmask = 0xFF;
+    if (fmt != RGBFB_CLUT && cd.GEmask != 0xFF) {
+        cd.GEmask = 0xFF;
         ioNS.writeW(WRT_MASK, 0xFFFF);
     }
 }
@@ -757,10 +757,10 @@ static INLINE ULONG REGARGS penToColor(ULONG pen, RGBFTYPE_REG fmt)
 
 void Mach32Driver::setGEWriteMask(UBYTE mask, RGBFTYPE_REG fmt, UBYTE waitFifoSlots)
 {
-    ChipData_t *cd = chip();
 
-    if (fmt == RGBFB_CLUT && cd->GEmask != mask) {
-        cd->GEmask = mask;
+    ::ChipData &cd = chip();
+    if (fmt == RGBFB_CLUT && cd.GEmask != mask) {
+        cd.GEmask = mask;
         waitFifo(waitFifoSlots + 1);
         DRIVER_LOCALS(this);
         ioNS.writeW(WRT_MASK, ((mask << 8) | mask));
@@ -793,14 +793,14 @@ static int myMemcmp(CONST_APTR a, CONST_APTR b, ULONG len)
 
 void Mach32Driver::setFarBlitBuffer(const struct RenderInfo *ri, RGBFTYPE_REG fmt, UWORD srcOrDst)
 {
-    ChipData_t *cd              = chip();
     struct RenderInfo *cachedRi = NULL;
     UWORD shadowSel             = (srcOrDst + 1) << SHADOW_SET_GE_PTR_SHIFT;
 
     /* Keep draw engine's format in sync with pitch/offset programming. */
     setBlitterFormat(fmt);
 
-    cachedRi = &cd->srcDstRenderInfoCache[srcOrDst];
+    ::ChipData &cd = chip();
+    cachedRi = &cd.srcDstRenderInfoCache[srcOrDst];
     if (myMemcmp(ri, cachedRi, sizeof(*cachedRi)) == 0) {
         return;
     }
@@ -851,11 +851,10 @@ void ASM Mach32Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x),
     }
     {
 
-        ChipData_t *cd = getChipData(bi);
-
-        if (cd->GEOp != FILLRECT) {
-            cd->GEOp       = FILLRECT;
-            cd->GEdrawMode = 0xFF;
+        ::ChipData &cd = chip();
+        if (cd.GEOp != FILLRECT) {
+            cd.GEOp       = FILLRECT;
+            cd.GEdrawMode = 0xFF;
 
             waitFifo(3);
             DRIVER_LOCALS(bi);
@@ -865,8 +864,8 @@ void ASM Mach32Driver::fillRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x),
             io.writeW(ALU_BG_FN, 0x0027);
         }
 
-        if (cd->GEfgPen != pen) {
-            cd->GEfgPen = pen;
+        if (cd.GEfgPen != pen) {
+            cd.GEfgPen = pen;
             pen         = penToColor(pen, fmt);
             waitFifo(1);
             DRIVER_LOCALS(bi);
@@ -901,11 +900,10 @@ void ASM Mach32Driver::invertRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD x
     }
     {
 
-        ChipData_t *cd = getChipData(bi);
-
-        if (cd->GEOp != INVERTRECT) {
-            cd->GEOp       = INVERTRECT;
-            cd->GEdrawMode = 0xFF;
+        ::ChipData &cd = chip();
+        if (cd.GEOp != INVERTRECT) {
+            cd.GEOp       = INVERTRECT;
+            cd.GEdrawMode = 0xFF;
 
             waitFifo(2);
             DRIVER_LOCALS(bi);
@@ -944,11 +942,10 @@ void ASM Mach32Driver::blitRect(__REGA1(struct RenderInfo *ri), __REGD0(WORD src
     }
     {
 
-        ChipData_t *cd = getChipData(bi);
-
-        if (cd->GEOp != BLITRECT) {
-            cd->GEOp       = BLITRECT;
-            cd->GEdrawMode = 0xFF;
+        ::ChipData &cd = chip();
+        if (cd.GEOp != BLITRECT) {
+            cd.GEOp       = BLITRECT;
+            cd.GEdrawMode = 0xFF;
 
             waitFifo(3);
             DRIVER_LOCALS(bi);
@@ -1049,13 +1046,12 @@ void ASM Mach32Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), _
     }
     {
 
-        ChipData_t *cd = getChipData(bi);
-
         DRIVER_LOCALS(bi);
-        if (cd->GEOp != BLITRECTNOMASKCOMPLETE) {
-            cd->GEOp       = BLITRECTNOMASKCOMPLETE;
-            cd->GEdrawMode = 0xFF; /* invalidate minterm cache */
-            cd->GEmask     = 0xFF;
+        ::ChipData &cd = chip();
+        if (cd.GEOp != BLITRECTNOMASKCOMPLETE) {
+            cd.GEOp       = BLITRECTNOMASKCOMPLETE;
+            cd.GEdrawMode = 0xFF; /* invalidate minterm cache */
+            cd.GEmask     = 0xFF;
 
             waitFifo(3);
 
@@ -1064,8 +1060,8 @@ void ASM Mach32Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), _
             io.writeW(WRT_MASK, 0xFFFF);
         }
 
-        if (cd->GEdrawMode != opCode) {
-            cd->GEdrawMode = opCode;
+        if (cd.GEdrawMode != opCode) {
+            cd.GEdrawMode = opCode;
 
             waitFifo(1);
 
@@ -1119,14 +1115,14 @@ void ASM Mach32Driver::blitRectNoMaskComplete(__REGA1(struct RenderInfo *sri), _
 
 void Mach32Driver::setDrawMode(ULONG fgPen, ULONG bgPen, UBYTE drawMode, RGBFTYPE_REG fmt)
 {
-    ChipData_t *cd = chip();
-    if (cd->GEfgPen == fgPen && cd->GEbgPen == bgPen && cd->GEdrawMode == drawMode) {
+    ::ChipData &cd = chip();
+    if (cd.GEfgPen == fgPen && cd.GEbgPen == bgPen && cd.GEdrawMode == drawMode) {
         return;
     }
 
-    cd->GEfgPen    = fgPen;
-    cd->GEbgPen    = bgPen;
-    cd->GEdrawMode = drawMode;
+    cd.GEfgPen    = fgPen;
+    cd.GEbgPen    = bgPen;
+    cd.GEdrawMode = drawMode;
 
     ULONG fg = penToColor(fgPen, fmt);
     ULONG bg = penToColor(bgPen, fmt);
@@ -1183,11 +1179,10 @@ void ASM Mach32Driver::blitTemplate(__REGA1(struct RenderInfo *ri), __REGA2(stru
 
         DRIVER_LOCALS(bi);
 
-        ChipData_t *cd = getChipData(bi);
-
-        if (cd->GEOp != BLITTEMPLATE) {
-            cd->GEOp       = BLITTEMPLATE;
-            cd->GEdrawMode = 0xFF;
+        ::ChipData &cd = chip();
+        if (cd.GEOp != BLITTEMPLATE) {
+            cd.GEOp       = BLITTEMPLATE;
+            cd.GEdrawMode = 0xFF;
 
             waitFifo(1);
             io.writeW(DP_CONFIG, DP_CONFIG_TEMPLATE);
@@ -1347,14 +1342,13 @@ void ASM Mach32Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(str
         goto fallback;
     }
     {
-
-        ChipData_t *cd = getChipData(bi);
-        if (cd->GEOp != BLITPLANAR2CHUNKY) {
-            cd->GEOp       = BLITPLANAR2CHUNKY;
-            cd->GEdrawMode = 0xFF;
-            cd->GEmask     = 0xFF;
-            cd->GEfgPen    = ~0UL;
-            cd->GEbgPen    = 0;
+        ::ChipData &cd = chip();
+        if (cd.GEOp != BLITPLANAR2CHUNKY) {
+            cd.GEOp       = BLITPLANAR2CHUNKY;
+            cd.GEdrawMode = 0xFF;
+            cd.GEmask     = 0xFF;
+            cd.GEfgPen    = ~0UL;
+            cd.GEbgPen    = 0;
 
             waitFifo(4);
             DRIVER_LOCALS(bi);
@@ -1365,8 +1359,8 @@ void ASM Mach32Driver::blitPlanar2Chunky(__REGA1(struct BitMap *bm), __REGA2(str
         }
 
         UBYTE mix = minTermToMix[minTerm & 0xF];
-        if (cd->GEdrawMode != minTerm) {
-            cd->GEdrawMode = minTerm;
+        if (cd.GEdrawMode != minTerm) {
+            cd.GEdrawMode = minTerm;
             waitFifo(2);
             DRIVER_LOCALS(bi);
             io.writeW(FRGD_MIX, (UWORD)(CLR_SRC_FRGD_COLOR | mix));
@@ -1448,11 +1442,10 @@ void Mach32Driver::blitPatternNon8x8(struct RenderInfo *ri, struct Pattern *patt
     setFarBlitBuffer(ri, fmt, 0);
 
     DRIVER_LOCALS(this);
-
-    ChipData_t *cd = chip();
-    if (cd->GEOp != BLITTEMPLATE) {
-        cd->GEOp       = BLITTEMPLATE;
-        cd->GEdrawMode = 0xFF;
+    ::ChipData &cd = chip();
+    if (cd.GEOp != BLITTEMPLATE) {
+        cd.GEOp       = BLITTEMPLATE;
+        cd.GEdrawMode = 0xFF;
 
         waitFifo(1);
         io.writeW(DP_CONFIG, DP_CONFIG_TEMPLATE);
@@ -1533,14 +1526,13 @@ void ASM Mach32Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
             return;
         }
 
-        ChipData_t *cd = getChipData(bi);
-
-        if (cd->GEOp != BLITPATTERN) {
-            cd->GEOp       = BLITPATTERN;
-            cd->GEdrawMode = 0xFF;
+        ::ChipData &cd = chip();
+        if (cd.GEOp != BLITPATTERN) {
+            cd.GEOp       = BLITPATTERN;
+            cd.GEdrawMode = 0xFF;
             // Operations other that pattern blits will disturb the pattern registers, so we can't assume the pattern we
             // last uploaded is stil there.
-            cd->patternCacheKey = 0xFFFFFFFFu;
+            cd.patternCacheKey = 0xFFFFFFFFu;
 
             waitFifo(2);
             DRIVER_LOCALS(bi);
@@ -1557,7 +1549,7 @@ void ASM Mach32Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
         UBYTE pattOffY = (UBYTE)((y - pattern->YOffset) & 7);
 
         ULONG cacheKey = 0x80000000UL | ((ULONG)pattern->Size) | ((ULONG)pattOffX << 8) | ((ULONG)pattOffY << 16);
-        BOOL changed   = (cacheKey != cd->patternCacheKey);
+        BOOL changed   = (cacheKey != cd.patternCacheKey);
 
         UBYTE rows[8] = {0};
         for (UBYTE i = 0; i < 8; ++i) {
@@ -1567,14 +1559,14 @@ void ASM Mach32Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
         rotate8x8MonoPattern(rows, pattOffX, pattOffY);
 
         for (UBYTE i = 0; i < 8; ++i) {
-            if (cd->patternCache[i] != rows[i]) {
-                cd->patternCache[i] = rows[i];
+            if (cd.patternCache[i] != rows[i]) {
+                cd.patternCache[i] = rows[i];
                 changed             = TRUE;
             }
         }
 
         if (changed) {
-            cd->patternCacheKey = cacheKey;
+            cd.patternCacheKey = cacheKey;
 
             waitFifo(5);
             DRIVER_LOCALS(bi);
@@ -1586,7 +1578,7 @@ void ASM Mach32Driver::blitPattern(__REGA1(struct RenderInfo *ri), __REGA2(struc
              * successive 8-bit pattern rows in 8x8 mode (low byte first).
              * So pack two 8-bit rows per register word: low=row0, high=row1, etc.
              */
-            UWORD *pattData = (UWORD *)cd->patternCache;
+            UWORD *pattData = (UWORD *)cd.patternCache;
             for (UBYTE i = 0; i < 4; ++i) {
                 ioNS.writeW(PATT_DATA, pattData[i]);
             }
@@ -1614,12 +1606,11 @@ void ASM Mach32Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
     {
 
         setFarBlitBuffer(ri, fmt, 0);
-
-        ChipData_t *cd = getChipData(bi);
-        if (cd->GEOp != LINE) {
-            cd->GEOp            = LINE;
-            cd->lineMode        = 0xFF;
-            cd->patternCacheKey = 0x0000;
+        ::ChipData &cd = chip();
+        if (cd.GEOp != LINE) {
+            cd.GEOp            = LINE;
+            cd.lineMode        = 0xFF;
+            cd.patternCacheKey = 0x0000;
 
             waitFifo(2);
             DRIVER_LOCALS(bi);
@@ -1635,18 +1626,18 @@ void ASM Mach32Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
 
         BOOL solid = (line->LinePtrn == 0xFFFFu);
         if (solid) {
-            if (cd->lineMode != 1) {
-                cd->lineMode = 1;
+            if (cd.lineMode != 1) {
+                cd.lineMode = 1;
                 waitFifo(9);
                 DRIVER_LOCALS(bi);
                 writeBee8(PIXEL_CNTL, MASK_BIT_SRC_ONE);
             }
         } else {
             UBYTE phase  = (UBYTE)((15u - (line->PatternShift & 15u)) & 15u);
-            BOOL needPat = (cd->linePatternCache != line->LinePtrn);
-            if (cd->lineMode != 0 || needPat) {
-                cd->lineMode         = 0;
-                cd->linePatternCache = line->LinePtrn;
+            BOOL needPat = (cd.linePatternCache != line->LinePtrn);
+            if (cd.lineMode != 0 || needPat) {
+                cd.lineMode         = 0;
+                cd.linePatternCache = line->LinePtrn;
                 waitFifo(11);
                 DRIVER_LOCALS(bi);
                 writeBee8(PIXEL_CNTL, MASK_BIT_SRC_PATTEN);
@@ -1693,9 +1684,9 @@ void ASM Mach32Driver::drawLine(__REGA1(struct RenderInfo *ri), __REGA2(struct L
         bi->DrawLineDefault(bi, ri, line, mask, AS_RGBF(fmt));
 }
 
-static ULONG probeFramebufferSize(BoardInfo_t *bi)
+static ULONG probeFramebufferSize(Mach32Driver &bi)
 {
-    volatile UBYTE *base = (volatile UBYTE *)bi->MemoryBase;
+    volatile UBYTE *base = (volatile UBYTE *)bi.MemoryBase;
 
     LOCAL_SYSBASE(bi);
     DRIVER_LOCALS(bi);
@@ -1740,7 +1731,7 @@ static ULONG probeFramebufferSize(BoardInfo_t *bi)
     return lastSize;
 }
 
-static void logMemoryInfo(BoardInfo_t *bi)
+static void logMemoryInfo(Mach32Driver &bi)
 {
     DRIVER_LOCALS(bi);
 
@@ -1754,7 +1745,7 @@ static void logMemoryInfo(BoardInfo_t *bi)
 
     D(ALWAYS, "MEM_CFG=0x%04lX: aperture %s, MEM_APERT_LOC=0x%02lx (1MB page index)\n", (ULONG)mem, apStr[sel], loc);
     D(ALWAYS, "SUBSYS_STATUS[MEM_SIZE strap]: %s\n", (sub & SUBSYS_MEMSIZE_BIT) ? "1M-class" : "512K-class");
-    D(ALWAYS, "Framebuffer probe: populated VRAM ~%lu KB \n", bi->MemorySize / 1024UL);
+    D(ALWAYS, "Framebuffer probe: populated VRAM ~%lu KB \n", bi.MemorySize / 1024UL);
 }
 
 /* P96 BoardInfo entry stubs */
@@ -1936,21 +1927,21 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     DRIVER_LOCALS(bi);
 
     {
-        ChipData_t *cd      = getChipData(bi);
-        cd->GEfgPen         = ~0UL;
-        cd->GEbgPen         = 0;
-        cd->GEmask          = 0xFF;
-        cd->GEdrawMode      = 0xFF;
-        cd->GEOp            = 0; /* BlitterOp_t None */
-        cd->GEfmt           = ~0;
-        cd->fifoSlotsCached = 0xffff; /* no free slots known yet */
-        cd->patternCacheKey = 0xFFFFFFFFu;
+        ::ChipData &cd = drv->chip();
+        cd.GEfgPen         = ~0UL;
+        cd.GEbgPen         = 0;
+        cd.GEmask          = 0xFF;
+        cd.GEdrawMode      = 0xFF;
+        cd.GEOp            = 0; /* BlitterOp_t None */
+        cd.GEfmt           = ~0;
+        cd.fifoSlotsCached = 0xffff; /* no free slots known yet */
+        cd.patternCacheKey = 0xFFFFFFFFu;
         for (int i = 0; i < 8; ++i) {
-            cd->patternCache[i] = 0;
+            cd.patternCache[i] = 0;
         }
-        cd->lineMode = 0xFF;
-        cd->srcDstRenderInfoCache[0] = (struct RenderInfo){0};
-        cd->srcDstRenderInfoCache[1] = (struct RenderInfo){0};
+        cd.lineMode = 0xFF;
+        cd.srcDstRenderInfoCache[0] = (struct RenderInfo){0};
+        cd.srcDstRenderInfoCache[1] = (struct RenderInfo){0};
     }
 
     bi->GraphicsControllerType = GCT_ATIRV100;
@@ -2043,7 +2034,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
         return FALSE;
     }
 
-    // dumpMach32Eeprom(bi);
+    // dumpMach32Eeprom(*asMach32(bi));
 
     UWORD chipId     = io.readW(CHIP_ID);
     char chipName[3] = {0};
@@ -2096,7 +2087,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     io.writeB(APERTURE_CNTL, 0);
     io.writeW(MEM_BNDRY, 0);
 
-    if (!InitRAMDAC(bi, (DACType)dacType)) {
+    if (!InitRAMDAC(*asMach32(bi), (DACType)dacType)) {
         DFUNC(ERROR, "RAMDAC initialization failed\n");
         return FALSE;
     }
@@ -2127,7 +2118,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     io.writeW(WRT_MASK, 0xFFFF);
 
     {
-        ULONG probed = probeFramebufferSize(bi);
+        ULONG probed = probeFramebufferSize(*asMach32(bi));
         if (!probed) {
             DFUNC(ERROR, "Failed to determine framebuffer size\n");
             return FALSE;
@@ -2144,7 +2135,7 @@ BOOL InitChip(__REGA0(struct BoardInfo *bi))
     bi->MemorySize       = fbLen;
     bi->MouseImageBuffer = bi->MemoryBase + bi->MemorySize;
 
-    logMemoryInfo(bi);
+    logMemoryInfo(*asMach32(bi));
 
     DFUNC(ALWAYS, "Initialization complete\n");
     return TRUE;
@@ -2181,7 +2172,7 @@ static void ASM SoftVBlankCount(__REGA1(ULONG *count))
 }
 
 /* Count VBLANK_INT edges with ENA=0 (no INTA). Separates CRT events from PCI delivery. */
-static void testVBlankPoll(BoardInfo_t *bi)
+static void testVBlankPoll(BoardInfo *bi)
 {
     DRIVER_LOCALS(bi);
     LOCAL_SYSBASE(bi);
@@ -2234,7 +2225,7 @@ static void testVBlankPoll(BoardInfo_t *bi)
 }
 
 /* Register PCI VBlank server, enable chip IRQ, count SoftInterrupts for 2s. */
-static void testVBlankInterrupt(BoardInfo_t *bi, struct pci_dev *board)
+static void testVBlankInterrupt(BoardInfo *bi, struct pci_dev *board)
 {
     LOCAL_SYSBASE(bi);
     softVBlankCount   = 0;
@@ -2357,7 +2348,7 @@ static struct ModeInfo s_mode640x480;
  * Byte-wide stores: on BE hosts + PCI VRAM, byte enables may not map 1:1 to linear
  * chunky order (you often see 16-bit lane duplication in a hex dump).
  */
-static void testFillPattern8bppBytes(BoardInfo_t *bi, UWORD width, UWORD height)
+static void testFillPattern8bppBytes(BoardInfo *bi, UWORD width, UWORD height)
 {
     volatile UBYTE *mem = (volatile UBYTE *)bi->MemoryBase;
     UWORD bpr           = bi->CalculateBytesPerRow(bi, width, height, bi->ModeInfo, RGBFB_CLUT);
@@ -2380,13 +2371,13 @@ static void testFillPattern8bppBytes(BoardInfo_t *bi, UWORD width, UWORD height)
     }
 }
 
-static UBYTE readPixel8(BoardInfo_t *bi, UWORD bpr, UWORD x, UWORD y)
+static UBYTE readPixel8(BoardInfo *bi, UWORD bpr, UWORD x, UWORD y)
 {
     volatile UBYTE *mem = (volatile UBYTE *)bi->MemoryBase;
     return mem[(ULONG)y * (ULONG)bpr + (ULONG)x];
 }
 
-static int verifyRect8(BoardInfo_t *bi, UWORD bpr, UWORD rx, UWORD ry, UWORD rw, UWORD rh, UBYTE expected,
+static int verifyRect8(BoardInfo *bi, UWORD bpr, UWORD rx, UWORD ry, UWORD rw, UWORD rh, UBYTE expected,
                        const char *label)
 {
     int errors = 0;
@@ -2481,7 +2472,7 @@ static void makePatternLine(struct Line *line, WORD x0, WORD y0, WORD x1, WORD y
     line->Yorigin      = y0;
 }
 
-static int verifyPixel8(BoardInfo_t *bi, UWORD bpr, UWORD x, UWORD y, UBYTE expected, const char *label)
+static int verifyPixel8(BoardInfo *bi, UWORD bpr, UWORD x, UWORD y, UBYTE expected, const char *label)
 {
     UBYTE got = readPixel8(bi, bpr, x, y);
     if (got != expected) {
@@ -2501,7 +2492,7 @@ static UBYTE expected8x8MonoPen(const UWORD patt[8], UWORD baseX, UWORD baseY, U
     return bit ? fg : bg;
 }
 
-static void testBlitPattern8x8Mono(BoardInfo_t *bi)
+static void testBlitPattern8x8Mono(BoardInfo *bi)
 {
     struct RenderInfo ri;
     memset(&ri, 0, sizeof(ri));
@@ -2558,7 +2549,7 @@ static void testBlitPattern8x8Mono(BoardInfo_t *bi)
     }
 }
 
-static void testDrawLineClut8bpp(BoardInfo_t *bi)
+static void testDrawLineClut8bpp(BoardInfo *bi)
 {
     if (!bi->DrawLine) {
         D(0, "TestMach32: DrawLine not installed; skipping line test\n");
@@ -2613,7 +2604,7 @@ static void testDrawLineClut8bpp(BoardInfo_t *bi)
  * background; GE fills only cover partial regions so you can see both CPU and GE
  * output side by side.  Identity palette: pen value == grey level.
  */
-static void testFillRectClut8bpp(BoardInfo_t *bi)
+static void testFillRectClut8bpp(BoardInfo *bi)
 {
     struct RenderInfo ri;
 
@@ -2962,7 +2953,7 @@ static int testVramScanDwords(UBYTE *base, ULONG len, int *logBudget)
     return err;
 }
 
-static int testVramByteRoundtrip(BoardInfo_t *bi, ULONG vramBytes)
+static int testVramByteRoundtrip(BoardInfo *bi, ULONG vramBytes)
 {
     int logLeft = VRAM_TEST_LOG_MAX;
     int errors  = 0;
@@ -2985,7 +2976,7 @@ static int testVramByteRoundtrip(BoardInfo_t *bi, ULONG vramBytes)
     return errors;
 }
 
-static int testVramWordRoundtrip(BoardInfo_t *bi, ULONG vramBytes)
+static int testVramWordRoundtrip(BoardInfo *bi, ULONG vramBytes)
 {
     int logLeft = VRAM_TEST_LOG_MAX;
     int errors  = 0;
@@ -3009,7 +3000,7 @@ static int testVramWordRoundtrip(BoardInfo_t *bi, ULONG vramBytes)
     return errors;
 }
 
-static int testVramLongwordRoundtrip(BoardInfo_t *bi, ULONG vramBytes)
+static int testVramLongwordRoundtrip(BoardInfo *bi, ULONG vramBytes)
 {
     int logLeft  = VRAM_TEST_LOG_MAX;
     int errors   = 0;

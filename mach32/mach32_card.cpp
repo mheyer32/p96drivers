@@ -1,5 +1,5 @@
 #include "card_common.h"
-#include "chip_mach32.h"
+#include "mach32_chip.h"
 
 #define __NOLIBBASE__
 
@@ -45,7 +45,7 @@ BOOL releaseCard(__REGA0(struct BoardInfo *bi))
 extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
     LOCAL_SYSBASE(bi);
-    CardData_t *cd = getCardData(bi);
+    CardData *cd = getCardData(bi);
 
     struct Library *OpenPciBase = OpenLibrary("openpci.library", MIN_OPENPCI_VERSION);
     if (!OpenPciBase) {
@@ -163,7 +163,7 @@ extern "C" BOOL FindCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *To
 
 extern "C" BOOL InitCard(__REGA0(struct BoardInfo *bi), __REGA1(CONST_STRPTR *ToolTypes))
 {
-    CardData_t *cd = getCardData(bi);
+    CardData *cd = getCardData(bi);
     if (!cd->board || !cd->OpenPciBase) {
         DFUNC(ERROR, "No Mach32 board claimed\n");
         return FALSE;
