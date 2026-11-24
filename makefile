@@ -55,7 +55,7 @@ else
     BUILDFLAGS += -O2 -fomit-frame-pointer -g -ggdb
 endif
 
-CFLAGS +=  $(BUILDFLAGS) -Wundef -I. -IPicasso96Develop/Include -IPicasso96Develop/PrivateInclude -Iopenpci
+CFLAGS +=  $(BUILDFLAGS) -Wundef -I. -IPicasso96Develop/Include -IPicasso96Develop/PrivateInclude -Iopenpci -Iexternal/pciinit/include
 CFLAGS += -DLIB_VERSION=$(LIB_VERSION) -DLIB_REVISION=$(LIB_REVISION)
 # Appended in .cpp recipe so target-specific CFLAGS apply
 CXXFLAGS_EXTRA = -std=c++14 -fno-exceptions -fno-rtti -fno-use-cxa-atexit
@@ -319,7 +319,7 @@ ATIMACH64_VT_SRC = ${ATIMACH64_COMMON_SRC} \
 ATIMach64GX.chip : CFLAGS+=-DCONFIG_ATIMACH64_GX -include mach64/mach64config.h
 $(eval $(call make_driver,ATIMach64GX.chip,$(BUILDDIR)mach64gx/, ${ATIMACH64_GX_SRC}))
 
-ATIMach64.chip : CFLAGS+=-DCONFIG_ATIMACH64_VT -include mach64/mach64config.h -I../pciinit.library/include
+ATIMach64.chip : CFLAGS+=-DCONFIG_ATIMACH64_VT -include mach64/mach64config.h
 $(eval $(call make_driver,ATIMach64.chip,$(BUILDDIR)mach64/, ${ATIMACH64_VT_SRC}))
 
 ATIMACH64CARD_SRC = common.c \
@@ -351,7 +351,7 @@ ATIMACH64_VT_TESTEXE_SRC = ${ATIMACH64_TESTEXE_COMMON_SRC} \
 TestMach64GX : CFLAGS+=-DCONFIG_ATIMACH64_GX -include mach64/mach64config.h
 $(eval $(call make_exe,TestMach64GX,$(BUILDDIR)testmach64gx/, ${ATIMACH64_GX_TESTEXE_SRC}))
 
-TestMach64 : CFLAGS+=-DCONFIG_ATIMACH64_VT -include mach64/mach64config.h -I../pciinit.library/include
+TestMach64 : CFLAGS+=-DCONFIG_ATIMACH64_VT -include mach64/mach64config.h
 $(eval $(call make_exe,TestMach64,$(BUILDDIR)testmach64/, ${ATIMACH64_VT_TESTEXE_SRC}))
 
 TestMach64Card : CFLAGS+=-DCONFIG_ATIMACH64 -include mach64/mach64config.h
