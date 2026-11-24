@@ -9,13 +9,14 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Pin explicitly — :latest is gcc-v6.5.0b; also available: gcc-v6.5.0b, gcc-v13.4, gcc-v15.2, gcc-v16.1
-    container: stefanreinauer/amiga-gcc:gcc-v13.4
+    # Pin explicitly — :latest is gcc-v6.5.0b; also available: gcc-v6.5.0b, gcc-v13.4, gcc-v16.2
+    container: stefanreinauer/amiga-gcc:gcc-v16.2
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: true
 
       - name: Mark git directory as safe
         run: git config --global --add safe.directory '*'
